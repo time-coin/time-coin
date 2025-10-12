@@ -1,0 +1,55 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+/dist/
+/build/
+*.log
+
+# Local configuration
+/config/local.toml
+/config/*.key
+*.wallet
+*.keystore
+
+# Database
+/data/
+*.db
+*.db-*
+
+# Test coverage
+/coverage/
+*.profraw
+*.profdata
+/tarpaulin-report.html
+
+# OS specific
+Thumbs.db
+*~
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+
+# Node modules
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
