@@ -492,7 +492,7 @@ If block not finalized by 00:10 UTC:
 - Coins minted only when purchased
 - Organic, demand-driven creation
 - No inflation beyond purchases and daily rewards
-- Burns possible through fees
+- Penalties and failed proposal deposits return to treasury
 
 **Minting Formula:**
 
@@ -670,10 +670,11 @@ Where:
    Year 3 (100k avg daily tx): ~18,250 TIME/year from fees
    Year 5 (1M avg daily tx): ~182,500 TIME/year from fees
 
-3. Optional Sources:
+3. Additional Sources:
    - Community donations
    - Recovered funds (failed proposals)
-   - Penalties (slashing)
+   - Slashing penalties (malicious behavior)
+   - Failed proposal deposits (<40% approval)
 ```
 
 **Projected Treasury Growth:**
@@ -866,7 +867,7 @@ Proposal Bounty: 1,000 TIME
 ```
 Failed Proposals:
   - Deposit returned if >40% approval
-  - Deposit burned if <40% approval (spam prevention)
+  - Deposit sent to treasury if <40% approval (spam prevention)
 
 Milestone Failures:
   - Funding paused
@@ -1142,31 +1143,31 @@ Downtime > 72 hours:
   - Significant impact on long-term rewards
 
 Repeated Issues (3+ times/month):
-  - 1% collateral penalty
-  - Funds go to treasury
+  - 1% collateral penalty → Treasury
   - Must resolve issues
+  - Continued issues may result in higher penalties
 ```
 
 **Malicious Behavior:**
 
 ```
 Double-signing in BFT:
-  - 10% collateral slashed
+  - 10% collateral slashed → Treasury
   - Masternode banned for 30 days
   - Longevity reset
 
 Invalid block proposals:
-  - 5% collateral slashed
+  - 5% collateral slashed → Treasury
   - Temporary suspension
   - Longevity reset
 
 Governance manipulation:
-  - 5% collateral slashed
+  - 5% collateral slashed → Treasury
   - Voting rights suspended
   - Longevity reset
 
 Network attacks:
-  - 100% collateral slashed
+  - 100% collateral slashed → Treasury
   - Permanent ban
 ```
 
@@ -1700,10 +1701,11 @@ Year 5: 32M + 36.5k = 32.04M (cumulative: 62.2M)
    - Longevity incentivizes longer locks
    - Currently: All collateral locked
 
-2. Fee Burns (Future)
-   - Governance vote could enable
-   - Portion of fees burned
-   - Reduces supply
+2. Treasury Accumulation
+   - 50% of fees go to treasury
+   - Removes coins from active circulation
+   - Used for ecosystem development
+   - Grows with network adoption
 
 3. Lost Keys
    - Natural attrition
