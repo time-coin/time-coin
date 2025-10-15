@@ -29,6 +29,7 @@ cargo test --all
 ## 📚 Documentation
 
 - **Whitepaper**: [docs/whitepaper/TIME-Whitepaper-v1.1.md](docs/whitepaper/TIME-Whitepaper-v1.1.md)
+- **Project Status**: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) ⭐ NEW
 - **Treasury System**: [docs/treasury/treasury-overview.md](docs/treasury/treasury-overview.md)
 - **Governance**: [docs/governance/voting-guide.md](docs/governance/voting-guide.md)
 - **API Docs**: [docs/api/](docs/api/)
