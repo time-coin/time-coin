@@ -1,8 +1,8 @@
 # Rust
-/target/
+target/
+Cargo.lock
 **/*.rs.bk
 *.pdb
-Cargo.lock
 
 # IDE
 .idea/
@@ -10,46 +10,47 @@ Cargo.lock
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
+Thumbs.db
 
-# Build artifacts
-/dist/
-/build/
-*.log
-
-# Local configuration
-/config/local.toml
-/config/*.key
+# Local config
+config/local.toml
+*.key
 *.wallet
 *.keystore
 
-# Database
-/data/
-*.db
-*.db-*
+# Build artifacts
+dist/
+build/
 
 # Test coverage
-/coverage/
+coverage/
 *.profraw
-*.profdata
-/tarpaulin-report.html
 
-# OS specific
-Thumbs.db
-*~
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+data/
 
 # Environment
 .env
 .env.local
 
-# Temporary files
-*.tmp
-*.bak
-*.cache
-
-# Node modules
+# Node (if any web components)
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Python
+# Python (if any scripts)
 __pycache__/
 *.py[cod]
+*$py.class
+.Python
+venv/

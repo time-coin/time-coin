@@ -1,0 +1,52 @@
+# TIME Coin Governance Configuration
+
+[voting]
+# Masternode voting weights by tier
+[voting.tiers]
+bronze = 1      # 1,000 TIME
+silver = 5      # 5,000 TIME
+gold = 10       # 10,000 TIME
+platinum = 50   # 50,000 TIME
+diamond = 100   # 100,000 TIME
+
+[incentives]
+# Reward multiplier for active voters
+voting_bonus_percent = 5
+
+# Proposal bounty for successful proposals (in TIME)
+proposal_bounty = 1000
+
+[committees]
+# Enable elected committees
+enabled = true
+
+# Committee term length (in months)
+term_length_months = 12
+
+# Number of committee members
+committee_size = 5
+
+# Committee compensation (in TIME per month)
+monthly_compensation = 500
+
+[parameters]
+# Which protocol parameters can be adjusted via governance
+adjustable = [
+    "transaction_fee_rate",
+    "masternode_collateral",
+    "daily_reward_pool",
+    "slashing_penalties",
+]
+
+[upgrades]
+# Soft fork approval threshold
+soft_fork_threshold = 80
+
+# Hard fork approval threshold
+hard_fork_threshold = 90
+
+# Emergency upgrade authority
+emergency_upgrades_enabled = true
+
+# Days to ratify emergency upgrades
+emergency_ratification_days = 7
