@@ -7,7 +7,7 @@
 
 ## Abstract
 
-TIME Coin introduces a revolutionary approach to cryptocurrency through purchase-based minting, community-governed treasury management, and a masternode network that provides both security and democratic governance. Unlike traditional cryptocurrencies with pre-mines or venture capital allocation, TIME Coin ensures fair distribution through direct purchase. With 24-hour blocks and instant transaction verification via a modified Byzantine Fault Tolerant (BFT) consensus mechanism, TIME Coin achieves both immediate transaction finality and long-term security while maintaining decentralization. The three-tier masternode system with longevity multipliers rewards both capital commitment and long-term network participation, achieving sustainable 14-42% APY (14% for new nodes, 18-30% for active nodes, up to 42% for 4+ year veterans).
+TIME Coin introduces a revolutionary approach to cryptocurrency through purchase-based minting, community-governed treasury management, and a masternode network that provides both security and democratic governance. Unlike traditional cryptocurrencies with pre-mines or venture capital allocation, TIME Coin ensures fair distribution through direct purchase. With 24-hour blocks and instant transaction verification via a modified Byzantine Fault Tolerant (BFT) consensus mechanism with dynamic quorum selection, TIME Coin achieves immediate transaction finality (<3 seconds), long-term security, and unlimited scalability (100k+ masternodes) while maintaining decentralization. The three-tier masternode system with longevity multipliers and dynamic block rewards ensures sustainable operator incentives across all network growth phases, achieving 14-42% APY for new nodes scaling to 42-56% with transaction fees for 4+ year veterans.
 
 ---
 
@@ -39,22 +39,25 @@ TIME Coin represents a paradigm shift in cryptocurrency design, emphasizing comm
 
 - **Fair Launch**: No pre-mine, no VCs, no insider allocation
 - **Community Governance**: All major decisions voted on by masternode operators
-- **Self-Funding**: Treasury receives 50% of fees + 5 TIME per block
+- **Self-Funding**: Treasury receives 50% of fees + 5% of dynamic block rewards
+- **Sustainable Economics**: Dynamic block rewards (100-500 TIME/day) maintain operator incentives while capping inflation
 - **Instant Finality**: Transactions verified instantly via BFT consensus
 - **Daily Settlement**: One block per day for efficient long-term security
 - **Accessibility**: Multi-channel access (SMS, Email, Web, Mobile)
 - **Transparency**: All treasury spending and governance on-chain
-- **Long-Term Incentives**: Longevity multiplier rewards commitment (up to 3.0×) - 14% APY for new nodes scaling to 42% for 4+ year veterans
+- **Long-Term Incentives**: Longevity multiplier rewards commitment (up to 3.0×)
 
 ### 1.3 Key Innovations
 
 1. **Purchase-Based Minting**: Coins created only when purchased, ensuring organic growth
 2. **24-Hour Block System**: One block per day combining efficiency with security
 3. **BFT Instant Verification**: Modified Byzantine Fault Tolerant consensus for immediate transaction finality
-4. **Three-Tier Weighted System**: Bronze (1k) → Silver (10k) → Gold (100k) with linear scaling
-5. **Longevity Multiplier**: Rewards long-term commitment (1.0× to 3.0× over 4 years)
-6. **Self-Funding Ecosystem**: Treasury automatically funded without inflation
-7. **Milestone-Based Grants**: Transparent, auditable project funding
+4. **Dynamic Quorum Selection**: Scalable consensus that maintains <3 second finality even with 100k+ masternodes
+5. **Three-Tier Weighted System**: Bronze (1k) → Silver (10k) → Gold (100k) with linear scaling
+6. **Longevity Multiplier**: Rewards long-term commitment (1.0× to 3.0× over 4 years)
+7. **Dynamic Block Rewards**: Scales with network size (100-500 TIME/day) to maintain operator incentives while capping inflation
+8. **Self-Funding Ecosystem**: Treasury automatically funded without runaway inflation
+9. **Milestone-Based Grants**: Transparent, auditable project funding
 
 ---
 
@@ -209,7 +212,8 @@ TIME Coin's approach:
 
 - **Instant verification** via BFT consensus (user experience)
 - **Daily settlement** via blocks (efficiency and security)
-- **Best of both worlds**: Fast transactions + manageable blockchain
+- **Dynamic quorum selection** (scalability to 100k+ masternodes)
+- **Best of all worlds**: Fast transactions + manageable blockchain + unlimited scale
 
 **Architecture Overview:**
 
@@ -365,13 +369,21 @@ Step 5: Daily Settlement
 **3. Quorum Requirements:**
 
 ```
-For transaction confirmation:
-  - Minimum 67% of total voting power must agree
-  - At least 50% of active masternodes must participate
-
-For block finalization:
-  - Minimum 80% of voting power must sign
+For transaction confirmation (Dynamic Quorum):
+  - Quorum selection: Weighted random sampling
+  - Quorum size: Logarithmic scaling with network size
+    * 100 nodes → 50 node quorum
+    * 1,000 nodes → 150 node quorum  
+    * 10,000 nodes → 300 node quorum
+    * 100,000 nodes → 500 node quorum
+  - Voting threshold: 67% of selected quorum must agree
+  - Selection rotates per transaction (VRF-based)
+  
+For block finalization (Full Network):
+  - All active masternodes participate
+  - Minimum 80% of total voting power must sign
   - At least 67% of active masternodes must participate
+  - Happens once per day (more time = full participation feasible)
 ```
 
 **4. Security Properties:**
@@ -503,30 +515,101 @@ CURRENT_PRICE = Market-determined price
 
 ### 5.2 Block Rewards
 
-**Distribution per Block (100 TIME per day):**
+**Dynamic Block Reward System:**
+
+TIME Coin implements a dynamic block reward that scales with network size to maintain operator incentives while capping long-term inflation.
+
+**Formula:**
+```
+Total_Block_Reward = min(MAX_REWARD, BASE_REWARD + (Active_Masternodes × SCALE_FACTOR))
+
+Where:
+  BASE_REWARD = 100 TIME
+  SCALE_FACTOR = 0.04 TIME per masternode
+  MAX_REWARD = 500 TIME (inflation cap)
+
+Distribution (always 95%/5% split):
+  Masternodes: 95% of total
+  Treasury: 5% of total
+```
+
+**Reward Scaling Examples:**
+
+| Active Nodes | Total Daily Reward | Masternode Pool | Treasury Pool | Annual Total |
+|--------------|-------------------|-----------------|---------------|--------------|
+| 100 | 104 TIME | 98.8 TIME | 5.2 TIME | 37,960 TIME |
+| 500 | 120 TIME | 114 TIME | 6 TIME | 43,800 TIME |
+| 1,000 | 140 TIME | 133 TIME | 7 TIME | 51,100 TIME |
+| 2,500 | 200 TIME | 190 TIME | 10 TIME | 73,000 TIME |
+| 5,000 | 300 TIME | 285 TIME | 15 TIME | 109,500 TIME |
+| 10,000 | 500 TIME (capped) | 475 TIME | 25 TIME | 182,500 TIME |
+| 20,000 | 500 TIME (capped) | 475 TIME | 25 TIME | 182,500 TIME |
+
+**Key Benefits:**
 
 ```
-Treasury:     5 TIME  (5%)
-Masternodes: 95 TIME  (95%)
+1. Maintains Operator Incentives
+   - Per-node rewards decrease slower than network growth
+   - Prevents node exodus as network scales
+   - Sustainable long-term economics
 
-Daily Rewards:
-  Blocks per day: 1
-  Total: 100 TIME/day
-  Treasury: 5 TIME/day
-  Masternodes: 95 TIME/day
+2. Capped Inflation
+   - Maximum 500 TIME/day = 182,500 TIME/year
+   - Predictable long-term supply growth
+   - Much lower than major cryptocurrencies
 
-Annual Rewards:
-  365 blocks per year
-  Total: 36,500 TIME/year
-  Treasury: 1,825 TIME/year
-  Masternodes: 34,675 TIME/year
+3. Self-Balancing
+   - If rewards too low → nodes exit → rewards increase
+   - If rewards too high → nodes join → rewards normalize
+   - Natural equilibrium achieved
+
+4. Transaction Fee Complement
+   - By time cap is reached (10k+ nodes), fees are substantial
+   - Primary income shifts from rewards to fees
+   - Sustainable fee-based economy at maturity
 ```
 
-**Note:** This is dramatically lower inflation than most cryptocurrencies:
+**Comparison with Other Cryptocurrencies:**
 
-- Bitcoin: ~900 BTC/day (currently)
-- Ethereum: ~1,700 ETH/day (post-merge)
-- TIME Coin: 100 TIME/day (sustainable)
+```
+Bitcoin: ~900 BTC/day (currently) = ~$40M+/day at scale
+Ethereum: ~1,700 ETH/day (post-merge) = ~$3M+/day at scale
+TIME Coin: 104-500 TIME/day (capped) = Sustainable at any price
+
+Advantage: Much lower inflation, scales with network needs
+```
+
+**Long-Term Inflation Model:**
+
+```
+Year 1 (Avg 200 nodes): ~120 TIME/day → 43,800 TIME/year
+Year 3 (Avg 1,000 nodes): ~140 TIME/day → 51,100 TIME/year
+Year 5 (Avg 5,000 nodes): ~300 TIME/day → 109,500 TIME/year
+Year 10 (Avg 10,000+ nodes): 500 TIME/day → 182,500 TIME/year (capped)
+
+Total 10-year inflation from rewards: ~1,000,000 TIME
+Plus purchase-based minting (demand-driven)
+```
+
+**Why This Works:**
+
+```
+Early Network (100-1,000 nodes):
+  - Higher per-node rewards attract operators
+  - Low total inflation (43k-51k/year)
+  - Bootstraps security
+
+Growing Network (1,000-10,000 nodes):
+  - Rewards scale with network
+  - Maintains viability for operators
+  - Transaction fees start contributing significantly
+
+Mature Network (10,000+ nodes):
+  - Reward cap reached (500/day)
+  - Transaction fees become primary income
+  - Fee-driven economy (like Bitcoin post-halving)
+  - Sustainable long-term model
+```
 
 ### 5.3 Fee Structure
 
@@ -572,14 +655,15 @@ High Activity (1,000,000 transactions):
 **Daily Reward Distribution:**
 
 ```
-Base Daily Pool: 95 TIME (95% of 100 TIME block reward)
-Treasury Pool: 5 TIME (5% of 100 TIME block reward)
+Masternode Pool: 95% of dynamic block reward
+Treasury Pool: 5% of dynamic block reward
 
 Distribution Formula:
-  Node Reward = (Node Total Weight / Total Network Weight) × 95 TIME
+  Node Reward = (Node Total Weight / Total Network Weight) × Daily Masternode Pool
   
 Where:
   Node Total Weight = Tier Weight × Longevity Multiplier
+  Daily Masternode Pool = 95% of total block reward (scales with network size)
 ```
 
 **Three-Tier System with Longevity:**
@@ -590,32 +674,74 @@ Where:
 | Silver | 10,000 TIME | 10× | 1.0× - 3.0× | 10 - 30 |
 | Gold | 100,000 TIME | 100× | 1.0× - 3.0× | 100 - 300 |
 
-**Target ROI (Target equilibrium network composition):**
+**Economic Balancing:**
 
-*These calculations assume a balanced network composition that naturally achieves the target APY range through market forces. Actual rewards vary based on total network weight.*
+The dynamic block reward system ensures sustainable APY across network growth phases:
+
+```
+Small Network (100-500 nodes):
+  - Higher per-node rewards (more TIME to distribute)
+  - Attracts early operators
+  - Builds initial security
+  - Example: 100 nodes → 98.8 TIME/day pool
+
+Medium Network (1,000-5,000 nodes):
+  - Moderate per-node rewards
+  - Transaction fees starting to contribute
+  - Healthy competition
+  - Example: 1,000 nodes → 133 TIME/day pool
+
+Large Network (10,000+ nodes):
+  - Reward cap reached (475 TIME/day pool)
+  - Transaction fees are primary income
+  - Mature fee-based economy
+  - Example: 10,000 nodes → 475 TIME/day pool + substantial fees
+```
+
+**Target ROI Examples (Various Network Sizes):**
+
+*Network: 1,000 nodes (140 TIME total daily reward, 133 TIME to masternodes)*
 
 | Tier | Age | Daily Reward | Annual Reward | APY |
 |------|-----|--------------|---------------|-----|
 | **Bronze (1,000 TIME)** | | | | |
-| | New | ~0.38 TIME | ~140 TIME | ~14% |
-| | 6 months | ~0.48 TIME | ~175 TIME | ~18% |
-| | 1 year | ~0.58 TIME | ~210 TIME | ~21% |
-| | 2 years | ~0.77 TIME | ~280 TIME | ~28% |
-| | 4+ years | ~1.15 TIME | ~420 TIME | ~42% |
+| | New | ~0.54 TIME | ~197 TIME | ~20% |
+| | 1 year | ~0.81 TIME | ~296 TIME | ~30% |
+| | 2 years | ~1.08 TIME | ~394 TIME | ~39% |
+| | 4+ years | ~1.63 TIME | ~595 TIME | ~60% |
 | **Silver (10,000 TIME)** | | | | |
-| | New | ~3.84 TIME | ~1,400 TIME | ~14% |
-| | 6 months | ~4.79 TIME | ~1,750 TIME | ~18% |
-| | 1 year | ~5.75 TIME | ~2,100 TIME | ~21% |
-| | 2 years | ~7.67 TIME | ~2,800 TIME | ~28% |
-| | 4+ years | ~11.51 TIME | ~4,200 TIME | ~42% |
+| | New | ~5.43 TIME | ~1,982 TIME | ~20% |
+| | 1 year | ~8.15 TIME | ~2,975 TIME | ~30% |
+| | 2 years | ~10.87 TIME | ~3,968 TIME | ~40% |
+| | 4+ years | ~16.30 TIME | ~5,950 TIME | ~60% |
 | **Gold (100,000 TIME)** | | | | |
-| | New | ~38.4 TIME | ~14,000 TIME | ~14% |
-| | 6 months | ~47.9 TIME | ~17,500 TIME | ~18% |
-| | 1 year | ~57.5 TIME | ~21,000 TIME | ~21% |
-| | 2 years | ~76.7 TIME | ~28,000 TIME | ~28% |
-| | 4+ years | ~115.1 TIME | ~42,000 TIME | ~42% |
+| | New | ~54.3 TIME | ~19,820 TIME | ~20% |
+| | 1 year | ~81.5 TIME | ~29,748 TIME | ~30% |
+| | 2 years | ~108.7 TIME | ~39,681 TIME | ~40% |
+| | 4+ years | ~163.0 TIME | ~59,495 TIME | ~60% |
 
-*Note: New nodes start at ~14% APY. Most active nodes (6mo-2yr) earn in the target 18-30% range. Veteran nodes (4+yr) earn maximum 42% APY. Network naturally balances through masternode entry/exit. Transaction fees provide additional revenue on top of these base rewards.*
+*Network: 10,000 nodes (500 TIME capped, 475 TIME to masternodes)*
+
+| Tier | Age | Daily Reward | Annual Reward | APY |
+|------|-----|--------------|---------------|-----|
+| **Bronze (1,000 TIME)** | | | | |
+| | New | ~0.19 TIME | ~69 TIME | ~7% |
+| | 1 year | ~0.29 TIME | ~106 TIME | ~11% |
+| | 2 years | ~0.39 TIME | ~142 TIME | ~14% |
+| | 4+ years | ~0.58 TIME | ~212 TIME | ~21% |
+
+*Plus substantial transaction fees at this scale (expect 2-3× from fees)*
+
+**ROI Summary:**
+
+| Network Phase | New Nodes | Active (1-2yr) | Veterans (4+yr) | Fee Multiplier |
+|---------------|-----------|----------------|-----------------|----------------|
+| Early (100-500) | 18-25% | 30-40% | 50-65% | Low (1.1×) |
+| Growth (1k-5k) | 15-20% | 25-35% | 40-55% | Medium (1.5×) |
+| Mature (10k+) | 7-10% | 11-14% | 21-28% | High (2-3×) |
+| **With Fees** | **14-20%** | **25-35%** | **42-56%** | - |
+
+*At maturity, transaction fees become the primary income source, maintaining target APY range.*
 
 **Additional Revenue: Transaction Fees**
 
@@ -658,9 +784,14 @@ Where:
 **Automatic Funding:**
 
 ```
-1. Daily Block Rewards:
-   5 TIME per block = 5 TIME per day = 1,825 TIME/year
-   (One block every 24 hours = 365 blocks/year)
+1. Dynamic Block Rewards:
+   5% of total block reward (scales with network)
+   
+   Network Size → Daily Treasury → Annual Treasury
+   100 nodes: 5.2 TIME/day → 1,898 TIME/year
+   1,000 nodes: 7 TIME/day → 2,555 TIME/year
+   5,000 nodes: 15 TIME/day → 5,475 TIME/year
+   10,000+ nodes: 25 TIME/day → 9,125 TIME/year (capped)
 
 2. Transaction Fees:
    50% of all fees → Treasury
@@ -680,20 +811,25 @@ Where:
 **Projected Treasury Growth:**
 
 ```
-Year 1 (Conservative):
-  Block rewards: 1,825 TIME
+Year 1 (Conservative - avg 200 nodes):
+  Block rewards: ~2,000 TIME (5.2-6 TIME/day avg)
   Transaction fees: ~1,825 TIME (10k daily tx)
-  Total: ~3,650 TIME
+  Total: ~3,825 TIME
 
-Year 2 (2x growth):
-  Block rewards: 1,825 TIME
+Year 2 (Growth - avg 600 nodes):
+  Block rewards: ~2,300 TIME (~6.3 TIME/day avg)
   Transaction fees: ~3,650 TIME (20k daily tx)
-  Total: ~5,475 TIME (cumulative: ~9,125 TIME)
+  Total: ~5,950 TIME/year (cumulative: ~9,775 TIME)
 
-Year 5 (100x growth):
-  Block rewards: 1,825 TIME
+Year 5 (Mature - avg 5,000 nodes):
+  Block rewards: ~5,475 TIME (15 TIME/day)
   Transaction fees: ~182,500 TIME (1M daily tx)
-  Total: ~184,325 TIME/year
+  Total: ~187,975 TIME/year
+
+Year 10 (Large Scale - 10,000+ nodes):
+  Block rewards: ~9,125 TIME (25 TIME/day capped)
+  Transaction fees: ~500,000+ TIME (multi-million daily tx)
+  Total: ~509,125+ TIME/year
 ```
 
 ### 6.2 Treasury Management
@@ -1253,25 +1389,174 @@ Phase 6: Finalization (00:07 UTC)
   Day N+1 continues (already processing new transactions)
 ```
 
-### 9.2 Attack Vectors & Mitigations
+### 9.2 Scalability & Performance
 
-**51% Attack:**
+**Challenge: BFT Consensus at Scale**
+
+Traditional BFT systems face communication overhead that grows with network size:
+- More nodes = more messages
+- Communication complexity: O(n²) in basic implementations
+- Risk: Slower finality as network grows
+
+**TIME Coin's Solution: Dynamic Quorum Selection**
+
+```
+Key Innovation: Not all masternodes validate every transaction
+
+Instead:
+  - Random weighted subset selected per transaction
+  - Quorum size grows logarithmically (not linearly)
+  - Maintains <3 second finality even at 100k+ masternodes
+```
+
+**Quorum Scaling Model:**
+
+| Network Size | Quorum Size | % of Network | Target Finality |
+|--------------|-------------|--------------|-----------------|
+| 100 | 50 | 50% | <1 second |
+| 500 | 100 | 20% | <2 seconds |
+| 1,000 | 150 | 15% | <2 seconds |
+| 5,000 | 250 | 5% | <2 seconds |
+| 10,000 | 300 | 3% | <2 seconds |
+| 50,000 | 450 | 0.9% | <3 seconds |
+| 100,000 | 500 | 0.5% | <3 seconds |
+
+**Selection Algorithm:**
+
+```rust
+fn select_quorum(transaction: Transaction) -> Vec<Masternode> {
+    // 1. Calculate quorum size
+    let total_nodes = active_masternodes.len();
+    let quorum_size = calculate_quorum_size(total_nodes); // Logarithmic
+    
+    // 2. Use VRF for randomness
+    let seed = hash(transaction.id + previous_block.hash);
+    let vrf = VerifiableRandomFunction::new(seed);
+    
+    // 3. Weighted selection (tier × longevity)
+    let selected = weighted_sample(
+        masternodes,
+        weights: tier_weight * longevity_multiplier,
+        count: quorum_size,
+        rng: vrf
+    );
+    
+    return selected;
+}
+
+fn calculate_quorum_size(n: usize) -> usize {
+    // Logarithmic scaling: log₂(n) × 50
+    // Minimum: 50 nodes
+    // Maximum: 500 nodes (caps at 100k network)
+    max(50, min(500, (n as f64).log2() * 50.0) as usize)
+}
+```
+
+**Security Properties:**
+
+```
+1. Probabilistic Security
+   - Attacker needs 67% of QUORUM (not total network)
+   - BUT: Quorum randomly selected each time
+   - Expected attack success if attacker has 40% total weight:
+     * With 150 node quorum: <0.001% chance
+     * With 300 node quorum: <0.0001% chance
+
+2. Weighted Selection
+   - Veteran high-tier nodes selected more often
+   - Difficult for attacker to game selection
+   - VRF ensures verifiable randomness
+
+3. Full Network for Blocks
+   - Daily blocks require full network (80% threshold)
+   - Cannot manipulate block creation
+   - Ultimate security checkpoint
+```
+
+**Performance Benefits:**
+
+```
+1. Constant Time Complexity
+   - Transaction confirmation: O(log n) not O(n)
+   - Network growth doesn't significantly impact speed
+   - 100× more nodes = only ~2× quorum size
+
+2. Parallel Processing
+   - Different quorums for simultaneous transactions
+   - High throughput: 1000+ TPS possible
+   - No bottleneck from consensus
+
+3. Network Efficiency
+   - Less bandwidth per node
+   - Lower message overhead
+   - Geographic optimization possible
+```
+
+**Why This Works:**
+
+```
+Transaction Verification (Every 2 seconds):
+  - High frequency = use quorum
+  - Acceptable risk (daily block validates all)
+  - Speed critical for user experience
+
+Block Finalization (Once per day):
+  - Low frequency = use full network
+  - 10 minutes available for consensus
+  - Security maximized
+  - Validates all transactions from quorums
+```
+
+**Comparison:**
+
+```
+Traditional BFT (Tendermint, PBFT):
+  - All validators for every transaction
+  - 100 nodes: ~100 messages per transaction
+  - 10,000 nodes: ~10,000 messages per transaction
+  - Doesn't scale well
+
+TIME Coin BFT:
+  - Quorum for each transaction
+  - 100 nodes: ~50 messages per transaction
+  - 10,000 nodes: ~300 messages per transaction
+  - Scales to 100k+ nodes
+```
+
+### 9.3 Attack Vectors & Mitigations
+
+**51% Attack (or 67% in BFT):**
 
 ```
 Traditional PoW: Requires 51% hash power
-TIME Coin BFT: Requires 67% voting power (including longevity)
+TIME Coin BFT Quorum: Requires 67% of randomly selected quorum
+
+Attack Scenarios:
+
+Scenario 1: Attack Transaction Confirmation
+  - Need to control 67% of a specific quorum
+  - Quorum randomly selected per transaction
+  - Even with 40% of total network weight:
+    * Probability of controlling 67% of 150-node quorum: <0.001%
+    * Would need to attack thousands of transactions to succeed once
+  
+Scenario 2: Attack Block Finalization  
+  - Need 80% of TOTAL network voting power
+  - Much harder - requires majority of entire network
+  - If 10M TIME locked: Need 8M+ TIME at stake
+  - At $1/TIME: $8M+ attack cost
 
 Cost to Attack:
-  - Need 67% of total weighted power
-  - Must account for longevity multipliers
-  - If 10M TIME locked with avg 1.5× longevity: Need ~10M TIME
-  - At $1/TIME: $10M+ to attack
-  - Must maintain for extended period
+  - Must acquire massive stake (40%+ for quorum attacks, 80%+ for blocks)
+  - Longevity requirement: Can't just buy and attack immediately
+  - Slashing risk: Lose all collateral if caught
+  - Economic disincentive: Attacking devalues your own holdings
 
 Mitigation:
   - Expensive to acquire supermajority
-  - Longevity requirement makes attack harder over time
-  - Attacking devalues attacker's collateral
+  - Random quorum selection makes targeted attacks impractical
+  - Longevity requirement increases attack cost over time
+  - Daily block validation catches any quorum attacks
   - Slashing punishes malicious behavior
   - Community can hard-fork if needed
 ```
@@ -1343,7 +1628,7 @@ Mitigation:
   - Longevity reset penalty
 ```
 
-### 9.3 Cryptography
+### 9.4 Cryptography
 
 **Hash Function:**
 
@@ -1388,7 +1673,7 @@ Usage:
   - Light client support
 ```
 
-### 9.4 Network Security
+### 9.5 Network Security
 
 **Peer Authentication:**
 
@@ -1627,18 +1912,22 @@ Supply Growth: Demand-driven + Fixed daily rewards
 **Inflation Rate:**
 
 ```
-Year 1: 36,500 TIME from rewards
-Year 2: 36,500 TIME from rewards (cumulative: 73,000)
-Year 5: 36,500 TIME from rewards (cumulative: 182,500)
-Year 10: 36,500 TIME from rewards (cumulative: 365,000)
+Dynamic Block Rewards (scales with network):
+Year 1 (avg 200 nodes): ~120 TIME/day = ~43,800 TIME/year
+Year 2 (avg 400 nodes): ~116 TIME/day = ~42,340 TIME/year (cumulative: ~86,140)
+Year 5 (avg 3,000 nodes): ~220 TIME/day = ~80,300 TIME/year (cumulative: ~300k+)
+Year 10 (avg 10,000+ nodes): 500 TIME/day = 182,500 TIME/year (capped)
 
 Plus purchased TIME (variable based on demand)
 
 Inflation Rate Over Time:
-  Year 1: High % (small base)
-  Year 5: Medium % (growing base)
-  Year 10: Low % (large base)
+  Year 1: High % (small base, ~44k from rewards)
+  Year 5: Medium % (growing base, ~80k from rewards)
+  Year 10: Lower % (large base, 182.5k from rewards - capped)
   Year 20: Very low % (asymptotically approaching 0%)
+
+Maximum Annual Inflation (capped): 182,500 TIME/year
+Total 10-year inflation from rewards: ~1,000,000 TIME (estimated)
 ```
 
 **Projected Supply (5 Years):**
@@ -1738,27 +2027,38 @@ Balance:
 **Sustainability Analysis:**
 
 ```
-Daily Masternode Costs: 95 TIME
+Daily Masternode Costs (scales with network):
+  100 nodes: ~99 TIME/day (98.8 MN + 5.2 Treasury)
+  1,000 nodes: ~133 TIME/day (133 MN + 7 Treasury)
+  10,000+ nodes: 475 TIME/day (capped)
 
-Break-even Scenarios:
+Break-even Scenarios (Fee-only sustainability):
 
-Scenario A (Fee-only sustainability):
+Scenario A (1,000 node network):
   At 0.001 TIME average fee
-  Need: 190,000 transactions/day
-  (95 TIME × 2 since MN get 50% of fees)
+  Daily MN cost: 133 TIME
+  Need: ~266,000 transactions/day to be fee-sustainable
+  (133 TIME × 2, since MN get 50% of fees)
 
-Scenario B (Realistic growth):
-  Year 1: 10k tx/day → 5 TIME fees → Not sustainable
-  Year 3: 100k tx/day → 50 TIME fees → Partially sustainable
-  Year 5: 500k tx/day → 250 TIME fees → Mostly sustainable
-  Year 10: 2M tx/day → 1,000 TIME fees → Highly sustainable
+Scenario B (10,000 node network at cap):
+  At 0.001 TIME average fee  
+  Daily MN cost: 475 TIME (capped)
+  Need: ~950,000 transactions/day to be fee-sustainable
+  (475 TIME × 2, since MN get 50% of fees)
+
+Realistic Growth Path:
+  Year 1: 10k tx/day → 5 TIME fees → Rewards cover 95%
+  Year 3: 100k tx/day → 50 TIME fees → Rewards cover 73%
+  Year 5: 500k tx/day → 250 TIME fees → Rewards cover 52%
+  Year 10: 2M+ tx/day → 1,000+ TIME fees → Fees exceed rewards!
 
 Conclusion:
-  - Block rewards bootstrap network
-  - Fees increasingly cover costs
-  - Long-term sustainable model
-  - Low daily inflation (100 TIME) is affordable
-  - Longevity system ensures operator retention
+  - Dynamic block rewards bootstrap network
+  - Rewards scale with network size (maintaining incentives)
+  - Fees increasingly cover costs as adoption grows
+  - At maturity (10k+ nodes), fees become primary income
+  - Capped inflation (max 182,500 TIME/year) is sustainable
+  - Long-term fee-driven model (like Bitcoin)
 ```
 
 ---
@@ -1989,6 +2289,7 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Longevity rewards (long-term alignment)
 - Self-funding treasury (sustainable)
 - Purchase-based minting (organic growth)
+- Dynamic quorum (scales to 100k+ nodes vs. limited validator sets)
 
 **vs. Other Masternodes (Dash, etc.):**
 
@@ -2084,17 +2385,20 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 
 - Novel 24-hour block architecture
 - Proven BFT consensus (modified for our needs)
-- Instant transaction finality
+- Dynamic quorum selection (scales to 100k+ masternodes)
+- Instant transaction finality (<3 seconds at any scale)
 - Scalable and efficient
 
 **Economic Sustainability:**
 
-- Low inflation (100 TIME/day = affordable)
+- Capped inflation (max 182,500 TIME/year at 10k+ nodes)
+- Dynamic rewards scale with network needs
 - Self-funding via fees (grows with usage)
 - Fair distribution from day one
 - No VC pressure or misaligned incentives
 - Longevity system ensures operator retention
-- 14-42% APY range is attractive and sustainable (14% entry, 18-30% for active operators, 42% for veterans)
+- 14-56% APY range across network phases (rewards + fees)
+- Maintains operator incentives at all scales
 
 **Community-First:**
 
@@ -2165,14 +2469,24 @@ TIME_UNIT: 100_000_000 (8 decimals)
 BLOCK_TIME: 86400 seconds (24 hours)
 BLOCKS_PER_DAY: 1
 BLOCKS_PER_YEAR: 365
-BLOCK_REWARD: 100 TIME
-  - Treasury: 5 TIME
-  - Masternodes: 95 TIME
+
+// Dynamic Block Reward System
+BLOCK_REWARD_BASE: 100 TIME
+BLOCK_REWARD_SCALE_FACTOR: 0.04 TIME per masternode
+BLOCK_REWARD_MAX: 500 TIME (inflation cap)
+
+// Formula: min(MAX, BASE + (active_masternodes × SCALE_FACTOR))
+// Split: 95% masternodes, 5% treasury
+
 FEE_SPLIT: 50% treasury, 50% masternodes
 
-BFT_CONFIRMATION_THRESHOLD: 67%
-BFT_BLOCK_SIGNATURE_THRESHOLD: 80%
-TRANSACTION_FINALITY: <2 seconds
+BFT_CONFIRMATION_THRESHOLD: 67% (of selected quorum)
+BFT_BLOCK_SIGNATURE_THRESHOLD: 80% (of total network)
+TRANSACTION_FINALITY: <2 seconds (up to 10k nodes), <3 seconds (100k+ nodes)
+
+QUORUM_SIZE_FORMULA: max(50, min(500, log₂(n) × 50))
+QUORUM_MIN_SIZE: 50 masternodes
+QUORUM_MAX_SIZE: 500 masternodes
 
 LONGEVITY_MULTIPLIER_FORMULA: 1 + (days_active ÷ 365) × 0.5
 LONGEVITY_MAX_MULTIPLIER: 3.0
@@ -2207,15 +2521,24 @@ Emergency Proposal:
 ### BFT Consensus Parameters
 
 ```
-Transaction Confirmation:
-  - Voting threshold: 67% of total weighted voting power
-  - Minimum participation: 50% of active masternodes
+Transaction Confirmation (Dynamic Quorum):
+  - Quorum selection: Weighted random sampling (VRF-based)
+  - Quorum size formula: max(50, min(500, log₂(n) × 50))
+  - Examples:
+    * 100 nodes → 50 node quorum (50%)
+    * 1,000 nodes → 150 node quorum (15%)
+    * 10,000 nodes → 300 node quorum (3%)
+    * 100,000 nodes → 500 node quorum (0.5%)
+  - Voting threshold: 67% of selected quorum
+  - Selection weight: tier_weight × longevity_multiplier
   - Typical confirmation time: <2 seconds
+  - Rotates every transaction
 
-Block Finalization:
+Block Finalization (Full Network):
+  - All active masternodes participate
   - Signing threshold: 80% of total weighted voting power
   - Minimum participation: 67% of active masternodes
-  - Block finalization window: 00:00:01 UTC - 00:10 UTC (builds block for previous day)
+  - Block finalization window: 00:00:01 UTC - 00:10 UTC
   - Target finalization: 00:07 UTC
   - Emergency window: 00:10-00:15 UTC (if needed)
 ```
@@ -2241,6 +2564,10 @@ Tracking: On-chain, per masternode
 
 **Collateral:** TIME tokens locked to operate a masternode
 
+**Dynamic Block Reward:** TIME Coin's reward system that scales with network size (100-500 TIME/day) to maintain operator incentives while capping long-term inflation
+
+**Dynamic Quorum:** Randomly selected subset of masternodes that validates each transaction, size scales logarithmically with network size to maintain speed
+
 **Finality:** Point at which a transaction cannot be reversed (instant via BFT)
 
 **Governance:** Decision-making process for protocol and treasury
@@ -2253,11 +2580,13 @@ Tracking: On-chain, per masternode
 
 **Proposal:** Formal request for treasury funds or protocol changes
 
-**Quorum:** Minimum participation required for valid vote or consensus
+**Quorum:** Minimum participation required for valid vote or consensus; in TIME Coin, dynamically selected subset for transaction validation
 
-**Slashing:** Penalty (loss of collateral) for malicious behavior
+**Slashing:** Penalty (loss of collateral sent to treasury) for malicious behavior
 
 **Treasury:** Community-governed fund for ecosystem development
+
+**VRF (Verifiable Random Function):** Cryptographic function that produces verifiable random output used for quorum selection
 
 **Voting Power:** Influence in governance and BFT consensus based on masternode tier × longevity
 
@@ -2364,13 +2693,18 @@ TIME Coin Advantage:
 **Major Changes from v1.2:**
 
 - Updated to three-tier masternode system (Bronze, Silver, Gold)
-- Added longevity multiplier system (1.0× to 3.0× based on uptime)
-- Updated ROI calculations (18-30% APY, up to 42% for 4+ year veterans)
+- Added longevity multiplier system (1.0× to 3.0× based on continuous uptime)
+- **Implemented dynamic block reward system (100-500 TIME/day based on network size)**
+- Updated ROI calculations to reflect dynamic rewards and network phases
 - Removed Platinum and Diamond tiers
+- Added dynamic quorum selection for scalability (scales to 100k+ masternodes)
 - Updated all economic calculations and examples
-- Revised Appendix A with new tier structure
-- Enhanced security analysis with longevity considerations
+- Revised Appendix A with new tier structure, dynamic reward formula, and BFT parameters
+- Enhanced security analysis with longevity and quorum considerations
 - Updated roadmap to include longevity tracking
+- Fixed block timing (builds block after midnight, not before)
+- All penalties and burns now go to treasury (not destroyed)
+- Updated treasury projections to reflect dynamic rewards
 
 **Contact:**
 
