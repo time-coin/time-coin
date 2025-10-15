@@ -7,7 +7,7 @@
 
 ## Abstract
 
-TIME Coin introduces a revolutionary approach to cryptocurrency through purchase-based minting, community-governed treasury management, and a masternode network that provides both security and democratic governance. Unlike traditional cryptocurrencies with pre-mines or venture capital allocation, TIME Coin ensures fair distribution through direct purchase. With 24-hour blocks and instant transaction verification via a modified Byzantine Fault Tolerant (BFT) consensus mechanism, TIME Coin achieves both immediate transaction finality and long-term security while maintaining decentralization. The three-tier masternode system with longevity multipliers rewards both capital commitment and long-term network participation, achieving sustainable 18-30% APY (up to 42% for veterans).
+TIME Coin introduces a revolutionary approach to cryptocurrency through purchase-based minting, community-governed treasury management, and a masternode network that provides both security and democratic governance. Unlike traditional cryptocurrencies with pre-mines or venture capital allocation, TIME Coin ensures fair distribution through direct purchase. With 24-hour blocks and instant transaction verification via a modified Byzantine Fault Tolerant (BFT) consensus mechanism, TIME Coin achieves both immediate transaction finality and long-term security while maintaining decentralization. The three-tier masternode system with longevity multipliers rewards both capital commitment and long-term network participation, achieving sustainable 14-42% APY (14% for new nodes, 18-30% for active nodes, up to 42% for 4+ year veterans).
 
 ---
 
@@ -44,7 +44,7 @@ TIME Coin represents a paradigm shift in cryptocurrency design, emphasizing comm
 - **Daily Settlement**: One block per day for efficient long-term security
 - **Accessibility**: Multi-channel access (SMS, Email, Web, Mobile)
 - **Transparency**: All treasury spending and governance on-chain
-- **Long-Term Incentives**: Longevity multiplier rewards commitment (up to 3.0×)
+- **Long-Term Incentives**: Longevity multiplier rewards commitment (up to 3.0×) - 14% APY for new nodes scaling to 42% for 4+ year veterans
 
 ### 1.3 Key Innovations
 
@@ -334,10 +334,11 @@ TreasuryWithdrawal {
 Traditional BFT: One node = one vote
 TIME Coin BFT: Voting power based on tier × longevity
 
-Example:
-- 100 new Bronze nodes: 100 voting power
-- 1 new Gold node: 100 voting power
-- 1 veteran Gold (4yr): 300 voting power (100 × 3.0)
+Example with 3-tier system:
+- 100 new Bronze nodes: 100 voting power (100 × 1 × 1.0)
+- 10 new Silver nodes: 100 voting power (10 × 10 × 1.0)
+- 1 new Gold node: 100 voting power (1 × 100 × 1.0)
+- 1 veteran Gold (4yr): 300 voting power (1 × 100 × 3.0)
 ```
 
 **2. Transaction Verification Process:**
@@ -558,25 +559,32 @@ Where:
 | Silver | 10,000 TIME | 10× | 1.0× - 3.0× | 10 - 30 |
 | Gold | 100,000 TIME | 100× | 1.0× - 3.0× | 100 - 300 |
 
-**Target ROI (assuming 245 base network weight):**
+**Target ROI (Target equilibrium network composition):**
+
+*These calculations assume a balanced network composition that naturally achieves the target APY range through market forces. Actual rewards vary based on total network weight.*
 
 | Tier | Age | Daily Reward | Annual Reward | APY |
 |------|-----|--------------|---------------|-----|
 | **Bronze (1,000 TIME)** | | | | |
-| | New | 0.388 TIME | ~142 TIME | ~18% |
-| | 1 year | 0.582 TIME | ~212 TIME | ~26% |
-| | 2 years | 0.776 TIME | ~283 TIME | ~28% |
-| | 4+ years | 1.164 TIME | ~425 TIME | ~42% |
+| | New | ~0.38 TIME | ~140 TIME | ~14% |
+| | 6 months | ~0.48 TIME | ~175 TIME | ~18% |
+| | 1 year | ~0.58 TIME | ~210 TIME | ~21% |
+| | 2 years | ~0.77 TIME | ~280 TIME | ~28% |
+| | 4+ years | ~1.15 TIME | ~420 TIME | ~42% |
 | **Silver (10,000 TIME)** | | | | |
-| | New | 3.878 TIME | ~1,415 TIME | ~18% |
-| | 1 year | 5.816 TIME | ~2,123 TIME | ~26% |
-| | 2 years | 7.755 TIME | ~2,831 TIME | ~28% |
-| | 4+ years | 11.633 TIME | ~4,246 TIME | ~42% |
+| | New | ~3.84 TIME | ~1,400 TIME | ~14% |
+| | 6 months | ~4.79 TIME | ~1,750 TIME | ~18% |
+| | 1 year | ~5.75 TIME | ~2,100 TIME | ~21% |
+| | 2 years | ~7.67 TIME | ~2,800 TIME | ~28% |
+| | 4+ years | ~11.51 TIME | ~4,200 TIME | ~42% |
 | **Gold (100,000 TIME)** | | | | |
-| | New | 38.78 TIME | ~14,155 TIME | ~18% |
-| | 1 year | 58.16 TIME | ~21,232 TIME | ~26% |
-| | 2 years | 77.55 TIME | ~28,309 TIME | ~28% |
-| | 4+ years | 116.33 TIME | ~42,464 TIME | ~42% |
+| | New | ~38.4 TIME | ~14,000 TIME | ~14% |
+| | 6 months | ~47.9 TIME | ~17,500 TIME | ~18% |
+| | 1 year | ~57.5 TIME | ~21,000 TIME | ~21% |
+| | 2 years | ~76.7 TIME | ~28,000 TIME | ~28% |
+| | 4+ years | ~115.1 TIME | ~42,000 TIME | ~42% |
+
+*Note: New nodes start at ~14% APY. Most active nodes (6mo-2yr) earn in the target 18-30% range. Veteran nodes (4+yr) earn maximum 42% APY. Network naturally balances through masternode entry/exit. Transaction fees provide additional revenue on top of these base rewards.*
 
 **Additional Revenue: Transaction Fees**
 
@@ -584,19 +592,31 @@ Where:
 - Proportional to total weight
 - Scales with network adoption
 
-**Example at 100,000 daily transactions:**
+**Example at 100,000 daily transactions (0.001 TIME avg fee):**
 - Total fees: 100 TIME
-- Masternode share: 50 TIME
-- New Bronze gets: +0.204 TIME/day = +74.5 TIME/year (+7.5% APY)
-- Gold (4yr) gets: +61.2 TIME/day = +22,338 TIME/year (+22% APY)
+- Masternode share: 50 TIME distributed proportionally
+
+**Fee Impact:**
+- Adds 2-10% additional APY depending on network activity and node weight
+- High network adoption significantly boosts returns
+- Transaction fees grow with TIME Coin usage
+- Provides additional revenue beyond base block rewards
+
+**Example Scenarios:**
+- 10k daily tx: Adds ~1-2% APY across all tiers
+- 100k daily tx: Adds ~5-7% APY across all tiers  
+- 1M daily tx: Adds ~20-30% APY across all tiers
 
 **Expected Equilibrium:**
 
-- Target APY: 18-30% for most operators
+- Target APY range: 14-42% based on longevity
+  - New nodes: ~14% APY
+  - Active nodes (6mo-2yr): 18-30% APY  
+  - Veteran nodes (4+yr): up to 42% APY
 - Sustainable long-term
 - Adjusted by market forces (more nodes = lower rewards per node)
 - Fee revenue increases with adoption
-- Veterans earn premium returns (up to 42%+)
+- Veterans earn premium returns rewarding commitment
 
 ---
 
@@ -608,7 +628,8 @@ Where:
 
 ```
 1. Daily Block Rewards:
-   5 TIME per day = 1,825 TIME/year
+   5 TIME per block = 5 TIME per day = 1,825 TIME/year
+   (One block every 24 hours = 365 blocks/year)
 
 2. Transaction Fees:
    50% of all fees → Treasury
@@ -871,21 +892,21 @@ Emergency Upgrades:
 - Tier Weight: 1×
 - Voting Power: 1×
 - Entry-level masternode tier
-- Target ROI: 18-42% (based on longevity)
+- Target ROI: 14% (new) to 42% (4+ years) APY
 
 **Silver Tier:**
 - Collateral: 10,000 TIME (10× Bronze)
 - Tier Weight: 10×
 - Voting Power: 10×
 - Mid-tier commitment
-- Target ROI: 18-42% (based on longevity)
+- Target ROI: 14% (new) to 42% (4+ years) APY
 
 **Gold Tier:**
 - Collateral: 100,000 TIME (100× Bronze)
 - Tier Weight: 100×
 - Voting Power: 100×
 - Maximum tier and influence
-- Target ROI: 18-42% (based on longevity)
+- Target ROI: 14% (new) to 42% (4+ years) APY
 
 **Design Philosophy:**
 - Simple, clear tier structure
@@ -937,8 +958,9 @@ Examples:
 **Impact on Network:**
 - Veteran Gold node (4yr) = equivalent to 300 new Bronze nodes
 - Encourages long-term participation and network stability
-- New nodes remain competitive with meaningful rewards (18-20% APY)
-- Veterans earn premium returns (up to 42%+ APY)
+- New nodes remain competitive with meaningful rewards (14% APY)
+- Active nodes earn in target range (18-30% APY for 6mo-2yr operators)
+- Veterans earn premium returns (up to 42% APY for 4+ years)
 
 **Reset Conditions:**
 
@@ -1883,7 +1905,7 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 **Long-Term Sustainability:**
 
 - Longevity multiplier encourages operator retention
-- 18-30% APY sustainable (up to 42% for veterans)
+- 14-42% APY sustainable based on longevity
 - Economic model rewards both capital and commitment
 - Balanced incentives for new and veteran operators
 
@@ -1938,7 +1960,7 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Active governance (not passive)
 - Daily blocks (vs. constant block creation)
 - Modern architecture
-- Up to 42% APY for veterans
+- 14-42% APY based on longevity (competitive and sustainable)
 
 ### 13.3 Risk Factors
 
@@ -2034,7 +2056,7 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Fair distribution from day one
 - No VC pressure or misaligned incentives
 - Longevity system ensures operator retention
-- 18-42% APY range is attractive and sustainable
+- 14-42% APY range is attractive and sustainable (14% entry, 18-30% for active operators, 42% for veterans)
 
 **Community-First:**
 
@@ -2081,7 +2103,7 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Secure the network
 - Participate in BFT consensus
 - Vote in governance
-- Earn sustainable rewards (18-42% APY)
+- Earn sustainable rewards (14-42% APY based on longevity)
 - Build long-term commitment (up to 3× multiplier)
 - Shape the future
 
