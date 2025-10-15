@@ -391,25 +391,34 @@ Finality: Immediate
 
 **Block Formation Process:**
 
-**Time: 23:55 UTC (5 minutes before midnight)**
+**Time: 00:00:00 UTC (midnight - day boundary)**
+
+```
+Day N ends, Day N+1 begins
+All transactions from Day N are now complete (00:00:00 to 23:59:59)
+```
+
+**Time: 00:00:01 UTC (1 second after midnight)**
 
 ```
 1. Block Proposer Selection
    - Random masternode selected (weighted by tier × longevity)
    - Uses verifiable random function (VRF)
+   - Selected node begins building block for Day N
 
 2. Transaction Aggregation
-   - Proposer collects all verified transactions from past 24h
+   - Proposer collects ALL verified transactions from Day N (00:00:00 to 23:59:59)
    - Orders by timestamp
    - Calculates merkle roots
    - Computes new state root
 
 3. Block Proposal
-   - Proposer broadcasts block candidate
+   - Proposer broadcasts block candidate for Day N
    - Includes all metadata and signatures
+   - Target completion: 00:03 UTC
 ```
 
-**Time: 23:57 UTC (3 minutes for validation)**
+**Time: 00:03 UTC (3 minutes for validation)**
 
 ```
 4. Block Validation
@@ -418,36 +427,58 @@ Finality: Immediate
      * State transitions
      * Fee calculations
      * Reward distribution
+   - Masternodes have until 00:05 UTC to validate
 ```
 
-**Time: 23:59 UTC (1 minute for signing)**
+**Time: 00:05 UTC (2 minutes for signing)**
 
 ```
 5. Block Signing Round
    - Masternodes vote to accept/reject
    - Sign block if valid
    - 80% threshold required
+   - Signing window: 00:05-00:07 UTC
 ```
 
-**Time: 00:00 UTC (block finalization)**
+**Time: 00:07 UTC (block finalization)**
 
 ```
 6. Block Finalization
-   - If 80% signed → Block confirmed
+   - If 80% signed → Block for Day N confirmed
    - Block added to blockchain
    - State updated
    - Rewards distributed
-   - Process repeats for next day
+   - Network continues processing Day N+1 transactions
 ```
 
 **Failure Handling:**
 
 ```
-If block not finalized by 00:05 UTC:
+If block not finalized by 00:10 UTC:
   - Emergency round triggered
   - New proposer selected
   - 5-minute emergency finalization window
   - Requires 90% approval (higher bar)
+  - Must finalize by 00:15 UTC
+```
+
+**Key Design Benefits:**
+
+```
+1. Complete Day Coverage
+   - Block for Day N includes ALL transactions from 00:00:00 to 23:59:59
+   - No transactions missed or excluded
+   - Clean day boundaries
+
+2. Real-Time Processing Continues
+   - While Day N block is being finalized, Day N+1 transactions are already being verified via BFT
+   - Users experience no interruption
+   - Instant confirmations continue 24/7
+
+3. Predictable Schedule
+   - Block finalization happens in first ~7 minutes of new day
+   - Consistent, reliable timing
+   - Easy to monitor and audit
 ```
 
 ---
@@ -1190,30 +1221,35 @@ Phase 5: Block Inclusion
 **Block Finalization:**
 
 ```
-Phase 1: Aggregation (23:55 UTC)
-  Collect all confirmed transactions
+Phase 1: Day Boundary (00:00:00 UTC)
+  Previous day ends (Day N: 00:00:00 to 23:59:59)
+  New day begins (Day N+1)
+  All Day N transactions complete
+
+Phase 2: Aggregation (00:00:01 UTC)
+  Collect all confirmed transactions from Day N
   Build block structure
   Calculate merkle roots
 
-Phase 2: Proposal (23:57 UTC)
-  Selected node proposes block
+Phase 3: Proposal (00:03 UTC)
+  Selected node proposes block for Day N
   Broadcast to all masternodes
 
-Phase 3: Validation (23:58 UTC)
+Phase 4: Validation (00:03-00:05 UTC)
   Each node independently validates
   Check all state transitions
   Verify reward calculations
 
-Phase 4: Signing (23:59 UTC)
+Phase 5: Signing (00:05-00:07 UTC)
   Nodes vote to accept/reject
   Sign if valid
   80% threshold required
 
-Phase 5: Finalization (00:00 UTC)
-  Block permanently added
+Phase 6: Finalization (00:07 UTC)
+  Block for Day N permanently added
   State updated
   Rewards distributed
-  New day begins
+  Day N+1 continues (already processing new transactions)
 ```
 
 ### 9.2 Attack Vectors & Mitigations
@@ -2177,7 +2213,9 @@ Transaction Confirmation:
 Block Finalization:
   - Signing threshold: 80% of total weighted voting power
   - Minimum participation: 67% of active masternodes
-  - Block finalization window: 23:55 UTC - 00:05 UTC
+  - Block finalization window: 00:00:01 UTC - 00:10 UTC (builds block for previous day)
+  - Target finalization: 00:07 UTC
+  - Emergency window: 00:10-00:15 UTC (if needed)
 ```
 
 ### Longevity Multiplier Parameters
