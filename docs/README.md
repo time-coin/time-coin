@@ -36,4 +36,4 @@ See CONTRIBUTING.md in the project root.
 
 - Website: https://time-coin.io
 - Forum: https://forum.time-coin.io
-- Telegram: https://t.co/ISNmAW8gMV
+- Telegram: https://t.me/+CaN6EflYM-83OTY0

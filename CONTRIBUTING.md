@@ -56,7 +56,7 @@ Want to propose ecosystem improvements? See:
 ## Questions?
 
 - Forum: https://forum.time-coin.io
-- Telegram: https://t.co/ISNmAW8gMV
+- Telegram: https://t.me/+CaN6EflYM-83OTY0
 - Discord: https://discord.gg/timecoin
 
 ## Code of Conduct

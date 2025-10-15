@@ -72,8 +72,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - Website: https://time-coin.io
 - Whitepaper: https://time-coin.io/whitepaper
 - Forum: https://forum.time-coin.io
-- Telegram: https://t.co/ISNmAW8gMV
-- Twitter: @TIMEcoinOfficial
+- Telegram: https://t.me/+CaN6EflYM-83OTY0
+- Twitter: @TIMEcoin515010
 
 ## 📊 Status
 
