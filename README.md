@@ -3,6 +3,7 @@
 ⏰ **Revolutionary Time-Based Cryptocurrency**
 
 TIME Coin is a next-generation cryptocurrency featuring:
+
 - 24-hour block checkpoints with instant transaction finality (<5 seconds)
 - Community-governed treasury system (50% of fees + 5 TIME per block)
 - Masternode network with 18-30% APY
@@ -37,6 +38,7 @@ cargo test --all
 ## 🏛️ Treasury & Governance
 
 TIME Coin features a self-funding ecosystem:
+
 - 50% of transaction fees → Treasury
 - 5 TIME per block → Treasury
 - Community-governed spending via masternode voting
@@ -69,10 +71,10 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🔗 Links
 
-- Website: https://time-coin.io
-- Whitepaper: https://time-coin.io/whitepaper
-- Forum: https://forum.time-coin.io
-- Telegram: https://t.me/+CaN6EflYM-83OTY0
+- Website: <https://time-coin.io>
+- Whitepaper: <https://time-coin.io/whitepaper>
+- Forum: <https://forum.time-coin.io>
+- Telegram: <https://t.me/+CaN6EflYM-83OTY0>
 - Twitter: @TIMEcoin515010
 
 ## 📊 Status
