@@ -341,7 +341,7 @@ pub mod merkle;
 
 ### Still Needed:
 
-1. **Whitepaper** (`docs/whitepaper/TIME-Whitepaper-v1.1.md`)
+1. **Whitepaper** (`docs/whitepaper/TIME-Whitepaper.md`)
    - Technical specifications
    - Economic model details
    - Security analysis

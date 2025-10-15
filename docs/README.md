@@ -20,7 +20,7 @@ Welcome to the TIME Coin documentation repository.
 - `masternodes/rewards-calculator.md` - ROI calculator
 
 ### Whitepaper
-- `whitepaper/TIME-Whitepaper-v1.1.md` - Latest version
+- `whitepaper/TIME-Whitepaper.md` - Latest version
 - `whitepaper/CHANGELOG.md` - Version history
 
 ### API

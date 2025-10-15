@@ -1,7 +1,7 @@
 //! Voting system implementation
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum VoteChoice {
@@ -47,7 +47,7 @@ impl VotingResult {
             votes: Vec::new(),
         }
     }
-    
+
     pub fn add_vote(&mut self, vote: Vote) {
         match vote.choice {
             VoteChoice::Yes => self.yes_power += vote.voting_power,
@@ -57,14 +57,14 @@ impl VotingResult {
         self.total_power += vote.voting_power;
         self.votes.push(vote);
     }
-    
+
     pub fn approval_percentage(&self) -> u64 {
         if self.total_power == 0 {
             return 0;
         }
         (self.yes_power * 100) / self.total_power
     }
-    
+
     pub fn participation_rate(&self, total_possible: u64) -> u64 {
         if total_possible == 0 {
             return 0;

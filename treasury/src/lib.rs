@@ -6,23 +6,16 @@
 //!
 //! Funds are distributed through approved governance proposals.
 
-pub mod pool;
 pub mod error;
+pub mod pool;
 
 pub use pool::{
-    TreasuryPool,
-    TreasurySource,
-    TreasuryWithdrawal,
-    TreasuryTransaction,
-    TreasuryReport,
-    TreasuryStats,
-    TIME_UNIT,
+    TreasuryPool, TreasuryReport, TreasurySource, TreasuryStats, TreasuryTransaction,
+    TreasuryWithdrawal, MASTERNODE_BLOCK_REWARD, TIME_UNIT, TREASURY_BLOCK_REWARD,
     TREASURY_FEE_PERCENTAGE,
-    TREASURY_BLOCK_REWARD,
-    MASTERNODE_BLOCK_REWARD,
 };
 
-pub use error::{TreasuryError, Result};
+pub use error::{Result, TreasuryError};
 
 #[cfg(test)]
 mod tests {

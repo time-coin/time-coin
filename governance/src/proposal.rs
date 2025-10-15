@@ -61,7 +61,7 @@ impl Proposal {
         description: String,
     ) -> Self {
         let now = current_timestamp();
-        
+
         Self {
             id,
             title,
@@ -72,12 +72,12 @@ impl Proposal {
             deposit: 0,
             submission_time: now,
             discussion_end: now + (7 * 86400), // 7 days
-            voting_end: now + (21 * 86400), // 7 + 14 days
+            voting_end: now + (21 * 86400),    // 7 + 14 days
             description,
             milestones: Vec::new(),
         }
     }
-    
+
     pub fn add_milestone(&mut self, milestone: Milestone) {
         self.milestones.push(milestone);
     }

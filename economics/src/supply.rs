@@ -28,23 +28,25 @@ impl SupplyManager {
             },
         }
     }
-    
+
     pub fn mint(&mut self, amount: u64) {
         self.stats.total_minted += amount;
         self.stats.circulating_supply += amount;
     }
-    
+
     pub fn burn(&mut self, amount: u64) {
         self.stats.total_burned += amount;
         self.stats.circulating_supply = self.stats.circulating_supply.saturating_sub(amount);
     }
-    
+
     pub fn stats(&self) -> &SupplyStats {
         &self.stats
     }
-    
+
     pub fn net_supply(&self) -> u64 {
-        self.stats.total_minted.saturating_sub(self.stats.total_burned)
+        self.stats
+            .total_minted
+            .saturating_sub(self.stats.total_burned)
     }
 }
 

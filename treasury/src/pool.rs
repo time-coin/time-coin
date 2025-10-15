@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // Import error types
-use crate::error::{TreasuryError, Result};
+use crate::error::{Result, TreasuryError};
 
 /// TIME token unit (8 decimal places)
 pub const TIME_UNIT: u64 = 100_000_000;
@@ -30,13 +30,13 @@ pub const MASTERNODE_BLOCK_REWARD: u64 = 95 * TIME_UNIT;
 pub enum TreasurySource {
     /// Transaction fee (50% of total fee)
     TransactionFee { tx_id: String, fee: u64 },
-    
+
     /// Block reward (5 TIME per block)
     BlockReward { block_number: u64 },
-    
+
     /// Community donation
     Donation { donor: String },
-    
+
     /// Recovered funds (from failed proposals, penalties, etc.)
     Recovered { reason: String },
 }
@@ -110,16 +110,16 @@ pub struct TreasuryReport {
 pub struct TreasuryPool {
     /// Current balance in smallest units (satoshis)
     balance: u64,
-    
+
     /// Complete transaction history
     transactions: Vec<TreasuryTransaction>,
-    
+
     /// Scheduled withdrawals
     scheduled_withdrawals: HashMap<String, TreasuryWithdrawal>,
-    
+
     /// Statistics tracking
     stats: TreasuryStats,
-    
+
     /// Next transaction ID
     next_tx_id: u64,
 }
@@ -141,17 +141,17 @@ impl TreasuryPool {
             next_tx_id: 1,
         }
     }
-    
+
     /// Get current balance in smallest units
     pub fn balance(&self) -> u64 {
         self.balance
     }
-    
+
     /// Get balance in TIME (with decimal places)
     pub fn balance_time(&self) -> f64 {
         self.balance as f64 / TIME_UNIT as f64
     }
-    
+
     /// Deposit transaction fee (treasury receives 50%)
     pub fn deposit_transaction_fee(
         &mut self,
@@ -160,53 +160,48 @@ impl TreasuryPool {
         timestamp: u64,
     ) -> Result<u64> {
         if total_fee == 0 {
-            return Err(TreasuryError::InvalidAmount("Fee cannot be zero".to_string()));
+            return Err(TreasuryError::InvalidAmount(
+                "Fee cannot be zero".to_string(),
+            ));
         }
-        
+
         // Calculate treasury portion (50%)
         let treasury_amount = (total_fee * TREASURY_FEE_PERCENTAGE) / 100;
-        
+
         let source = TreasurySource::TransactionFee {
             tx_id: tx_id.clone(),
             fee: treasury_amount,
         };
-        
+
         self.deposit_internal(source, treasury_amount, timestamp)?;
-        
+
         Ok(treasury_amount)
     }
-    
+
     /// Deposit block reward (5 TIME per block)
-    pub fn deposit_block_reward(
-        &mut self,
-        block_number: u64,
-        timestamp: u64,
-    ) -> Result<u64> {
+    pub fn deposit_block_reward(&mut self, block_number: u64, timestamp: u64) -> Result<u64> {
         let source = TreasurySource::BlockReward { block_number };
-        
+
         self.deposit_internal(source, TREASURY_BLOCK_REWARD, timestamp)?;
-        
+
         Ok(TREASURY_BLOCK_REWARD)
     }
-    
+
     /// Deposit community donation
-    pub fn deposit_donation(
-        &mut self,
-        donor: String,
-        amount: u64,
-        timestamp: u64,
-    ) -> Result<u64> {
+    pub fn deposit_donation(&mut self, donor: String, amount: u64, timestamp: u64) -> Result<u64> {
         if amount == 0 {
-            return Err(TreasuryError::InvalidAmount("Donation cannot be zero".to_string()));
+            return Err(TreasuryError::InvalidAmount(
+                "Donation cannot be zero".to_string(),
+            ));
         }
-        
+
         let source = TreasurySource::Donation { donor };
-        
+
         self.deposit_internal(source, amount, timestamp)?;
-        
+
         Ok(amount)
     }
-    
+
     /// Deposit recovered funds
     pub fn deposit_recovered(
         &mut self,
@@ -215,16 +210,18 @@ impl TreasuryPool {
         timestamp: u64,
     ) -> Result<u64> {
         if amount == 0 {
-            return Err(TreasuryError::InvalidAmount("Recovery amount cannot be zero".to_string()));
+            return Err(TreasuryError::InvalidAmount(
+                "Recovery amount cannot be zero".to_string(),
+            ));
         }
-        
+
         let source = TreasurySource::Recovered { reason };
-        
+
         self.deposit_internal(source, amount, timestamp)?;
-        
+
         Ok(amount)
     }
-    
+
     /// Internal deposit handler
     fn deposit_internal(
         &mut self,
@@ -233,9 +230,11 @@ impl TreasuryPool {
         timestamp: u64,
     ) -> Result<()> {
         // Update balance
-        self.balance = self.balance.checked_add(amount)
+        self.balance = self
+            .balance
+            .checked_add(amount)
             .ok_or_else(|| TreasuryError::InvalidAmount("Balance overflow".to_string()))?;
-        
+
         // Record transaction
         let tx = TreasuryTransaction {
             id: format!("tx-{}", self.next_tx_id),
@@ -244,73 +243,76 @@ impl TreasuryPool {
             amount,
             balance_after: self.balance,
         };
-        
+
         self.transactions.push(tx);
         self.next_tx_id += 1;
-        
+
         // Update stats
         self.stats.total_deposits += amount;
         self.stats.transaction_count += 1;
-        
+
         let source_key = match source {
             TreasurySource::TransactionFee { .. } => "fees",
             TreasurySource::BlockReward { .. } => "blocks",
             TreasurySource::Donation { .. } => "donations",
             TreasurySource::Recovered { .. } => "recovered",
         };
-        
-        *self.stats.deposits_by_source.entry(source_key.to_string()).or_insert(0) += amount;
-        
+
+        *self
+            .stats
+            .deposits_by_source
+            .entry(source_key.to_string())
+            .or_insert(0) += amount;
+
         Ok(())
     }
-    
+
     /// Schedule a withdrawal for an approved proposal
-    pub fn schedule_withdrawal(
-        &mut self,
-        withdrawal: TreasuryWithdrawal,
-    ) -> Result<()> {
+    pub fn schedule_withdrawal(&mut self, withdrawal: TreasuryWithdrawal) -> Result<()> {
         if withdrawal.amount > self.balance {
             return Err(TreasuryError::InsufficientBalance {
                 requested: withdrawal.amount,
                 available: self.balance,
             });
         }
-        
+
         if withdrawal.amount == 0 {
-            return Err(TreasuryError::InvalidAmount("Withdrawal cannot be zero".to_string()));
-        }
-        
-        self.scheduled_withdrawals.insert(withdrawal.id.clone(), withdrawal);
-        
-        Ok(())
-    }
-    
-    /// Execute a scheduled withdrawal
-    pub fn execute_withdrawal(
-        &mut self,
-        withdrawal_id: &str,
-        timestamp: u64,
-    ) -> Result<u64> {
-        let mut withdrawal = self.scheduled_withdrawals.get(withdrawal_id)
-            .ok_or_else(|| TreasuryError::ProposalNotFound(withdrawal_id.to_string()))?
-            .clone();
-        
-        if withdrawal.status != WithdrawalStatus::Scheduled {
             return Err(TreasuryError::InvalidAmount(
-                format!("Withdrawal {} is not scheduled", withdrawal_id)
+                "Withdrawal cannot be zero".to_string(),
             ));
         }
-        
+
+        self.scheduled_withdrawals
+            .insert(withdrawal.id.clone(), withdrawal);
+
+        Ok(())
+    }
+
+    /// Execute a scheduled withdrawal
+    pub fn execute_withdrawal(&mut self, withdrawal_id: &str, timestamp: u64) -> Result<u64> {
+        let mut withdrawal = self
+            .scheduled_withdrawals
+            .get(withdrawal_id)
+            .ok_or_else(|| TreasuryError::ProposalNotFound(withdrawal_id.to_string()))?
+            .clone();
+
+        if withdrawal.status != WithdrawalStatus::Scheduled {
+            return Err(TreasuryError::InvalidAmount(format!(
+                "Withdrawal {} is not scheduled",
+                withdrawal_id
+            )));
+        }
+
         if withdrawal.amount > self.balance {
             return Err(TreasuryError::InsufficientBalance {
                 requested: withdrawal.amount,
                 available: self.balance,
             });
         }
-        
+
         // Update balance
         self.balance -= withdrawal.amount;
-        
+
         // Record transaction
         let tx = TreasuryTransaction {
             id: format!("tx-{}", self.next_tx_id),
@@ -322,72 +324,72 @@ impl TreasuryPool {
             amount: withdrawal.amount,
             balance_after: self.balance,
         };
-        
+
         self.transactions.push(tx);
         self.next_tx_id += 1;
-        
+
         // Update withdrawal status
         withdrawal.executed_time = Some(timestamp);
         withdrawal.status = WithdrawalStatus::Executed;
-        self.scheduled_withdrawals.insert(withdrawal_id.to_string(), withdrawal.clone());
-        
+        self.scheduled_withdrawals
+            .insert(withdrawal_id.to_string(), withdrawal.clone());
+
         // Update stats
         self.stats.total_withdrawals += withdrawal.amount;
         self.stats.transaction_count += 1;
-        
+
         Ok(withdrawal.amount)
     }
-    
+
     /// Cancel a scheduled withdrawal
     pub fn cancel_withdrawal(&mut self, withdrawal_id: &str) -> Result<()> {
-        let withdrawal = self.scheduled_withdrawals.get_mut(withdrawal_id)
+        let withdrawal = self
+            .scheduled_withdrawals
+            .get_mut(withdrawal_id)
             .ok_or_else(|| TreasuryError::ProposalNotFound(withdrawal_id.to_string()))?;
-        
+
         if withdrawal.status != WithdrawalStatus::Scheduled {
-            return Err(TreasuryError::InvalidAmount(
-                format!("Cannot cancel withdrawal {} with status {:?}", withdrawal_id, withdrawal.status)
-            ));
+            return Err(TreasuryError::InvalidAmount(format!(
+                "Cannot cancel withdrawal {} with status {:?}",
+                withdrawal_id, withdrawal.status
+            )));
         }
-        
+
         withdrawal.status = WithdrawalStatus::Cancelled;
-        
+
         Ok(())
     }
-    
+
     /// Get all transactions
     pub fn transactions(&self) -> &[TreasuryTransaction] {
         &self.transactions
     }
-    
+
     /// Get scheduled withdrawals
     pub fn scheduled_withdrawals(&self) -> &HashMap<String, TreasuryWithdrawal> {
         &self.scheduled_withdrawals
     }
-    
+
     /// Get treasury statistics
     pub fn stats(&self) -> &TreasuryStats {
         &self.stats
     }
-    
+
     /// Generate financial report for a time period
-    pub fn generate_report(
-        &self,
-        period_start: u64,
-        period_end: u64,
-    ) -> TreasuryReport {
+    pub fn generate_report(&self, period_start: u64, period_end: u64) -> TreasuryReport {
         let mut opening_balance = 0u64;
         let mut period_deposits = 0u64;
         let mut period_withdrawals = 0u64;
         let mut period_tx_count = 0usize;
         let mut largest_deposit = 0u64;
         let mut largest_withdrawal = 0u64;
-        
+
         for tx in &self.transactions {
             if tx.timestamp < period_start {
                 opening_balance = tx.balance_after;
             } else if tx.timestamp >= period_start && tx.timestamp <= period_end {
                 period_tx_count += 1;
-                
+
                 match &tx.transaction_type {
                     TransactionType::Deposit(_) => {
                         period_deposits += tx.amount;
@@ -400,7 +402,7 @@ impl TreasuryPool {
                 }
             }
         }
-        
+
         TreasuryReport {
             period_start,
             period_end,
@@ -435,9 +437,9 @@ mod tests {
     #[test]
     fn test_block_reward_deposit() {
         let mut pool = TreasuryPool::new();
-        
+
         let amount = pool.deposit_block_reward(1, 1000).unwrap();
-        
+
         assert_eq!(amount, TREASURY_BLOCK_REWARD);
         assert_eq!(pool.balance(), TREASURY_BLOCK_REWARD);
         assert_eq!(pool.balance_time(), 5.0);
@@ -447,13 +449,11 @@ mod tests {
     fn test_transaction_fee_deposit() {
         let mut pool = TreasuryPool::new();
         let total_fee = TIME_UNIT; // 1 TIME
-        
-        let amount = pool.deposit_transaction_fee(
-            "tx123".to_string(),
-            total_fee,
-            1000
-        ).unwrap();
-        
+
+        let amount = pool
+            .deposit_transaction_fee("tx123".to_string(), total_fee, 1000)
+            .unwrap();
+
         // Should receive 50%
         assert_eq!(amount, TIME_UNIT / 2);
         assert_eq!(pool.balance(), TIME_UNIT / 2);
@@ -462,13 +462,11 @@ mod tests {
     #[test]
     fn test_donation() {
         let mut pool = TreasuryPool::new();
-        
-        let amount = pool.deposit_donation(
-            "alice".to_string(),
-            10 * TIME_UNIT,
-            1000
-        ).unwrap();
-        
+
+        let amount = pool
+            .deposit_donation("alice".to_string(), 10 * TIME_UNIT, 1000)
+            .unwrap();
+
         assert_eq!(amount, 10 * TIME_UNIT);
         assert_eq!(pool.balance(), 10 * TIME_UNIT);
     }
@@ -476,11 +474,11 @@ mod tests {
     #[test]
     fn test_withdrawal_flow() {
         let mut pool = TreasuryPool::new();
-        
+
         // Add funds
         pool.deposit_block_reward(1, 1000).unwrap();
         let initial_balance = pool.balance();
-        
+
         // Schedule withdrawal
         let withdrawal = TreasuryWithdrawal {
             id: "w1".to_string(),
@@ -492,12 +490,12 @@ mod tests {
             executed_time: None,
             status: WithdrawalStatus::Scheduled,
         };
-        
+
         pool.schedule_withdrawal(withdrawal).unwrap();
-        
+
         // Execute withdrawal
         let withdrawn = pool.execute_withdrawal("w1", 3000).unwrap();
-        
+
         assert_eq!(withdrawn, 2 * TIME_UNIT);
         assert_eq!(pool.balance(), initial_balance - (2 * TIME_UNIT));
     }
@@ -505,7 +503,7 @@ mod tests {
     #[test]
     fn test_insufficient_balance() {
         let mut pool = TreasuryPool::new();
-        
+
         let withdrawal = TreasuryWithdrawal {
             id: "w1".to_string(),
             proposal_id: "prop-1".to_string(),
@@ -516,7 +514,7 @@ mod tests {
             executed_time: None,
             status: WithdrawalStatus::Scheduled,
         };
-        
+
         let result = pool.schedule_withdrawal(withdrawal);
         assert!(result.is_err());
     }
@@ -524,11 +522,13 @@ mod tests {
     #[test]
     fn test_statistics() {
         let mut pool = TreasuryPool::new();
-        
+
         pool.deposit_block_reward(1, 1000).unwrap();
-        pool.deposit_transaction_fee("tx1".to_string(), TIME_UNIT, 1100).unwrap();
-        pool.deposit_donation("alice".to_string(), 5 * TIME_UNIT, 1200).unwrap();
-        
+        pool.deposit_transaction_fee("tx1".to_string(), TIME_UNIT, 1100)
+            .unwrap();
+        pool.deposit_donation("alice".to_string(), 5 * TIME_UNIT, 1200)
+            .unwrap();
+
         let stats = pool.stats();
         assert_eq!(stats.transaction_count, 3);
         assert!(stats.total_deposits > 0);
@@ -537,13 +537,13 @@ mod tests {
     #[test]
     fn test_financial_report() {
         let mut pool = TreasuryPool::new();
-        
+
         pool.deposit_block_reward(1, 1000).unwrap();
         pool.deposit_block_reward(2, 2000).unwrap();
         pool.deposit_block_reward(3, 3000).unwrap();
-        
+
         let report = pool.generate_report(1500, 2500);
-        
+
         assert_eq!(report.total_deposits, TREASURY_BLOCK_REWARD);
         assert_eq!(report.transaction_count, 1);
     }
@@ -551,9 +551,9 @@ mod tests {
     #[test]
     fn test_cancel_withdrawal() {
         let mut pool = TreasuryPool::new();
-        
+
         pool.deposit_block_reward(1, 1000).unwrap();
-        
+
         let withdrawal = TreasuryWithdrawal {
             id: "w1".to_string(),
             proposal_id: "prop-1".to_string(),
@@ -564,10 +564,10 @@ mod tests {
             executed_time: None,
             status: WithdrawalStatus::Scheduled,
         };
-        
+
         pool.schedule_withdrawal(withdrawal).unwrap();
         pool.cancel_withdrawal("w1").unwrap();
-        
+
         let w = pool.scheduled_withdrawals().get("w1").unwrap();
         assert_eq!(w.status, WithdrawalStatus::Cancelled);
     }
@@ -575,13 +575,14 @@ mod tests {
     #[test]
     fn test_transaction_history() {
         let mut pool = TreasuryPool::new();
-        
+
         pool.deposit_block_reward(1, 1000).unwrap();
-        pool.deposit_donation("alice".to_string(), 10 * TIME_UNIT, 2000).unwrap();
-        
+        pool.deposit_donation("alice".to_string(), 10 * TIME_UNIT, 2000)
+            .unwrap();
+
         let txs = pool.transactions();
         assert_eq!(txs.len(), 2);
-        
+
         assert_eq!(txs[0].amount, TREASURY_BLOCK_REWARD);
         assert_eq!(txs[1].amount, 10 * TIME_UNIT);
     }

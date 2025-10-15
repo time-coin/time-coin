@@ -1,9 +1,9 @@
 //! Core masternode implementation
 
-use serde::{Deserialize, Serialize};
 use crate::collateral::CollateralTier;
-use crate::reputation::Reputation;
 use crate::error::{MasternodeError, Result};
+use crate::reputation::Reputation;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MasternodeStatus {
@@ -85,9 +85,10 @@ impl Masternode {
     /// Activate masternode
     pub fn activate(&mut self, timestamp: u64) -> Result<()> {
         if self.status != MasternodeStatus::Pending {
-            return Err(MasternodeError::InvalidStatus(
-                format!("Cannot activate from status: {}", self.status)
-            ));
+            return Err(MasternodeError::InvalidStatus(format!(
+                "Cannot activate from status: {}",
+                self.status
+            )));
         }
         self.status = MasternodeStatus::Active;
         self.last_heartbeat = timestamp;
@@ -96,11 +97,12 @@ impl Masternode {
 
     /// Update heartbeat
     pub fn heartbeat(&mut self, timestamp: u64) -> Result<()> {
-        if self.status == MasternodeStatus::Slashed || 
-           self.status == MasternodeStatus::Deregistered {
-            return Err(MasternodeError::InvalidStatus(
-                format!("Cannot update heartbeat for status: {}", self.status)
-            ));
+        if self.status == MasternodeStatus::Slashed || self.status == MasternodeStatus::Deregistered
+        {
+            return Err(MasternodeError::InvalidStatus(format!(
+                "Cannot update heartbeat for status: {}",
+                self.status
+            )));
         }
 
         self.last_heartbeat = timestamp;
@@ -221,10 +223,10 @@ mod tests {
         );
 
         mn.activate(1001).unwrap();
-        
+
         // Within 5 minutes - online
         assert!(mn.is_online(1002));
-        
+
         // More than 5 minutes - offline
         assert!(!mn.is_online(1000 + 301));
     }

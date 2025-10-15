@@ -12,12 +12,10 @@ pub struct PurchasePrice {
 pub struct PriceCalculator;
 
 impl PriceCalculator {
-    pub fn calculate_purchase_price(
-        usd_amount: f64,
-        time_usd_rate: f64,
-    ) -> PurchasePrice {
-        let time_amount = ((usd_amount / time_usd_rate) * crate::constants::TIME_UNIT as f64) as u64;
-        
+    pub fn calculate_purchase_price(usd_amount: f64, time_usd_rate: f64) -> PurchasePrice {
+        let time_amount =
+            ((usd_amount / time_usd_rate) * crate::constants::TIME_UNIT as f64) as u64;
+
         PurchasePrice {
             time_amount,
             usd_price: usd_amount,

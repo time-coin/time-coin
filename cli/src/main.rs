@@ -20,7 +20,7 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Start => {
             println!("Starting TIME node...");

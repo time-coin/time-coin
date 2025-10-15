@@ -1,7 +1,7 @@
 //! Masternode collateral tier management
 
-use serde::{Deserialize, Serialize};
 use crate::error::{MasternodeError, Result};
+use serde::{Deserialize, Serialize};
 
 /// TIME unit (1 TIME = 100,000,000 smallest units)
 pub const TIME_UNIT: u64 = 100_000_000;
@@ -193,9 +193,11 @@ impl CollateralManager {
 
     /// Unlock collateral (when masternode deregisters)
     pub fn unlock_collateral(&mut self, masternode_id: &str) -> Result<u64> {
-        let locked = self.locked.remove(masternode_id)
+        let locked = self
+            .locked
+            .remove(masternode_id)
             .ok_or_else(|| MasternodeError::NotFound(masternode_id.to_string()))?;
-        
+
         Ok(locked.amount)
     }
 
@@ -273,12 +275,14 @@ mod tests {
         let mut manager = CollateralManager::new();
 
         // Lock collateral
-        let tier = manager.lock_collateral(
-            "mn1".to_string(),
-            10_000 * TIME_UNIT,
-            "tx123".to_string(),
-            1000,
-        ).unwrap();
+        let tier = manager
+            .lock_collateral(
+                "mn1".to_string(),
+                10_000 * TIME_UNIT,
+                "tx123".to_string(),
+                1000,
+            )
+            .unwrap();
 
         assert_eq!(tier, CollateralTier::Gold);
         assert_eq!(manager.total_locked(), 10_000 * TIME_UNIT);

@@ -8,16 +8,21 @@ fn test_masternode_tiers() {
     );
     
     assert_eq!(
+        MasternodeTier::from_collateral(10_000 * TIME_UNIT),
+        Some(MasternodeTier::Silver)
+    );
+    
+    assert_eq!(
         MasternodeTier::from_collateral(100_000 * TIME_UNIT),
+        Some(MasternodeTier::Gold)
     );
 }
 
 #[test]
 fn test_voting_power() {
-    let bronze = MasternodeTier::Bronze;
-    
-    assert_eq!(bronze.voting_power(), 1);
-    assert_eq!(diamond.voting_power(), 100);
+    assert_eq!(MasternodeTier::Bronze.voting_power(), 1);
+    assert_eq!(MasternodeTier::Silver.voting_power(), 10);
+    assert_eq!(MasternodeTier::Gold.voting_power(), 100);
 }
 
 #[test]
@@ -61,5 +66,5 @@ fn test_voting_result() {
     assert_eq!(result.total_power, 150);
     assert_eq!(result.yes_power, 100);
     assert_eq!(result.no_power, 50);
-    assert_eq!(result.approval_percentage(), 66); // 100/150 * 100
+    assert_eq!(result.approval_percentage(), 66);
 }

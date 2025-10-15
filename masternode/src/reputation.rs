@@ -1,7 +1,7 @@
 //! Masternode reputation tracking system
 
-use serde::{Deserialize, Serialize};
 use crate::error::{MasternodeError, Result};
+use serde::{Deserialize, Serialize};
 
 /// Reputation score range: -1000 to +1000
 pub const MIN_REPUTATION: i32 = -1000;
@@ -109,12 +109,12 @@ impl Reputation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReputationLevel {
-    Excellent,  // 800+
-    VeryGood,   // 400-799
-    Good,       // 100-399
-    Fair,       // -100 to 99
-    Poor,       // -500 to -101
-    VeryPoor,   // < -500
+    Excellent, // 800+
+    VeryGood,  // 400-799
+    Good,      // 100-399
+    Fair,      // -100 to 99
+    Poor,      // -500 to -101
+    VeryPoor,  // < -500
 }
 
 impl std::fmt::Display for ReputationLevel {
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn test_reputation_levels() {
         let mut rep = Reputation::new("mn1".to_string(), 1000);
-        
+
         rep.update_score(900, 1001);
         assert_eq!(rep.level(), ReputationLevel::Excellent);
 
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn test_uptime_calculation() {
         let mut rep = Reputation::new("mn1".to_string(), 1000);
-        
+
         for _ in 0..90 {
             rep.record_block_validated(1001);
         }

@@ -54,3 +54,7 @@ __pycache__/
 *$py.class
 .Python
 venv/
+
+backups/
+*.md.backup*
+*.backup
