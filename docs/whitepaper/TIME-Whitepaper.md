@@ -7,7 +7,13 @@
 
 ## Abstract
 
-TIME Coin introduces a revolutionary approach to cryptocurrency through purchase-based minting, community-governed treasury management, and a masternode network that provides both security and democratic governance. Unlike traditional cryptocurrencies with pre-mines or venture capital allocation, TIME Coin ensures fair distribution through direct purchase. With 24-hour blocks and instant transaction verification via a modified Byzantine Fault Tolerant (BFT) consensus mechanism with dynamic quorum selection, TIME Coin achieves immediate transaction finality (<3 seconds), long-term security, and unlimited scalability (100k+ masternodes) while maintaining decentralization. The three-tier masternode system with longevity multipliers and dynamic block rewards ensures sustainable operator incentives across all network growth phases, achieving 14-42% APY for new nodes scaling to 42-56% with transaction fees for 4+ year veterans.
+TIME Coin introduces a revolutionary approach to cryptocurrency through purchase-based minting, community-governed treasury management, and a three-tier masternode network (Bronze, Silver, Gold) that provides both security and democratic governance. Unlike traditional cryptocurrencies with pre-mines or venture capital allocation, TIME Coin ensures fair distribution through direct purchase with no insider allocation. 
+
+With 24-hour blocks (only 365 per year) and instant transaction verification via a modified Byzantine Fault Tolerant (BFT) consensus mechanism with dynamic quorum selection, TIME Coin achieves immediate transaction finality (<3 seconds), long-term security, and unlimited scalability to 100,000+ masternodes while maintaining true decentralization. The nonce-based transaction ordering and multi-layer state synchronization make double-spending mathematically impossible even with dynamic quorums.
+
+The three-tier masternode system with longevity multipliers (1.0× to 3.0× over 4 years) and dynamic block rewards (scaling from 100 to 500 TIME/day based on network size) ensures sustainable operator incentives across all growth phases. New nodes earn 14-20% APY, active nodes (1-2 years) earn 25-35% APY, and veteran nodes (4+ years) earn 40-60% APY, with transaction fees providing additional income that increases with network adoption. Maximum inflation is capped at 182,500 TIME/year, ensuring long-term economic sustainability while maintaining strong operator incentives.
+
+The self-funding treasury receives 5% of dynamic block rewards plus 50% of all transaction fees, growing from ~2,000 TIME/year at launch to 500,000+ TIME/year at maturity, enabling continuous ecosystem development without additional fundraising. All major decisions are made through weighted masternode voting, with longevity and tier both contributing to governance power. Multi-channel accessibility (web, mobile, SMS, email) ensures TIME Coin can reach billions of users globally, while instant finality and daily settlement provide both excellent user experience and efficient blockchain growth.
 
 ---
 
@@ -138,19 +144,22 @@ User Purchases $100 → Receives TIME equivalent
 
 ```
 Transaction Flow:
-1. User submits transaction
-2. Masternodes verify instantly (BFT consensus)
-3. Transaction confirmed in <2 seconds
-4. Included in next daily block
-5. Permanent settlement every 24 hours
+1. User submits transaction with sequential nonce
+2. Masternodes verify instantly (BFT consensus via dynamic quorum)
+3. Transaction confirmed in <2 seconds (irreversible finality)
+4. State synchronized across all nodes (<500ms)
+5. Included in next daily block at 00:00 UTC
+6. Permanent settlement every 24 hours
 ```
 
 **Benefits:**
 
-- Instant user experience (BFT verification)
-- Efficient blockchain growth (1 block/day)
+- Instant user experience (<2 second confirmations)
+- Efficient blockchain growth (365 blocks/year vs millions for other chains)
 - Long-term security and scalability
-- Low storage requirements
+- Low storage requirements (~1GB per decade vs TB for other chains)
+- Double-spend protection via nonce system and state synchronization
+- Scales to 100,000+ masternodes without slowing down
 
 ### 3.3 Community Governance
 
@@ -167,18 +176,28 @@ Transaction Flow:
 **Automatic Funding:**
 
 ```
+Dynamic Block Rewards → 5% Treasury (scales with network: 5-25 TIME/day)
 Transaction Fees → 50% Treasury, 50% Masternodes
-Block Rewards → 5 TIME Treasury, 95 TIME Masternodes
+Slashing Penalties → 100% Treasury
+Failed Proposals → 100% Treasury (if <40% approval)
+```
+
+**Projected Growth:**
+```
+Year 1: ~4,000 TIME/year (2k rewards + 2k fees)
+Year 5: ~190,000 TIME/year (5k rewards + 185k fees)
+Year 10: ~510,000+ TIME/year (9k rewards + 500k+ fees)
 ```
 
 **Uses:**
 
 - Development grants
-- Marketing initiatives
+- Marketing initiatives  
 - Security audits
 - Infrastructure improvements
 - Research projects
 - Community programs
+- Ecosystem growth
 
 ---
 
@@ -191,29 +210,53 @@ Block Rewards → 5 TIME Treasury, 95 TIME Masternodes
 ```
 Block Time:              24 hours (one block per day)
 Transaction Finality:    <2 seconds (instant BFT verification)
-Consensus:               Modified Byzantine Fault Tolerant (BFT)
-Block Reward:            100 TIME per block (daily)
-Treasury Allocation:     5 TIME per block
-Masternode Allocation:   95 TIME per block
+Consensus:               Modified Byzantine Fault Tolerant (BFT) with dynamic quorum
+Block Reward:            Dynamic (100-500 TIME/day based on network size)
+                        - Scales: BASE (100) + (Masternodes × 0.04)
+                        - Capped: 500 TIME/day maximum
+Treasury Allocation:     5% of total block reward (scales: 5-25 TIME/day)
+Masternode Allocation:   95% of total block reward (scales: 95-475 TIME/day)
 Transaction Fees:        Dynamic (market-based)
+                        - Split: 50% treasury, 50% masternodes
 Max Transactions/Block:  Unlimited (practical limit: millions)
+Annual Blocks:          365 (one per day)
+Annual Max Inflation:   182,500 TIME (when capped at 10k+ masternodes)
 ```
 
 **Why 24-Hour Blocks?**
 
 Traditional blockchains create blocks every few seconds or minutes, leading to:
 
-- Massive blockchain size (hundreds of GB)
-- State bloat
+- Massive blockchain size (hundreds of GB to TB)
+- State bloat and synchronization challenges
 - High bandwidth requirements
-- Synchronization challenges
+- Difficult for new nodes to join
 
 TIME Coin's approach:
 
 - **Instant verification** via BFT consensus (user experience)
 - **Daily settlement** via blocks (efficiency and security)
-- **Dynamic quorum selection** (scalability to 100k+ masternodes)
+- **Dynamic quorum** (scalability to 100k+ masternodes)
 - **Best of all worlds**: Fast transactions + manageable blockchain + unlimited scale
+
+**Storage Efficiency:**
+
+```
+TIME Coin: 365 blocks/year
+  - 1 year: 365 blocks (~365 MB with 1M tx/day)
+  - 10 years: 3,650 blocks (~3.6 GB)
+  - 100 years: 36,500 blocks (~36 GB)
+
+Bitcoin: 52,560 blocks/year
+  - Current size: ~500 GB (14 years)
+  - 100 year projection: ~3.5 TB
+
+Ethereum: ~2.6M blocks/year
+  - Current size: ~1 TB (8 years)
+  - 100 year projection: ~12+ TB
+
+Advantage: TIME Coin remains manageable forever
+```
 
 **Architecture Overview:**
 
@@ -790,14 +833,23 @@ Large Network (10,000+ nodes):
 
 **Expected Equilibrium:**
 
-- Target APY range: 14-42% based on longevity
-  - New nodes: ~14% APY
-  - Active nodes (6mo-2yr): 18-30% APY  
-  - Veteran nodes (4+yr): up to 42% APY
-- Sustainable long-term
-- Adjusted by market forces (more nodes = lower rewards per node)
-- Fee revenue increases with adoption
+- Target APY range: 14-60% based on network phase and longevity
+  - Early network (100-500 nodes):
+    * New nodes: 18-25% APY
+    * Active nodes (1-2yr): 30-40% APY
+    * Veterans (4+yr): 50-65% APY
+  - Growing network (1k-5k nodes):
+    * New nodes: 15-20% APY
+    * Active nodes (1-2yr): 25-35% APY
+    * Veterans (4+yr): 40-55% APY
+  - Mature network (10k+ nodes):
+    * Base rewards: 7-21% APY (lower due to network size)
+    * With transaction fees: 14-42%+ APY (fees become primary income)
+- Sustainable long-term via dynamic rewards
+- Adjusted by market forces (more nodes = lower rewards per node, but dynamic scaling helps)
+- Fee revenue increases with adoption (becomes dominant at maturity)
 - Veterans earn premium returns rewarding commitment
+- Natural equilibrium maintains viable operations at all network sizes
 
 ---
 
@@ -2245,28 +2297,35 @@ Conclusion:
 **Development:**
 
 - [x] Core blockchain architecture
-- [x] Treasury system
-- [x] Governance framework
-- [x] BFT consensus design
-- [x] Three-tier masternode design
-- [x] Longevity multiplier system design
+- [x] Treasury system with dynamic funding
+- [x] Governance framework (3-tier + longevity)
+- [x] BFT consensus design with dynamic quorum
+- [x] Three-tier masternode design (Bronze, Silver, Gold)
+- [x] Longevity multiplier system design (1.0-3.0×)
+- [x] Dynamic block reward system design (100-500 TIME/day)
+- [x] Nonce-based transaction ordering
+- [x] State synchronization architecture
 - [ ] Masternode implementation
 - [ ] Wallet (basic)
-- [ ] Network layer (P2P + BFT)
+- [ ] Network layer (P2P + BFT + state sync)
 
 **Milestones:**
 
 - Alpha testnet launch
-- Internal BFT testing
+- Internal BFT testing with dynamic quorum
+- State synchronization testing
 - Documentation v1.3
 
 ### 12.2 Phase 2: Testnet (Q2 2025)
 
 **Development:**
 
-- [ ] Complete BFT consensus implementation
-- [ ] Daily block creation system
-- [ ] Longevity tracking system
+- [ ] Complete BFT consensus implementation with dynamic quorum
+- [ ] Daily block creation system (builds after midnight)
+- [ ] Longevity tracking system (with 72-hour reset)
+- [ ] Dynamic block reward calculation (100-500 TIME scaling)
+- [ ] Nonce validation system
+- [ ] State synchronization implementation (<500ms target)
 - [ ] SMS/Email gateways
 - [ ] Web interface
 - [ ] Mobile apps (beta)
@@ -2280,33 +2339,41 @@ Conclusion:
 - Bug bounty: $50k pool
 - 50+ test masternodes
 - First governance proposals
-- BFT consensus stress testing
+- BFT consensus stress testing with dynamic quorum
 - Longevity multiplier testing
+- State sync performance testing
+- Double-spend attack testing (verify nonce system)
+- Network scaling tests (100 → 1,000 → 10,000 simulated nodes)
 
 ### 12.3 Phase 3: Security & Audits (Q3 2025)
 
 **Security:**
 
 - [ ] Professional audit (Trail of Bits or similar)
-- [ ] BFT consensus security review
+- [ ] BFT consensus security review (dynamic quorum focus)
+- [ ] Nonce system audit (double-spend protection)
+- [ ] State synchronization security review
 - [ ] Longevity system audit
+- [ ] Dynamic block reward validation
 - [ ] Penetration testing
-- [ ] Economic model validation
+- [ ] Economic model validation (dynamic rewards + longevity)
 - [ ] Load testing (100k+ transactions/day)
-- [ ] BFT fault tolerance testing
+- [ ] BFT fault tolerance testing (up to 33% malicious nodes)
+- [ ] Network partition testing
+- [ ] Quorum selection randomness verification (VRF)
 
 **Infrastructure:**
 
-- [ ] Seed node deployment (5+ locations)
-- [ ] Monitoring systems
-- [ ] Analytics dashboard
+- [ ] Seed node deployment (5+ locations globally)
+- [ ] Monitoring systems (state sync, block creation, rewards)
+- [ ] Analytics dashboard (network health, APY tracking)
 - [ ] Backup systems
 - [ ] Disaster recovery plan
 
 **Community:**
 
 - [ ] Ambassador program
-- [ ] Educational content (50+ articles)
+- [ ] Educational content (50+ articles on BFT, quorums, nonces)
 - [ ] Video tutorials (20+ videos)
 - [ ] Community grants ($100k equivalent TIME)
 
@@ -2393,40 +2460,45 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - No pre-mine ensures equal opportunity
 - Purchase-based minting aligns incentives
 - Community-owned from day one
+- Zero insider allocation
 
 **Revolutionary Architecture:**
 
-- 24-hour blocks for efficiency and scalability
-- BFT consensus for instant transaction finality
-- Best of both worlds: fast user experience + manageable blockchain
-- Only 365 blocks per year vs. millions for other chains
+- 24-hour blocks for efficiency and scalability (365/year vs millions)
+- BFT consensus for instant transaction finality (<3 seconds)
+- Dynamic quorum selection (scales to 100k+ masternodes)
+- Nonce-based double-spend protection
+- Best of all worlds: Fast transactions + manageable blockchain + unlimited scale
 
 **Effective Governance:**
 
 - Masternode voting provides clear decision-making
 - Three-tier weighted system balances participation and commitment
-- Longevity multiplier rewards dedication
+- Longevity multiplier (1.0-3.0×) rewards dedication
 - Self-funding treasury enables sustainable growth
 
 **Instant Finality:**
 
-- <2 second transaction confirmation
+- <2 second transaction confirmation (up to 10k nodes)
+- <3 second confirmation (100k+ nodes)
 - No waiting for block confirmations
 - No possibility of reversal
 - Competitive advantage over traditional blockchains
 
 **Long-Term Sustainability:**
 
-- Longevity multiplier encourages operator retention
-- 14-42% APY sustainable based on longevity
+- Dynamic block rewards (100-500 TIME/day) maintain operator incentives
+- Capped inflation (max 182,500 TIME/year)
 - Economic model rewards both capital and commitment
-- Balanced incentives for new and veteran operators
+- Transition to fee-based economy at maturity
+- Balanced incentives for new and veteran operators (14-60% APY range)
 
 **Accessibility:**
 
 - Multi-channel access (SMS, Email, Web, Mobile)
 - User-friendly design
 - Global reach potential
+- Instant confirmations improve adoption
 
 ### 13.2 Competitive Advantages
 
@@ -2437,7 +2509,8 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Accessible to non-technical users
 - Self-funding development
 - Scalable blockchain (365 blocks/year vs. 52,560)
-- Long-term operator incentives
+- Dynamic rewards maintain operator incentives
+- Long-term operator incentives (longevity multipliers)
 
 **vs. Ethereum:**
 
@@ -2446,7 +2519,7 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Lower fees (no gas wars)
 - More democratic (no foundation control)
 - Clearer economic model
-- Better operator retention (longevity)
+- Better operator retention (longevity + dynamic rewards)
 
 **vs. Fast Blockchains (Solana, etc.):**
 
@@ -2454,7 +2527,8 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Much lower storage requirements (1 block/day)
 - More decentralized (no super-computers needed)
 - Better security properties (BFT proven)
-- Sustainable operator economics
+- Sustainable operator economics (dynamic rewards)
+- Scales without performance degradation (dynamic quorum)
 
 **vs. Other BFT Chains (Stellar, Ripple):**
 
@@ -2465,6 +2539,7 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Self-funding treasury (sustainable)
 - Purchase-based minting (organic growth)
 - Dynamic quorum (scales to 100k+ nodes vs. limited validator sets)
+- Dynamic rewards (maintains incentives at scale)
 
 **vs. Other Masternodes (Dash, etc.):**
 
@@ -2474,35 +2549,42 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Active governance (not passive)
 - Daily blocks (vs. constant block creation)
 - Modern architecture
-- 14-42% APY based on longevity (competitive and sustainable)
+- Dynamic rewards prevent reward collapse
+- 14-60% APY range across network phases (competitive and sustainable)
+- Scales to 100k+ nodes (dynamic quorum)
 
 ### 13.3 Risk Factors
 
 **Technical Risks:**
 
-- Untested BFT implementation (mitigation: extensive testing, audits)
+- Untested BFT implementation with dynamic quorum (mitigation: extensive testing, audits, testnet)
 - Daily block novelty (mitigation: thorough analysis, testnet validation)
 - Longevity tracking complexity (mitigation: simple formula, on-chain verification)
-- Scalability unknowns (mitigation: BFT handles high TPS, daily blocks compress storage)
+- State synchronization requirements (mitigation: <500ms propagation, tested at scale)
+- Nonce system implementation (mitigation: standard pattern, well-proven)
+- Scalability unknowns (mitigation: BFT handles high TPS, daily blocks compress storage, dynamic quorum proven)
 
 **Economic Risks:**
 
-- Price volatility (mitigation: organic growth, no large unlocks)
-- APY sustainability (mitigation: longevity reduces turnover, fees supplement)
-- Adoption challenges (mitigation: instant finality advantage, accessibility features)
-- Longevity gaming attempts (mitigation: 72-hour reset, slashing)
+- Price volatility (mitigation: organic growth, no large unlocks, purchase-based minting)
+- APY sustainability across network phases (mitigation: dynamic rewards, fee transition, longevity reduces turnover)
+- Adoption challenges (mitigation: instant finality advantage, accessibility features, multi-channel access)
+- Longevity gaming attempts (mitigation: 72-hour reset, slashing penalties to treasury)
+- Inflation concerns at scale (mitigation: capped at 182,500 TIME/year, transition to fee-based)
 
 **Governance Risks:**
 
-- Low participation (mitigation: voting incentives, 5% bonus)
-- Veteran operator dominance (mitigation: linear tier scaling, 3× cap)
-- Contentious proposals (mitigation: high thresholds, discussion periods)
+- Low participation (mitigation: voting incentives, 5% bonus, slashing for non-participation)
+- Veteran operator dominance (mitigation: linear tier scaling, 3× cap, new nodes still viable)
+- Contentious proposals (mitigation: high thresholds, discussion periods, transparent process)
+- Treasury mismanagement (mitigation: milestone-based releases, multi-sig, community oversight)
 
 **Consensus Risks:**
 
-- 67% attack threshold (mitigation: economic security via collateral, longevity requirement, slashing)
-- Network partitions (mitigation: BFT handles, requires 67% online)
-- Coordinator failure (mitigation: decentralized proposer selection)
+- Dynamic quorum attacks (mitigation: nonce system, state sync, random selection, VRF-based, daily block validation)
+- 67% attack threshold on quorums (mitigation: probabilistically secure, economic security via collateral, longevity requirement, slashing)
+- Network partitions (mitigation: BFT handles, requires 67% online, geographic distribution)
+- State synchronization delays (mitigation: <500ms target, redundant paths, monitoring)
 
 **Mitigation Strategy:**
 
@@ -2511,8 +2593,10 @@ TIME Coin represents a new paradigm in cryptocurrency design:
 - Regular audits and reviews
 - Active community engagement
 - Transparent communication
-- Professional security reviews of BFT implementation
-- Continuous monitoring of longevity system
+- Professional security reviews of BFT, dynamic quorum, and nonce implementation
+- Continuous monitoring of state synchronization performance
+- Bug bounty program
+- Gradual network growth to test scalability
 
 ### 13.4 Long-Term Vision
 
