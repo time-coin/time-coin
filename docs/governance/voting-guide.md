@@ -6,15 +6,33 @@ As a TIME Coin masternode operator, you have the responsibility and privilege to
 
 ## Voting Power
 
-Your voting power is determined by your masternode collateral tier:
+Your voting power is determined by your masternode tier and operational longevity:
 
-| Tier | Collateral | Voting Power |
-|------|------------|--------------|
-| Bronze | 1,000 TIME | 1x |
-| Silver | 5,000 TIME | 5x |
-| Gold | 10,000 TIME | 10x |
-| Platinum | 50,000 TIME | 50x |
-| Diamond | 100,000 TIME | 100x |
+### Base Voting Power (Tier Weight)
+
+| Tier | Collateral | Base Weight |
+|------|------------|-------------|
+| Bronze | 1,000 TIME | 1× |
+| Silver | 10,000 TIME | 10× |
+| Gold | 100,000 TIME | 100× |
+
+### Longevity Multiplier
+
+Your total voting power increases with continuous operation:
+
+**Formula:** `1 + (Days Active ÷ 365) × 0.5`
+
+**Maximum:** 3.0× (after 4 years)
+
+| Time Active | Multiplier | Bronze Total | Silver Total | Gold Total |
+|-------------|-----------|--------------|--------------|------------|
+| 0-30 days | 1.0× | 1 | 10 | 100 |
+| 6 months | 1.25× | 1.25 | 12.5 | 125 |
+| 1 year | 1.5× | 1.5 | 15 | 150 |
+| 2 years | 2.0× | 2 | 20 | 200 |
+| 4+ years | 3.0× | 3 | 30 | 300 |
+
+**Example:** A Gold tier masternode running for 4 years has weight of **300**, equivalent to **300 new Bronze masternodes**!
 
 ## How to Vote
 
@@ -32,11 +50,11 @@ time-cli governance vote <proposal-id> <yes|no|abstain>
 
 ## Voting Process
 
-1. **Submission** - Proposal submitted with 100 TIME deposit
-2. **Discussion Period** - 7 days for community feedback
-3. **Voting Period** - 14 days for masternode voting
-4. **Threshold** - 60% approval required (60% quorum)
-5. **Execution** - 30-day grace period, then implementation
+1. **Submission** - Proposal submitted with 10 TIME deposit
+2. **Discussion Period** - 14 days for community feedback
+3. **Voting Period** - 7 days for masternode voting
+4. **Threshold** - 51% approval required (weighted by voting power)
+5. **Execution** - Approved proposals funded via milestone payments
 
 ## Best Practices
 
@@ -46,14 +64,6 @@ time-cli governance vote <proposal-id> <yes|no|abstain>
 ✓ Participate in community discussion  
 ✓ Vote on every proposal (5% reward bonus)  
 ✓ Consider long-term ecosystem impact  
-
-## Emergency Proposals
-
-Critical security or network issues follow accelerated voting:
-- 2-day discussion period
-- 5-day voting period
-- 75% approval threshold
-- 500 TIME deposit (higher stake)
 
 ## Voting Incentives
 
@@ -65,5 +75,5 @@ Masternodes that actively vote receive:
 ## Questions?
 
 - Governance Forum: forum.time-coin.io/governance
-- Telegram: t.me/timecoin_governance
+- Telegram: https://t.me/+CaN6EflYM-83OTY0
 - Discord: discord.gg/timecoin

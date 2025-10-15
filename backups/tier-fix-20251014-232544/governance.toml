@@ -1,17 +1,13 @@
 # TIME Coin Governance Configuration
 
 [voting]
-# Masternode voting weights by tier (3-tier system)
+# Masternode voting weights by tier
 [voting.tiers]
 bronze = 1      # 1,000 TIME
-silver = 10     # 10,000 TIME
-gold = 100      # 100,000 TIME
-
-[longevity]
-# Longevity multiplier formula: 1 + (Days Active ÷ 365) × 0.5
-# Maximum multiplier after 4 years
-max_multiplier = 3.0
-formula = "1 + (days / 365) * 0.5"
+silver = 5      # 5,000 TIME
+gold = 10       # 10,000 TIME
+platinum = 50   # 50,000 TIME
+diamond = 100   # 100,000 TIME
 
 [incentives]
 # Reward multiplier for active voters
@@ -44,7 +40,7 @@ adjustable = [
 
 [upgrades]
 # Soft fork approval threshold
-soft_fork_threshold = 75
+soft_fork_threshold = 80
 
 # Hard fork approval threshold
 hard_fork_threshold = 90

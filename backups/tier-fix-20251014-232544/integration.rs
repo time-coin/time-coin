@@ -9,12 +9,14 @@ fn test_masternode_tiers() {
     
     assert_eq!(
         MasternodeTier::from_collateral(100_000 * TIME_UNIT),
+        Some(MasternodeTier::Diamond)
     );
 }
 
 #[test]
 fn test_voting_power() {
     let bronze = MasternodeTier::Bronze;
+    let diamond = MasternodeTier::Diamond;
     
     assert_eq!(bronze.voting_power(), 1);
     assert_eq!(diamond.voting_power(), 100);
