@@ -10,7 +10,7 @@
 
 ## ⚖️ LEGAL DISCLAIMER
 
-**This document is for informational purposes only and does not constitute legal advice.** This analysis presents the TIME development team's good-faith interpretation of applicable securities laws based on existing SEC guidance, case law, and regulatory frameworks. 
+**This document is for informational purposes only and does not constitute legal advice.** This analysis presents the TIME development team's good-faith interpretation of applicable securities laws based on existing SEC guidance, case law, and regulatory frameworks.
 
 **Important Notices:**
 - This is not a legal opinion from a licensed attorney
@@ -75,7 +75,7 @@ The Supreme Court established in **SEC v. W.J. Howey Co., 328 U.S. 293 (1946)** 
 ### Supreme Court Guidance
 
 > "The test is whether the scheme involves an investment of money in a common enterprise with profits to come solely from the efforts of others."
-> 
+>
 > — SEC v. W.J. Howey Co., 328 U.S. 293 (1946)
 
 ### Modern Application to Digital Assets
