@@ -10,10 +10,8 @@ pub use routes::create_router;
 pub use state::ApiState;
 pub use error::{ApiError, ApiResult};
 
-use axum::Router;
 use std::net::SocketAddr;
 use tower_http::cors::{CorsLayer, Any};
-use tracing_subscriber;
 
 /// Start the API server
 pub async fn start_server(

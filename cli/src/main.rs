@@ -4,20 +4,18 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time;
 use colored::*;
+use time_api::{ApiState, start_server};
 
 #[derive(Parser)]
 #[command(name = "time-node")]
 #[command(about = "TIME Coin Node", version)]
 struct Cli {
-    /// Path to config file
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
     
-    /// Show version
     #[arg(short, long)]
     version: bool,
     
-    /// Enable dev mode (single-node testing)
     #[arg(long)]
     dev: bool,
 }
@@ -30,26 +28,40 @@ struct Config {
     blockchain: BlockchainConfig,
     #[serde(default)]
     consensus: ConsensusConfig,
+    #[serde(default)]
+    rpc: RpcConfig,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct NodeConfig {
     mode: Option<String>,
+    #[allow(dead_code)]
     name: Option<String>,
+    #[allow(dead_code)]
     data_dir: Option<String>,
+    #[allow(dead_code)]
     log_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct BlockchainConfig {
     genesis_file: Option<String>,
+    #[allow(dead_code)]
     data_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct ConsensusConfig {
     dev_mode: Option<bool>,
+    #[allow(dead_code)]
     auto_approve: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RpcConfig {
+    enabled: Option<bool>,
+    bind: Option<String>,
+    port: Option<u16>,
 }
 
 fn load_config(path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
@@ -150,7 +162,6 @@ async fn main() {
         }
     };
     
-    // Determine if dev mode is enabled (CLI flag takes priority)
     let is_dev_mode = cli.dev 
         || config.node.mode.as_deref() == Some("dev")
         || config.consensus.dev_mode.unwrap_or(false);
@@ -164,7 +175,6 @@ async fn main() {
     println!("{}", "🚀 Starting TIME node...".green().bold());
     println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
     
-    // Load and display genesis block
     if let Some(genesis_path) = config.blockchain.genesis_file {
         let expanded_path = expand_path(&genesis_path);
         match load_genesis(&expanded_path) {
@@ -187,10 +197,27 @@ async fn main() {
         println!("{}", "✓ Dev mode: Single-node consensus active".green());
     }
     
+    let api_enabled = config.rpc.enabled.unwrap_or(true);
+    let api_bind = config.rpc.bind.unwrap_or_else(|| "127.0.0.1".to_string());
+    let api_port = config.rpc.port.unwrap_or(24101);
+    
+    if api_enabled {
+        let bind_addr = format!("{}:{}", api_bind, api_port);
+        let api_state = ApiState::new(is_dev_mode, "testnet".to_string());
+        
+        println!("{}", format!("✓ API server starting on {}", bind_addr).green());
+        
+        let api_state_clone = api_state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = start_server(bind_addr.parse().unwrap(), api_state_clone).await {
+                eprintln!("API server error: {}", e);
+            }
+        });
+    }
+    
     println!("\n{}", "Node Status: ACTIVE".green().bold());
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
     
-    // Heartbeat loop
     let mut counter = 0;
     loop {
         time::sleep(Duration::from_secs(60)).await;
