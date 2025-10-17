@@ -16,3 +16,4 @@ sha3.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 
+hex = "0.4"

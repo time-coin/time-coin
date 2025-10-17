@@ -8,3 +8,7 @@ pub mod finalizer;
 // Re-export main types
 pub use state::{DailyState, Transaction, MasternodeInfo, StateSnapshot, Address, TxHash};
 pub use finalizer::{BlockFinalizer, FinalizedBlock};
+pub mod transaction;
+pub use transaction::{TransactionBuilder, TransactionValidator, ValidationError};
+pub mod mempool;
+pub use mempool::TransactionPool;
