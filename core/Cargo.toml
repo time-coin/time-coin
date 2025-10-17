@@ -16,6 +16,3 @@ sha3.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 
-[dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-sha2 = "0.10"
