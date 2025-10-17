@@ -1,89 +1,102 @@
-# TIME Coin
+# TIME Coin ⏰
 
-⏰ **Revolutionary Time-Based Cryptocurrency**
+A next-generation cryptocurrency featuring 24-hour time blocks, instant transaction finality, and masternode-powered consensus.
 
-TIME Coin is a next-generation cryptocurrency featuring:
+## Key Features
 
-- 24-hour block checkpoints with instant transaction finality (<5 seconds)
-- Community-governed treasury system (50% of fees + 5 TIME per block)
-- Masternode network with 18-30% APY
-- No pre-mine, no VCs - Fair launch with purchase-based minting
-- Multi-channel accessibility (SMS, Email, Web, Mobile)
+- ⚡ **Instant Finality**: <3 second transaction confirmation
+- 🕐 **24-Hour Blocks**: Daily settlement for immutable checkpoints
+- 🔗 **Masternode Network**: Byzantine Fault Tolerant consensus
+- 💰 **Tiered Staking**: 18-30% APY across 5 collateral tiers
+- 🏛️ **Community Treasury**: Decentralized governance
+- 🚀 **Fair Launch**: No pre-mine, purchase-based minting
 
-## 🚀 Quick Start
+## Architecture
+
+TIME Coin separates transaction finality from block production:
+
+1. **Instant Transactions**: Validated by masternodes in real-time
+2. **Daily Blocks**: Periodic checkpoints every 24 hours
+3. **BFT Consensus**: 67% validator agreement required
+4. **Masternode Rewards**: 95 TIME per block distributed based on tier
+5. **Treasury Funding**: 5 TIME per block for ecosystem development
+
+## Masternode Tiers
+
+| Tier | Collateral | APY | Voting Power |
+|------|-----------|-----|--------------|
+| Bronze | 1,000 TIME | 18% | 1x |
+| Silver | 5,000 TIME | 19.8% | 5x |
+| Gold | 10,000 TIME | 22.5% | 10x |
+| Platinum | 50,000 TIME | 27% | 50x |
+| Diamond | 100,000 TIME | 30% | 100x |
+
+## Project Structure
+
+```
+time-coin/
+├── core/           # Core blockchain logic
+├── masternode/     # Masternode management
+├── treasury/       # Community treasury
+├── network/        # P2P networking
+├── purchase/       # Fiat/crypto purchases
+├── wallet/         # Wallet implementation
+├── api/            # API server
+├── storage/        # Database layer
+├── crypto/         # Cryptographic primitives
+└── cli/            # Command-line interface
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Rust 1.75 or higher
+- Git
+
+### Building
 
 ```bash
 # Clone the repository
 git clone https://github.com/time-coin/time-coin.git
 cd time-coin
 
-# Build the project
+# Build all components
 cargo build --release
 
 # Run tests
 cargo test --all
 
-# Start a node
-./target/release/time-node --config config/mainnet.toml
+# Run a node
+cargo run --bin time-node --release
 ```
 
-## 📚 Documentation
+## Documentation
 
-- **Whitepaper**: [docs/whitepaper/TIME-Whitepaper.md](docs/whitepaper/TIME-Whitepaper.md)
-- **Project Status**: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) ⭐ NEW
-- **Treasury System**: [docs/treasury/treasury-overview.md](docs/treasury/treasury-overview.md)
-- **Governance**: [docs/governance/voting-guide.md](docs/governance/voting-guide.md)
-- **API Docs**: [docs/api/](docs/api/)
+- [Technical Whitepaper](docs/whitepaper-technical.md)
+- [Masternode Setup Guide](docs/masternodes/setup-guide.md)
+- [API Documentation](docs/api/README.md)
+- [Architecture Overview](docs/architecture/README.md)
 
-## 🏛️ Treasury & Governance
+## Contributing
 
-TIME Coin features a self-funding ecosystem:
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-- 50% of transaction fees → Treasury
-- 5 TIME per block → Treasury
-- Community-governed spending via masternode voting
-- Transparent, milestone-based grant system
+## Community
 
-[Submit a Proposal](docs/governance/proposal-template.md)
-
-## 🔧 Project Structure
-
-```
-time-coin/
-├── core/               # Core blockchain logic
-├── masternode/         # Masternode implementation
-├── treasury/           # Treasury management (NEW)
-├── governance/         # Governance system (NEW)
-├── wallet/             # Wallet implementation
-├── api/                # RPC API server
-├── docs/               # Documentation
-├── config/             # Configuration files
-└── tools/              # Utilities and tooling
-```
-
-## 🤝 Contributing
-
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🔗 Links
-
-- Website: <https://time-coin.io>
-- Whitepaper: <https://time-coin.io/whitepaper>
-- Forum: <https://forum.time-coin.io>
-- Telegram: <https://t.me/+CaN6EflYM-83OTY0>
+- Website: https://time-coin.io
+- Telegram: https://t.me/+CaN6EflYM-83OTY0
 - Twitter: @TIMEcoin515010
+- GitHub: https://github.com/time-coin/time-coin
 
-## 📊 Status
+## License
 
-- **Version**: 0.1.0 (Pre-Alpha)
-- **Treasury Module**: ✅ Implemented
-- **Governance**: 🚧 In Progress
-- **Mainnet Launch**: Q2 2025 (Planned)
+MIT License - see [LICENSE](LICENSE) for details
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for reporting security vulnerabilities.
 
 ---
 
-**⏰ Your TIME is valuable. Spend it wisely.**
+**⏰ TIME is money. Make it accessible.**

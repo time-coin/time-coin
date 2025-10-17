@@ -1,12 +1,12 @@
 # Rust
-target/
-Cargo.lock
+/target/
 **/*.rs.bk
 *.pdb
+Cargo.lock
 
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
@@ -15,19 +15,10 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
-# Local config
+# Config
 config/local.toml
 *.key
-*.wallet
-*.keystore
-
-# Build artifacts
-dist/
-build/
-
-# Test coverage
-coverage/
-*.profraw
+*.pem
 
 # Logs
 *.log
@@ -36,25 +27,8 @@ logs/
 # Database
 *.db
 *.sqlite
-data/
+*.sqlite3
 
-# Environment
-.env
-.env.local
-
-# Node (if any web components)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Python (if any scripts)
-__pycache__/
-*.py[cod]
-*$py.class
-.Python
-venv/
-
-backups/
-*.md.backup*
-*.backup
+# Build
+dist/
+build/

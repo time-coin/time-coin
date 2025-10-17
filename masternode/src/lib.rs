@@ -1,29 +1,22 @@
-//! TIME Coin Masternode Module
-//! 
-//! Manages masternode operations including registration, rewards,
-//! heartbeat monitoring, and BFT consensus participation.
-//! 
-//! This module is currently under development.
+//! TIME Masternode - Masternode management and consensus
 
-// TODO: Implement these modules
-// pub mod heartbeat;
-// pub mod health;
-// pub mod registry;
-// pub mod rewards;
-// pub mod selection;
-// pub mod voting;
+pub mod registry;
+pub mod types;
+pub mod collateral;
+pub mod rewards;
 
-/// Masternode module version
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
+pub use registry::MasternodeRegistry;
+pub use types::{Masternode, MasternodeId, MasternodeStatus, NetworkInfo};
+pub use collateral::{CollateralTier, TierBenefits};
+pub use rewards::RewardCalculator;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_version() {
-        assert_eq!(version(), "0.1.0");
+    fn test_masternode_module() {
+        let _registry = MasternodeRegistry::new();
+        assert!(true);
     }
 }

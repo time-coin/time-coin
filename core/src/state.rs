@@ -1,25 +1,89 @@
+//! Blockchain state management
+
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Account {
+    pub address: String,
+    pub balance: u64,
+    pub nonce: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainState {
-    pub balances: HashMap<String, u64>,
+    pub accounts: HashMap<String, Account>,
+    pub total_supply: u64,
     pub current_block: u64,
 }
 
 impl ChainState {
     pub fn new() -> Self {
         ChainState {
-            balances: HashMap::new(),
+            accounts: HashMap::new(),
+            total_supply: 0,
             current_block: 0,
         }
     }
 
     pub fn get_balance(&self, address: &str) -> u64 {
-        *self.balances.get(address).unwrap_or(&0)
+        self.accounts
+            .get(address)
+            .map(|acc| acc.balance)
+            .unwrap_or(0)
     }
 
-    pub fn set_balance(&mut self, address: String, amount: u64) {
-        self.balances.insert(address, amount);
+    pub fn transfer(&mut self, from: &str, to: &str, amount: u64, fee: u64) -> Result<(), String> {
+        // Get sender account
+        let sender = self.accounts.get_mut(from)
+            .ok_or("Sender account not found")?;
+
+        // Check balance
+        let total = amount.checked_add(fee)
+            .ok_or("Amount overflow")?;
+        if sender.balance < total {
+            return Err("Insufficient balance".to_string());
+        }
+
+        // Deduct from sender
+        sender.balance -= total;
+        sender.nonce += 1;
+
+        // Add to recipient
+        let recipient = self.accounts.entry(to.to_string())
+            .or_insert(Account {
+                address: to.to_string(),
+                balance: 0,
+                nonce: 0,
+            });
+        recipient.balance += amount;
+
+        Ok(())
+    }
+
+    pub fn mint(&mut self, recipient: &str, amount: u64) -> Result<(), String> {
+        // Check max supply
+        let new_supply = self.total_supply.checked_add(amount)
+            .ok_or("Supply overflow")?;
+        if new_supply > crate::constants::MAX_SUPPLY {
+            return Err("Max supply exceeded".to_string());
+        }
+
+        // Add to recipient
+        let account = self.accounts.entry(recipient.to_string())
+            .or_insert(Account {
+                address: recipient.to_string(),
+                balance: 0,
+                nonce: 0,
+            });
+        account.balance += amount;
+        self.total_supply += amount;
+
+        Ok(())
+    }
+
+    pub fn increment_block(&mut self) {
+        self.current_block += 1;
     }
 }
 
@@ -34,16 +98,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_state_creation() {
-        let state = ChainState::new();
-        assert_eq!(state.current_block, 0);
-        assert_eq!(state.get_balance("alice"), 0);
+    fn test_mint() {
+        let mut state = ChainState::new();
+        
+        let result = state.mint("alice", 1000);
+        assert!(result.is_ok());
+        assert_eq!(state.get_balance("alice"), 1000);
+        assert_eq!(state.total_supply, 1000);
     }
 
     #[test]
-    fn test_set_balance() {
+    fn test_transfer() {
         let mut state = ChainState::new();
-        state.set_balance("alice".to_string(), 100);
-        assert_eq!(state.get_balance("alice"), 100);
+        
+        // Mint to alice
+        state.mint("alice", 1000).unwrap();
+        
+        // Transfer to bob
+        let result = state.transfer("alice", "bob", 500, 10);
+        assert!(result.is_ok());
+        assert_eq!(state.get_balance("alice"), 490);
+        assert_eq!(state.get_balance("bob"), 500);
     }
 }
