@@ -7,19 +7,22 @@ use colored::*;
 
 #[derive(Parser)]
 #[command(name = "time-node")]
-#[command(about = "TIME Coin Node")]
+#[command(about = "TIME Coin Node", version)]
 struct Cli {
+    /// Path to config file
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
     
+    /// Show version
     #[arg(short, long)]
     version: bool,
     
+    /// Enable dev mode (single-node testing)
     #[arg(long)]
-    dev: bool,  // Dev mode flag
+    dev: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 struct Config {
     #[serde(default)]
     node: NodeConfig,
@@ -32,26 +35,26 @@ struct Config {
 #[derive(Debug, Deserialize, Default)]
 struct NodeConfig {
     mode: Option<String>,
+    name: Option<String>,
+    data_dir: Option<String>,
+    log_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct BlockchainConfig {
     genesis_file: Option<String>,
+    data_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct ConsensusConfig {
     dev_mode: Option<bool>,
+    auto_approve: Option<bool>,
 }
 
 fn load_config(path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
     let contents = std::fs::read_to_string(path)?;
-    let config: Config = toml::from_str(&contents)
-        .unwrap_or_else(|_| Config {
-            node: NodeConfig::default(),
-            blockchain: BlockchainConfig::default(),
-            consensus: ConsensusConfig::default(),
-        });
+    let config: Config = toml::from_str(&contents)?;
     Ok(config)
 }
 
@@ -63,6 +66,7 @@ fn load_genesis(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Err
 
 fn expand_path(path: &str) -> String {
     path.replace("$HOME", &std::env::var("HOME").unwrap_or_default())
+        .replace("~", &std::env::var("HOME").unwrap_or_default())
 }
 
 fn display_genesis(genesis: &serde_json::Value) {
@@ -87,10 +91,10 @@ fn display_genesis(genesis: &serde_json::Value) {
     }
     
     if let Some(timestamp) = genesis.get("timestamp").and_then(|v| v.as_i64()) {
-        let dt = chrono::DateTime::from_timestamp(timestamp, 0)
-            .unwrap()
-            .format("%Y-%m-%d %H:%M:%S UTC");
-        println!("{}: {}", "Timestamp".yellow().bold(), dt);
+        if let Some(dt) = chrono::DateTime::from_timestamp(timestamp, 0) {
+            let formatted = dt.format("%Y-%m-%d %H:%M:%S UTC");
+            println!("{}: {}", "Timestamp".yellow().bold(), formatted);
+        }
     }
     
     if let Some(transactions) = genesis.get("transactions").and_then(|v| v.as_array()) {
@@ -142,15 +146,11 @@ async fn main() {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Warning: Could not load config: {}", e);
-            Config {
-                node: NodeConfig::default(),
-                blockchain: BlockchainConfig::default(),
-                consensus: ConsensusConfig::default(),
-            }
+            Config::default()
         }
     };
     
-    // Check if dev mode
+    // Determine if dev mode is enabled (CLI flag takes priority)
     let is_dev_mode = cli.dev 
         || config.node.mode.as_deref() == Some("dev")
         || config.consensus.dev_mode.unwrap_or(false);
@@ -164,6 +164,7 @@ async fn main() {
     println!("{}", "🚀 Starting TIME node...".green().bold());
     println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
     
+    // Load and display genesis block
     if let Some(genesis_path) = config.blockchain.genesis_file {
         let expanded_path = expand_path(&genesis_path);
         match load_genesis(&expanded_path) {
@@ -189,6 +190,7 @@ async fn main() {
     println!("\n{}", "Node Status: ACTIVE".green().bold());
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
     
+    // Heartbeat loop
     let mut counter = 0;
     loop {
         time::sleep(Duration::from_secs(60)).await;
