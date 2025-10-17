@@ -1,6 +1,15 @@
 [package]
 name = "time-network"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "macros"] }
+reqwest = { version = "0.11", features = ["json"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
