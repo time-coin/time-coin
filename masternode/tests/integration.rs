@@ -5,10 +5,10 @@ use time_core::COIN;
 fn test_masternode_lifecycle() {
     let mut registry = MasternodeRegistry::new();
     
-    // Register masternode
+    // Register Verified tier masternode
     let id = registry.register(
         "owner123".to_string(),
-        10_000 * COIN, // Gold tier
+        10_000 * COIN, // Verified tier
         NetworkInfo {
             ip_address: "127.0.0.1".to_string(),
             port: 9000,
@@ -24,26 +24,32 @@ fn test_masternode_lifecycle() {
     // Check status
     let mn = registry.get(&id).unwrap();
     assert!(mn.is_active());
-    assert_eq!(mn.tier, CollateralTier::Gold);
+    assert_eq!(mn.tier, CollateralTier::Verified);
     assert_eq!(mn.voting_power(), 10);
 }
 
 #[test]
 fn test_tier_benefits() {
     let benefits = TierBenefits::all();
-    assert_eq!(benefits.len(), 5);
+    assert_eq!(benefits.len(), 3);
     
-    // Check Bronze tier
-    let bronze = &benefits[0];
-    assert_eq!(bronze.collateral_required, 1_000 * COIN);
-    assert_eq!(bronze.apy, 18.0);
-    assert_eq!(bronze.voting_power, 1);
+    // Check Community tier
+    let community = &benefits[0];
+    assert_eq!(community.collateral_required, 1_000 * COIN);
+    assert_eq!(community.apy, 18.0);
+    assert_eq!(community.voting_power, 1);
     
-    // Check Diamond tier
-    let diamond = &benefits[4];
-    assert_eq!(diamond.collateral_required, 100_000 * COIN);
-    assert_eq!(diamond.apy, 30.0);
-    assert_eq!(diamond.voting_power, 100);
+    // Check Verified tier
+    let verified = &benefits[1];
+    assert_eq!(verified.collateral_required, 10_000 * COIN);
+    assert_eq!(verified.apy, 24.0);
+    assert_eq!(verified.voting_power, 10);
+    
+    // Check Professional tier
+    let professional = &benefits[2];
+    assert_eq!(professional.collateral_required, 100_000 * COIN);
+    assert_eq!(professional.apy, 30.0);
+    assert_eq!(professional.voting_power, 50);
 }
 
 #[test]
@@ -60,18 +66,36 @@ fn test_reward_calculation() {
 
 #[test]
 fn test_voting_power_scaling() {
-    // Bronze: 1x
-    assert_eq!(CollateralTier::Bronze.voting_multiplier(), 1);
+    // Community: 1x
+    assert_eq!(CollateralTier::Community.voting_multiplier(), 1);
     
-    // Silver: 5x
-    assert_eq!(CollateralTier::Silver.voting_multiplier(), 5);
+    // Verified: 10x
+    assert_eq!(CollateralTier::Verified.voting_multiplier(), 10);
     
-    // Gold: 10x
-    assert_eq!(CollateralTier::Gold.voting_multiplier(), 10);
+    // Professional: 50x
+    assert_eq!(CollateralTier::Professional.voting_multiplier(), 50);
+}
+
+#[test]
+fn test_tier_upgrade() {
+    let mut registry = MasternodeRegistry::new();
     
-    // Platinum: 50x
-    assert_eq!(CollateralTier::Platinum.voting_multiplier(), 50);
+    // Start with Community tier
+    let id = registry.register(
+        "owner".to_string(),
+        1_000 * COIN,
+        NetworkInfo {
+            ip_address: "127.0.0.1".to_string(),
+            port: 9000,
+            protocol_version: 1,
+            public_key: "pubkey".to_string(),
+        },
+        100,
+    ).unwrap();
     
-    // Diamond: 100x
-    assert_eq!(CollateralTier::Diamond.voting_multiplier(), 100);
+    let mn = registry.get(&id).unwrap();
+    assert_eq!(mn.tier, CollateralTier::Community);
+    
+    // Can upgrade by adding more collateral (future feature)
+    // This would require additional implementation
 }

@@ -5,87 +5,97 @@ use time_core::COIN;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CollateralTier {
-    Bronze,  // 1,000 TIME
-    Silver,  // 5,000 TIME
-    Gold,    // 10,000 TIME
-    Platinum, // 50,000 TIME
-    Diamond, // 100,000 TIME
+    Community,      // 1,000 TIME - Entry level
+    Verified,       // 10,000 TIME - Balanced
+    Professional,   // 50,000 TIME - Premium
 }
 
 impl CollateralTier {
     pub fn from_amount(amount: u64) -> Result<Self, String> {
         match amount {
-            x if x >= 100_000 * COIN => Ok(CollateralTier::Diamond),
-            x if x >= 50_000 * COIN => Ok(CollateralTier::Platinum),
-            x if x >= 10_000 * COIN => Ok(CollateralTier::Gold),
-            x if x >= 5_000 * COIN => Ok(CollateralTier::Silver),
-            x if x >= 1_000 * COIN => Ok(CollateralTier::Bronze),
-            _ => Err("Collateral amount too low".to_string()),
+            x if x >= 100_000 * COIN => Ok(CollateralTier::Professional),
+            x if x >= 10_000 * COIN => Ok(CollateralTier::Verified),
+            x if x >= 1_000 * COIN => Ok(CollateralTier::Community),
+            _ => Err("Minimum collateral is 1,000 TIME".to_string()),
         }
     }
 
     pub fn required_collateral(&self) -> u64 {
         match self {
-            CollateralTier::Bronze => 1_000 * COIN,
-            CollateralTier::Silver => 5_000 * COIN,
-            CollateralTier::Gold => 10_000 * COIN,
-            CollateralTier::Platinum => 50_000 * COIN,
-            CollateralTier::Diamond => 100_000 * COIN,
+            CollateralTier::Community => 1_000 * COIN,
+            CollateralTier::Verified => 10_000 * COIN,
+            CollateralTier::Professional => 100_000 * COIN,
         }
     }
 
     pub fn apy(&self) -> f64 {
         match self {
-            CollateralTier::Bronze => 18.0,
-            CollateralTier::Silver => 19.8,
-            CollateralTier::Gold => 22.5,
-            CollateralTier::Platinum => 27.0,
-            CollateralTier::Diamond => 30.0,
+            CollateralTier::Community => 18.0,
+            CollateralTier::Verified => 24.0,
+            CollateralTier::Professional => 30.0,
         }
     }
 
     pub fn voting_multiplier(&self) -> u64 {
         match self {
-            CollateralTier::Bronze => 1,
-            CollateralTier::Silver => 5,
-            CollateralTier::Gold => 10,
-            CollateralTier::Platinum => 50,
-            CollateralTier::Diamond => 100,
+            CollateralTier::Community => 1,
+            CollateralTier::Verified => 10,
+            CollateralTier::Professional => 50,
         }
     }
 
     pub fn reward_multiplier(&self) -> f64 {
-        1.0 + (self.apy() - 18.0) / 100.0
+        match self {
+            CollateralTier::Community => 1.0,
+            CollateralTier::Verified => 1.33,   // 33% boost
+            CollateralTier::Professional => 1.67, // 67% boost
+        }
+    }
+    
+    pub fn min_uptime(&self) -> f64 {
+        match self {
+            CollateralTier::Community => 0.90,      // 90%
+            CollateralTier::Verified => 0.95,       // 95%
+            CollateralTier::Professional => 0.98,   // 98%
+        }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TierBenefits {
     pub tier: CollateralTier,
+    pub name: String,
     pub collateral_required: u64,
     pub apy: f64,
     pub voting_power: u64,
     pub reward_multiplier: f64,
+    pub min_uptime: f64,
 }
 
 impl TierBenefits {
     pub fn for_tier(tier: CollateralTier) -> Self {
+        let name = match tier {
+            CollateralTier::Community => "Community",
+            CollateralTier::Verified => "Verified",
+            CollateralTier::Professional => "Professional",
+        };
+        
         TierBenefits {
             tier,
+            name: name.to_string(),
             collateral_required: tier.required_collateral(),
             apy: tier.apy(),
             voting_power: tier.voting_multiplier(),
             reward_multiplier: tier.reward_multiplier(),
+            min_uptime: tier.min_uptime(),
         }
     }
 
     pub fn all() -> Vec<Self> {
         vec![
-            Self::for_tier(CollateralTier::Bronze),
-            Self::for_tier(CollateralTier::Silver),
-            Self::for_tier(CollateralTier::Gold),
-            Self::for_tier(CollateralTier::Platinum),
-            Self::for_tier(CollateralTier::Diamond),
+            Self::for_tier(CollateralTier::Community),
+            Self::for_tier(CollateralTier::Verified),
+            Self::for_tier(CollateralTier::Professional),
         ]
     }
 }
@@ -98,17 +108,35 @@ mod tests {
     fn test_tier_from_amount() {
         assert_eq!(
             CollateralTier::from_amount(1_000 * COIN).unwrap(),
-            CollateralTier::Bronze
+            CollateralTier::Community
+        );
+        assert_eq!(
+            CollateralTier::from_amount(10_000 * COIN).unwrap(),
+            CollateralTier::Verified
         );
         assert_eq!(
             CollateralTier::from_amount(100_000 * COIN).unwrap(),
-            CollateralTier::Diamond
+            CollateralTier::Professional
         );
     }
 
     #[test]
     fn test_voting_power() {
-        assert_eq!(CollateralTier::Bronze.voting_multiplier(), 1);
-        assert_eq!(CollateralTier::Diamond.voting_multiplier(), 100);
+        assert_eq!(CollateralTier::Community.voting_multiplier(), 1);
+        assert_eq!(CollateralTier::Verified.voting_multiplier(), 10);
+        assert_eq!(CollateralTier::Professional.voting_multiplier(), 50);
+    }
+
+    #[test]
+    fn test_apy() {
+        assert_eq!(CollateralTier::Community.apy(), 18.0);
+        assert_eq!(CollateralTier::Verified.apy(), 24.0);
+        assert_eq!(CollateralTier::Professional.apy(), 30.0);
+    }
+
+    #[test]
+    fn test_tier_count() {
+        let tiers = TierBenefits::all();
+        assert_eq!(tiers.len(), 3);
     }
 }

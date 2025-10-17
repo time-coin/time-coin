@@ -26,10 +26,8 @@ TIME Coin separates transaction finality from block production:
 | Tier | Collateral | APY | Voting Power |
 |------|-----------|-----|--------------|
 | Bronze | 1,000 TIME | 18% | 1x |
-| Silver | 5,000 TIME | 19.8% | 5x |
-| Gold | 10,000 TIME | 22.5% | 10x |
-| Platinum | 50,000 TIME | 27% | 50x |
-| Diamond | 100,000 TIME | 30% | 100x |
+| Silver | 10,000 TIME | 19.8% | 5x |
+| Gold   | 100,000 TIME | 22.5% | 10x |
 
 ## Project Structure
 
@@ -70,6 +68,18 @@ cargo test --all
 # Run a node
 cargo run --bin time-node --release
 ```
+## Running a Node
+
+### Testnet
+
+Quick setup on Ubuntu:
+```bash
+wget https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup/setup-testnet-node.sh
+chmod +x setup-testnet-node.sh
+./setup-testnet-node.sh
+```
+
+See [setup/README.md](setup/README.md) for detailed instructions.
 
 ## Documentation
 
