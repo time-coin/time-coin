@@ -4,22 +4,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 
-/// Shared API state
 #[derive(Clone)]
 pub struct ApiState {
-    /// In-memory balances (for dev mode)
     pub balances: Arc<RwLock<HashMap<String, u64>>>,
-    
-    /// Transaction pool
     pub transactions: Arc<RwLock<HashMap<String, TransactionData>>>,
-    
-    /// Node start time
+    pub grants: Arc<RwLock<Vec<GrantData>>>,
     pub start_time: std::time::Instant,
-    
-    /// Dev mode enabled
     pub dev_mode: bool,
-    
-    /// Network type
     pub network: String,
 }
 
@@ -34,27 +25,47 @@ pub struct TransactionData {
     pub status: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct GrantData {
+    pub email: String,
+    pub verification_token: String,
+    pub verified: bool,
+    pub status: String,
+    pub grant_amount: u64,
+    pub applied_at: i64,
+    pub verified_at: Option<i64>,
+    pub activated_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub masternode_address: Option<String>,
+    pub public_key: Option<String>,
+}
+
 impl ApiState {
     pub fn new(dev_mode: bool, network: String) -> Self {
         let mut balances = HashMap::new();
         
-        // Initialize genesis balances
+        // Initialize genesis balances (1M TIME)
         balances.insert(
             "TIME1treasury00000000000000000000000000".to_string(),
-            10_000_000_000_000, // 100,000 TIME
+            50_000_000_000_000, // 500,000 TIME for grants
         );
         balances.insert(
             "TIME1development0000000000000000000000".to_string(),
-            5_000_000_000_000, // 50,000 TIME
+            10_000_000_000_000, // 100,000 TIME
         );
         balances.insert(
-            "TIME1masternode00000000000000000000000".to_string(),
-            85_000_000_000_000, // 850,000 TIME
+            "TIME1operations0000000000000000000000".to_string(),
+            10_000_000_000_000, // 100,000 TIME
+        );
+        balances.insert(
+            "TIME1rewards000000000000000000000000000".to_string(),
+            30_000_000_000_000, // 300,000 TIME
         );
         
         Self {
             balances: Arc::new(RwLock::new(balances)),
             transactions: Arc::new(RwLock::new(HashMap::new())),
+            grants: Arc::new(RwLock::new(Vec::new())),
             start_time: std::time::Instant::now(),
             dev_mode,
             network,

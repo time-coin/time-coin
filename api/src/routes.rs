@@ -4,7 +4,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use crate::{handlers, state::ApiState};
+use crate::{handlers, grant_handlers, state::ApiState};
 
 pub fn create_router(state: ApiState) -> Router {
     Router::new()
@@ -23,6 +23,16 @@ pub fn create_router(state: ApiState) -> Router {
         
         // Utilities
         .route("/keypair/generate", post(handlers::generate_keypair))
+        
+        // Grant System
+        .route("/grant/apply", post(grant_handlers::apply_for_grant))
+        .route("/grant/verify/:token", get(grant_handlers::verify_grant))
+        .route("/grant/status/:email", get(grant_handlers::get_grant_status))
+        .route("/masternode/activate", post(grant_handlers::activate_masternode))
+        .route("/masternode/decommission", post(grant_handlers::decommission_masternode))
+        
+        // Admin
+        .route("/admin/emails/export", get(grant_handlers::export_email_list))
         
         .with_state(state)
 }
