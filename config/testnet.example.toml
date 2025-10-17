@@ -1,7 +1,16 @@
 # TIME Coin Testnet Configuration
 
+[node]
+# Operating mode: "production" or "dev"
+# Dev mode: Single-node testing, auto-approves transactions
+# Production: Full BFT consensus with multiple masternodes
+mode = "dev"
+name = "testnet-node"
+data_dir = "$HOME/time-coin-node/data"
+log_dir = "$HOME/time-coin-node/logs"
+
 [network]
-mode = "testnet"
+network_type = "testnet"
 listen_addr = "0.0.0.0:24100"
 external_addr = "YOUR_PUBLIC_IP:24100"
 port = 24100
@@ -12,15 +21,21 @@ enabled = true
 bind = "127.0.0.1"
 port = 24101
 
-[node]
-name = "testnet-node"
-data_dir = "$HOME/time-coin-node/data"
-log_dir = "$HOME/time-coin-node/logs"
-
 [blockchain]
 # Path to genesis block
 genesis_file = "$HOME/time-coin-node/data/genesis-testnet.json"
 data_dir = "$HOME/time-coin-node/data/blockchain"
+
+[consensus]
+# Dev mode settings
+dev_mode = true              # Enable single-node testing
+auto_approve = true          # Auto-approve transactions
+mock_masternodes = 0         # Number of virtual masternodes (0 = none)
+
+# Production mode settings (used when mode = "production")
+min_quorum_size = 7          # Minimum masternodes for consensus
+vote_threshold = 0.67        # 67% = 2/3+ votes required
+max_quorum_size = 50         # Maximum quorum size
 
 [masternode]
 enabled = true
