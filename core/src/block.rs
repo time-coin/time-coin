@@ -22,21 +22,23 @@ pub struct Block {
 
 impl Block {
     pub fn new(block_number: u64, previous_hash: String) -> Self {
-        let header = BlockHeader {
-            block_number,
-            timestamp: Utc::now(),
-            previous_hash,
-            merkle_root: String::new(),
-            validator_signature: String::new(),
-        };
-
         let mut block = Block {
-            header,
+            header: BlockHeader {
+                block_number,
+                timestamp: Utc::now(),
+                previous_hash,
+                merkle_root: String::new(),
+                validator_signature: String::new(),
+            },
             transactions: Vec::new(),
             hash: String::new(),
         };
 
+        // Calculate merkle root first (will be "0" for empty block)
+        block.header.merkle_root = block.calculate_merkle_root();
+        // Then calculate hash
         block.hash = block.calculate_hash();
+        
         block
     }
 
@@ -74,13 +76,21 @@ impl Block {
 
     pub fn validate(&self) -> Result<(), String> {
         // Validate hash
-        if self.hash != self.calculate_hash() {
-            return Err("Invalid block hash".to_string());
+        let calculated_hash = self.calculate_hash();
+        if self.hash != calculated_hash {
+            return Err(format!(
+                "Invalid block hash. Expected: {}, Got: {}",
+                calculated_hash, self.hash
+            ));
         }
 
         // Validate merkle root
-        if self.header.merkle_root != self.calculate_merkle_root() {
-            return Err("Invalid merkle root".to_string());
+        let calculated_merkle = self.calculate_merkle_root();
+        if self.header.merkle_root != calculated_merkle {
+            return Err(format!(
+                "Invalid merkle root. Expected: {}, Got: {}",
+                calculated_merkle, self.header.merkle_root
+            ));
         }
 
         Ok(())
@@ -97,22 +107,67 @@ mod tests {
         assert_eq!(block.header.block_number, 1);
         assert_eq!(block.header.previous_hash, "genesis");
         assert!(!block.hash.is_empty());
+        assert_eq!(block.header.merkle_root, "0"); // Empty block has merkle root "0"
     }
 
     #[test]
     fn test_add_transaction() {
         let mut block = Block::new(1, "genesis".to_string());
         let initial_hash = block.hash.clone();
+        let initial_merkle = block.header.merkle_root.clone();
         
         block.add_transaction("tx123".to_string());
         
         assert_eq!(block.transactions.len(), 1);
         assert_ne!(block.hash, initial_hash); // Hash should change
+        assert_ne!(block.header.merkle_root, initial_merkle); // Merkle root should change
     }
 
     #[test]
     fn test_block_validation() {
         let block = Block::new(1, "genesis".to_string());
         assert!(block.validate().is_ok());
+    }
+
+    #[test]
+    fn test_block_with_transactions_validation() {
+        let mut block = Block::new(1, "genesis".to_string());
+        block.add_transaction("tx1".to_string());
+        block.add_transaction("tx2".to_string());
+        
+        assert!(block.validate().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_hash_detection() {
+        let mut block = Block::new(1, "genesis".to_string());
+        block.hash = "invalid_hash".to_string();
+        
+        assert!(block.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_merkle_root_detection() {
+        let mut block = Block::new(1, "genesis".to_string());
+        block.header.merkle_root = "invalid_merkle".to_string();
+        
+        assert!(block.validate().is_err());
+    }
+
+    #[test]
+    fn test_merkle_root_changes_with_transactions() {
+        let mut block = Block::new(1, "genesis".to_string());
+        let empty_merkle = block.header.merkle_root.clone();
+        
+        block.add_transaction("tx1".to_string());
+        let one_tx_merkle = block.header.merkle_root.clone();
+        
+        block.add_transaction("tx2".to_string());
+        let two_tx_merkle = block.header.merkle_root.clone();
+        
+        // All should be different
+        assert_ne!(empty_merkle, one_tx_merkle);
+        assert_ne!(one_tx_merkle, two_tx_merkle);
+        assert_ne!(empty_merkle, two_tx_merkle);
     }
 }
