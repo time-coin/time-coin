@@ -1,0 +1,36 @@
+# TIME Coin Testnet Configuration
+
+[network]
+mode = "testnet"
+listen_addr = "0.0.0.0:24100"
+external_addr = "YOUR_PUBLIC_IP:24100"
+port = 24100
+max_peers = 50
+
+[rpc]
+enabled = true
+bind = "127.0.0.1"
+port = 24101
+
+[node]
+name = "testnet-node"
+data_dir = "$HOME/time-coin-node/data"
+log_dir = "$HOME/time-coin-node/logs"
+
+[blockchain]
+# Path to genesis block
+genesis_file = "$HOME/time-coin-node/data/genesis-testnet.json"
+data_dir = "$HOME/time-coin-node/data/blockchain"
+
+[masternode]
+enabled = true
+tier = "Community"
+collateral = 1000
+testnet_mode = true
+testnet_auto_fund = true
+
+[logging]
+level = "info"
+file = "$HOME/time-coin-node/logs/node.log"
+max_size = "100MB"
+max_backups = 5
