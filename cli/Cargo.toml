@@ -1,17 +1,19 @@
 [package]
 name = "time-node"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [[bin]]
 name = "time-node"
 path = "src/main.rs"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.35", features = ["full"] }
+time-core = { path = "../core" }
+time-api = { path = "../api" }
+
 clap = { version = "4.4", features = ["derive"] }
-chrono = "0.4"
-colored = "2.0"
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
+colored = "2.1"
+chrono = "0.4"
