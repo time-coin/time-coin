@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc, Timelike};
+use chrono::{DateTime, Utc};
 
 pub type Address = String;
 pub type TxHash = String;

@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod quorum;
@@ -164,7 +164,7 @@ impl ConsensusEngine {
         
         // 2. Calculate required votes
         let total_power: u64 = quorum.iter().map(|n| n.voting_power()).sum();
-        let required_power = (total_power as f64 * self.vote_threshold) as u64;
+        let _required_power = (total_power as f64 * self.vote_threshold) as u64;
         
         // 3. In a real implementation, this would:
         //    - Broadcast transaction to quorum

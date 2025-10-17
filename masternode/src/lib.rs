@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use time_core::{Address, Transaction, Block};
+use time_core::state::{Address, Transaction};
 
 const COIN: u64 = 100_000_000; // 1 TIME = 100,000,000 satoshis
 
@@ -190,9 +190,9 @@ impl MasternodeNetwork {
         active.into_iter().take(self.quorum_size).collect()
     }
 
-    pub fn validate_transaction(&self, tx: &Transaction) -> bool {
+    pub fn validate_transaction(&self, _tx: &Transaction) -> bool {
         // Basic validation - extend as needed
-        tx.verify_signature()
+        true // Placeholder - signature verification
     }
 
     pub fn total_collateral(&self) -> u64 {

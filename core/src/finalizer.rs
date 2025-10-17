@@ -5,7 +5,7 @@
 use crate::state::{DailyState, StateSnapshot};
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizedBlock {
