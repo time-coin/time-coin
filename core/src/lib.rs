@@ -23,3 +23,4 @@ mod tests {
         assert!(!version().is_empty());
     }
 }
+pub mod finalizer;

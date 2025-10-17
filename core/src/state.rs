@@ -1,123 +1,168 @@
-//! Blockchain state management
+//! TIME Coin In-Memory State Manager
+//! 
+//! Manages current day state (cleared every 24 hours)
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use chrono::{DateTime, Utc, Timelike};
+
+pub type Address = String;
+pub type TxHash = String;
+
+/// Current day in-memory state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyState {
+    /// When this day started (00:00 UTC)
+    pub day_start: DateTime<Utc>,
+    
+    /// Current block height (day number since genesis)
+    pub current_height: u64,
+    
+    /// All transactions received today
+    pub transactions: Vec<Transaction>,
+    
+    /// Current account balances (UTXO-style)
+    pub balances: HashMap<Address, u64>,
+    
+    /// Active masternodes
+    pub masternodes: HashMap<Address, MasternodeInfo>,
+    
+    /// Pending transactions (mempool)
+    pub mempool: Vec<Transaction>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Account {
-    pub address: String,
-    pub balance: u64,
-    pub nonce: u64,
+pub struct Transaction {
+    pub txid: TxHash,
+    pub from: Address,
+    pub to: Address,
+    pub amount: u64,
+    pub fee: u64,
+    pub timestamp: i64,
+    pub signature: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChainState {
-    pub accounts: HashMap<String, Account>,
-    pub total_supply: u64,
-    pub current_block: u64,
+pub struct MasternodeInfo {
+    pub address: Address,
+    pub collateral: u64,
+    pub tier: String,
+    pub active_since: i64,
+    pub last_seen: i64,
 }
 
-impl ChainState {
-    pub fn new() -> Self {
-        ChainState {
-            accounts: HashMap::new(),
-            total_supply: 0,
-            current_block: 0,
+impl DailyState {
+    /// Create new state for today
+    pub fn new(height: u64) -> Self {
+        let now = Utc::now();
+        let day_start = now
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
+        
+        Self {
+            day_start,
+            current_height: height,
+            transactions: Vec::new(),
+            balances: HashMap::new(),
+            masternodes: HashMap::new(),
+            mempool: Vec::new(),
         }
     }
-
-    pub fn get_balance(&self, address: &str) -> u64 {
-        self.accounts
-            .get(address)
-            .map(|acc| acc.balance)
-            .unwrap_or(0)
+    
+    /// Check if we should finalize (past midnight UTC)
+    pub fn should_finalize(&self) -> bool {
+        let now = Utc::now();
+        now.date_naive() > self.day_start.date_naive()
     }
-
-    pub fn transfer(&mut self, from: &str, to: &str, amount: u64, fee: u64) -> Result<(), String> {
-        // Get sender account
-        let sender = self.accounts.get_mut(from)
-            .ok_or("Sender account not found")?;
-
-        // Check balance
-        let total = amount.checked_add(fee)
-            .ok_or("Amount overflow")?;
-        if sender.balance < total {
-            return Err("Insufficient balance".to_string());
+    
+    /// Get time until finalization
+    pub fn seconds_until_finalize(&self) -> i64 {
+        let next_midnight = self.day_start + chrono::Duration::days(1);
+        (next_midnight - Utc::now()).num_seconds()
+    }
+    
+    /// Add transaction to mempool
+    pub fn add_to_mempool(&mut self, tx: Transaction) {
+        self.mempool.push(tx);
+    }
+    
+    /// Process transaction (move from mempool to confirmed)
+    pub fn confirm_transaction(&mut self, txid: &str) -> Option<Transaction> {
+        if let Some(pos) = self.mempool.iter().position(|tx| tx.txid == txid) {
+            let tx = self.mempool.remove(pos);
+            
+            // Update balances
+            if let Some(balance) = self.balances.get_mut(&tx.from) {
+                *balance = balance.saturating_sub(tx.amount + tx.fee);
+            }
+            
+            *self.balances.entry(tx.to.clone()).or_insert(0) += tx.amount;
+            
+            self.transactions.push(tx.clone());
+            Some(tx)
+        } else {
+            None
         }
-
-        // Deduct from sender
-        sender.balance -= total;
-        sender.nonce += 1;
-
-        // Add to recipient
-        let recipient = self.accounts.entry(to.to_string())
-            .or_insert(Account {
-                address: to.to_string(),
-                balance: 0,
-                nonce: 0,
-            });
-        recipient.balance += amount;
-
-        Ok(())
     }
-
-    pub fn mint(&mut self, recipient: &str, amount: u64) -> Result<(), String> {
-        // Check max supply
-        let new_supply = self.total_supply.checked_add(amount)
-            .ok_or("Supply overflow")?;
-        if new_supply > crate::constants::MAX_SUPPLY {
-            return Err("Max supply exceeded".to_string());
+    
+    /// Get balance
+    pub fn get_balance(&self, address: &Address) -> u64 {
+        *self.balances.get(address).unwrap_or(&0)
+    }
+    
+    /// Set balance (for genesis/rewards)
+    pub fn set_balance(&mut self, address: Address, amount: u64) {
+        self.balances.insert(address, amount);
+    }
+    
+    /// Create state snapshot for block
+    pub fn create_snapshot(&self) -> StateSnapshot {
+        StateSnapshot {
+            balances: self.balances.clone(),
+            transaction_count: self.transactions.len() as u64,
+            total_fees: self.transactions.iter().map(|tx| tx.fee).sum(),
         }
-
-        // Add to recipient
-        let account = self.accounts.entry(recipient.to_string())
-            .or_insert(Account {
-                address: recipient.to_string(),
-                balance: 0,
-                nonce: 0,
-            });
-        account.balance += amount;
-        self.total_supply += amount;
-
-        Ok(())
-    }
-
-    pub fn increment_block(&mut self) {
-        self.current_block += 1;
     }
 }
 
-impl Default for ChainState {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Snapshot of state (saved in block)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateSnapshot {
+    pub balances: HashMap<Address, u64>,
+    pub transaction_count: u64,
+    pub total_fees: u64,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    
     #[test]
-    fn test_mint() {
-        let mut state = ChainState::new();
+    fn test_daily_state() {
+        let mut state = DailyState::new(1);
         
-        let result = state.mint("alice", 1000);
-        assert!(result.is_ok());
-        assert_eq!(state.get_balance("alice"), 1000);
-        assert_eq!(state.total_supply, 1000);
-    }
-
-    #[test]
-    fn test_transfer() {
-        let mut state = ChainState::new();
+        state.set_balance("addr1".to_string(), 1000);
+        assert_eq!(state.get_balance(&"addr1".to_string()), 1000);
         
-        // Mint to alice
-        state.mint("alice", 1000).unwrap();
+        let tx = Transaction {
+            txid: "tx1".to_string(),
+            from: "addr1".to_string(),
+            to: "addr2".to_string(),
+            amount: 100,
+            fee: 1,
+            timestamp: Utc::now().timestamp(),
+            signature: vec![],
+        };
         
-        // Transfer to bob
-        let result = state.transfer("alice", "bob", 500, 10);
-        assert!(result.is_ok());
-        assert_eq!(state.get_balance("alice"), 490);
-        assert_eq!(state.get_balance("bob"), 500);
+        state.add_to_mempool(tx);
+        assert_eq!(state.mempool.len(), 1);
+        
+        state.confirm_transaction("tx1");
+        assert_eq!(state.mempool.len(), 0);
+        assert_eq!(state.transactions.len(), 1);
+        assert_eq!(state.get_balance(&"addr1".to_string()), 899);
+        assert_eq!(state.get_balance(&"addr2".to_string()), 100);
     }
 }
