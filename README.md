@@ -8,7 +8,7 @@ A next-generation cryptocurrency featuring 24-hour time blocks, instant transact
 - 🕐 **24-Hour Blocks**: Daily settlement for immutable checkpoints
 - 🔗 **Masternode Network**: Byzantine Fault Tolerant consensus
 - 💰 **Tiered Staking**: 18-30% APY across 5 collateral tiers
-- 🏛️ **Community Treasury**: Decentralized governance
+- 🛡️ **Community Treasury**: Decentralized governance
 - 🚀 **Fair Launch**: No pre-mine, purchase-based minting
 
 ## Architecture
@@ -51,8 +51,9 @@ time-coin/
 
 - Rust 1.75 or higher
 - Git
+- Ubuntu 20.04+ (for masternode deployment)
 
-### Building
+### Building from Source
 
 ```bash
 # Clone the repository
@@ -68,18 +69,83 @@ cargo test --all
 # Run a node
 cargo run --bin time-node --release
 ```
-## Running a Node
 
-### Testnet
+## Running a Masternode
 
-Quick setup on Ubuntu:
+### Quick Installation (Ubuntu)
+
+Setting up a TIME Coin masternode is a two-step process:
+
+#### Step 1: System Setup (One-time)
+
+Prepare your Ubuntu server with all dependencies:
+
 ```bash
-wget https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup/setup-testnet-node.sh
-chmod +x setup-testnet-node.sh
-./setup-testnet-node.sh
+curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup-system.sh
+chmod +x setup-system.sh
+sudo ./setup-system.sh
 ```
 
-See [setup/README.md](setup/README.md) for detailed instructions.
+This installs:
+- Build tools and dependencies
+- Rust toolchain
+- TIME Coin repository
+
+#### Step 2: Install Masternode
+
+Build and deploy the masternode:
+
+```bash
+cd ~/projects/time-coin
+sudo ./scripts/install-masternode.sh
+```
+
+This will:
+- Build TIME Coin in release mode
+- Install the `time-node` binary
+- Create configuration (ports 24100/24101 for testnet)
+- Set up systemd service
+- Start your masternode
+
+### Post-Installation
+
+Monitor your masternode:
+
+```bash
+# Check status
+sudo systemctl status time-node
+
+# View live logs
+sudo journalctl -u time-node -f
+
+# Restart if needed
+sudo systemctl restart time-node
+```
+
+### Updating Your Masternode
+
+To update to the latest version:
+
+```bash
+cd ~/projects/time-coin
+git pull origin main
+sudo ./scripts/install-masternode.sh
+```
+
+### Network Ports
+
+TIME Coin uses 24-hour themed ports:
+
+| Network | P2P Port | RPC Port |
+|---------|----------|----------|
+| Testnet | 24100 | 24101 |
+| Mainnet | 24000 | 24001 |
+
+If using a firewall, allow the P2P port:
+
+```bash
+sudo ufw allow 24100/tcp comment 'TIME Coin Testnet P2P'
+```
 
 ## Documentation
 
