@@ -8,6 +8,7 @@ name = "time-node"
 path = "src/main.rs"
 
 [dependencies]
+time-network = { path = "../network" }
 time-core = { path = "../core" }
 time-api = { path = "../api" }
 
