@@ -300,3 +300,4 @@ mod tests {
         assert_eq!(dist.get(&CollateralTier::Professional), Some(&1));
     }
 }
+pub mod status;

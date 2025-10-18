@@ -12,3 +12,4 @@ pub mod transaction;
 pub use transaction::ValidationError;
 pub mod mempool;
 pub use mempool::TransactionPool;
+pub mod masternode_tx;
