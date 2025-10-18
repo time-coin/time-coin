@@ -3,16 +3,18 @@
 #############################################################
 # TIME Coin Masternode Installation Script
 # 
+# This script assumes you have already run setup-system.sh
+# and the TIME Coin repository is cloned.
+#
 # This script will:
-# - Install all required dependencies
-# - Clone and build the TIME coin repository
+# - Build the TIME coin project
+# - Install the masternode binary
 # - Set up the masternode configuration
 # - Create and start the systemd service
 #
 # Usage: 
-#   curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/install-masternode.sh
-#   chmod +x install-masternode.sh
-#   sudo ./install-masternode.sh
+#   cd ~/projects/time-coin
+#   sudo ./scripts/install-masternode.sh
 #############################################################
 
 set -e  # Exit on any error
@@ -25,8 +27,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_URL="https://github.com/time-coin/time-coin.git"
-INSTALL_DIR="$HOME/projects/time-coin"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_DIR="$HOME/time-coin-node"
 CONFIG_DIR="$NODE_DIR/config"
 SERVICE_NAME="time-node"
@@ -64,97 +65,47 @@ check_root() {
     fi
 }
 
+check_prerequisites() {
+    print_header "Checking Prerequisites"
+    
+    # Check if in correct directory
+    if [ ! -f "$REPO_DIR/Cargo.toml" ]; then
+        print_error "Not in TIME Coin repository directory!"
+        print_info "Please run this script from: ~/projects/time-coin/"
+        exit 1
+    fi
+    
+    # Check if Rust is installed
+    if ! su - $SUDO_USER -c "command -v cargo" &> /dev/null; then
+        print_error "Rust is not installed!"
+        print_info "Please run setup-system.sh first"
+        exit 1
+    fi
+    
+    print_success "Prerequisites check passed"
+    print_info "Repository: $REPO_DIR"
+    print_info "Rust: $(su - $SUDO_USER -c 'source $HOME/.cargo/env && rustc --version')"
+}
+
 #############################################################
 # Installation Steps
 #############################################################
 
-install_system_dependencies() {
-    print_header "Installing System Dependencies"
-    
-    apt update
-    apt upgrade -y
-    
-    apt install -y \
-        build-essential \
-        curl \
-        git \
-        pkg-config \
-        libssl-dev \
-        ca-certificates
-    
-    print_success "System dependencies installed"
-}
-
-install_rust() {
-    print_header "Installing Rust"
-    
-    # Check if Rust is already installed
-    if command -v rustc &> /dev/null; then
-        print_info "Rust is already installed: $(rustc --version)"
-        read -p "Do you want to update it? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            su - $SUDO_USER -c "rustup update"
-            print_success "Rust updated"
-        fi
-    else
-        # Install Rust as the non-root user
-        su - $SUDO_USER -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-        su - $SUDO_USER -c "source \$HOME/.cargo/env"
-        
-        print_success "Rust installed"
-    fi
-    
-    # Add Rust components
-    su - $SUDO_USER -c "source \$HOME/.cargo/env && rustup component add rustfmt clippy"
-    
-    # Verify installation
-    RUST_VERSION=$(su - $SUDO_USER -c "source \$HOME/.cargo/env && rustc --version")
-    CARGO_VERSION=$(su - $SUDO_USER -c "source \$HOME/.cargo/env && cargo --version")
-    
-    print_info "Rust: $RUST_VERSION"
-    print_info "Cargo: $CARGO_VERSION"
-}
-
-clone_repository() {
-    print_header "Cloning TIME Coin Repository"
-    
-    # Create projects directory
-    su - $SUDO_USER -c "mkdir -p $(dirname $INSTALL_DIR)"
-    
-    # Remove existing directory if it exists
-    if [ -d "$INSTALL_DIR" ]; then
-        print_warning "Directory $INSTALL_DIR already exists"
-        read -p "Do you want to remove it and clone fresh? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            rm -rf "$INSTALL_DIR"
-            print_info "Removed existing directory"
-        else
-            print_info "Using existing directory"
-            return
-        fi
-    fi
-    
-    # Clone the repository
-    su - $SUDO_USER -c "git clone $REPO_URL $INSTALL_DIR"
-    
-    print_success "Repository cloned to $INSTALL_DIR"
-}
-
 build_project() {
-    print_header "Building TIME Coin"
+    print_header "Building TIME Coin Masternode"
     
-    print_info "This may take 5-10 minutes..."
+    print_info "This may take 5-10 minutes on first build..."
     
-    # Build the project
-    su - $SUDO_USER -c "cd $INSTALL_DIR && source \$HOME/.cargo/env && cargo build --all --release"
+    cd "$REPO_DIR"
+    
+    # Build the project as the non-root user
+    su - $SUDO_USER -c "cd $REPO_DIR && source \$HOME/.cargo/env && cargo build --release --bin time-node"
     
     print_success "TIME Coin built successfully"
     
-    # Show the binary
-    if [ -f "$INSTALL_DIR/target/release/time-node" ]; then
-        BINARY_SIZE=$(du -h "$INSTALL_DIR/target/release/time-node" | cut -f1)
+    # Show the binary info
+    if [ -f "$REPO_DIR/target/release/time-node" ]; then
+        BINARY_SIZE=$(du -h "$REPO_DIR/target/release/time-node" | cut -f1)
         print_info "Binary size: $BINARY_SIZE"
     fi
 }
@@ -162,8 +113,14 @@ build_project() {
 install_binary() {
     print_header "Installing TIME Node Binary"
     
+    # Stop service if running
+    if systemctl is-active --quiet ${SERVICE_NAME}; then
+        print_info "Stopping existing service..."
+        systemctl stop ${SERVICE_NAME}
+    fi
+    
     # Copy binary to system path
-    cp "$INSTALL_DIR/target/release/time-node" /usr/local/bin/
+    cp "$REPO_DIR/target/release/time-node" /usr/local/bin/
     chmod +x /usr/local/bin/time-node
     
     # Verify installation
@@ -178,23 +135,26 @@ install_binary() {
 setup_masternode_config() {
     print_header "Setting Up Masternode Configuration"
     
-    # Create node directory structure
+    # Create node directory structure as non-root user
     su - $SUDO_USER -c "mkdir -p $CONFIG_DIR"
     su - $SUDO_USER -c "mkdir -p $NODE_DIR/data"
     su - $SUDO_USER -c "mkdir -p $NODE_DIR/logs"
     
-    # Generate keypair
-    print_info "Generating masternode keypair..."
+    # Check if config already exists
+    if [ -f "$CONFIG_DIR/testnet.toml" ]; then
+        print_warning "Configuration file already exists"
+        read -p "Do you want to overwrite it? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Keeping existing configuration"
+            return
+        fi
+    fi
     
-    # Create a simple config generator script
-    cat > /tmp/generate_config.sh << 'CONFIGEOF'
-#!/bin/bash
-source $HOME/.cargo/env
-cd $HOME/projects/time-coin
-
-# Generate keypair using the crypto library
-# This is a placeholder - you may need to create a CLI tool to generate keys
-cat > $HOME/time-coin-node/config/testnet.toml << 'EOF'
+    # Create configuration file
+    print_info "Creating testnet configuration..."
+    
+    su - $SUDO_USER -c "cat > $CONFIG_DIR/testnet.toml" << 'EOF'
 # TIME Coin Testnet Configuration
 
 [network]
@@ -216,16 +176,10 @@ data_dir = "./data"
 [logging]
 level = "info"
 EOF
-
-echo "✅ Configuration file created"
-CONFIGEOF
-    
-    chmod +x /tmp/generate_config.sh
-    su - $SUDO_USER -c "/tmp/generate_config.sh"
-    rm /tmp/generate_config.sh
     
     print_success "Masternode configuration created"
     print_info "Config location: $CONFIG_DIR/testnet.toml"
+    print_info "Ports: P2P=24100, RPC=24101 (testnet)"
 }
 
 create_systemd_service() {
@@ -281,7 +235,7 @@ start_masternode() {
         
         echo ""
         print_info "Service Status:"
-        systemctl status ${SERVICE_NAME} --no-pager | head -15
+        systemctl status ${SERVICE_NAME} --no-pager -l | head -15
     else
         print_error "Failed to start masternode"
         print_info "Check logs with: journalctl -u ${SERVICE_NAME} -f"
@@ -290,7 +244,7 @@ start_masternode() {
 }
 
 show_summary() {
-    print_header "Installation Complete!"
+    print_header "Masternode Installation Complete!"
     
     cat << EOF
 
@@ -298,11 +252,12 @@ ${GREEN}✅ TIME Coin Masternode Successfully Installed!${NC}
 
 ${BLUE}Installation Details:${NC}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Repository:        $INSTALL_DIR
+Repository:        $REPO_DIR
 Node Directory:    $NODE_DIR
 Configuration:     $CONFIG_DIR/testnet.toml
 Binary:            /usr/local/bin/time-node
 Service:           ${SERVICE_NAME}.service
+Network Ports:     24100 (P2P), 24101 (RPC)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${BLUE}Useful Commands:${NC}
@@ -315,12 +270,16 @@ Restart node:      sudo systemctl restart ${SERVICE_NAME}
 Disable service:   sudo systemctl disable ${SERVICE_NAME}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${BLUE}Next Steps:${NC}
+${BLUE}Firewall (if needed):${NC}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Monitor logs to ensure the node is syncing
-2. Generate or import your masternode keys
-3. Register your masternode on the network
-4. Verify your masternode is active
+sudo ufw allow 24100/tcp comment 'TIME Coin Testnet P2P'
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${BLUE}To Update Masternode:${NC}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd $REPO_DIR
+git pull origin main
+sudo ./scripts/install-masternode.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${GREEN}Happy Mining! 🚀${NC}
@@ -338,10 +297,10 @@ main() {
     # Check if running as root
     check_root
     
+    # Check prerequisites
+    check_prerequisites
+    
     # Run installation steps
-    install_system_dependencies
-    install_rust
-    clone_repository
     build_project
     install_binary
     setup_masternode_config
