@@ -66,7 +66,7 @@ impl Transaction {
         
         let message = self.signable_message();
         let signature = keypair.sign(&message);
-        self.signature = signature;
+        self.signature = hex::encode(signature);
         
         Ok(())
     }

@@ -32,6 +32,23 @@ impl KeyPair {
             verifying_key,
         }
     }
+
+    pub fn from_private_key(private_key_hex: &str) -> Result<Self, CryptoError> {
+        let key_bytes = hex::decode(private_key_hex)
+            .map_err(|_| CryptoError::InvalidPrivateKey)?;
+        
+        let key_array: [u8; 32] = key_bytes
+            .try_into()
+            .map_err(|_| CryptoError::InvalidPrivateKey)?;
+        
+        let signing_key = SigningKey::from_bytes(&key_array);
+        let verifying_key = signing_key.verifying_key();
+        
+        Ok(Self {
+            signing_key,
+            verifying_key,
+        })
+    }
     
     pub fn public_key_hex(&self) -> String {
         hex::encode(self.verifying_key.to_bytes())
