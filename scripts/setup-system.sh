@@ -27,7 +27,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 REPO_URL="https://github.com/time-coin/time-coin.git"
-INSTALL_DIR="$HOME/projects/time-coin"
+INSTALL_DIR="$HOME/time-coin"
 
 #############################################################
 # Helper Functions

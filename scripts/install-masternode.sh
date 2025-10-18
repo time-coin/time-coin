@@ -13,7 +13,7 @@
 # - Create and start the systemd service
 #
 # Usage: 
-#   cd ~/projects/time-coin
+#   cd ~/time-coin
 #   sudo ./scripts/install-masternode.sh
 #############################################################
 
@@ -71,7 +71,7 @@ check_prerequisites() {
     # Check if in correct directory
     if [ ! -f "$REPO_DIR/Cargo.toml" ]; then
         print_error "Not in TIME Coin repository directory!"
-        print_info "Please run this script from: ~/projects/time-coin/"
+        print_info "Please run this script from: ~/time-coin/"
         exit 1
     fi
     

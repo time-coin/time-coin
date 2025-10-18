@@ -59,6 +59,8 @@ time-coin/
 # Clone the repository
 git clone https://github.com/time-coin/time-coin.git
 cd time-coin
+cd time-coin
+cd time-coin
 
 # Build all components
 cargo build --release
@@ -96,7 +98,7 @@ This installs:
 Build and deploy the masternode:
 
 ```bash
-cd ~/projects/time-coin
+cd ~/time-coin
 sudo ./scripts/install-masternode.sh
 ```
 
@@ -127,7 +129,7 @@ sudo systemctl restart time-node
 To update to the latest version:
 
 ```bash
-cd ~/projects/time-coin
+cd ~/time-coin
 git pull origin main
 sudo ./scripts/install-masternode.sh
 ```
