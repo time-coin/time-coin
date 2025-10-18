@@ -198,7 +198,7 @@ cat > $HOME/time-coin-node/config/testnet.toml << 'EOF'
 # TIME Coin Testnet Configuration
 
 [network]
-listen_addr = "0.0.0.0:30333"
+listen_addr = "0.0.0.0:24100"
 external_addr = ""
 bootstrap_nodes = []
 
@@ -208,7 +208,7 @@ enabled = true
 
 [rpc]
 enabled = true
-listen_addr = "127.0.0.1:9933"
+listen_addr = "127.0.0.1:24101"
 
 [storage]
 data_dir = "./data"
