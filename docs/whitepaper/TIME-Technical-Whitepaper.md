@@ -55,6 +55,7 @@ TIME is a global payment network enabling cryptocurrency transactions through mu
 **Layer 1: Instant Validation Layer**
 - Masternode operators validate transactions immediately
 - Byzantine Fault Tolerant (BFT) consensus among active validators
+- Minimum 4 active masternodes required to form a quorum
 - Transactions confirmed in 1-3 seconds
 - Optimistic execution with fraud proofs
 

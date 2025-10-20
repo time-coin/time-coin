@@ -251,6 +251,8 @@ Comparison:
 
 ### Modified Byzantine Fault Tolerant (BFT)
 
+- Minimum of 4 active masternodes required to initiate a voting round
+
 #### Core Algorithm
 
 **Consensus Phases:**
