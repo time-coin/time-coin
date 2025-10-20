@@ -168,7 +168,7 @@ mod tests {
 }
 
 // --- Auto-added: implement Iterator for Mempool to satisfy clippy::should_implement_trait
-impl Iterator for Mempool {
+impl Iterator for TransactionPool {
     type Item = Transaction;
 
     fn next(&mut self) -> Option<Self::Item> {
