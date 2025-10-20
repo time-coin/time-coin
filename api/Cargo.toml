@@ -9,7 +9,7 @@ time-crypto = { path = "../crypto" }
 time-consensus = { path = "../consensus" }
 
 # Web framework
-axum = "0.7"
+axum = "0.8"
 tokio = { version = "1.35", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
