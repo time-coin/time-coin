@@ -9,8 +9,6 @@ pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, Pee
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_network_module() {
-        assert!(true);
-    }
+    fn test_network_module() {}
 }
 pub mod sync;

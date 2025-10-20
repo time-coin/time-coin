@@ -1,4 +1,4 @@
-//! TIME Coin Core Library
+/// TIME Coin Core Library
 /// Smallest unit constant (1 COIN in satoshi-like units)
 pub const COIN: u64 = 100_000_000;
 
