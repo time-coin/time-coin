@@ -13,7 +13,7 @@ jobs:
       has_cargo: ${{ steps.chk.outputs.has_cargo }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - id: chk
         run: |
           if [ -f Cargo.toml ]; then
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -66,6 +66,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Notice
         run: echo "No Cargo.toml found — Rust CI skipped."
