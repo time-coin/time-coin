@@ -168,7 +168,7 @@ mod tests {
 }
 
 // --- Auto-added: implement Iterator for Mempool to satisfy clippy::should_implement_trait
-#[allow(clippy::items-after-test-module)]
+#[allow(clippy::items_after_test_module)]
 impl Iterator for TransactionPool {
     type Item = Transaction;
 
