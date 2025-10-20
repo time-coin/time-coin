@@ -60,6 +60,7 @@ pub struct BlockchainInfoResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct BlockResponse {
     pub height: u64,
     pub hash: String,
@@ -73,6 +74,7 @@ pub struct BlockResponse {
 // ============================================
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct MasternodeInfoResponse {
     pub address: String,
     pub tier: String,
@@ -112,6 +114,7 @@ pub struct HealthResponse {
 // ============================================
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ErrorResponse {
     pub error: String,
     pub message: String,

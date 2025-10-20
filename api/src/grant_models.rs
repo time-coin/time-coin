@@ -66,6 +66,7 @@ pub struct DecommissionResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct UnlockStatusResponse {
     pub masternode_address: String,
     pub status: String,
