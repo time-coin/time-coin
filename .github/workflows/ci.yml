@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      has_cargo: ${{ steps.chk.outputs.has_cargo }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: chk
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "has_cargo=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_cargo=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  rust:
+    needs: detect
+    if: needs.detect.outputs.has_cargo == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --all-features --no-fail-fast
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: cargo-deny (advisories, bans, licenses, sources)
+        run: cargo deny check --hide-inclusion-graph
+
+  noop:
+    needs: detect
+    if: needs.detect.outputs.has_cargo != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Notice
+        run: echo "No Cargo.toml found — Rust CI skipped."
