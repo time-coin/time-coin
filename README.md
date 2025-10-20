@@ -59,8 +59,6 @@ time-coin/
 # Clone the repository
 git clone https://github.com/time-coin/time-coin.git
 cd time-coin
-cd time-coin
-cd time-coin
 
 # Build all components
 cargo build --release

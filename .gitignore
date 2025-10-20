@@ -32,3 +32,4 @@ logs/
 # Build
 dist/
 build/
+FETCH_HEAD
