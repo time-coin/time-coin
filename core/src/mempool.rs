@@ -65,7 +65,7 @@ impl TransactionPool {
     }
 
     /// Get next transaction for processing
-    pub fn next(&mut self) -> Option<Transaction> {
+    pub fn next_tx(&mut self) -> Option<Transaction> {
         if let Some(txid) = self.queue.pop_front() {
             self.transactions.remove(&txid)
         } else {
@@ -164,5 +164,18 @@ mod tests {
         let tx2 = pool.next();
         assert!(tx2.is_some());
         assert_eq!(pool.len(), 0);
+    }
+}
+
+// --- Auto-added: implement Iterator for Mempool to satisfy clippy::should_implement_trait
+impl Iterator for Mempool {
+    type Item = Transaction;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(txid) = self.queue.pop_front() {
+            self.transactions.remove(&txid)
+        } else {
+            None
+        }
     }
 }

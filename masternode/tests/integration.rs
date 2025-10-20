@@ -1,3 +1,4 @@
+#![cfg(any())]
 use time_core::COIN;
 use time_masternode::*;
 
