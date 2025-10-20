@@ -5,3 +5,10 @@ target/
 *.log
 data/
 Cargo.lock
+.git
+target
+**/*.pem
+**/*.key
+**/secrets*
+.env
+.env.*
