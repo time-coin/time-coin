@@ -7,8 +7,24 @@ on:
     branches: [ "**" ]
 
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      has_cargo: ${{ steps.chk.outputs.has_cargo }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: chk
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "has_cargo=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_cargo=false" >> "$GITHUB_OUTPUT"
+          fi
+
   rust:
-    if: ${{ hashFiles('Cargo.toml') != '' }}
+    needs: detect
+    if: needs.detect.outputs.has_cargo == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -45,7 +61,8 @@ jobs:
         run: cargo deny check --hide-inclusion-graph
 
   noop:
-    if: ${{ hashFiles('Cargo.toml') == '' }}
+    needs: detect
+    if: needs.detect.outputs.has_cargo != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
