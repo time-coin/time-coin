@@ -71,6 +71,8 @@ Confirmed in <3 seconds → Irreversible finality
 
 **Dynamic Quorum Selection**: As the network scales to 100,000+ masternodes, intelligent quorum selection maintains sub-3-second finality.
 
+**Minimum Active Validators**: A BFT quorum activates only when at least 4 masternodes are online and voting.
+
 ### Universal Accessibility
 
 **SMS Payments**
