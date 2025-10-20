@@ -16,7 +16,10 @@ pub struct MasternodeStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SyncStatus {
     NotSynced,
-    Syncing { current_block: u64, target_block: u64 },
+    Syncing {
+        current_block: u64,
+        target_block: u64,
+    },
     Synced,
 }
 pub const GRACE_PERIOD_SECS: i64 = 1800;
@@ -25,7 +28,10 @@ impl MasternodeStatus {
     pub fn new(public_key: String, ip_address: String, port: u16, registration_block: u64) -> Self {
         let now = current_timestamp();
         Self {
-            public_key, ip_address, port, registration_block,
+            public_key,
+            ip_address,
+            port,
+            registration_block,
             registration_time: now,
             last_heartbeat: now,
             is_active: false,
@@ -59,5 +65,8 @@ impl MasternodeStatus {
     }
 }
 fn current_timestamp() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }

@@ -1,5 +1,5 @@
 //! TIME Coin Masternode Implementation
-//! 
+//!
 //! 3-tier masternode system with performance-based rewards
 
 use serde::{Deserialize, Serialize};
@@ -39,17 +39,17 @@ impl CollateralTier {
 
     pub fn base_apy(&self) -> f64 {
         match self {
-            CollateralTier::Community => 0.18,      // 18%
-            CollateralTier::Verified => 0.24,       // 24%
-            CollateralTier::Professional => 0.30,   // 30%
+            CollateralTier::Community => 0.18,    // 18%
+            CollateralTier::Verified => 0.24,     // 24%
+            CollateralTier::Professional => 0.30, // 30%
         }
     }
 
     pub fn min_uptime(&self) -> f64 {
         match self {
-            CollateralTier::Community => 0.90,      // 90%
-            CollateralTier::Verified => 0.95,       // 95%
-            CollateralTier::Professional => 0.98,   // 98%
+            CollateralTier::Community => 0.90,    // 90%
+            CollateralTier::Verified => 0.95,     // 95%
+            CollateralTier::Professional => 0.98, // 98%
         }
     }
 
@@ -62,7 +62,10 @@ impl CollateralTier {
     }
 
     pub fn can_verify_purchases(&self) -> bool {
-        matches!(self, CollateralTier::Verified | CollateralTier::Professional)
+        matches!(
+            self,
+            CollateralTier::Verified | CollateralTier::Professional
+        )
     }
 
     pub fn can_create_proposals(&self) -> bool {
@@ -90,7 +93,7 @@ impl Masternode {
         collateral_amount: u64,
     ) -> Result<Self, String> {
         let tier = CollateralTier::from_amount(collateral_amount)?;
-        
+
         Ok(Self {
             address,
             collateral_tx,
@@ -105,19 +108,19 @@ impl Masternode {
 
     pub fn effective_apy(&self) -> f64 {
         let mut apy = self.tier.base_apy();
-        
+
         // KYC bonus for eligible tiers
         if self.kyc_verified && self.tier.can_verify_purchases() {
             apy *= match self.tier {
-                CollateralTier::Verified => 1.12,      // +12%
-                CollateralTier::Professional => 1.18,  // +18%
+                CollateralTier::Verified => 1.12,     // +12%
+                CollateralTier::Professional => 1.18, // +18%
                 _ => 1.0,
             };
         }
-        
+
         // Performance multiplier based on uptime
         apy *= self.uptime_score;
-        
+
         apy
     }
 
@@ -155,7 +158,7 @@ impl MasternodeNetwork {
         if self.nodes.contains_key(&node.address) {
             return Err("Masternode already registered".to_string());
         }
-        
+
         self.nodes.insert(node.address.clone(), node);
         Ok(())
     }
@@ -179,14 +182,15 @@ impl MasternodeNetwork {
     }
 
     pub fn select_quorum(&self) -> Vec<Address> {
-        let mut active: Vec<_> = self.active_nodes()
+        let mut active: Vec<_> = self
+            .active_nodes()
             .iter()
             .map(|n| n.address.clone())
             .collect();
-        
+
         // Deterministic shuffle based on latest block hash (simplified)
         active.sort();
-        
+
         active.into_iter().take(self.quorum_size).collect()
     }
 
@@ -232,7 +236,7 @@ mod tests {
             CollateralTier::from_amount(100_000 * COIN).unwrap(),
             CollateralTier::Professional
         );
-        
+
         assert!(CollateralTier::from_amount(500 * COIN).is_err());
     }
 
@@ -243,7 +247,7 @@ mod tests {
         assert_eq!(community.base_apy(), 0.18);
         assert_eq!(community.voting_weight(), 1);
         assert!(!community.can_verify_purchases());
-        
+
         let professional = CollateralTier::Professional;
         assert_eq!(professional.required_collateral(), 100_000 * COIN);
         assert_eq!(professional.base_apy(), 0.30);
@@ -258,14 +262,15 @@ mod tests {
             Address::from("TIME1test"),
             "tx_hash".to_string(),
             10_000 * COIN,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert_eq!(node.tier, CollateralTier::Verified);
-        
+
         // Base APY: 24%
         let base_monthly = (10_000.0 * COIN as f64 * 0.24 / 12.0) as u64;
         assert_eq!(node.monthly_reward(), base_monthly);
-        
+
         // With KYC bonus: +12% → 26.88% APY
         node.kyc_verified = true;
         let kyc_monthly = (10_000.0 * COIN as f64 * 0.24 * 1.12 / 12.0) as u64;
@@ -275,26 +280,24 @@ mod tests {
     #[test]
     fn test_network_operations() {
         let mut network = MasternodeNetwork::new();
-        
-        let node1 = Masternode::new(
-            Address::from("TIME1node1"),
-            "tx1".to_string(),
-            1_000 * COIN,
-        ).unwrap();
-        
+
+        let node1 =
+            Masternode::new(Address::from("TIME1node1"), "tx1".to_string(), 1_000 * COIN).unwrap();
+
         let node2 = Masternode::new(
             Address::from("TIME1node2"),
             "tx2".to_string(),
             100_000 * COIN,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert!(network.register(node1.clone()).is_ok());
         assert!(network.register(node2).is_ok());
         assert!(network.register(node1).is_err()); // Duplicate
-        
+
         assert_eq!(network.active_nodes().len(), 2);
         assert_eq!(network.total_collateral(), 101_000 * COIN);
-        
+
         let dist = network.tier_distribution();
         assert_eq!(dist.get(&CollateralTier::Community), Some(&1));
         assert_eq!(dist.get(&CollateralTier::Professional), Some(&1));

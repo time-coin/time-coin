@@ -120,9 +120,7 @@ impl DnsDiscovery {
                 "dnsseed.time-coin.io".to_string(),
                 "seed.time-coin.io".to_string(),
             ],
-            NetworkType::Testnet => vec![
-                "testnet-dnsseed.time-coin.io".to_string(),
-            ],
+            NetworkType::Testnet => vec!["testnet-dnsseed.time-coin.io".to_string()],
         };
 
         DnsDiscovery { dns_seeds }
@@ -135,7 +133,7 @@ impl DnsDiscovery {
         for seed in &self.dns_seeds {
             // Create owned string that lives through the await
             let lookup_addr = format!("{}:9876", seed);
-            
+
             // Now lookup_addr owns the string and lives long enough
             match tokio::net::lookup_host(lookup_addr).await {
                 Ok(addrs) => {
@@ -239,11 +237,7 @@ impl PeerDiscovery {
 
     /// Get peer list for initial connection
     pub fn get_bootstrap_peers(&self, max_peers: usize) -> Vec<PeerInfo> {
-        self.known_peers
-            .iter()
-            .take(max_peers)
-            .cloned()
-            .collect()
+        self.known_peers.iter().take(max_peers).cloned().collect()
     }
 
     /// Add peer learned from peer exchange
@@ -264,8 +258,7 @@ impl PeerDiscovery {
         let json = serde_json::to_string_pretty(&self.known_peers)
             .map_err(|e| format!("Serialization failed: {}", e))?;
 
-        let mut file = File::create(path)
-            .map_err(|e| format!("Failed to create file: {}", e))?;
+        let mut file = File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
 
         file.write_all(json.as_bytes())
             .map_err(|e| format!("Failed to write file: {}", e))?;
@@ -278,15 +271,14 @@ impl PeerDiscovery {
         use std::fs::File;
         use std::io::Read;
 
-        let mut file = File::open(path)
-            .map_err(|e| format!("Failed to open file: {}", e))?;
+        let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
 
         let mut contents = String::new();
         file.read_to_string(&mut contents)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
-        let peers: HashSet<PeerInfo> = serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse peers: {}", e))?;
+        let peers: HashSet<PeerInfo> =
+            serde_json::from_str(&contents).map_err(|e| format!("Failed to parse peers: {}", e))?;
 
         self.known_peers.extend(peers);
 
@@ -340,12 +332,11 @@ mod tests {
     #[tokio::test]
     async fn test_peer_discovery_bootstrap() {
         let mut discovery = PeerDiscovery::new(NetworkType::Testnet);
-        
+
         let result = discovery.bootstrap().await;
         assert!(result.is_ok());
-        
+
         let peers = result.unwrap();
         assert!(!peers.is_empty());
     }
 }
-

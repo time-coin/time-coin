@@ -1,19 +1,19 @@
 //! TIME Coin REST API Server
 
-mod routes;
+mod error;
+mod grant_handlers;
+mod grant_models;
 mod handlers;
 mod models;
-mod grant_models;
-mod grant_handlers;
+mod routes;
 mod state;
-mod error;
 
+pub use error::{ApiError, ApiResult};
 pub use routes::create_router;
 pub use state::ApiState;
-pub use error::{ApiError, ApiResult};
 
 use std::net::SocketAddr;
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::{Any, CorsLayer};
 
 pub async fn start_server(
     bind_addr: SocketAddr,
@@ -28,8 +28,7 @@ pub async fn start_server(
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = create_router(state)
-        .layer(cors);
+    let app = create_router(state).layer(cors);
 
     tracing::info!("🌐 API server starting on {}", bind_addr);
 

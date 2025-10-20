@@ -14,19 +14,19 @@ pub type ApiResult<T> = Result<T, ApiError>;
 pub enum ApiError {
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
-    
+
     #[error("Insufficient balance: have {have}, need {need}")]
     InsufficientBalance { have: u64, need: u64 },
-    
+
     #[error("Transaction not found: {0}")]
     TransactionNotFound(String),
-    
+
     #[error("Invalid signature")]
     InvalidSignature,
-    
+
     #[error("Invalid private key")]
     InvalidPrivateKey,
-    
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -34,11 +34,7 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error_type, message) = match self {
-            ApiError::InvalidAddress(msg) => (
-                StatusCode::BAD_REQUEST,
-                "invalid_address",
-                msg,
-            ),
+            ApiError::InvalidAddress(msg) => (StatusCode::BAD_REQUEST, "invalid_address", msg),
             ApiError::InsufficientBalance { have, need } => (
                 StatusCode::BAD_REQUEST,
                 "insufficient_balance",
@@ -59,11 +55,7 @@ impl IntoResponse for ApiError {
                 "invalid_private_key",
                 "Private key format is invalid".to_string(),
             ),
-            ApiError::Internal(msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal_error",
-                msg,
-            ),
+            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg),
         };
 
         let body = Json(json!({

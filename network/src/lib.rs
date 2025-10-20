@@ -4,10 +4,7 @@
 
 pub mod discovery;
 
-pub use discovery::{
-    PeerDiscovery, PeerInfo, NetworkType, SeedNodes,
-    HttpDiscovery, DnsDiscovery,
-};
+pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
 
 #[cfg(test)]
 mod tests {
