@@ -1,12 +1,12 @@
 //! Grant System Handlers
 
-use axum::{extract::State, Json, extract::Path};
 use crate::{
     error::{ApiError, ApiResult},
     grant_models::*,
     state::ApiState,
 };
-use chrono::{Utc, Duration};
+use axum::{extract::Path, extract::State, Json};
+use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 const GRANT_AMOUNT: u64 = 100_000_000_000; // 1000 TIME
@@ -27,7 +27,7 @@ pub async fn apply_for_grant(
     }
 
     let mut grants = state.grants.write().await;
-    
+
     // Check if email already applied
     if grants.iter().any(|g| g.email == req.email) {
         return Ok(Json(GrantApplicationResponse {
@@ -40,7 +40,7 @@ pub async fn apply_for_grant(
     // Create grant application
     let verification_token = Uuid::new_v4().to_string();
     let expires_at = Utc::now() + Duration::days(ACTIVATION_DAYS);
-    
+
     let grant = crate::state::GrantData {
         email: req.email.clone(),
         verification_token: verification_token.clone(),
@@ -54,9 +54,9 @@ pub async fn apply_for_grant(
         masternode_address: None,
         public_key: None,
     };
-    
+
     grants.push(grant);
-    
+
     // In production, send verification email here
     // For dev/testnet, just log it
     tracing::info!(
@@ -84,7 +84,7 @@ pub async fn verify_grant(
     Path(token): Path<String>,
 ) -> ApiResult<Json<GrantVerificationResponse>> {
     let mut grants = state.grants.write().await;
-    
+
     if let Some(grant) = grants.iter_mut().find(|g| g.verification_token == token) {
         if grant.verified {
             return Ok(Json(GrantVerificationResponse {
@@ -98,7 +98,7 @@ pub async fn verify_grant(
         grant.verified = true;
         grant.verified_at = Some(Utc::now().timestamp());
         grant.status = "verified".to_string();
-        
+
         let expires_in = if let Some(expires_at) = grant.expires_at {
             let now = Utc::now().timestamp();
             ((expires_at - now) / 86400) as u32
@@ -118,7 +118,9 @@ pub async fn verify_grant(
             expires_in_days: expires_in,
         }))
     } else {
-        Err(ApiError::InvalidAddress("Invalid verification token".to_string()))
+        Err(ApiError::InvalidAddress(
+            "Invalid verification token".to_string(),
+        ))
     }
 }
 
@@ -131,7 +133,7 @@ pub async fn get_grant_status(
     Path(email): Path<String>,
 ) -> ApiResult<Json<GrantStatusResponse>> {
     let grants = state.grants.read().await;
-    
+
     if let Some(grant) = grants.iter().find(|g| g.email == email) {
         let days_remaining = if let Some(expires_at) = grant.expires_at {
             let now = Utc::now().timestamp();
@@ -152,7 +154,9 @@ pub async fn get_grant_status(
             days_remaining,
         }))
     } else {
-        Err(ApiError::InvalidAddress("Email not found in grant applications".to_string()))
+        Err(ApiError::InvalidAddress(
+            "Email not found in grant applications".to_string(),
+        ))
     }
 }
 
@@ -165,9 +169,10 @@ pub async fn activate_masternode(
     Json(req): Json<MasternodeActivationRequest>,
 ) -> ApiResult<Json<MasternodeActivationResponse>> {
     let mut grants = state.grants.write().await;
-    
+
     // Find grant
-    let grant = grants.iter_mut()
+    let grant = grants
+        .iter_mut()
         .find(|g| g.email == req.grant_email)
         .ok_or_else(|| ApiError::InvalidAddress("Grant not found".to_string()))?;
 
@@ -177,7 +182,9 @@ pub async fn activate_masternode(
     }
 
     if grant.status == "active" {
-        return Err(ApiError::InvalidAddress("Grant already activated".to_string()));
+        return Err(ApiError::InvalidAddress(
+            "Grant already activated".to_string(),
+        ));
     }
 
     // Check expiration
@@ -193,8 +200,11 @@ pub async fn activate_masternode(
 
     // Lock funds
     let mut balances = state.balances.write().await;
-    let treasury_balance = balances.get("TIME1treasury00000000000000000000000000").copied().unwrap_or(0);
-    
+    let treasury_balance = balances
+        .get("TIME1treasury00000000000000000000000000")
+        .copied()
+        .unwrap_or(0);
+
     if treasury_balance < GRANT_AMOUNT {
         return Err(ApiError::InsufficientBalance {
             have: treasury_balance,
@@ -203,7 +213,9 @@ pub async fn activate_masternode(
     }
 
     // Transfer from treasury to masternode address
-    *balances.entry("TIME1treasury00000000000000000000000000".to_string()).or_insert(0) -= GRANT_AMOUNT;
+    *balances
+        .entry("TIME1treasury00000000000000000000000000".to_string())
+        .or_insert(0) -= GRANT_AMOUNT;
     *balances.entry(mn_address.clone()).or_insert(0) += GRANT_AMOUNT;
 
     // Update grant
@@ -236,13 +248,16 @@ pub async fn decommission_masternode(
     Json(req): Json<DecommissionRequest>,
 ) -> ApiResult<Json<DecommissionResponse>> {
     let mut grants = state.grants.write().await;
-    
-    let grant = grants.iter_mut()
+
+    let grant = grants
+        .iter_mut()
         .find(|g| g.masternode_address.as_ref() == Some(&req.masternode_address))
         .ok_or_else(|| ApiError::InvalidAddress("Masternode not found".to_string()))?;
 
     if grant.status != "active" {
-        return Err(ApiError::InvalidAddress("Masternode is not active".to_string()));
+        return Err(ApiError::InvalidAddress(
+            "Masternode is not active".to_string(),
+        ));
     }
 
     // Start decommission process
@@ -274,17 +289,18 @@ pub async fn export_email_list(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<EmailListExportResponse>> {
     let grants = state.grants.read().await;
-    
-    let emails: Vec<EmailEntry> = grants.iter().map(|g| {
-        EmailEntry {
+
+    let emails: Vec<EmailEntry> = grants
+        .iter()
+        .map(|g| EmailEntry {
             email: g.email.clone(),
             verified: g.verified,
             status: g.status.clone(),
             applied_at: chrono::DateTime::from_timestamp(g.applied_at, 0)
                 .unwrap_or_default()
                 .to_rfc3339(),
-        }
-    }).collect();
+        })
+        .collect();
 
     let verified_count = grants.iter().filter(|g| g.verified).count();
     let active_count = grants.iter().filter(|g| g.status == "active").count();

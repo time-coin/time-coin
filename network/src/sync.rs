@@ -43,7 +43,9 @@ impl BlockchainSync {
         Ok(true)
     }
     fn calculate_merkle_root(&self, transactions: &[String]) -> String {
-        if transactions.is_empty() { return "0".repeat(64); }
+        if transactions.is_empty() {
+            return "0".repeat(64);
+        }
         let mut hashes: Vec<String> = transactions.iter().map(|tx| self.hash_string(tx)).collect();
         while hashes.len() > 1 {
             let mut next = Vec::new();
@@ -60,7 +62,14 @@ impl BlockchainSync {
         hashes[0].clone()
     }
     fn calculate_block_hash(&self, block: &Block) -> String {
-        let data = format!("{}{}{}{}{}", block.height, block.previous_hash, block.merkle_root, block.timestamp, block.transactions.len());
+        let data = format!(
+            "{}{}{}{}{}",
+            block.height,
+            block.previous_hash,
+            block.merkle_root,
+            block.timestamp,
+            block.transactions.len()
+        );
         self.hash_string(&data)
     }
     fn hash_string(&self, data: &str) -> String {

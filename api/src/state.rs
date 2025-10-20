@@ -1,8 +1,8 @@
 //! API State Management
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -43,7 +43,7 @@ pub struct GrantData {
 impl ApiState {
     pub fn new(dev_mode: bool, network: String) -> Self {
         let mut balances = HashMap::new();
-        
+
         // Initialize genesis balances (1M TIME)
         balances.insert(
             "TIME1treasury00000000000000000000000000".to_string(),
@@ -61,7 +61,7 @@ impl ApiState {
             "TIME1rewards000000000000000000000000000".to_string(),
             30_000_000_000_000, // 300,000 TIME
         );
-        
+
         Self {
             balances: Arc::new(RwLock::new(balances)),
             transactions: Arc::new(RwLock::new(HashMap::new())),

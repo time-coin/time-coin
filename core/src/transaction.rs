@@ -40,7 +40,7 @@ impl Transaction {
     pub fn new(from: String, to: String, amount: u64, fee: u64) -> Self {
         let timestamp = chrono::Utc::now().timestamp();
         let txid = format!("{}", uuid::Uuid::new_v4());
-        
+
         Self {
             txid,
             from,
@@ -51,7 +51,7 @@ impl Transaction {
             signature: String::new(),
         }
     }
-    
+
     pub fn signable_message(&self) -> Vec<u8> {
         let message = format!(
             "{}{}{}{}{}",
@@ -59,40 +59,40 @@ impl Transaction {
         );
         message.into_bytes()
     }
-    
+
     pub fn sign(&mut self, private_key: &str) -> Result<(), ValidationError> {
         let keypair = time_crypto::KeyPair::from_private_key(private_key)
             .map_err(|_| ValidationError::InvalidSignature)?;
-        
+
         let message = self.signable_message();
         let signature = keypair.sign(&message);
         self.signature = hex::encode(signature);
-        
+
         Ok(())
     }
-    
+
     pub fn calculate_hash(&self) -> String {
         let data = format!(
             "{}{}{}{}{}{}",
             self.txid, self.from, self.to, self.amount, self.fee, self.timestamp
         );
-        
+
         let mut hasher = Keccak256::new();
         hasher.update(data.as_bytes());
         let result = hasher.finalize();
-        
+
         format!("{:x}", result)
     }
-    
+
     pub fn validate(&self) -> Result<(), ValidationError> {
         if self.amount == 0 {
             return Err(ValidationError::InvalidAmount);
         }
-        
+
         if self.from.is_empty() || self.to.is_empty() {
             return Err(ValidationError::InvalidAddress);
         }
-        
+
         Ok(())
     }
 }
