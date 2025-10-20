@@ -1,3 +1,5 @@
+[![CI](https://github.com/time-coin/time-coin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/time-coin/time-coin/actions/workflows/ci.yml) [![coverage](https://codecov.io/gh/time-coin/time-coin/branch/main/graph/badge.svg)](https://codecov.io/gh/time-coin/time-coin)
+
 # TIME Coin ⏰
 
 A next-generation cryptocurrency featuring 24-hour time blocks, instant transaction finality, and masternode-powered consensus.
