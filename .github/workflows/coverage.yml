@@ -1,20 +1,21 @@
 name: coverage
 
 on:
-
-permissions:
-  contents: read
-  workflow_dispatch:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -36,9 +37,9 @@ jobs:
       - name: Run coverage (Tarpaulin -> LCOV)
         run: |
           set -e
-          # Generate LCOV; recent tarpaulin writes tarpaulin-report.lcov at repo root
+          # Fast fail on doctests if they’re noisy; adjust flags as needed
           cargo tarpaulin --workspace --all-features --out Lcov --timeout 600 --engine llvm --ignore-tests
-          # Normalize the filename for Codecov
+          # Normalize filename to lcov.info for Codecov
           if [ -f tarpaulin-report.lcov ]; then
             cp tarpaulin-report.lcov lcov.info
           elif [ -f coverage/tarpaulin-report.lcov ]; then
@@ -47,12 +48,13 @@ jobs:
             echo "Could not find tarpaulin-report.lcov" >&2
             exit 1
           fi
+          ls -l lcov.info
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
           files: lcov.info
-          token: ${{ secrets.CODECOV_TOKEN }}   # required for v4 unless you use the Codecov App
           flags: rust
           name: time-coin-coverage
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
