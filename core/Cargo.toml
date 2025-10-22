@@ -1,5 +1,6 @@
 [package]
 name = "time-core"
+license = "MIT OR Apache-2.0"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
