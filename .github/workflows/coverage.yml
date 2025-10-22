@@ -31,62 +31,48 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install tarpaulin
-
       - name: Preflight tests
         run: |
           set -e
           cargo test --workspace --all-features --no-fail-fast
+
+      - name: Install tarpaulin
         run: cargo install cargo-tarpaulin --locked
 
       - name: Run coverage (Tarpaulin -> LCOV)
-      continue-on-error: true
-      run: |
-        set -e
-        mkdir -p coverage
-        # Use one test thread to reduce flakiness under coverage
-        # Longer timeout for instrumentation
-        cargo tarpaulin \
-          --workspace --all-features \
-          --engine llvm \
-          --out Lcov \
-          --timeout 1200 \
-          --output-dir coverage \
-          --ignore-tests \
-          -- \
-          --test-threads=1
-
-        if [ -f coverage/tarpaulin-report.lcov ]; then
-          cp coverage/tarpaulin-report.lcov lcov.info
-        else
-          echo "[coverage] Expected coverage/tarpaulin-report.lcov not found" >&2
-          echo "[coverage] Directory listing:"
-          find coverage -maxdepth 2 -type f -print || true
-          # Do not fail the job here; Codecov step will be allowed to no-op
-          echo "[coverage] Proceeding without LCOV file (job will still succeed)"
-        fi
-        ls -l lcov.info || true
+        continue-on-error: true
+        run: |
           set -e
           mkdir -p coverage
-          cargo tarpaulin --workspace --all-features --out Lcov --engine llvm --timeout 600 --ignore-tests --output-dir coverage
+          # single-threaded tests reduce coverage flakiness
+          cargo tarpaulin \
+            --workspace --all-features \
+            --engine llvm \
+            --out Lcov \
+            --timeout 1200 \
+            --output-dir coverage \
+            --ignore-tests \
+            -- \
+            --test-threads=1
+
           if [ -f coverage/tarpaulin-report.lcov ]; then
             cp coverage/tarpaulin-report.lcov lcov.info
+            ls -l lcov.info
           else
             echo "[coverage] Expected coverage/tarpaulin-report.lcov not found" >&2
-            echo "[coverage] Directory listing:"
-            find coverage -maxdepth 2 -type f -print || true
-            exit 1
+            echo "[coverage] Directory listing:"; find coverage -maxdepth 2 -type f -print || true
+            echo "[coverage] Proceeding without LCOV file (job stays green)"
           fi
-          ls -l lcov.info
 
       - name: Upload LCOV artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lcov.info
           path: lcov.info
 
-      if: always()
       - name: Upload to Codecov
+        if: always()
         uses: codecov/codecov-action@v4
         with:
           files: lcov.info
