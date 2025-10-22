@@ -9,7 +9,7 @@ time-crypto = { path = "../crypto" }
 time-consensus = { path = "../consensus" }
 
 # Web framework
-axum = "0.7"
+axum = "0.8"
 tokio = { version = "1.35", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
@@ -24,8 +24,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utilities
 chrono = "0.4"
-thiserror = "1.0"
+thiserror = "2.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
 [dev-dependencies]
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
