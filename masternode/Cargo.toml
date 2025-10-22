@@ -4,7 +4,6 @@ license = "MIT OR Apache-2.0"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-license.workspace = true
 
 [dependencies]
 time-core = { path = "../core" }
