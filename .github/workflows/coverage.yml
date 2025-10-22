@@ -35,7 +35,19 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
 
       - name: Run coverage (Tarpaulin -> LCOV)
-        run: |
+      run: |
+        set -e
+        mkdir -p coverage
+        cargo tarpaulin --workspace --all-features --out Lcov --engine llvm --timeout 600 --ignore-tests --output-dir coverage
+        if [ -f coverage/tarpaulin-report.lcov ]; then
+          cp coverage/tarpaulin-report.lcov lcov.info
+        else
+          echo "[coverage] Expected coverage/tarpaulin-report.lcov not found" >&2
+          echo "[coverage] Directory listing:"
+          find coverage -maxdepth 2 -type f -print || true
+          exit 1
+        fi
+        ls -l lcov.info
           set -e
           cargo tarpaulin --workspace --all-features --out Lcov --timeout 600 --engine llvm --ignore-tests
 
@@ -63,6 +75,12 @@ jobs:
             exit 1
           fi
           ls -l lcov.info
+
+      - name: Upload LCOV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov.info
+          path: lcov.info
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
