@@ -35,43 +35,16 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
 
       - name: Run coverage (Tarpaulin -> LCOV)
-      run: |
-        set -e
-        mkdir -p coverage
-        cargo tarpaulin --workspace --all-features --out Lcov --engine llvm --timeout 600 --ignore-tests --output-dir coverage
-        if [ -f coverage/tarpaulin-report.lcov ]; then
-          cp coverage/tarpaulin-report.lcov lcov.info
-        else
-          echo "[coverage] Expected coverage/tarpaulin-report.lcov not found" >&2
-          echo "[coverage] Directory listing:"
-          find coverage -maxdepth 2 -type f -print || true
-          exit 1
-        fi
-        ls -l lcov.info
+        run: |
           set -e
-          cargo tarpaulin --workspace --all-features --out Lcov --timeout 600 --engine llvm --ignore-tests
-
-          echo "[coverage] Looking for *.lcov files…"
-          FOUND=$(find . -maxdepth 4 -type f -name "*.lcov" | head -n1)
-          if [ -n "$FOUND" ] && [ -f "$FOUND" ]; then
-            echo "[coverage] Found: $FOUND"
-            cp "$FOUND" lcov.info
-          else
-            echo "[coverage] Could not find any .lcov file. Listing tree for clues:"
-            find . -maxdepth 4 -type f -printf "%p\n" | sed -n "1,200p"
-            exit 1
-          fi
-          ls -l lcov.info
-          set -e
-          # Fast fail on doctests if they’re noisy; adjust flags as needed
-          cargo tarpaulin --workspace --all-features --out Lcov --timeout 600 --engine llvm --ignore-tests
-          # Normalize filename to lcov.info for Codecov
-          if [ -f tarpaulin-report.lcov ]; then
-            cp tarpaulin-report.lcov lcov.info
-          elif [ -f coverage/tarpaulin-report.lcov ]; then
+          mkdir -p coverage
+          cargo tarpaulin --workspace --all-features --out Lcov --engine llvm --timeout 600 --ignore-tests --output-dir coverage
+          if [ -f coverage/tarpaulin-report.lcov ]; then
             cp coverage/tarpaulin-report.lcov lcov.info
           else
-            echo "Could not find tarpaulin-report.lcov" >&2
+            echo "[coverage] Expected coverage/tarpaulin-report.lcov not found" >&2
+            echo "[coverage] Directory listing:"
+            find coverage -maxdepth 2 -type f -print || true
             exit 1
           fi
           ls -l lcov.info
