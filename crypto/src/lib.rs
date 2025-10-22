@@ -1,7 +1,7 @@
 //! TIME Coin Cryptography
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use rand_core::OsRng;
+use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
