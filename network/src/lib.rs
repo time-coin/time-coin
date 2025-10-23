@@ -9,4 +9,3 @@ pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, Pee
 pub use protocol::{HandshakeMessage, ProtocolVersion, VERSION, PROTOCOL_VERSION};
 pub use connection::PeerConnection;
 pub use manager::PeerManager;
-pub use connection::PeerListener;
