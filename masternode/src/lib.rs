@@ -304,3 +304,14 @@ mod tests {
     }
 }
 pub mod status;
+
+// --- Auto-added: voting power per collateral tier (tunable constants)
+impl CollateralTier {
+    pub fn voting_multiplier(&self) -> u32 {
+        match self {
+            CollateralTier::Community => 1,
+            CollateralTier::Verified => 10,
+            CollateralTier::Professional => 50,
+        }
+    }
+}

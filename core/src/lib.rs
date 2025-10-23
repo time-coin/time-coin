@@ -2,6 +2,8 @@
 //!
 //! Core blockchain functionality for TIME Coin
 
+/// Smallest unit constant (1 COIN in satoshi-like units)
+pub const COIN: u64 = 100_000_000;
 pub mod finalizer;
 pub mod state;
 

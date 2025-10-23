@@ -1,9 +1,9 @@
 [package]
 name = "time-core"
+license = "MIT OR Apache-2.0"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-license.workspace = true
 
 [dependencies]
 serde.workspace = true
@@ -14,7 +14,7 @@ sha2.workspace = true
 sha3.workspace = true
 hex = "0.4"
 uuid = { workspace = true, features = ["v4"] }
-time-crypto = { path = "../crypto" }
+time-crypto = { version = "0.1.0", path = "../crypto" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

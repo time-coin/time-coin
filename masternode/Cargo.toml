@@ -1,12 +1,12 @@
 [package]
 name = "time-masternode"
+license = "MIT OR Apache-2.0"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-license.workspace = true
 
 [dependencies]
-time-core = { path = "../core" }
+time-core = { version = "0.1.0", path = "../core" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

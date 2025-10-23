@@ -1,0 +1,52 @@
+name: coverage
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Run coverage (Tarpaulin -> LCOV)
+        run: |
+          set -e
+          # Generate LCOV; recent tarpaulin writes tarpaulin-report.lcov at repo root
+          cargo tarpaulin --workspace --all-features --out Lcov --timeout 600 --engine llvm --ignore-tests
+          # Normalize the filename for Codecov
+          if [ -f tarpaulin-report.lcov ]; then
+            cp tarpaulin-report.lcov lcov.info
+          elif [ -f coverage/tarpaulin-report.lcov ]; then
+            cp coverage/tarpaulin-report.lcov lcov.info
+          else
+            echo "Could not find tarpaulin-report.lcov" >&2
+            exit 1
+          fi
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}   # required for v4 unless you use the Codecov App
+          flags: rust
+          name: time-coin-coverage
+          fail_ci_if_error: false

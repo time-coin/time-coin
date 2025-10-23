@@ -1,5 +1,5 @@
 use clap::Parser;
-use colored::*;
+use owo_colors::OwoColorize;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -108,7 +108,7 @@ fn display_genesis(genesis: &serde_json::Value) {
         println!(
             "{}: {}...",
             "Block Hash".yellow().bold(),
-            &hash[..16].bright_blue()
+            hash[..16].to_string().bright_blue()
         );
     }
     if let Some(timestamp) = genesis.get("timestamp").and_then(|v| v.as_i64()) {

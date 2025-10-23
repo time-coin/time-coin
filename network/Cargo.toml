@@ -1,15 +1,15 @@
 [package]
 name = "time-network"
+license = "MIT OR Apache-2.0"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-license.workspace = true
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "macros"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

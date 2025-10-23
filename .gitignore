@@ -1,35 +1,92 @@
-# Rust
+# ==========================================
+#  Time-Coin Project .gitignore
+# ==========================================
+
+# ---- Rust ----
 /target/
 **/*.rs.bk
+*.rlib
+*.rmeta
 *.pdb
-Cargo.lock
+/target/deny/                # cargo-deny cache
 
-# IDE
+# ---- Build / Binary Artifacts ----
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+*.a
+*.lib
+*.obj
+
+# ---- Config & Secrets ----
+config/local.toml
+*.key
+*.pem
+*.env
+*.env.*
+!.env.example
+!.env.template
+
+# ---- Logs & Diagnostics ----
+*.log
+logs/
+_diag_*.log
+_diag_summary.txt
+coverage/
+lcov.info
+
+# ---- Database ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- IDE / Editor ----
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-workspace
+*.sublime-project
+.vs/
+*.code-workspace
 
-# OS
+# ---- OS Files ----
 .DS_Store
 Thumbs.db
+desktop.ini
+ehthumbs.db
 
-# Config
-config/local.toml
-*.key
-*.pem
-
-# Logs
-*.log
-logs/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Build
+# ---- Build Outputs (Frontend / Docs) ----
 dist/
 build/
+public/
+docs/book/
+docs/build/
+book/
+site/
 FETCH_HEAD
+
+# ---- Backups / Temporary ----
+*.tmp
+*.temp
+*.bak
+*.orig
+*.old
+*.cache
+_timecoin_rescue_*/
+*.bak.*
+
+# ---- Archive / Package Files ----
+*.tar
+*.gz
+*.zip
+*.7z
+*.rar
+
+# ==========================================
+# End of .gitignore
+# ==========================================
+# (auto) removed Cargo.lock ignore to allow lockfile commits
