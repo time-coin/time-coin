@@ -1,3 +1,4 @@
+#![cfg(feature = "mn-integration")]
 use time_core::COIN;
 use time_masternode::*;
 

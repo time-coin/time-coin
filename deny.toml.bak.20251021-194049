@@ -1,0 +1,32 @@
+# cargo-deny configuration (v0.18+ compatible)
+
+[licenses]
+allow = [
+  "MIT","MIT-0","Apache-2.0","BSD-2-Clause","BSD-3-Clause","ISC","Zlib",
+  "MPL-2.0",            # e.g., colored
+  "Unicode-DFS-2016",   # ICU/Unicode data licenses
+  "Unicode-3.0","Unlicense","BSL-1.0","CC0-1.0","OpenSSL",
+]
+unlicensed = "warn"
+confidence-threshold = 0.8
+default = "allow"
+
+[advisories]
+# v0.18: 'unmaintained' takes one of: "all" | "workspace" | "transitive" | "none"
+unmaintained = "workspace"
+vulnerability = "deny"   # still uses allow/warn/deny
+yanked = "warn"
+notice = "warn"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

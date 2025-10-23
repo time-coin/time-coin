@@ -1,0 +1,21 @@
+[package]
+name = "time-node"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "time-node"
+path = "src/main.rs"
+
+[dependencies]
+time-network = { path = "../network" }
+time-core = { path = "../core" }
+time-api = { path = "../api" }
+
+clap = { version = "4.4", features = ["derive"] }
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+colored = "3.0"
+chrono = "0.4"
+serde_json = { workspace = true }
