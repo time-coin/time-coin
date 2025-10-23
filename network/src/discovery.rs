@@ -66,6 +66,7 @@ impl SeedNodes {
 pub struct HttpDiscovery {
     base_url: String,
     client: reqwest::Client,
+    network: NetworkType,
 }
 
 impl HttpDiscovery {
@@ -80,8 +81,10 @@ impl HttpDiscovery {
             base_url: base_url.to_string(),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
+                .user_agent("time-coin/1.0")  // Added user agent
                 .build()
                 .unwrap(),
+            network,
         }
     }
 
@@ -98,10 +101,25 @@ impl HttpDiscovery {
             return Err(format!("HTTP error: {}", response.status()));
         }
 
-        let peers: Vec<PeerInfo> = response
+        // FIX: The API returns an array of strings ["IP:PORT", ...], not PeerInfo objects
+        let peer_strings: Vec<String> = response
             .json()
             .await
             .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        // Convert strings to PeerInfo objects
+        let current_time = current_timestamp();
+        let peers: Vec<PeerInfo> = peer_strings
+            .into_iter()
+            .filter_map(|addr_str| {
+                addr_str.parse::<SocketAddr>().ok().map(|addr| PeerInfo {
+                    address: addr,
+                    last_seen: current_time,
+                    version: "unknown".to_string(),
+                    network: self.network.clone(),
+                })
+            })
+            .collect();
 
         Ok(peers)
     }
@@ -295,34 +313,6 @@ fn current_timestamp() -> u64 {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
-async fn parse_http_peers_tolerant(
-    resp: reqwest::Response,
-) -> Result<Vec<std::net::SocketAddr>, Box<dyn std::error::Error + Send + Sync>> {
-    let text = resp.text().await?;
-    // Try array of strings: ["IP:PORT", ...]
-    if let Ok(v) = serde_json::from_str::<Vec<String>>(&text) {
-        let peers = v
-            .into_iter()
-            .filter_map(|s| s.parse::<std::net::SocketAddr>().ok())
-            .collect::<Vec<_>>();
-        return Ok(peers);
-    }
-    // Try array of objects: [{"address":"IP:PORT",...}]
-    #[derive(serde::Deserialize)]
-    struct PeerObj {
-        address: String,
-    }
-    if let Ok(v) = serde_json::from_str::<Vec<PeerObj>>(&text) {
-        let peers = v
-            .into_iter()
-            .filter_map(|p| p.address.parse::<std::net::SocketAddr>().ok())
-            .collect::<Vec<_>>();
-        return Ok(peers);
-    }
-    Ok(Vec::new())
-}
-
 mod tests {
     #[allow(unused_imports)]
     use super::*;
@@ -367,5 +357,24 @@ mod tests {
 
         let peers = result.unwrap();
         assert!(!peers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_http_discovery() {
+        let discovery = HttpDiscovery::new(NetworkType::Testnet);
+        
+        let result = discovery.fetch_peers().await;
+        
+        match result {
+            Ok(peers) => {
+                println!("Successfully fetched {} peers", peers.len());
+                for peer in peers {
+                    println!("  - {}", peer.address);
+                }
+            }
+            Err(e) => {
+                println!("Failed to fetch peers: {}", e);
+            }
+        }
     }
 }
