@@ -33,10 +33,12 @@ impl PeerManager {
                 println!("✓ Connected to {} (v{})", info.address, info.version);
                 
                 self.peers.write().await.insert(peer_addr, info.clone());
+            println!("DEBUG: Added peer {} with version {}", peer_addr, info.version);
                 
                 let peers_clone = self.peers.clone();
                 tokio::spawn(async move {
                     conn.keep_alive().await;
+            println!("DEBUG: Removing peer {}", peer_addr);
                     peers_clone.write().await.remove(&peer_addr);
                 });
                 Ok(())
@@ -64,6 +66,7 @@ impl PeerManager {
 
     pub async fn add_connected_peer(&self, peer: PeerInfo) {
         self.peers.write().await.insert(peer.address, peer);
+            println!("DEBUG: Added peer {} with version {}", peer_addr, info.version);
     }
 
     fn clone(&self) -> Self {
