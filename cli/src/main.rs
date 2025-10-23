@@ -1,8 +1,8 @@
 use clap::Parser;
-use owo_colors::OwoColorize;
-use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use owo_colors::OwoColorize;
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use time_api::{start_server, ApiState};
@@ -251,7 +251,8 @@ async fn main() {
         loop {
             interval.tick().await;
             let disc = discovery.clone();
-            if let Ok(peers) = disc.write().await.bootstrap().await {
+            let mut disc_guard = disc.write().await;
+            if let Ok(peers) = disc_guard.bootstrap().await {
                 if !peers.is_empty() {
                     println!(
                         "[{}] {} - {} peer(s) available",

@@ -4,7 +4,6 @@ use time_network::discovery::PeerDiscovery;
 use tokio::sync::RwLock;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 #[derive(Clone)]
 pub struct ApiState {
     pub balances: Arc<RwLock<HashMap<String, u64>>>,
