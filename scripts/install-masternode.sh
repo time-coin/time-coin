@@ -246,45 +246,43 @@ start_masternode() {
 show_summary() {
     print_header "Masternode Installation Complete!"
     
-    cat << EOF
-
-${GREEN}✅ TIME Coin Masternode Successfully Installed!${NC}
-
-${BLUE}Installation Details:${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Repository:        $REPO_DIR
-Node Directory:    $NODE_DIR
-Configuration:     $CONFIG_DIR/testnet.toml
-Binary:            /usr/local/bin/time-node
-Service:           ${SERVICE_NAME}.service
-Network Ports:     24100 (P2P), 24101 (RPC)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${BLUE}Useful Commands:${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Check status:      sudo systemctl status ${SERVICE_NAME}
-View logs:         sudo journalctl -u ${SERVICE_NAME} -f
-Stop node:         sudo systemctl stop ${SERVICE_NAME}
-Start node:        sudo systemctl start ${SERVICE_NAME}
-Restart node:      sudo systemctl restart ${SERVICE_NAME}
-Disable service:   sudo systemctl disable ${SERVICE_NAME}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${BLUE}Firewall (if needed):${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-sudo ufw allow 24100/tcp comment 'TIME Coin Testnet P2P'
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${BLUE}To Update Masternode:${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-cd $REPO_DIR
-git pull origin main
-sudo ./scripts/install-masternode.sh
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${GREEN}Happy Mining! 🚀${NC}
-
-EOF
+    echo ""
+    echo -e "${GREEN}✅ TIME Coin Masternode Successfully Installed!${NC}"
+    echo ""
+    echo -e "${BLUE}Installation Details:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Repository:        $REPO_DIR"
+    echo "Node Directory:    $NODE_DIR"
+    echo "Configuration:     $CONFIG_DIR/testnet.toml"
+    echo "Binary:            /usr/local/bin/time-node"
+    echo "Service:           ${SERVICE_NAME}.service"
+    echo "Network Ports:     24100 (P2P), 24101 (RPC)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo -e "${BLUE}Useful Commands:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Check status:      sudo systemctl status ${SERVICE_NAME}"
+    echo "View logs:         sudo journalctl -u ${SERVICE_NAME} -f"
+    echo "Stop node:         sudo systemctl stop ${SERVICE_NAME}"
+    echo "Start node:        sudo systemctl start ${SERVICE_NAME}"
+    echo "Restart node:      sudo systemctl restart ${SERVICE_NAME}"
+    echo "Disable service:   sudo systemctl disable ${SERVICE_NAME}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo -e "${BLUE}Firewall (if needed):${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "sudo ufw allow 24100/tcp comment 'TIME Coin Testnet P2P'"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo -e "${BLUE}To Update Masternode:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "cd $REPO_DIR"
+    echo "git pull origin main"
+    echo "sudo ./scripts/install-masternode.sh"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo -e "${GREEN}Happy Mining! 🚀${NC}"
+    echo ""
 }
 
 #############################################################
