@@ -183,7 +183,7 @@ pub async fn generate_keypair() -> ApiResult<Json<GenerateKeypairResponse>> {
 
 /// Get connected peers info (similar to bitcoin-cli getpeerinfo)
 pub async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
-    let peers = state.peer_discovery.read().await.all_peers();
+    let peers = state.peer_manager.get_connected_peers().await;
     
     // Deduplicate by address, keeping the most recent
     let mut unique_peers: std::collections::HashMap<String, time_network::discovery::PeerInfo> = std::collections::HashMap::new();
