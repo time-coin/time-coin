@@ -324,7 +324,7 @@ async fn parse_http_peers_tolerant(
 }
 
 mod tests {
-#[allow(unused_imports)]
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]
