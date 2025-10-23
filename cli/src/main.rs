@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use time_api::{start_server, ApiState};
-use time_network::{NetworkType, PeerDiscovery};
+use time_network::{NetworkType, PeerDiscovery, PeerManager};
 use tokio::time;
 
 #[derive(Parser)]
@@ -222,6 +222,20 @@ async fn main() {
             println!("    {}", "Will retry in background...".bright_black());
         }
     }
+    let listen_addr = "0.0.0.0:24100".parse().unwrap();
+    let peer_manager = Arc::new(PeerManager::new(NetworkType::Testnet, listen_addr));
+    {
+        let disc = discovery.read().await;
+        let peers = disc.get_bootstrap_peers(10);
+        drop(disc);
+        peer_manager.connect_to_peers(peers).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        let count = peer_manager.peer_count().await;
+        if count > 0 {
+            println!("{}", format!("✓ Connected to {} peer(s)", count).green());
+        }
+    }
+
     println!("{}", "✓ Peer discovery started".green());
     println!("{}", "✓ Masternode services starting".green());
     if is_dev_mode {

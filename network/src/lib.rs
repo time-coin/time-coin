@@ -1,16 +1,11 @@
 //! TIME Coin Network Module
-//!
-//! Handles peer-to-peer networking and discovery
-
 pub mod discovery;
 pub mod protocol;
 pub mod sync;
+pub mod connection;
+pub mod manager;
 
 pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
 pub use protocol::{HandshakeMessage, ProtocolVersion, VERSION, PROTOCOL_VERSION};
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_network_module() {}
-}
+pub use connection::PeerConnection;
+pub use manager::PeerManager;
