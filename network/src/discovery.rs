@@ -245,11 +245,11 @@ impl PeerDiscovery {
             }
         }
 
-        // Deduplicate peers
+        // Deduplicate peers by address only
+        let mut seen_addresses = std::collections::HashSet::new();
         let unique_peers: Vec<PeerInfo> = all_peers
             .into_iter()
-            .collect::<HashSet<_>>()
-            .into_iter()
+            .filter(|peer| seen_addresses.insert(peer.address))
             .collect();
 
         println!("✓ Total unique peers discovered: {}", unique_peers.len());
