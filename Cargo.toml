@@ -34,3 +34,30 @@ sha3 = "0.10"
 ed25519-dalek = "2.1"
 secp256k1 = "0.28"
 ring = "0.17"
+
+[patch.crates-io]
+# Force a single Windows target stack across the workspace to avoid cargo-deny bans
+
+
+
+
+
+
+
+
+# (Optional) If your deps pull `windows-sys` directly, pin it too:
+# windows-sys = "=0.53.0"
+# Force a single Windows target stack across the workspace to avoid cargo-deny bans
+# (Optional) If your deps pull `windows-sys` directly, pin it too:
+# windows-sys = "=0.53.0"
+# Unify Windows target stack to satisfy cargo-deny bans
+windows-targets = "=0.53.5"
+windows_aarch64_gnullvm = "=0.53.5"
+windows_aarch64_msvc    = "=0.53.5"
+windows_i686_gnu        = "=0.53.5"
+windows_i686_msvc       = "=0.53.5"
+windows_x86_64_gnu      = "=0.53.5"
+windows_x86_64_gnullvm  = "=0.53.5"
+windows_x86_64_msvc     = "=0.53.5"
+# If cargo-deny later flags windows-sys duplicates, align this too, e.g.:
+# windows-sys = "=0.59.0"
