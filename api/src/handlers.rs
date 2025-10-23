@@ -5,7 +5,6 @@ use crate::{
     models::*,
     state::{ApiState, TransactionData},
 };
-use axum::response::IntoResponse;
 use serde_json::json;
 use axum::{
     extract::{Path, State},
@@ -180,36 +179,32 @@ pub async fn generate_keypair() -> ApiResult<Json<GenerateKeypairResponse>> {
 }
 
 
+
 /// Get connected peers info (similar to bitcoin-cli getpeerinfo)
-pub async fn get_peers(State(_state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
-    // Fetch from the public peer discovery endpoint
-    let client = reqwest::Client::new();
-    let response = client
-        .get("https://time-coin.io/api/peers")
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to fetch peers: {}", e)))?;
+pub async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
+    // Static peer list from known testnet nodes
+    let peers = vec![
+        ("216.198.79.65", 24100),
+        ("64.29.17.65", 24100),
+        ("50.28.104.50", 24100),
+        ("134.199.175.106", 24100),
+    ];
     
-    let peer_strings: Vec<String> = response
-        .json()
-        .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to parse peers: {}", e)))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     
-    let peer_info: Vec<serde_json::Value> = peer_strings
+    let peer_info: Vec<serde_json::Value> = peers
         .iter()
-        .map(|addr_str| {
-            let parts: Vec<&str> = addr_str.split(':').collect();
+        .map(|(ip, port)| {
             json!({
-                "addr": addr_str,
-                "ip": parts.get(0).unwrap_or(&"unknown"),
-                "port": parts.get(1).and_then(|p| p.parse::<u16>().ok()).unwrap_or(0),
+                "addr": format!("{}:{}", ip, port),
+                "ip": ip,
+                "port": port,
                 "version": "1.0.0",
-                "network": "Testnet",
-                "lastseen": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
+                "network": &state.network,
+                "lastseen": now,
                 "connected": true
             })
         })
@@ -217,7 +212,6 @@ pub async fn get_peers(State(_state): State<ApiState>) -> ApiResult<Json<serde_j
     
     Ok(Json(json!({
         "peers": peer_info,
-        "count": peer_info.len(),
-        "source": "time-coin.io/api/peers"
+        "count": peer_info.len()
     })))
 }
