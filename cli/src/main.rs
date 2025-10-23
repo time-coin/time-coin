@@ -249,6 +249,7 @@ async fn main() {
         let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone());
         // Start peer listener for incoming connections
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
+        println!("🔧 DEBUG: About to start peer listener...");
         match PeerListener::bind(peer_listener_addr, NetworkType::Testnet).await {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
