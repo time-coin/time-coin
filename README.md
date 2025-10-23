@@ -130,7 +130,7 @@ To update to the latest version:
 ```bash
 cd ~/time-coin
 git pull origin main
-sudo ./scripts/install-masternode.sh
+sudo bash ./scripts/install-masternode.sh
 systemctl restart time-node
 ```
 
