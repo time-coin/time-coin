@@ -28,7 +28,7 @@ impl PeerManager {
         let peer_arc = Arc::new(tokio::sync::Mutex::new(peer));
         
         match PeerConnection::connect(peer_arc.clone(), self.network.clone(), self.listen_addr).await {
-            Ok(mut conn) => {
+            Ok(conn) => {
                 let info = conn.peer_info().await;
                 println!("✓ Connected to {} (v{})", info.address, info.version);
                 
