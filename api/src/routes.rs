@@ -17,6 +17,7 @@ pub fn create_router(state: ApiState) -> Router {
         .route("/balance/{address}", get(handlers::get_balance))
         // Blockchain
         .route("/blockchain/info", get(handlers::get_blockchain_info))
+        .route("/peers", get(handlers::get_peers))
         // Utilities
         .route("/keypair/generate", post(handlers::generate_keypair))
         // Grant System

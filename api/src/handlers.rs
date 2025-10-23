@@ -176,3 +176,28 @@ pub async fn generate_keypair() -> ApiResult<Json<GenerateKeypairResponse>> {
         warning: "⚠️  NEVER share your private key! Store it securely!".to_string(),
     }))
 }
+
+/// Get connected peers info (similar to bitcoin-cli getpeerinfo)
+pub async fn get_peers(State(state): State<ApiState>) -> impl IntoResponse {
+    let peers = state.peer_discovery.all_peers();
+    
+    let peer_info: Vec<serde_json::Value> = peers
+        .iter()
+        .map(|peer| {
+            json!({
+                "addr": peer.address.to_string(),
+                "ip": peer.address.ip().to_string(),
+                "port": peer.address.port(),
+                "version": peer.version,
+                "network": format!("{:?}", peer.network),
+                "lastseen": peer.last_seen,
+                "connected": true
+            })
+        })
+        .collect();
+    
+    Json(json!({
+        "peers": peer_info,
+        "count": peer_info.len()
+    }))
+}
