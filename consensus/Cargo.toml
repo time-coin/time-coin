@@ -12,7 +12,7 @@ sha2 = "0.10"
 rand = "0.9"
 chrono = "0.4"
 tokio = { workspace = true }
-time-core = { path = "../core" }
+time-core = { version = "0.1.0", path = "../core" }
 
 [dev-dependencies]
 tokio = { version = "1.35", features = ["test-util"] }
