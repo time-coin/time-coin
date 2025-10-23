@@ -249,24 +249,6 @@ async fn main() {
         let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone());
         println!(
             "{}",
-    // Start peer listener
-    let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
-    let peer_listener = time_network::PeerListener::bind(peer_listener_addr, NetworkType::Testnet).await.unwrap();
-    let peer_manager_clone = peer_manager.clone();
-    tokio::spawn(async move {
-        loop {
-            match peer_listener.accept().await {
-                Ok(conn) => {
-                    let info = conn.peer_info().await;
-                    let addr = info.address;
-                    peer_manager_clone.peers.write().await.insert(addr, info);
-                    tokio::spawn(async move { conn.keep_alive().await; });
-                }
-                Err(e) => eprintln!("Accept error: {}", e),
-            }
-        }
-    });
-
             format!("✓ API server starting on {}", bind_addr).green()
         );
         let api_state_clone = api_state.clone();
