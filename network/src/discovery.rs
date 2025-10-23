@@ -33,23 +33,16 @@ impl SeedNodes {
     /// Mainnet seed nodes (hardcoded, always available)
     pub fn mainnet() -> Vec<&'static str> {
         vec![
-            "seed1.time-coin.io:9876",
-            "seed2.time-coin.io:9876",
-            "seed3.time-coin.io:9876",
-            "seed4.time-coin.io:9876",
-            // Backup geographic distribution
-            "us-seed.time-coin.io:9876",
-            "eu-seed.time-coin.io:9876",
-            "asia-seed.time-coin.io:9876",
+            "50.28.104.50:24000",
+            "134.199.175.106:24000",
         ]
     }
 
     /// Testnet seed nodes
     pub fn testnet() -> Vec<&'static str> {
         vec![
-            "testnet-seed1.time-coin.io:9876",
-            "testnet-seed2.time-coin.io:9876",
-            "testnet-seed3.time-coin.io:9876",
+            "50.28.104.50:24100",
+            "134.199.175.106:24100",
         ]
     }
 
@@ -72,16 +65,15 @@ pub struct HttpDiscovery {
 impl HttpDiscovery {
     /// Create new HTTP discovery client
     pub fn new(network: NetworkType) -> Self {
-        let base_url = match network {
-            NetworkType::Mainnet => "https://time-coin.io/api/peers",
-            NetworkType::Testnet => "https://time-coin.io/api/peers",
-        };
+        // The API endpoint is the same for both networks
+        // The actual network filtering happens based on port numbers
+        let base_url = "https://time-coin.io/api/peers";
 
         HttpDiscovery {
             base_url: base_url.to_string(),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
-                .user_agent("time-coin/1.0")  // Added user agent
+                .user_agent("time-coin-node/1.0")
                 .build()
                 .unwrap(),
             network,
@@ -109,14 +101,29 @@ impl HttpDiscovery {
 
         // Convert strings to PeerInfo objects
         let current_time = current_timestamp();
+        
+        // Filter peers by network based on port
+        // Mainnet uses port 24000, Testnet uses port 24100
+        let expected_port = match self.network {
+            NetworkType::Mainnet => 24000,
+            NetworkType::Testnet => 24100,
+        };
+        
         let peers: Vec<PeerInfo> = peer_strings
             .into_iter()
             .filter_map(|addr_str| {
-                addr_str.parse::<SocketAddr>().ok().map(|addr| PeerInfo {
-                    address: addr,
-                    last_seen: current_time,
-                    version: "unknown".to_string(),
-                    network: self.network.clone(),
+                addr_str.parse::<SocketAddr>().ok().and_then(|addr| {
+                    // Only include peers matching the expected port for this network
+                    if addr.port() == expected_port {
+                        Some(PeerInfo {
+                            address: addr,
+                            last_seen: current_time,
+                            version: "unknown".to_string(),
+                            network: self.network.clone(),
+                        })
+                    } else {
+                        None
+                    }
                 })
             })
             .collect();
