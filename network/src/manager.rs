@@ -62,6 +62,10 @@ impl PeerManager {
         self.peers.read().await.len()
     }
 
+    pub async fn add_connected_peer(&self, peer: PeerInfo) {
+        self.peers.write().await.insert(peer.address, peer);
+    }
+
     fn clone(&self) -> Self {
         PeerManager {
             network: self.network.clone(),
