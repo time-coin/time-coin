@@ -185,8 +185,21 @@ pub async fn generate_keypair() -> ApiResult<Json<GenerateKeypairResponse>> {
 pub async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
     let peers = state.peer_discovery.read().await.all_peers();
     
-    let peer_info: Vec<serde_json::Value> = peers
-        .iter()
+    // Deduplicate by address, keeping the most recent
+    let mut unique_peers = std::collections::HashMap::new();
+    for peer in peers {
+        let addr = peer.address.to_string();
+        unique_peers.entry(addr.clone())
+            .and_modify(|existing: &mut _| {
+                if peer.last_seen > existing.last_seen {
+                    *existing = peer.clone();
+                }
+            })
+            .or_insert(peer);
+    }
+    
+    let peer_info: Vec<serde_json::Value> = unique_peers
+        .values()
         .map(|peer| {
             json!({
                 "addr": peer.address.to_string(),
