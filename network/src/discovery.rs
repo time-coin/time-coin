@@ -135,6 +135,7 @@ impl HttpDiscovery {
 /// DNS-based peer discovery
 pub struct DnsDiscovery {
     dns_seeds: Vec<String>,
+    network: NetworkType,
 }
 
 impl DnsDiscovery {
@@ -148,16 +149,25 @@ impl DnsDiscovery {
             NetworkType::Testnet => vec!["testnet-dnsseed.time-coin.io".to_string()],
         };
 
-        DnsDiscovery { dns_seeds }
+        DnsDiscovery { 
+            dns_seeds,
+            network,
+        }
     }
 
     /// Resolve DNS seeds to get peer addresses
     pub async fn resolve_peers(&self) -> Result<Vec<SocketAddr>, String> {
         let mut peers = Vec::new();
 
+        // Use the correct port based on network type
+        let port = match self.network {
+            NetworkType::Mainnet => 24000,
+            NetworkType::Testnet => 24100,
+        };
+
         for seed in &self.dns_seeds {
-            // Create owned string that lives through the await
-            let lookup_addr = format!("{}:9876", seed);
+            // Use the network-appropriate port instead of hardcoded 9876
+            let lookup_addr = format!("{}:{}", seed, port);
 
             // Now lookup_addr owns the string and lives long enough
             match tokio::net::lookup_host(lookup_addr).await {

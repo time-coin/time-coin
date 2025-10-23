@@ -1679,6 +1679,7 @@ dependencies = [
  "time-consensus",
  "time-core",
  "time-crypto",
+ "time-network",
  "tokio",
  "tower 0.4.13",
  "tower-http 0.5.2",
