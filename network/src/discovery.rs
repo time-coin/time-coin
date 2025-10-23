@@ -73,7 +73,7 @@ impl HttpDiscovery {
     pub fn new(network: NetworkType) -> Self {
         let base_url = match network {
             NetworkType::Mainnet => "https://time-coin.io/api/peers",
-            NetworkType::Testnet => "https://time-coin.io/api/testnet/peers",
+            NetworkType::Testnet => "https://time-coin.io/api/peers",
         };
 
         HttpDiscovery {
@@ -340,3 +340,33 @@ mod tests {
         assert!(!peers.is_empty());
     }
 }
+
+// --- BEGIN: tolerant HTTP peer parsing helper (auto-added) ---
+#[allow(dead_code)]
+async fn parse_http_peers_tolerant(
+    resp: reqwest::Response,
+) -> Result<Vec<std::net::SocketAddr>, Box<dyn std::error::Error + Send + Sync>> {
+    let text = resp.text().await?;
+    // Try array of strings: ["IP:PORT", ...]
+    if let Ok(v) = serde_json::from_str::<Vec<String>>(&text) {
+        let peers = v
+            .into_iter()
+            .filter_map(|s| s.parse::<std::net::SocketAddr>().ok())
+            .collect::<Vec<_>>();
+        return Ok(peers);
+    }
+    // Try array of objects: [{"address":"IP:PORT",...}]
+    #[derive(serde::Deserialize)]
+    struct PeerObj {
+        address: String,
+    }
+    if let Ok(v) = serde_json::from_str::<Vec<PeerObj>>(&text) {
+        let peers = v
+            .into_iter()
+            .filter_map(|p| p.address.parse::<std::net::SocketAddr>().ok())
+            .collect::<Vec<_>>();
+        return Ok(peers);
+    }
+    Ok(Vec::new())
+}
+// --- END: tolerant HTTP peer parsing helper ---
