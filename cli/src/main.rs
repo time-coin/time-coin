@@ -1,5 +1,6 @@
 use clap::Parser;
 use owo_colors::OwoColorize;
+
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
