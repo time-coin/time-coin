@@ -1,8 +1,6 @@
 use clap::Parser;
 use owo_colors::OwoColorize;
 use serde::Deserialize;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::path::PathBuf;
 use std::time::Duration;
 use time_api::{start_server, ApiState};
@@ -199,8 +197,8 @@ async fn main() {
     }
     println!("\n{}", "✓ Blockchain initialized".green());
     println!("{}", "⏳ Starting peer discovery...".yellow());
-    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(NetworkType::Testnet)));
-    match discovery.write().await.bootstrap().await {
+    let mut discovery = PeerDiscovery::new(NetworkType::Testnet);
+    match discovery.bootstrap().await {
         Ok(peers) => {
             if peers.is_empty() {
                 println!("{}", "  ⚠ No peers discovered yet".yellow());
@@ -232,7 +230,7 @@ async fn main() {
     let api_port = config.rpc.port.unwrap_or(24101);
     if api_enabled {
         let bind_addr = format!("{}:{}", api_bind, api_port);
-        let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone());
+        let api_state = ApiState::new(is_dev_mode, "testnet".to_string());
         println!(
             "{}",
             format!("✓ API server starting on {}", bind_addr).green()
@@ -250,8 +248,8 @@ async fn main() {
         let mut interval = time::interval(Duration::from_secs(300));
         loop {
             interval.tick().await;
-            let disc = discovery.clone();
-            if let Ok(peers) = disc.write().await.bootstrap().await {
+            let mut disc = PeerDiscovery::new(NetworkType::Testnet);
+            if let Ok(peers) = disc.bootstrap().await {
                 if !peers.is_empty() {
                     println!(
                         "[{}] {} - {} peer(s) available",

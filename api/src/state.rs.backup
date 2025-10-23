@@ -1,7 +1,6 @@
 //! API State Management
 use network::discovery::PeerDiscovery;
 use std::sync::Arc;
-use time_network::discovery::PeerDiscovery;
 use tokio::sync::RwLock;
 
 use std::collections::HashMap;
@@ -46,7 +45,7 @@ pub struct GrantData {
 }
 
 impl ApiState {
-    pub fn new(dev_mode: bool, network: String, peer_discovery: Arc<RwLock<PeerDiscovery>>) -> Self {
+    pub fn new(dev_mode: bool, network: String) -> Self {
         let mut balances = HashMap::new();
 
         // Initialize genesis balances (1M TIME)
@@ -74,7 +73,6 @@ impl ApiState {
             start_time: std::time::Instant::now(),
             dev_mode,
             network,
-            peer_discovery,
         }
     }
 }
