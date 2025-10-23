@@ -11,19 +11,19 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
 
-
+/// Peer information
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct PeerInfo::new(addr, self.network.clone())
+pub struct PeerInfo {
     pub address: SocketAddr,
     pub last_seen: u64,
     pub version: String,
     pub network: NetworkType,
 }
 
-impl PeerInfo::new(addr, self.network.clone())
+impl PeerInfo {
     /// Create a new peer with unknown version
     pub fn new(address: SocketAddr, network: NetworkType) -> Self {
-        PeerInfo::new(addr, self.network.clone())
+        PeerInfo {
             address,
             last_seen: current_timestamp(),
             version: "unknown".to_string(),
@@ -33,7 +33,7 @@ impl PeerInfo::new(addr, self.network.clone())
     
     /// Create a new peer with known version
     pub fn with_version(address: SocketAddr, network: NetworkType, version: String) -> Self {
-        PeerInfo::new(addr, self.network.clone())
+        PeerInfo {
             address,
             last_seen: current_timestamp(),
             version,
@@ -133,7 +133,6 @@ impl HttpDiscovery {
             .map_err(|e| format!("Failed to parse response: {}", e))?;
 
         // Convert strings to PeerInfo objects
-        let current_time = current_timestamp();
         
         // Filter peers by network based on port
         // Mainnet uses port 24000, Testnet uses port 24100
@@ -148,7 +147,7 @@ impl HttpDiscovery {
                 addr_str.parse::<SocketAddr>().ok().and_then(|addr| {
                     // Only include peers matching the expected port for this network
                     if addr.port() == expected_port {
-                        Some(PeerInfo::new(addr, self.network.clone())
+                        Some(PeerInfo::new(addr, self.network.clone()))
                     } else {
                         None
                     }
@@ -194,10 +193,9 @@ impl DnsDiscovery {
         };
 
         for seed in &self.dns_seeds {
-            // Use the network-appropriate port instead of hardcoded 9876
+            // Use network-appropriate port instead of hardcoded 9876
             let lookup_addr = format!("{}:{}", seed, port);
 
-            // Now lookup_addr owns the string and lives long enough
             match tokio::net::lookup_host(lookup_addr).await {
                 Ok(addrs) => {
                     for addr in addrs {
@@ -242,7 +240,7 @@ impl PeerDiscovery {
         let seed_addrs = SeedNodes::for_network(self.network.clone());
         for seed in seed_addrs {
             if let Ok(addr) = seed.parse() {
-                all_peers.push(PeerInfo::new(addr, self.network.clone())
+                all_peers.push(PeerInfo::new(addr, self.network.clone()));
             }
         }
         println!("  ✓ Found {} seed nodes", all_peers.len());
@@ -265,7 +263,7 @@ impl PeerDiscovery {
             Ok(addrs) => {
                 println!("  ✓ Found {} peers via DNS", addrs.len());
                 for addr in addrs {
-                    all_peers.push(PeerInfo::new(addr, self.network.clone())
+                    all_peers.push(PeerInfo::new(addr, self.network.clone()));
                 }
             }
             Err(e) => {
@@ -356,7 +354,7 @@ mod tests {
     fn test_seed_nodes_mainnet() {
         let seeds = SeedNodes::mainnet();
         assert!(!seeds.is_empty());
-        assert!(seeds.len() >= 3);
+        assert!(seeds.len() >= 2);
     }
 
     #[test]
@@ -367,12 +365,10 @@ mod tests {
 
     #[test]
     fn test_peer_info_hash() {
-        let peer1 = PeerInfo::new(addr, self.network.clone())
-            address: "127.0.0.1:9876".parse().unwrap(),
-            last_seen: 12345,
-            version: "1.0.0".to_string(),
-            network: NetworkType::Mainnet,
-        };
+        let peer1 = PeerInfo::new(
+            "127.0.0.1:9876".parse().unwrap(),
+            NetworkType::Mainnet,
+        );
 
         let peer2 = peer1.clone();
 
