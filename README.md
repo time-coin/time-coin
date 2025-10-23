@@ -97,6 +97,7 @@ Build and deploy the masternode:
 
 ```bash
 cd ~/time-coin
+chmod +x scripts/install-masternode.sh
 sudo ./scripts/install-masternode.sh
 ```
 
@@ -130,6 +131,7 @@ To update to the latest version:
 cd ~/time-coin
 git pull origin main
 sudo ./scripts/install-masternode.sh
+systemctl restart time-node
 ```
 
 ### Network Ports
