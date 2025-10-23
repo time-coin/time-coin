@@ -1,13 +1,10 @@
 //! API State Management
-use network::discovery::PeerDiscovery;
 use std::sync::Arc;
 use time_network::discovery::PeerDiscovery;
 use tokio::sync::RwLock;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-
 #[derive(Clone)]
 pub struct ApiState {
     pub balances: Arc<RwLock<HashMap<String, u64>>>,
