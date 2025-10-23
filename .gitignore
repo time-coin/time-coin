@@ -8,7 +8,6 @@
 *.rlib
 *.rmeta
 *.pdb
-Cargo.lock
 /target/deny/                # cargo-deny cache
 
 # ---- Build / Binary Artifacts ----
@@ -78,6 +77,7 @@ FETCH_HEAD
 *.old
 *.cache
 _timecoin_rescue_*/
+*.bak.*
 
 # ---- Archive / Package Files ----
 *.tar
@@ -89,3 +89,4 @@ _timecoin_rescue_*/
 # ==========================================
 # End of .gitignore
 # ==========================================
+# (auto) removed Cargo.lock ignore to allow lockfile commits
