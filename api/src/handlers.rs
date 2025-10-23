@@ -186,7 +186,7 @@ pub async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<serde_js
     let peers = state.peer_discovery.read().await.all_peers();
     
     // Deduplicate by address, keeping the most recent
-    let mut unique_peers = std::collections::HashMap::new();
+    let mut unique_peers: std::collections::HashMap<String, time_network::discovery::PeerInfo> = std::collections::HashMap::new();
     for peer in peers {
         let addr = peer.address.to_string();
         unique_peers.entry(addr.clone())
