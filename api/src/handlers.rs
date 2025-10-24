@@ -86,12 +86,49 @@ pub async fn create_transaction(
             message: "Transaction confirmed (dev mode)".to_string(),
         }))
     } else {
-        // TODO: Submit to BFT consensus
-        Ok(Json(CreateTransactionResponse {
-            txid,
-            status: "pending".to_string(),
-            message: "Transaction submitted to consensus".to_string(),
-        }))
+        // Broadcast to network for instant validation
+        let tx_msg = time_network::TransactionMessage {
+            txid: txid.clone(),
+            from: req.from.clone(),
+            to: req.to.clone(),
+            amount: req.amount,
+            fee: req.fee,
+            timestamp: Utc::now().timestamp(),
+            signature: req.private_key.clone(), // TODO: Proper signature
+            nonce: 0, // TODO: Implement nonce tracking
+        };
+        
+        match state.peer_manager.broadcast_transaction(tx_msg).await {
+            Ok(peer_count) => {
+                // For testnet with 2 nodes: accept immediately
+                // TODO: Wait for 67% validation in production
+                let mut balances = state.balances.write().await;
+                *balances.entry(req.from.clone()).or_insert(0) -= total_needed;
+                *balances.entry(req.to.clone()).or_insert(0) += req.amount;
+                drop(balances);
+                
+                let mut txs = state.transactions.write().await;
+                txs.insert(
+                    txid.clone(),
+                    TransactionData {
+                        txid: txid.clone(),
+                        from: req.from,
+                        to: req.to,
+                        amount: req.amount,
+                        fee: req.fee,
+                        timestamp: Utc::now().timestamp(),
+                        status: "confirmed".to_string(),
+                    },
+                );
+                
+                Ok(Json(CreateTransactionResponse {
+                    txid,
+                    status: "confirmed".to_string(),
+                    message: format!("Transaction confirmed instantly! Broadcast to {} peer(s)", peer_count),
+                }))
+            }
+            Err(e) => Err(ApiError::Internal(format!("Broadcast failed: {}", e))),
+        }
     }
 }
 
