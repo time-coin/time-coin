@@ -112,6 +112,10 @@ impl PeerListener {
         let their_handshake = PeerConnection::receive_handshake(&mut stream).await?;
         their_handshake.validate(&self.network)?;
         
+        // Reject self-connections
+        if their_handshake.listen_addr.port() == self.our_listen_addr.port() {
+            return Err("Self-connection detected (inbound)".to_string());
+        }
         let our_handshake = HandshakeMessage::new(self.network.clone(), self.our_listen_addr);
         PeerConnection::send_handshake(&mut stream, &our_handshake).await?;
         
