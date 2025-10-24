@@ -63,6 +63,10 @@ impl PeerManager {
     }
 
     pub async fn add_connected_peer(&self, peer: PeerInfo) {
+        // Skip adding self
+        if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
+            return;
+        }
         let mut peers = self.peers.write().await;
         
         // Check if peer already exists with a known version
