@@ -15,6 +15,7 @@ pub struct ApiState {
     pub network: String,
     pub peer_discovery: Arc<RwLock<PeerDiscovery>>,
     pub peer_manager: Arc<PeerManager>,
+    pub admin_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +45,7 @@ pub struct GrantData {
 }
 
 impl ApiState {
-    pub fn new(dev_mode: bool, network: String, peer_discovery: Arc<RwLock<PeerDiscovery>>, peer_manager: Arc<PeerManager>) -> Self {
+    pub fn new(dev_mode: bool, network: String, peer_discovery: Arc<RwLock<PeerDiscovery>>, peer_manager: Arc<PeerManager>, admin_token: Option<String>) -> Self {
         let mut balances = HashMap::new();
 
         // Initialize genesis balances (1M TIME)
@@ -73,6 +74,7 @@ impl ApiState {
             dev_mode,
             network,
             peer_discovery,
+            admin_token,
             peer_manager,
         }
     }

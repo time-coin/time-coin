@@ -40,6 +40,31 @@ pub async fn create_transaction(
             "Address must start with TIME1".to_string(),
         ));
     }
+    
+    // SECURITY: Protected addresses require admin authorization
+    let protected_addresses = [
+        "TIME1treasury00000000000000000000000000",
+        "TIME1development0000000000000000000000",
+        "TIME1operations0000000000000000000000",
+        "TIME1rewards000000000000000000000000000",
+    ];
+    
+    if protected_addresses.contains(&req.from.as_str()) {
+        // Check admin token authorization
+        if let Some(token) = &state.admin_token {
+            // TODO: Extract Authorization header from request
+            // For now, only allow in dev_mode
+            if !state.dev_mode {
+                return Err(ApiError::Unauthorized(
+                    "Protected address requires admin authorization token".to_string(),
+                ));
+            }
+        } else if !state.dev_mode {
+            return Err(ApiError::Unauthorized(
+                "Protected address spending disabled (no admin token configured)".to_string(),
+            ));
+        }
+    }
 
     // Check balance
     let balances = state.balances.read().await;

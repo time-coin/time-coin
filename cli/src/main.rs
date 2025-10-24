@@ -66,6 +66,7 @@ struct RpcConfig {
     enabled: Option<bool>,
     bind: Option<String>,
     port: Option<u16>,
+    admin_token: Option<String>,
 }
 
 fn load_config(path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
@@ -238,8 +239,9 @@ async fn main() {
     let api_bind = config.rpc.bind.unwrap_or_else(|| "127.0.0.1".to_string());
     let api_port = config.rpc.port.unwrap_or(24101);
     if api_enabled {
+        let admin_token = config.rpc.admin_token.clone();
         let bind_addr = format!("{}:{}", api_bind, api_port);
-        let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone(), peer_manager.clone());
+        let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone(), peer_manager.clone(), admin_token);
 
         // Start peer listener for incoming connections
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
