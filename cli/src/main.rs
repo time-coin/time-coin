@@ -283,13 +283,12 @@ async fn main() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(300));
-        tokio::time::sleep(Duration::from_secs(1)).await; // Let initial discovery finish
         interval.tick().await; // Skip immediate first tick
         loop {
             interval.tick().await;
             println!("🔍 BOOTSTRAP DEBUG: Background interval calling bootstrap");
             if let Ok(peers) = discovery.write().await.bootstrap().await {
-            println!("🔍 BOOTSTRAP DEBUG: Background interval calling bootstrap");
+                if !peers.is_empty() {
                     println!(
                         "[{}] {} - {} peer(s) available",
                         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
