@@ -270,6 +270,9 @@ async fn main() {
             }
         });
     }
+            }
+            Err(e) => eprintln!("Failed to start peer listener: {}", e),
+        }
     println!("\n{}", "Node Status: ACTIVE".green().bold());
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
     tokio::spawn(async move {
