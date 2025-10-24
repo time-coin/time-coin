@@ -282,6 +282,7 @@ async fn main() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(300));
+        tokio::time::sleep(Duration::from_secs(1)).await; // Let initial discovery finish
         interval.tick().await; // Skip immediate first tick
         loop {
             interval.tick().await;
