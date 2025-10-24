@@ -54,7 +54,12 @@ impl BlockProducer {
                 *last_block_hash = block.hash.clone();
                 
                 println!("✅ Block #{} produced: {}", *current_height, &block.hash[..16]);
-                println!("💰 Rewards: 95 TIME → Masternodes, 5 TIME → Treasury");
+                println!(
+                    "💰 Block reward: {} TIME (Masternodes: {}, Treasury: {})",
+                    BLOCK_REWARD / 100_000_000,
+                    MASTERNODE_REWARD / 100_000_000,
+                    TREASURY_REWARD / 100_000_000
+                );
                 
                 // TODO: Distribute rewards
                 // TODO: Broadcast block to network
@@ -62,10 +67,12 @@ impl BlockProducer {
         });
     }
 
+    #[allow(dead_code)]
     pub async fn get_height(&self) -> u64 {
         *self.current_height.read().await
     }
 
+    #[allow(dead_code)]
     pub async fn get_last_block_hash(&self) -> String {
         self.last_block_hash.read().await.clone()
     }
