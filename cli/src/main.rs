@@ -231,6 +231,34 @@ async fn main() {
     if api_enabled {
         let bind_addr = format!("{}:{}", api_bind, api_port);
         let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone(), peer_manager.clone());
+
+        // Start peer listener for incoming connections
+        let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
+        println!("🔧 DEBUG: About to start peer listener...");
+        match PeerListener::bind(peer_listener_addr, NetworkType::Testnet).await {
+            Ok(peer_listener) => {
+                let peer_manager_clone = peer_manager.clone();
+                tokio::spawn(async move {
+                    loop {
+                        if let Ok(conn) = peer_listener.accept().await {
+                            let info = conn.peer_info().await;
+                            let addr = info.address;
+                            let version = info.version.clone();
+                            
+                            println!("🔍 DEBUG: Inbound connection from {} (v{})", addr, version);
+                            peer_manager_clone.add_connected_peer(info).await;
+                            
+                            tokio::spawn(async move { 
+                                conn.keep_alive().await;
+                                println!("🔍 DEBUG: Inbound connection dropped: {}", addr);
+                            });
+                        }
+                    }
+                });
+            }
+            Err(e) => eprintln!("Failed to start peer listener: {}", e),
+        }
+
         println!(
             "{}",
             format!("✓ API server starting on {}", bind_addr).green()
