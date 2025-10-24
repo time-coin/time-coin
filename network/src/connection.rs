@@ -35,6 +35,10 @@ impl PeerConnection {
         let our_handshake = HandshakeMessage::new(network.clone(), our_listen_addr);
         Self::send_handshake(&mut stream, &our_handshake).await?;
         let their_handshake = Self::receive_handshake(&mut stream).await?;
+        // Reject self-connections
+        if their_handshake.listen_addr == our_listen_addr {
+            return Err("Self-connection detected".to_string());
+        }
         their_handshake.validate(&network)?;
         
         peer.lock().await.update_version(their_handshake.version.clone());
