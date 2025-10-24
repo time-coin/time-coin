@@ -1,12 +1,10 @@
 use clap::Parser;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use owo_colors::OwoColorize;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use time_api::{start_server, ApiState};
-use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
+use time_network::{NetworkType, PeerDiscovery};
 use tokio::time;
 
 #[derive(Parser)]
@@ -199,8 +197,8 @@ async fn main() {
     }
     println!("\n{}", "✓ Blockchain initialized".green());
     println!("{}", "⏳ Starting peer discovery...".yellow());
-    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(NetworkType::Testnet)));
-    match discovery.write().await.bootstrap().await {
+    let mut discovery = PeerDiscovery::new(NetworkType::Testnet);
+    match discovery.bootstrap().await {
         Ok(peers) => {
             if peers.is_empty() {
                 println!("{}", "  ⚠ No peers discovered yet".yellow());
@@ -222,20 +220,6 @@ async fn main() {
             println!("    {}", "Will retry in background...".bright_black());
         }
     }
-    let listen_addr = "0.0.0.0:24100".parse().unwrap();
-    let peer_manager = Arc::new(PeerManager::new(NetworkType::Testnet, listen_addr));
-    {
-        let disc = discovery.read().await;
-        let peers = disc.get_bootstrap_peers(10);
-        drop(disc);
-        peer_manager.connect_to_peers(peers).await;
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        let count = peer_manager.peer_count().await;
-        if count > 0 {
-            println!("{}", format!("✓ Connected to {} peer(s)", count).green());
-        }
-    }
-
     println!("{}", "✓ Peer discovery started".green());
     println!("{}", "✓ Masternode services starting".green());
     if is_dev_mode {
@@ -247,26 +231,56 @@ async fn main() {
     if api_enabled {
         let bind_addr = format!("{}:{}", api_bind, api_port);
         let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone(), peer_manager.clone());
-        // Start peer listener for incoming connections
-        let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
-        println!("🔧 DEBUG: About to start peer listener...");
-        match PeerListener::bind(peer_listener_addr, NetworkType::Testnet).await {
-            Ok(peer_listener) => {
-                let peer_manager_clone = peer_manager.clone();
-                tokio::spawn(async move {
-                    loop {
-                        if let Ok(conn) = peer_listener.accept().await {
-                            let info = conn.peer_info().await;
-                            let addr = info.address;
-                            let version = info.version.clone();
-                            
-                            println!("🔍 DEBUG: Inbound connection from {} (v{})", addr, version);
-                            peer_manager_clone.add_connected_peer(info).await;
-                            
-                            tokio::spawn(async move { 
-                                conn.keep_alive().await;
-                                println!("🔍 DEBUG: Inbound connection dropped: {}", addr);
-                            });
-                        }
-                    }
-                });
+        println!(
+            "{}",
+            format!("✓ API server starting on {}", bind_addr).green()
+        );
+        let api_state_clone = api_state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = start_server(bind_addr.parse().unwrap(), api_state_clone).await {
+                eprintln!("API server error: {}", e);
+            }
+        });
+    }
+    println!("\n{}", "Node Status: ACTIVE".green().bold());
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            let mut disc = PeerDiscovery::new(NetworkType::Testnet);
+            if let Ok(peers) = disc.bootstrap().await {
+                if !peers.is_empty() {
+                    println!(
+                        "[{}] {} - {} peer(s) available",
+                        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
+                        "Peer discovery refresh".bright_black(),
+                        peers.len()
+                    );
+                }
+            }
+        }
+    });
+    let mut counter = 0;
+    loop {
+        time::sleep(Duration::from_secs(60)).await;
+        counter += 1;
+        let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
+        if is_dev_mode {
+            println!(
+                "[{}] {} #{} {}",
+                timestamp,
+                "Node heartbeat - running...".bright_black(),
+                counter,
+                "(dev mode)".yellow()
+            );
+        } else {
+            println!(
+                "[{}] {} #{}",
+                timestamp,
+                "Node heartbeat - running...".bright_black(),
+                counter
+            );
+        }
+    }
+}
