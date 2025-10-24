@@ -131,3 +131,45 @@ mod tests {
         assert_eq!(version.protocol_version, PROTOCOL_VERSION);
     }
 }
+
+/// Transaction broadcast message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionMessage {
+    pub txid: String,
+    pub from: String,
+    pub to: String,
+    pub amount: u64,
+    pub fee: u64,
+    pub timestamp: i64,
+    pub signature: String,
+    pub nonce: u64,
+}
+
+/// Transaction validation response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionValidation {
+    pub txid: String,
+    pub validator: String,
+    pub approved: bool,
+    pub timestamp: u64,
+}
+
+/// Network message envelope
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NetworkMessage {
+    Ping,
+    Pong,
+    Transaction(TransactionMessage),
+    ValidationResponse(TransactionValidation),
+    BlockProposal(Vec<u8>), // Placeholder for block data
+}
+
+impl NetworkMessage {
+    pub fn serialize(&self) -> Result<Vec<u8>, String> {
+        serde_json::to_vec(self).map_err(|e| e.to_string())
+    }
+
+    pub fn deserialize(data: &[u8]) -> Result<Self, String> {
+        serde_json::from_slice(data).map_err(|e| e.to_string())
+    }
+}

@@ -98,6 +98,20 @@ impl PeerManager {
     pub async fn get_peer_ips(&self) -> Vec<String> {
         self.peers.read().await
             .values()
+    pub async fn broadcast_transaction(&self, tx: TransactionMessage) -> Result<usize, String> {
+        let peers = self.peers.read().await;
+        let peer_count = peers.len();
+        
+        // Serialize the transaction
+        let message = NetworkMessage::Transaction(tx);
+        let data = message.serialize()?;
+        
+        println!("📡 Broadcasting transaction to {} peer(s)...", peer_count);
+        
+        // TODO: Actually send to connected peers
+        // For now, just return success
+        Ok(peer_count)
+    }
             .map(|p| p.address.ip().to_string())
             .collect()
     }
