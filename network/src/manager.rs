@@ -4,6 +4,7 @@ use crate::discovery::{NetworkType, PeerInfo};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use local_ip_address::local_ip;
 use tokio::sync::RwLock;
 
 pub struct PeerManager {
@@ -22,6 +23,12 @@ impl PeerManager {
     }
 
     pub async fn connect_to_peer(&self, peer: PeerInfo) -> Result<(), String> {
+        // Skip if peer IP matches our local IP
+        if let Ok(my_ip) = local_ip() {
+            if peer.address.ip() == my_ip {
+                return Ok(());
+            }
+        }
         if peer.address == self.listen_addr { return Ok(()); }
         
         let peer_addr = peer.address;
@@ -66,13 +73,6 @@ impl PeerManager {
         // Skip adding self
         if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
             return;
-        }
-        // Skip if we already have a peer with this IP
-        {
-            let existing_peers = self.peers.read().await;
-            if existing_peers.values().any(|p| p.address.ip() == peer.address.ip()) {
-                return;
-            }
         }
         let mut peers = self.peers.write().await;
         
