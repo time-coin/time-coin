@@ -202,6 +202,7 @@ async fn main() {
     let discovery = Arc::new(RwLock::new(PeerDiscovery::new(NetworkType::Testnet)));
     let listen_addr = "0.0.0.0:24100".parse().unwrap();
     let peer_manager = std::sync::Arc::new(PeerManager::new(NetworkType::Testnet, listen_addr));
+    println!("🔍 BOOTSTRAP DEBUG: Main startup calling bootstrap");
     match discovery.write().await.bootstrap().await {
         Ok(peers) => {
             if peers.is_empty() {
@@ -287,6 +288,7 @@ async fn main() {
         loop {
             interval.tick().await;
             if let Ok(peers) = discovery.write().await.bootstrap().await {
+            println!("🔍 BOOTSTRAP DEBUG: Background interval calling bootstrap");
                 if !peers.is_empty() {
                     println!(
                         "[{}] {} - {} peer(s) available",
