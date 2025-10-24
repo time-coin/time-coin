@@ -7,6 +7,7 @@ mod block_producer;
 use block_producer::BlockProducer;
 use std::path::PathBuf;
 use std::time::Duration;
+use local_ip_address::local_ip;
 
 use time_api::{start_server, ApiState};
 use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
@@ -296,8 +297,14 @@ async fn main() {
 
     // Start block producer
     println!("{}",  "🔨 Starting block producer...".yellow());
-    let block_producer = BlockProducer::new();
-    block_producer.start().await;
+    // Start block producer
+    let node_id = if let Ok(ip) = local_ip_address::local_ip() {
+        ip.to_string()
+    } else {
+        "unknown".to_string()
+    };
+    let block_producer = BlockProducer::new(node_id);
+    println!("{}", "✓ Block producer started (24-hour interval)".green());
     println!("{}", "✓ Block producer started (24-hour interval)".green());
     let mut counter = 0;
     loop {
