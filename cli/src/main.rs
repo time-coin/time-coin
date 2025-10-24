@@ -287,9 +287,9 @@ async fn main() {
         interval.tick().await; // Skip immediate first tick
         loop {
             interval.tick().await;
+            println!("🔍 BOOTSTRAP DEBUG: Background interval calling bootstrap");
             if let Ok(peers) = discovery.write().await.bootstrap().await {
             println!("🔍 BOOTSTRAP DEBUG: Background interval calling bootstrap");
-                if !peers.is_empty() {
                     println!(
                         "[{}] {} - {} peer(s) available",
                         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
