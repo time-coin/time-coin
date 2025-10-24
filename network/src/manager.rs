@@ -31,14 +31,12 @@ impl PeerManager {
             Ok(conn) => {
                 let info = conn.peer_info().await;
                 println!("✓ Connected to {} (v{})", info.address, info.version);
-                println!("🔍 DEBUG: Outbound - Added {} to PeerManager (v{})", peer_addr, info.version);
                 
                 self.peers.write().await.insert(peer_addr, info.clone());
                 
                 let peers_clone = self.peers.clone();
                 tokio::spawn(async move {
                     conn.keep_alive().await;
-                    println!("🔍 DEBUG: Outbound connection dropped, removing {}", peer_addr);
                     peers_clone.write().await.remove(&peer_addr);
                 });
                 Ok(())
@@ -70,13 +68,10 @@ impl PeerManager {
         // Check if peer already exists with a known version
         if let Some(existing) = peers.get(&peer.address) {
             if existing.version != "unknown" && peer.version == "unknown" {
-                println!("🔍 DEBUG: Inbound - Skipping overwrite of {} - keeping version {}", 
-                         peer.address, existing.version);
                 return;
             }
         }
         
-        println!("🔍 DEBUG: Inbound - add_connected_peer() for {} (v{})", peer.address, peer.version);
         peers.insert(peer.address, peer);
     }
 

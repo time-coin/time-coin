@@ -217,10 +217,8 @@ async fn main() {
                 if peers.len() > 5 {
                     println!("    ... and {} more", peers.len() - 5);
                 }
-                println!("🔧 DEBUG: About to connect to {} peers...", peers.len());
                 // Connect to discovered peers
                 peer_manager.connect_to_peers(peers.clone()).await;
-                println!("🔧 DEBUG: Spawned connection tasks");
             }
         }
         Err(e) => {
@@ -242,7 +240,6 @@ async fn main() {
 
         // Start peer listener for incoming connections
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
-        println!("🔧 DEBUG: About to start peer listener...");
         match PeerListener::bind(peer_listener_addr, NetworkType::Testnet).await {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
@@ -253,12 +250,10 @@ async fn main() {
                             let addr = info.address;
                             let version = info.version.clone();
                             
-                            println!("🔍 DEBUG: Inbound connection from {} (v{})", addr, version);
                             peer_manager_clone.add_connected_peer(info).await;
                             
                             tokio::spawn(async move { 
                                 conn.keep_alive().await;
-                                println!("🔍 DEBUG: Inbound connection dropped: {}", addr);
                             });
                         }
                     }
