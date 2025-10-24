@@ -113,7 +113,7 @@ impl PeerListener {
         their_handshake.validate(&self.network)?;
         
         // Reject self-connections
-        if their_handshake.listen_addr.port() == self.our_listen_addr.port() {
+        if their_handshake.listen_addr.ip() == self.our_listen_addr.ip() {
             return Err("Self-connection detected (inbound)".to_string());
         }
         let our_handshake = HandshakeMessage::new(self.network.clone(), self.our_listen_addr);
