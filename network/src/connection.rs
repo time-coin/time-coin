@@ -112,7 +112,7 @@ impl PeerListener {
         PeerConnection::send_handshake(&mut stream, &our_handshake).await?;
         
         let peer_info = PeerInfo::with_version(
-            their_handshake.listen_addr,
+            addr,
             self.network.clone(),
             their_handshake.version.clone(),
         );
