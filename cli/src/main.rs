@@ -216,9 +216,9 @@ async fn main() {
                 }
                 if peers.len() > 5 {
                     println!("    ... and {} more", peers.len() - 5);
+                }
                 // Connect to discovered peers
                 peer_manager.connect_to_peers(peers.clone()).await;
-                }
             }
         }
         Err(e) => {
