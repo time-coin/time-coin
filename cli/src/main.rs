@@ -284,6 +284,7 @@ async fn main() {
         let mut interval = time::interval(Duration::from_secs(300));
         interval.tick().await; // Skip immediate first tick
         interval.tick().await; // Skip immediate first tick
+        interval.tick().await; // Skip immediate first tick
         loop {
             interval.tick().await;
             if let Ok(peers) = discovery.write().await.bootstrap().await {
