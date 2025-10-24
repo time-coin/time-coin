@@ -31,10 +31,12 @@ impl PeerManager {
             Ok(conn) => {
                 let info = conn.peer_info().await;
                 println!("✓ Connected to {} (v{})", info.address, info.version);
+                println!("🔍 DEBUG: Added {} to PeerManager (v{})", peer_addr, info.version);
                 
                 self.peers.write().await.insert(peer_addr, info.clone());
                 
                 let peers_clone = self.peers.clone();
+                    println!("🔍 DEBUG: Connection dropped, removing {}", peer_addr);
                 tokio::spawn(async move {
                     conn.keep_alive().await;
                     peers_clone.write().await.remove(&peer_addr);
