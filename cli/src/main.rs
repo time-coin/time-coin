@@ -247,8 +247,6 @@ async fn main() {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
                             let info = conn.peer_info().await;
-                            let addr = info.address;
-                            let version = info.version.clone();
                             
                             peer_manager_clone.add_connected_peer(info).await;
                             
