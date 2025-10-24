@@ -217,8 +217,10 @@ async fn main() {
                 if peers.len() > 5 {
                     println!("    ... and {} more", peers.len() - 5);
                 }
+                println!("🔧 DEBUG: About to connect to {} peers...", peers.len());
                 // Connect to discovered peers
                 peer_manager.connect_to_peers(peers.clone()).await;
+                println!("🔧 DEBUG: Spawned connection tasks");
             }
         }
         Err(e) => {
