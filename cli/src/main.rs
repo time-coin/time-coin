@@ -3,8 +3,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use owo_colors::OwoColorize;
 use serde::Deserialize;
+mod block_producer;
+use block_producer::BlockProducer;
 use std::path::PathBuf;
 use std::time::Duration;
+
 use time_api::{start_server, ApiState};
 use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
 use tokio::time;
@@ -290,6 +293,12 @@ async fn main() {
             }
         }
     });
+
+    // Start block producer
+    println!("{}",  "🔨 Starting block producer...".yellow());
+    let block_producer = BlockProducer::new();
+    block_producer.start().await;
+    println!("{}", "✓ Block producer started (24-hour interval)".green());
     let mut counter = 0;
     loop {
         time::sleep(Duration::from_secs(60)).await;
