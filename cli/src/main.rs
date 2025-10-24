@@ -302,8 +302,8 @@ async fn main() {
     } else {
         "unknown".to_string()
     };
-    let _block_producer = BlockProducer::new(node_id);
-    println!("{}", "✓ Block producer started (24-hour interval)".green());
+    let block_producer = BlockProducer::new(node_id, peer_manager.clone());
+    block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
     let mut counter = 0;
     loop {

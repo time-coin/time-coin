@@ -93,4 +93,12 @@ impl PeerManager {
             peers: self.peers.clone(),
         }
     }
+
+
+    pub async fn get_peer_ips(&self) -> Vec<String> {
+        self.peers.read().await
+            .values()
+            .map(|p| p.address.ip().to_string())
+            .collect()
+    }
 }
