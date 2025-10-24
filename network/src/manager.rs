@@ -66,6 +66,13 @@ impl PeerManager {
         // Skip adding self
         if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
             return;
+        // Skip if we already have a peer with this IP
+        let ip_to_check = peer.address.ip();
+        let existing_peers = self.peers.read().await;
+        if existing_peers.values().any(|p| p.address.ip() == ip_to_check) {
+            return;
+        }
+        drop(existing_peers);
         }
         let mut peers = self.peers.write().await;
         
