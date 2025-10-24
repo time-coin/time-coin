@@ -1,10 +1,12 @@
 use clap::Parser;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use owo_colors::OwoColorize;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use time_api::{start_server, ApiState};
-use time_network::{NetworkType, PeerDiscovery};
+use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
 use tokio::time;
 
 #[derive(Parser)]
@@ -197,8 +199,8 @@ async fn main() {
     }
     println!("\n{}", "✓ Blockchain initialized".green());
     println!("{}", "⏳ Starting peer discovery...".yellow());
-    let mut discovery = PeerDiscovery::new(NetworkType::Testnet);
-    match discovery.bootstrap().await {
+    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(NetworkType::Testnet)));
+    match discovery.write().await.bootstrap().await {
         Ok(peers) => {
             if peers.is_empty() {
                 println!("{}", "  ⚠ No peers discovered yet".yellow());
@@ -228,6 +230,8 @@ async fn main() {
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "127.0.0.1".to_string());
     let api_port = config.rpc.port.unwrap_or(24101);
+    let listen_addr = "0.0.0.0:24100".parse().unwrap();
+    let peer_manager = std::sync::Arc::new(PeerManager::new(NetworkType::Testnet, listen_addr));
     if api_enabled {
         let bind_addr = format!("{}:{}", api_bind, api_port);
         let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone(), peer_manager.clone());
@@ -270,13 +274,13 @@ async fn main() {
             }
         });
     println!("\n{}", "Node Status: ACTIVE".green().bold());
+    }
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(300));
         loop {
             interval.tick().await;
-            let mut disc = PeerDiscovery::new(NetworkType::Testnet);
-            if let Ok(peers) = disc.bootstrap().await {
+            if let Ok(peers) = discovery.write().await.bootstrap().await {
                 if !peers.is_empty() {
                     println!(
                         "[{}] {} - {} peer(s) available",
