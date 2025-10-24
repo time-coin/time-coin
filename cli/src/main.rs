@@ -200,6 +200,8 @@ async fn main() {
     println!("\n{}", "✓ Blockchain initialized".green());
     println!("{}", "⏳ Starting peer discovery...".yellow());
     let discovery = Arc::new(RwLock::new(PeerDiscovery::new(NetworkType::Testnet)));
+    let listen_addr = "0.0.0.0:24100".parse().unwrap();
+    let peer_manager = std::sync::Arc::new(PeerManager::new(NetworkType::Testnet, listen_addr));
     match discovery.write().await.bootstrap().await {
         Ok(peers) => {
             if peers.is_empty() {
@@ -214,6 +216,8 @@ async fn main() {
                 }
                 if peers.len() > 5 {
                     println!("    ... and {} more", peers.len() - 5);
+                // Connect to discovered peers
+                peer_manager.connect_to_peers(peers.clone()).await;
                 }
             }
         }
@@ -230,8 +234,6 @@ async fn main() {
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "127.0.0.1".to_string());
     let api_port = config.rpc.port.unwrap_or(24101);
-    let listen_addr = "0.0.0.0:24100".parse().unwrap();
-    let peer_manager = std::sync::Arc::new(PeerManager::new(NetworkType::Testnet, listen_addr));
     if api_enabled {
         let bind_addr = format!("{}:{}", api_bind, api_port);
         let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone(), peer_manager.clone());
