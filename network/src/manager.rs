@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use local_ip_address::local_ip;
+use crate::protocol::{NetworkMessage, TransactionMessage};
 use tokio::sync::RwLock;
 
 pub struct PeerManager {
@@ -98,21 +99,22 @@ impl PeerManager {
     pub async fn get_peer_ips(&self) -> Vec<String> {
         self.peers.read().await
             .values()
+            .map(|p| p.address.ip().to_string())
+            .collect()
+    }
+
     pub async fn broadcast_transaction(&self, tx: TransactionMessage) -> Result<usize, String> {
         let peers = self.peers.read().await;
         let peer_count = peers.len();
         
         // Serialize the transaction
         let message = NetworkMessage::Transaction(tx);
-        let data = message.serialize()?;
+        let _data = message.serialize()?;
         
         println!("📡 Broadcasting transaction to {} peer(s)...", peer_count);
         
         // TODO: Actually send to connected peers
         // For now, just return success
         Ok(peer_count)
-    }
-            .map(|p| p.address.ip().to_string())
-            .collect()
     }
 }
