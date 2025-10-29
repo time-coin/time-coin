@@ -11,3 +11,4 @@ pub use protocol::{TransactionMessage, TransactionValidation, NetworkMessage};
 pub use connection::PeerConnection;
 pub use manager::PeerManager;
 pub use connection::PeerListener;
+pub use manager::Snapshot;

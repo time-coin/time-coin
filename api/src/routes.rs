@@ -12,6 +12,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/balance/:address", get(get_balance))
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
+        .route("/snapshot", get(get_snapshot))
 }
 
 async fn root() -> &'static str {
@@ -109,4 +110,33 @@ async fn get_genesis(
         }
         Err(_) => Err(ApiError::Internal("Genesis block not found".to_string()))
     }
+}
+
+#[derive(serde::Serialize)]
+struct SnapshotResponse {
+    height: u64,
+    state_hash: String,
+    balances: std::collections::HashMap<String, u64>,
+    masternodes: Vec<String>,
+    timestamp: i64,
+}
+
+async fn get_snapshot(
+    State(state): State<ApiState>,
+) -> ApiResult<Json<SnapshotResponse>> {
+    let balances = state.balances.read().await;
+    let masternodes = state.peer_manager.get_peer_ips().await;
+    
+    // Calculate state hash for verification
+    let mut state_data = format!("{:?}", *balances);
+    state_data.push_str(&format!("{:?}", masternodes));
+    let state_hash = format!("{:x}", md5::compute(&state_data));
+    
+    Ok(Json(SnapshotResponse {
+        height: 0, // TODO: Track actual chain height
+        state_hash,
+        balances: balances.clone(),
+        masternodes,
+        timestamp: chrono::Utc::now().timestamp(),
+    }))
 }
