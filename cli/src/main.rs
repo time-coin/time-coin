@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use owo_colors::OwoColorize;
 use serde::Deserialize;
+
 mod block_producer;
 use block_producer::BlockProducer;
 use std::path::PathBuf;
@@ -18,8 +19,10 @@ use tokio::time;
 struct Cli {
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
+    
     #[arg(short, long)]
     version: bool,
+    
     #[arg(long)]
     dev: bool,
 }
@@ -28,10 +31,13 @@ struct Cli {
 struct Config {
     #[serde(default)]
     node: NodeConfig,
+    
     #[serde(default)]
     blockchain: BlockchainConfig,
+    
     #[serde(default)]
     consensus: ConsensusConfig,
+    
     #[serde(default)]
     rpc: RpcConfig,
 }
@@ -39,10 +45,14 @@ struct Config {
 #[derive(Debug, Deserialize, Default)]
 struct NodeConfig {
     mode: Option<String>,
+    network: Option<String>,
+    
     #[allow(dead_code)]
     name: Option<String>,
+    
     #[allow(dead_code)]
     data_dir: Option<String>,
+    
     #[allow(dead_code)]
     log_dir: Option<String>,
 }
@@ -50,6 +60,7 @@ struct NodeConfig {
 #[derive(Debug, Deserialize, Default)]
 struct BlockchainConfig {
     genesis_file: Option<String>,
+    
     #[allow(dead_code)]
     data_dir: Option<String>,
 }
@@ -57,6 +68,7 @@ struct BlockchainConfig {
 #[derive(Debug, Deserialize, Default)]
 struct ConsensusConfig {
     dev_mode: Option<bool>,
+    
     #[allow(dead_code)]
     auto_approve: Option<bool>,
 }
@@ -101,15 +113,19 @@ fn display_genesis(genesis: &serde_json::Value) {
         "{}",
         "╚═══════════════════════════════════════════════════╝".cyan()
     );
+
     if let Some(network) = genesis.get("network").and_then(|v| v.as_str()) {
         println!("\n{}: {}", "Network".yellow().bold(), network);
     }
+
     if let Some(version) = genesis.get("version").and_then(|v| v.as_u64()) {
         println!("{}: {}", "Version".yellow().bold(), version);
     }
+
     if let Some(message) = genesis.get("message").and_then(|v| v.as_str()) {
         println!("{}: {}", "Message".yellow().bold(), message);
     }
+
     if let Some(hash) = genesis.get("hash").and_then(|v| v.as_str()) {
         println!(
             "{}: {}...",
@@ -117,27 +133,32 @@ fn display_genesis(genesis: &serde_json::Value) {
             hash[..16].to_string().bright_blue()
         );
     }
+
     if let Some(timestamp) = genesis.get("timestamp").and_then(|v| v.as_i64()) {
         if let Some(dt) = chrono::DateTime::from_timestamp(timestamp, 0) {
             let formatted = dt.format("%Y-%m-%d %H:%M:%S UTC");
             println!("{}: {}", "Timestamp".yellow().bold(), formatted);
         }
     }
+
     if let Some(transactions) = genesis.get("transactions").and_then(|v| v.as_array()) {
         let total_supply: u64 = transactions
             .iter()
             .filter_map(|tx| tx.get("amount").and_then(|v| v.as_u64()))
             .sum();
+
         println!(
             "{}: {} TIME",
             "Total Supply".yellow().bold(),
             (total_supply / 100_000_000).to_string().green()
         );
+
         println!(
             "\n{} ({})",
             "Allocations".yellow().bold(),
             transactions.len()
         );
+
         for (i, tx) in transactions.iter().enumerate() {
             if let (Some(amount), Some(desc)) = (
                 tx.get("amount").and_then(|v| v.as_u64()),
@@ -153,21 +174,23 @@ fn display_genesis(genesis: &serde_json::Value) {
             }
         }
     }
+
     println!();
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
     if cli.version {
         println!("time-node 0.1.0");
         return;
     }
+
     let config_path = cli
         .config
         .unwrap_or_else(|| PathBuf::from(expand_path("$HOME/time-coin-node/config/testnet.toml")));
-    println!("{}", "TIME Coin Node v0.1.0".cyan().bold());
-    println!("Config file: {:?}\n", config_path);
+
     let config = match load_config(&config_path) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -175,9 +198,32 @@ async fn main() {
             Config::default()
         }
     };
+
+    // Determine network type
+    let network_name = config.node.network
+        .as_deref()
+        .unwrap_or("testnet")
+        .to_uppercase();
+    
+    let is_testnet = network_name == "TESTNET";
+
+    // Display banner with network
+    if is_testnet {
+        println!("{}", "╔══════════════════════════════════════╗".yellow().bold());
+        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]   ║".yellow().bold());
+        println!("{}", "╚══════════════════════════════════════╝".yellow().bold());
+    } else {
+        println!("{}", "TIME Coin Node v0.1.0".cyan().bold());
+    }
+    
+    println!("Config file: {:?}", config_path);
+    println!("Network: {}", network_name.yellow().bold());
+    println!();
+
     let is_dev_mode = cli.dev
         || config.node.mode.as_deref() == Some("dev")
         || config.consensus.dev_mode.unwrap_or(false);
+
     if is_dev_mode {
         println!("{}", "⚠️  DEV MODE ENABLED".yellow().bold());
         println!(
@@ -186,8 +232,10 @@ async fn main() {
         );
         println!();
     }
+
     println!("{}", "🚀 Starting TIME node...".green().bold());
     println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
+
     if let Some(genesis_path) = config.blockchain.genesis_file {
         let expanded_path = expand_path(&genesis_path);
         match load_genesis(&expanded_path) {
@@ -201,11 +249,20 @@ async fn main() {
             }
         }
     }
+
     println!("\n{}", "✓ Blockchain initialized".green());
     println!("{}", "⏳ Starting peer discovery...".yellow());
-    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(NetworkType::Testnet)));
+
+    let network_type = if is_testnet {
+        NetworkType::Testnet
+    } else {
+        NetworkType::Mainnet
+    };
+
+    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
     let listen_addr = "0.0.0.0:24100".parse().unwrap();
-    let peer_manager = std::sync::Arc::new(PeerManager::new(NetworkType::Testnet, listen_addr));
+    let peer_manager = std::sync::Arc::new(PeerManager::new(network_type.clone(), listen_addr));
+
     match discovery.write().await.bootstrap().await {
         Ok(peers) => {
             if peers.is_empty() {
@@ -221,7 +278,6 @@ async fn main() {
                 if peers.len() > 5 {
                     println!("    ... and {} more", peers.len() - 5);
                 }
-                // Connect to discovered peers
                 peer_manager.connect_to_peers(peers.clone()).await;
             }
         }
@@ -230,32 +286,40 @@ async fn main() {
             println!("    {}", "Will retry in background...".bright_black());
         }
     }
+
     println!("{}", "✓ Peer discovery started".green());
     println!("{}", "✓ Masternode services starting".green());
+
     if is_dev_mode {
         println!("{}", "✓ Dev mode: Single-node consensus active".green());
     }
+
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "127.0.0.1".to_string());
     let api_port = config.rpc.port.unwrap_or(24101);
+
     if api_enabled {
         let admin_token = config.rpc.admin_token.clone();
         let bind_addr = format!("{}:{}", api_bind, api_port);
-        let api_state = ApiState::new(is_dev_mode, "testnet".to_string(), discovery.clone(), peer_manager.clone(), admin_token);
+        let api_state = ApiState::new(
+            is_dev_mode,
+            network_name.to_lowercase(),
+            discovery.clone(),
+            peer_manager.clone(),
+            admin_token,
+        );
 
-        // Start peer listener for incoming connections
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
-        match PeerListener::bind(peer_listener_addr, NetworkType::Testnet).await {
+        match PeerListener::bind(peer_listener_addr, network_type).await {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
                 tokio::spawn(async move {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
                             let info = conn.peer_info().await;
-                            
                             peer_manager_clone.add_connected_peer(info).await;
-                            
-                            tokio::spawn(async move { 
+
+                            tokio::spawn(async move {
                                 conn.keep_alive().await;
                             });
                         }
@@ -269,18 +333,22 @@ async fn main() {
             "{}",
             format!("✓ API server starting on {}", bind_addr).green()
         );
+        
         let api_state_clone = api_state.clone();
         tokio::spawn(async move {
             if let Err(e) = start_server(bind_addr.parse().unwrap(), api_state_clone).await {
                 eprintln!("API server error: {}", e);
             }
         });
-    println!("\n{}", "Node Status: ACTIVE".green().bold());
+
+        println!("\n{}", format!("Node Status: ACTIVE [{}]", network_name).green().bold());
     }
+    
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(300));
-        interval.tick().await; // Skip immediate first tick
+        interval.tick().await;
         loop {
             interval.tick().await;
             if let Ok(peers) = discovery.write().await.bootstrap().await {
@@ -296,27 +364,37 @@ async fn main() {
         }
     });
 
-    // Start block producer
-    println!("{}",  "🔨 Starting block producer...".yellow());
-    // Start block producer
+    println!("{}", "🔨 Starting block producer...".yellow());
+    
     let node_id = if let Ok(ip) = local_ip_address::local_ip() {
         ip.to_string()
     } else {
         "unknown".to_string()
     };
+    
     let block_producer = BlockProducer::new(node_id, peer_manager.clone());
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
+
     let mut counter = 0;
     loop {
         time::sleep(Duration::from_secs(60)).await;
         counter += 1;
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
-        if is_dev_mode {
+        
+        if is_testnet {
             println!(
                 "[{}] {} #{} {}",
                 timestamp,
-                "Node heartbeat - running...".bright_black(),
+                "Node heartbeat".bright_black(),
+                counter,
+                "[TESTNET]".yellow()
+            );
+        } else if is_dev_mode {
+            println!(
+                "[{}] {} #{} {}",
+                timestamp,
+                "Node heartbeat".bright_black(),
                 counter,
                 "(dev mode)".yellow()
             );
@@ -324,7 +402,7 @@ async fn main() {
             println!(
                 "[{}] {} #{}",
                 timestamp,
-                "Node heartbeat - running...".bright_black(),
+                "Node heartbeat".bright_black(),
                 counter
             );
         }
