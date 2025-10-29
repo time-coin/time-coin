@@ -300,7 +300,7 @@ async fn main() {
 
     if is_testnet {
         println!("{}", "╔══════════════════════════════════════╗".yellow().bold());
-        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]   ║".yellow().bold());
+        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]    ║".yellow().bold());
         println!("{}", "╚══════════════════════════════════════╝".yellow().bold());
     } else {
         println!("{}", "TIME Coin Node v0.1.0".cyan().bold());
@@ -415,6 +415,18 @@ async fn main() {
         "unknown".to_string()
     };
     consensus.add_masternode(node_id.clone()).await;
+
+    // Register all connected peers as masternodes
+    {
+        let peers = peer_manager.get_connected_peers().await;
+        let peer_count = peers.len();
+        for peer in peers {
+            consensus.add_masternode(peer.address.ip().to_string()).await;
+        }
+        if peer_count > 0 {
+            println!("✓ Registered {} connected peer(s) as masternodes", peer_count);
+        }
+    }
 
     println!("{}", "✓ Peer discovery started".green());
 
