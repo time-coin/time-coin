@@ -9,7 +9,7 @@ pub fn create_routes() -> Router<ApiState> {
     Router::new()
         .route("/", get(root))
         .route("/blockchain/info", get(get_blockchain_info))
-        .route("/balance/:address", get(get_balance))
+        .route("/balance/{address}", get(get_balance))
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
