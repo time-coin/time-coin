@@ -210,7 +210,7 @@ async fn main() {
     // Display banner with network
     if is_testnet {
         println!("{}", "╔══════════════════════════════════════╗".yellow().bold());
-        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]   ║".yellow().bold());
+        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]    ║".yellow().bold());
         println!("{}", "╚══════════════════════════════════════╝".yellow().bold());
     } else {
         println!("{}", "TIME Coin Node v0.1.0".cyan().bold());
