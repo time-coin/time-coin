@@ -118,3 +118,24 @@ impl PeerManager {
         Ok(peer_count)
     }
 }
+
+
+impl PeerManager {
+    /// Request genesis block from a peer
+    pub async fn request_genesis(&self, peer_addr: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let url = format!("http://{}:24101/genesis", peer_addr.replace(":24100", ""));
+        
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
+            
+        let response = client.get(&url).send().await?;
+        
+        if response.status().is_success() {
+            let genesis: serde_json::Value = response.json().await?;
+            Ok(genesis)
+        } else {
+            Err(format!("Failed to fetch genesis: {}", response.status()).into())
+        }
+    }
+}

@@ -5,10 +5,9 @@ network = "testnet"
 mode = "production"
 
 [blockchain]
-# Use absolute path - adjust for your system
-# Linux: /root/time-coin-node/config/genesis-testnet.json
-# Or use $HOME which will be expanded: $HOME/time-coin-node/config/genesis-testnet.json
-genesis_file = "$HOME/time-coin-node/config/genesis-testnet.json"
+# Genesis will be downloaded from network if not present
+# Uncomment to use local file:
+# genesis_file = "$HOME/time-coin-node/config/genesis-testnet.json"
 data_dir = "./data"
 
 [network]

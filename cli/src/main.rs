@@ -179,6 +179,50 @@ fn display_genesis(genesis: &serde_json::Value) {
     println!();
 }
 
+async fn download_genesis_from_peers(
+    peer_manager: &Arc<PeerManager>,
+    genesis_path: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    println!("{}", "📥 Genesis block not found locally".yellow());
+    println!("{}", "   Attempting to download from network...".bright_black());
+    
+    // Get list of peers
+    let peers = peer_manager.get_peer_ips().await;
+    
+    if peers.is_empty() {
+        return Err("No peers available to download genesis from".into());
+    }
+    
+    // Try each peer until we get genesis
+    for peer in peers.iter() {
+        println!("   Trying {}...", peer.bright_black());
+        
+        match peer_manager.request_genesis(peer).await {
+            Ok(genesis) => {
+                println!("{}", "   ✓ Genesis downloaded successfully!".green());
+                
+                // Save genesis to file
+                let genesis_dir = std::path::Path::new(genesis_path).parent()
+                    .ok_or("Invalid genesis path")?;
+                std::fs::create_dir_all(genesis_dir)?;
+                
+                let genesis_json = serde_json::to_string_pretty(&genesis)?;
+                std::fs::write(genesis_path, genesis_json)?;
+                
+                println!("   ✓ Saved to: {}", genesis_path.bright_black());
+                
+                return Ok(genesis);
+            }
+            Err(e) => {
+                println!("   ✗ Failed: {}", e.to_string().bright_black());
+                continue;
+            }
+        }
+    }
+    
+    Err("Could not download genesis from any peer".into())
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -237,19 +281,63 @@ async fn main() {
     println!("{}", "🚀 Starting TIME node...".green().bold());
     println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
 
-    if let Some(genesis_path) = config.blockchain.genesis_file {
-        let expanded_path = expand_path(&genesis_path);
-        match load_genesis(&expanded_path) {
-            Ok(genesis) => {
-                display_genesis(&genesis);
-                println!("{}", "✓ Genesis block verified".green());
-            }
-            Err(e) => {
-                println!("{} Genesis block: {}", "⚠".yellow(), e);
-                println!("  Looking for: {}", expanded_path);
+    // Initialize networking first for genesis download
+    let network_type = if is_testnet {
+        NetworkType::Testnet
+    } else {
+        NetworkType::Mainnet
+    };
+
+    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
+    let listen_addr = "0.0.0.0:24100".parse().unwrap();
+    let peer_manager = std::sync::Arc::new(PeerManager::new(network_type.clone(), listen_addr));
+
+    // Bootstrap peer discovery
+    println!("{}", "⏳ Starting peer discovery...".yellow());
+    match discovery.write().await.bootstrap().await {
+        Ok(peers) => {
+            if !peers.is_empty() {
+                println!(
+                    "{}",
+                    format!("  ✓ Discovered {} peer(s)", peers.len()).green()
+                );
+                peer_manager.connect_to_peers(peers.clone()).await;
             }
         }
+        Err(_) => {}
     }
+
+    // Handle genesis block - download if not present
+    let genesis_path = config.blockchain.genesis_file
+        .map(|p| expand_path(&p))
+        .unwrap_or_else(|| "/root/time-coin-node/config/genesis-testnet.json".to_string());
+    
+    // Set environment variable for API
+    std::env::set_var("GENESIS_PATH", &genesis_path);
+    
+    let _genesis = match load_genesis(&genesis_path) {
+        Ok(g) => {
+            display_genesis(&g);
+            println!("{}", "✓ Genesis block verified".green());
+            Some(g)
+        }
+        Err(_) => {
+            // Try to download from peers
+            match download_genesis_from_peers(&peer_manager, &genesis_path).await {
+                Ok(g) => {
+                    display_genesis(&g);
+                    println!("{}", "✓ Genesis block downloaded and verified".green());
+                    Some(g)
+                }
+                Err(e) => {
+                    println!("{} {}", "⚠".yellow(), e);
+                    println!("  {}", "Node will continue without genesis verification".yellow());
+                    println!("  {}", "Genesis will be synced once peers are available".bright_black());
+                    None
+                }
+            }
+        }
+    };
 
     println!("\n{}", "✓ Blockchain initialized".green());
     
@@ -263,42 +351,6 @@ async fn main() {
         "unknown".to_string()
     };
     consensus.add_masternode(node_id.clone()).await;
-    
-    println!("{}", "⏳ Starting peer discovery...".yellow());
-
-    let network_type = if is_testnet {
-        NetworkType::Testnet
-    } else {
-        NetworkType::Mainnet
-    };
-
-    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
-    let listen_addr = "0.0.0.0:24100".parse().unwrap();
-    let peer_manager = std::sync::Arc::new(PeerManager::new(network_type.clone(), listen_addr));
-
-    match discovery.write().await.bootstrap().await {
-        Ok(peers) => {
-            if peers.is_empty() {
-                println!("{}", "  ⚠ No peers discovered yet".yellow());
-            } else {
-                println!(
-                    "{}",
-                    format!("  ✓ Discovered {} peer(s)", peers.len()).green()
-                );
-                for peer in peers.iter().take(5) {
-                    println!("    • {} ({})", peer.address, peer.version);
-                }
-                if peers.len() > 5 {
-                    println!("    ... and {} more", peers.len() - 5);
-                }
-                peer_manager.connect_to_peers(peers.clone()).await;
-            }
-        }
-        Err(e) => {
-            println!("{}", format!("  ⚠ Peer discovery error: {}", e).yellow());
-            println!("    {}", "Will retry in background...".bright_black());
-        }
-    }
 
     println!("{}", "✓ Peer discovery started".green());
 
