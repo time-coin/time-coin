@@ -345,6 +345,8 @@ async fn main() {
                     format!("  ✓ Discovered {} peer(s)", peers.len()).green()
                 );
                 peer_manager.connect_to_peers(peers.clone()).await;
+                // Give peers time to connect before attempting genesis download
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 
             }
         }
