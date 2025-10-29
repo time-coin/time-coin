@@ -14,6 +14,9 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
         .route("/transaction", post(submit_transaction))
+        .route("/propose", post(propose_block))
+        .route("/vote", post(cast_vote))
+        .route("/quorum/{block_hash}", get(check_quorum))
 }
 
 async fn root() -> &'static str {
@@ -179,5 +182,97 @@ async fn submit_transaction(
         success: true,
         tx_id,
         message: "Transaction accepted and queued for processing".to_string(),
+    }))
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProposeBlockRequest {
+    height: u64,
+    proposer: String,
+    timestamp: i64,
+    transactions: Vec<String>,
+    previous_hash: String,
+    block_hash: String,
+}
+
+#[derive(serde::Serialize)]
+struct ProposeBlockResponse {
+    success: bool,
+    message: String,
+}
+
+async fn propose_block(
+    State(_state): State<ApiState>,
+    Json(proposal): Json<ProposeBlockRequest>,
+) -> ApiResult<Json<ProposeBlockResponse>> {
+    println!("📬 Received block proposal:");
+    println!("   Height: {}", proposal.height);
+    println!("   Proposer: {}", proposal.proposer);
+    println!("   Hash: {}", proposal.block_hash);
+    
+    // TODO: Validate proposal and store in consensus
+    
+    Ok(Json(ProposeBlockResponse {
+        success: true,
+        message: "Block proposal received and queued for voting".to_string(),
+    }))
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct CastVoteRequest {
+    block_hash: String,
+    voter: String,
+    approve: bool,
+    timestamp: i64,
+}
+
+#[derive(serde::Serialize)]
+struct CastVoteResponse {
+    success: bool,
+    message: String,
+    quorum_reached: bool,
+}
+
+async fn cast_vote(
+    State(_state): State<ApiState>,
+    Json(vote): Json<CastVoteRequest>,
+) -> ApiResult<Json<CastVoteResponse>> {
+    let vote_type = if vote.approve { "APPROVE" } else { "REJECT" };
+    println!("🗳️  Vote received: {} from {}", vote_type, vote.voter);
+    
+    // TODO: Store vote and check quorum
+    
+    Ok(Json(CastVoteResponse {
+        success: true,
+        message: format!("Vote recorded: {}", vote_type),
+        quorum_reached: false,
+    }))
+}
+
+#[derive(serde::Serialize)]
+struct QuorumStatus {
+    block_hash: String,
+    has_quorum: bool,
+    approvals: usize,
+    rejections: usize,
+    total_nodes: usize,
+    required: usize,
+}
+
+async fn check_quorum(
+    State(_state): State<ApiState>,
+    axum::extract::Path(block_hash): axum::extract::Path<String>,
+) -> ApiResult<Json<QuorumStatus>> {
+    // TODO: Get actual quorum status from consensus
+    
+    Ok(Json(QuorumStatus {
+        block_hash,
+        has_quorum: false,
+        approvals: 0,
+        rejections: 0,
+        total_nodes: 0,
+        required: 0,
     }))
 }

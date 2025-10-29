@@ -551,7 +551,7 @@ async fn main() {
 
     println!("{}", "🔨 Starting block producer...".yellow());
     
-    let block_producer = BlockProducer::new(node_id, peer_manager.clone());
+    let block_producer = BlockProducer::new(node_id, peer_manager.clone(), consensus.clone());
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
 

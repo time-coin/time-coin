@@ -304,6 +304,21 @@ impl ConsensusEngine {
     }
 
     /// Get vote count for a block
+    /// Check if we have 2/3+ approval (simple version for round-robin)
+    pub async fn check_quorum(&self, block_hash: &str) -> (bool, usize, usize, usize) {
+        let (approvals, rejections) = self.get_vote_count(block_hash).await;
+        let total_nodes = self.masternode_count().await;
+        
+        if total_nodes == 0 {
+            return (false, 0, 0, 0);
+        }
+        
+        let required = (total_nodes * 2 + 2) / 3;
+        let has_quorum = approvals >= required;
+        
+        (has_quorum, approvals, rejections, total_nodes)
+    }
+
     pub async fn get_vote_count(&self, block_hash: &str) -> (usize, usize) {
         let votes = self.pending_votes.read().await;
         
@@ -458,3 +473,4 @@ mod tests {
         assert!(consensus.has_consensus(block_hash).await); // 2/3 reached!
     }
 }
+
