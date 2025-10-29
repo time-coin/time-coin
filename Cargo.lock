@@ -2037,7 +2037,9 @@ dependencies = [
 name = "time-network"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "local-ip-address",
+ "rand 0.8.5",
  "reqwest 0.12.24",
  "serde",
  "serde_json",

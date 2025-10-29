@@ -173,3 +173,34 @@ impl NetworkMessage {
         serde_json::from_slice(data).map_err(|e| e.to_string())
     }
 }
+
+/// Request peer list from connected node
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PeerListRequest {
+    pub requesting_node: String,
+}
+
+/// Response with known peers
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PeerListResponse {
+    pub peers: Vec<PeerAddress>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PeerAddress {
+    pub ip: String,
+    pub port: u16,
+    pub version: String,
+}
+
+/// Ping message for latency measurement
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Ping {
+    pub timestamp: i64,
+}
+
+/// Pong response
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Pong {
+    pub timestamp: i64,
+}

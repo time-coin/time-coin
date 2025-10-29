@@ -12,5 +12,7 @@ tokio = { workspace = true, features = ["net", "rt", "macros"] }
 reqwest = { version = "0.12", features = ["json"] }
 
 local-ip-address = "0.5"
+rand = "0.8"
+chrono.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

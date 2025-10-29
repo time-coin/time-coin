@@ -12,3 +12,5 @@ pub use connection::PeerConnection;
 pub use manager::PeerManager;
 pub use connection::PeerListener;
 pub use manager::Snapshot;
+
+pub mod peer_exchange;
