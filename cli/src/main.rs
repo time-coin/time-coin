@@ -551,7 +551,7 @@ async fn main() {
 
     println!("{}", "🔨 Starting block producer...".yellow());
     
-    let block_producer = BlockProducer::new(node_id, peer_manager.clone(), consensus.clone());
+    let block_producer = BlockProducer::new(node_id.clone(), peer_manager.clone(), consensus.clone());
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
 
@@ -577,8 +577,11 @@ async fn main() {
         counter += 1;
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
         
-        // Sync masternodes with actual connected peers
-        let current_peers = peer_manager.get_peer_ips().await;
+        // Sync masternodes with actual connected peers (including self)
+        let mut current_peers = peer_manager.get_peer_ips().await;
+        current_peers.push(node_id.clone());
+        current_peers.sort();
+        current_peers.dedup();
         consensus_heartbeat.sync_masternodes(current_peers).await;
 
         let total_nodes = consensus_heartbeat.masternode_count().await;
