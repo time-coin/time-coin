@@ -345,6 +345,7 @@ async fn main() {
                     format!("  ✓ Discovered {} peer(s)", peers.len()).green()
                 );
                 peer_manager.connect_to_peers(peers.clone()).await;
+                
             }
         }
         Err(_) => {}
