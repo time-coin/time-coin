@@ -1,116 +1,130 @@
-//! TIME Coin Storage Layer
-//! 
-//! Persistent storage for finalized daily blocks
+//! TIME Coin Storage Layer - Simple File-Based Snapshots
+//!
+//! Designed for daily persistence model:
+//! - State stays in memory all day
+//! - Snapshot written once per 24 hours
+//! - Quick load on startup
 
-use rocksdb::{DB, Options};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum StorageError {
-    #[error("Database error: {0}")]
-    DatabaseError(#[from] rocksdb::Error),
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
     
     #[error("Serialization error: {0}")]
     SerializationError(String),
     
-    #[error("Block not found: {0}")]
-    BlockNotFound(u64),
+    #[error("Snapshot not found: {0}")]
+    SnapshotNotFound(String),
 }
 
-/// Block storage database
-pub struct BlockStorage {
-    db: DB,
+/// Simple file-based storage for daily snapshots
+pub struct Storage {
+    data_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredBlock {
-    pub height: u64,
-    pub timestamp: i64,
-    pub hash: String,
-    pub previous_hash: String,
-    pub state_snapshot: Vec<u8>,
-    pub transaction_count: u64,
-}
-
-impl BlockStorage {
-    /// Open or create block storage
+impl Storage {
+    /// Open storage directory
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
+        let data_dir = path.as_ref().to_path_buf();
         
-        let db = DB::open(&opts, path)?;
+        // Create directory if it doesn't exist
+        if !data_dir.exists() {
+            fs::create_dir_all(&data_dir)?;
+        }
         
-        Ok(Self { db })
+        Ok(Self { data_dir })
     }
-    
-    /// Save a block
-    pub fn save_block(&self, block: &StoredBlock) -> Result<(), StorageError> {
-        let key = format!("block:{}", block.height);
-        let value = bincode::serialize(block)
+
+    /// Save a snapshot (JSON for readability, Bincode for speed)
+    pub fn save_snapshot<T: Serialize>(&self, name: &str, data: &T) -> Result<(), StorageError> {
+        let json_path = self.data_dir.join(format!("{}.json", name));
+        let bin_path = self.data_dir.join(format!("{}.bin", name));
+        
+        // Save as JSON (human-readable backup)
+        let json = serde_json::to_string_pretty(data)
             .map_err(|e| StorageError::SerializationError(e.to_string()))?;
+        fs::write(&json_path, json)?;
         
-        self.db.put(key.as_bytes(), value)?;
-        
-        // Update tip
-        self.db.put(b"tip", block.height.to_be_bytes())?;
-        
-        // Index by hash
-        let hash_key = format!("hash:{}", block.hash);
-        self.db.put(hash_key.as_bytes(), block.height.to_be_bytes())?;
+        // Save as Bincode (fast loading)
+        let bin = bincode::serialize(data)
+            .map_err(|e| StorageError::SerializationError(e.to_string()))?;
+        fs::write(&bin_path, bin)?;
         
         Ok(())
     }
-    
-    /// Get block by height
-    pub fn get_block(&self, height: u64) -> Result<StoredBlock, StorageError> {
-        let key = format!("block:{}", height);
+
+    /// Load a snapshot (tries Bincode first, falls back to JSON)
+    pub fn load_snapshot<T: for<'de> Deserialize<'de>>(&self, name: &str) -> Result<T, StorageError> {
+        let bin_path = self.data_dir.join(format!("{}.bin", name));
+        let json_path = self.data_dir.join(format!("{}.json", name));
         
-        let value = self.db.get(key.as_bytes())?
-            .ok_or(StorageError::BlockNotFound(height))?;
-        
-        let block: StoredBlock = bincode::deserialize(&value)
-            .map_err(|e| StorageError::SerializationError(e.to_string()))?;
-        
-        Ok(block)
-    }
-    
-    /// Get block by hash
-    pub fn get_block_by_hash(&self, hash: &str) -> Result<StoredBlock, StorageError> {
-        let hash_key = format!("hash:{}", hash);
-        
-        let height_bytes = self.db.get(hash_key.as_bytes())?
-            .ok_or(StorageError::BlockNotFound(0))?;
-        
-        let height = u64::from_be_bytes(height_bytes.try_into().unwrap());
-        
-        self.get_block(height)
-    }
-    
-    /// Get current chain tip (latest block height)
-    pub fn get_tip(&self) -> Result<u64, StorageError> {
-        let tip_bytes = self.db.get(b"tip")?
-            .unwrap_or_else(|| vec![0u8; 8]);
-        
-        Ok(u64::from_be_bytes(tip_bytes.try_into().unwrap()))
-    }
-    
-    /// Get latest block
-    pub fn get_latest_block(&self) -> Result<Option<StoredBlock>, StorageError> {
-        let tip = self.get_tip()?;
-        
-        if tip == 0 {
-            return Ok(None);
+        // Try bincode first (faster)
+        if bin_path.exists() {
+            let data = fs::read(&bin_path)?;
+            return bincode::deserialize(&data)
+                .map_err(|e| StorageError::SerializationError(e.to_string()));
         }
         
-        Ok(Some(self.get_block(tip)?))
+        // Fall back to JSON
+        if json_path.exists() {
+            let data = fs::read_to_string(&json_path)?;
+            return serde_json::from_str(&data)
+                .map_err(|e| StorageError::SerializationError(e.to_string()));
+        }
+        
+        Err(StorageError::SnapshotNotFound(name.to_string()))
     }
-    
-    /// Check if block exists
-    pub fn has_block(&self, height: u64) -> bool {
-        let key = format!("block:{}", height);
-        self.db.get(key.as_bytes()).ok().flatten().is_some()
+
+    /// Check if snapshot exists
+    pub fn has_snapshot(&self, name: &str) -> bool {
+        let bin_path = self.data_dir.join(format!("{}.bin", name));
+        let json_path = self.data_dir.join(format!("{}.json", name));
+        bin_path.exists() || json_path.exists()
+    }
+
+    /// List all snapshots
+    pub fn list_snapshots(&self) -> Result<Vec<String>, StorageError> {
+        let mut snapshots = Vec::new();
+        
+        for entry in fs::read_dir(&self.data_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if let Some(name) = path.file_stem() {
+                if let Some(name_str) = name.to_str() {
+                    if !snapshots.contains(&name_str.to_string()) {
+                        snapshots.push(name_str.to_string());
+                    }
+                }
+            }
+        }
+        
+        Ok(snapshots)
+    }
+
+    /// Delete a snapshot
+    pub fn delete_snapshot(&self, name: &str) -> Result<(), StorageError> {
+        let bin_path = self.data_dir.join(format!("{}.bin", name));
+        let json_path = self.data_dir.join(format!("{}.json", name));
+        
+        if bin_path.exists() {
+            fs::remove_file(bin_path)?;
+        }
+        if json_path.exists() {
+            fs::remove_file(json_path)?;
+        }
+        
+        Ok(())
+    }
+
+    /// Get storage directory path
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
     }
 }
 
@@ -118,30 +132,58 @@ impl BlockStorage {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+    struct TestData {
+        value: u64,
+        name: String,
+    }
+
     #[test]
-    fn test_storage_basic() {
+    fn test_save_and_load() {
         let dir = tempdir().unwrap();
-        let storage = BlockStorage::open(dir.path()).unwrap();
-        
-        let block = StoredBlock {
-            height: 1,
-            timestamp: 1729123200,
-            hash: "test_hash".to_string(),
-            previous_hash: "genesis".to_string(),
-            state_snapshot: vec![1, 2, 3],
-            transaction_count: 5,
+        let storage = Storage::open(dir.path()).unwrap();
+
+        let data = TestData {
+            value: 12345,
+            name: "test".to_string(),
         };
-        
-        storage.save_block(&block).unwrap();
-        
-        let loaded = storage.get_block(1).unwrap();
-        assert_eq!(loaded.height, 1);
-        assert_eq!(loaded.hash, "test_hash");
-        
-        let by_hash = storage.get_block_by_hash("test_hash").unwrap();
-        assert_eq!(by_hash.height, 1);
-        
-        assert_eq!(storage.get_tip().unwrap(), 1);
+
+        storage.save_snapshot("test", &data).unwrap();
+        let loaded: TestData = storage.load_snapshot("test").unwrap();
+
+        assert_eq!(data, loaded);
+    }
+
+    #[test]
+    fn test_has_snapshot() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::open(dir.path()).unwrap();
+
+        assert!(!storage.has_snapshot("test"));
+
+        let data = TestData {
+            value: 123,
+            name: "test".to_string(),
+        };
+        storage.save_snapshot("test", &data).unwrap();
+
+        assert!(storage.has_snapshot("test"));
+    }
+
+    #[test]
+    fn test_list_snapshots() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::open(dir.path()).unwrap();
+
+        let data1 = TestData { value: 1, name: "one".to_string() };
+        let data2 = TestData { value: 2, name: "two".to_string() };
+
+        storage.save_snapshot("snapshot1", &data1).unwrap();
+        storage.save_snapshot("snapshot2", &data2).unwrap();
+
+        let snapshots = storage.list_snapshots().unwrap();
+        assert_eq!(snapshots.len(), 2);
     }
 }

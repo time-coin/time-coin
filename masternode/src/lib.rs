@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use time_core::state::{Address, Transaction};
+use time_core::Transaction;
 
 const COIN: u64 = 100_000_000; // 1 TIME = 100,000,000 satoshis
 
@@ -76,7 +76,7 @@ impl CollateralTier {
 /// Masternode configuration and state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Masternode {
-    pub address: Address,
+    pub address: String,
     pub collateral_tx: String,
     pub collateral_amount: u64,
     pub tier: CollateralTier,
@@ -88,7 +88,7 @@ pub struct Masternode {
 
 impl Masternode {
     pub fn new(
-        address: Address,
+        address: String,
         collateral_tx: String,
         collateral_amount: u64,
     ) -> Result<Self, String> {
@@ -142,7 +142,7 @@ impl Masternode {
 /// Masternode network manager
 #[derive(Debug)]
 pub struct MasternodeNetwork {
-    nodes: HashMap<Address, Masternode>,
+    nodes: HashMap<String, Masternode>,
     quorum_size: usize,
 }
 
@@ -163,14 +163,14 @@ impl MasternodeNetwork {
         Ok(())
     }
 
-    pub fn deregister(&mut self, address: &Address) -> Result<(), String> {
+    pub fn deregister(&mut self, address: &str) -> Result<(), String> {
         self.nodes
             .remove(address)
             .map(|_| ())
             .ok_or_else(|| "Masternode not found".to_string())
     }
 
-    pub fn get_node(&self, address: &Address) -> Option<&Masternode> {
+    pub fn get_node(&self, address: &str) -> Option<&Masternode> {
         self.nodes.get(address)
     }
 
@@ -181,7 +181,7 @@ impl MasternodeNetwork {
             .collect()
     }
 
-    pub fn select_quorum(&self) -> Vec<Address> {
+    pub fn select_quorum(&self) -> Vec<String> {
         let mut active: Vec<_> = self
             .active_nodes()
             .iter()

@@ -1,20 +1,20 @@
-//! TIME Coin Core Library
-//!
-//! Core blockchain functionality for TIME Coin
+//! Core blockchain components for TIME Coin
 
-/// Smallest unit constant (1 COIN in satoshi-like units)
 pub mod block;
-pub const COIN: u64 = 100_000_000;
-pub mod finalizer;
-pub mod state;
-
-// Re-export main types
-pub use finalizer::{BlockFinalizer, FinalizedBlock};
-pub use state::{Address, DailyState, MasternodeInfo, StateSnapshot, Transaction, TxHash};
 pub mod transaction;
-pub use transaction::ValidationError;
+pub mod utxo_set;
 pub mod mempool;
-pub use mempool::TransactionPool;
+pub mod state;
+pub mod constants;
+pub mod checkpoint;
+pub mod finalizer;
 pub mod masternode_tx;
 
-pub use block::Block;
+// Re-export commonly used types
+pub use block::{Block, BlockHeader};
+pub use transaction::{Transaction, TxInput, TxOutput, OutPoint, TransactionError, SpecialTransaction};
+pub use utxo_set::{UTXOSet, UTXOSetSnapshot};
+
+// Note: Mempool and BlockchainState will be re-exported once they're properly defined
+// pub use mempool::{Mempool, MempoolError, MempoolStats};
+pub use state::{BlockchainState, StateError, MasternodeInfo, ChainStats};

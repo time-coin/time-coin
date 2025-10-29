@@ -1,88 +1,96 @@
-//! Block Finalizer
-//!
-//! Runs at midnight UTC to finalize daily state into a block
+//! Block finalization logic for TIME Coin
 
-use crate::state::{DailyState, StateSnapshot};
-use chrono::Utc;
+use crate::block::Block;
+use crate::state::{BlockchainState, StateError};
+
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
+/// Finalizer handles block finalization after BFT consensus
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FinalizedBlock {
-    pub height: u64,
-    pub timestamp: i64,
-    pub previous_hash: String,
-    pub hash: String,
-    pub state_snapshot: StateSnapshot,
-    pub transaction_count: u64,
-    pub merkle_root: String,
+pub struct Finalizer {
+    /// Blocks awaiting finalization
+    pending_blocks: Vec<Block>,
+    /// Last finalized block height
+    last_finalized_height: u64,
 }
 
-pub struct BlockFinalizer;
-
-impl BlockFinalizer {
-    /// Finalize current state into a block
-    pub fn finalize(state: &DailyState, previous_hash: String) -> FinalizedBlock {
-        let snapshot = state.create_snapshot();
-        let timestamp = Utc::now().timestamp();
-
-        let merkle_root = Self::calculate_merkle_root(&state.transactions);
-
-        let mut block = FinalizedBlock {
-            height: state.current_height,
-            timestamp,
-            previous_hash,
-            hash: String::new(),
-            state_snapshot: snapshot,
-            transaction_count: state.transactions.len() as u64,
-            merkle_root,
-        };
-
-        block.hash = Self::calculate_hash(&block);
-
-        block
+impl Finalizer {
+    pub fn new() -> Self {
+        Self {
+            pending_blocks: Vec::new(),
+            last_finalized_height: 0,
+        }
     }
 
-    fn calculate_hash(block: &FinalizedBlock) -> String {
-        let mut hasher = Sha256::new();
-
-        let data = format!(
-            "{}{}{}{}{}",
-            block.height,
-            block.timestamp,
-            block.previous_hash,
-            block.merkle_root,
-            block.transaction_count
-        );
-
-        hasher.update(data.as_bytes());
-        format!("{:x}", hasher.finalize())
+    /// Add a block pending finalization
+    pub fn add_pending_block(&mut self, block: Block) {
+        self.pending_blocks.push(block);
     }
 
-    fn calculate_merkle_root(transactions: &[crate::state::Transaction]) -> String {
-        if transactions.is_empty() {
-            return "0".repeat(64);
-        }
+    /// Finalize a block (after BFT consensus reached)
+    pub fn finalize_block(
+        &mut self,
+        block_hash: &str,
+        state: &mut BlockchainState,
+    ) -> Result<(), StateError> {
+        // Find the block in pending
+        let block_index = self.pending_blocks
+            .iter()
+            .position(|b| b.hash == block_hash)
+            .ok_or(StateError::BlockNotFound)?;
 
-        let mut hasher = Sha256::new();
-        for tx in transactions {
-            hasher.update(tx.txid.as_bytes());
-        }
-        format!("{:x}", hasher.finalize())
+        let block = self.pending_blocks.remove(block_index);
+
+        // Add to blockchain state
+        state.add_block(block.clone())?;
+
+        // Update last finalized height
+        self.last_finalized_height = block.header.block_number;
+
+        Ok(())
+    }
+
+    /// Get pending blocks
+    pub fn pending_blocks(&self) -> &[Block] {
+        &self.pending_blocks
+    }
+
+    /// Get last finalized height
+    pub fn last_finalized_height(&self) -> u64 {
+        self.last_finalized_height
+    }
+
+    /// Clear old pending blocks
+    pub fn clear_old_pending(&mut self, max_height: u64) {
+        self.pending_blocks.retain(|b| b.header.block_number >= max_height);
+    }
+}
+
+impl Default for Finalizer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::TxOutput;
 
     #[test]
-    fn test_finalization() {
-        let state = DailyState::new(1);
-        let block = BlockFinalizer::finalize(&state, "genesis".to_string());
+    fn test_finalizer_creation() {
+        let finalizer = Finalizer::new();
+        assert_eq!(finalizer.last_finalized_height(), 0);
+        assert_eq!(finalizer.pending_blocks().len(), 0);
+    }
 
-        assert_eq!(block.height, 1);
-        assert!(!block.hash.is_empty());
-        assert_eq!(block.previous_hash, "genesis");
+    #[test]
+    fn test_add_pending_block() {
+        let mut finalizer = Finalizer::new();
+        let outputs = vec![TxOutput::new(100_000_000_000, "test".to_string())];
+        let block = Block::new(1, "prev".to_string(), "validator".to_string(), outputs);
+        
+        finalizer.add_pending_block(block);
+        assert_eq!(finalizer.pending_blocks().len(), 1);
     }
 }

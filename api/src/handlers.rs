@@ -51,7 +51,7 @@ pub async fn create_transaction(
     
     if protected_addresses.contains(&req.from.as_str()) {
         // Check admin token authorization
-        if let Some(token) = &state.admin_token {
+        if let Some(_token) = &state.admin_token {
             // TODO: Extract Authorization header from request
             // For now, only allow in dev_mode
             if !state.dev_mode {

@@ -1,164 +1,436 @@
-//! TIME Coin In-Memory State Manager
-//!
-//! Manages current day state (cleared every 24 hours)
+//! Blockchain State Manager for TIME Coin
+//! 
+//! Manages the blockchain state including:
+//! - UTXO set
+//! - Block chain
+//! - Masternode tracking
+//! - Chain tip and reorganization
 
-use chrono::{DateTime, Utc};
+use crate::block::{Block, BlockError, MasternodeCounts, MasternodeTier};
+use crate::transaction::{Transaction, TransactionError};
+use crate::utxo_set::UTXOSet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub type Address = String;
-pub type TxHash = String;
-
-/// Current day in-memory state
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DailyState {
-    /// When this day started (00:00 UTC)
-    pub day_start: DateTime<Utc>,
-
-    /// Current block height (day number since genesis)
-    pub current_height: u64,
-
-    /// All transactions received today
-    pub transactions: Vec<Transaction>,
-
-    /// Current account balances (UTXO-style)
-    pub balances: HashMap<Address, u64>,
-
-    /// Active masternodes
-    pub masternodes: HashMap<Address, MasternodeInfo>,
-
-    /// Pending transactions (mempool)
-    pub mempool: Vec<Transaction>,
+#[derive(Debug, Clone)]
+pub enum StateError {
+    BlockError(BlockError),
+    TransactionError(TransactionError),
+    InvalidBlockHeight,
+    BlockNotFound,
+    InvalidPreviousHash,
+    DuplicateBlock,
+    OrphanBlock,
+    InvalidMasternodeCount,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Transaction {
-    pub txid: TxHash,
-    pub from: Address,
-    pub to: Address,
-    pub amount: u64,
-    pub fee: u64,
-    pub timestamp: i64,
-    pub signature: Vec<u8>,
+impl std::fmt::Display for StateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            StateError::BlockError(e) => write!(f, "Block error: {}", e),
+            StateError::TransactionError(e) => write!(f, "Transaction error: {}", e),
+            StateError::InvalidBlockHeight => write!(f, "Invalid block height"),
+            StateError::BlockNotFound => write!(f, "Block not found"),
+            StateError::InvalidPreviousHash => write!(f, "Invalid previous block hash"),
+            StateError::DuplicateBlock => write!(f, "Duplicate block"),
+            StateError::OrphanBlock => write!(f, "Orphan block (parent not found)"),
+            StateError::InvalidMasternodeCount => write!(f, "Invalid masternode count"),
+        }
+    }
 }
 
+impl std::error::Error for StateError {}
+
+impl From<BlockError> for StateError {
+    fn from(err: BlockError) -> Self {
+        StateError::BlockError(err)
+    }
+}
+
+impl From<TransactionError> for StateError {
+    fn from(err: TransactionError) -> Self {
+        StateError::TransactionError(err)
+    }
+}
+
+/// Represents a masternode registration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasternodeInfo {
-    pub address: Address,
-    pub collateral: u64,
-    pub tier: String,
-    pub active_since: i64,
+    pub address: String,
+    pub tier: MasternodeTier,
+    pub collateral_tx: String,
+    pub registered_height: u64,
     pub last_seen: i64,
+    pub is_active: bool,
 }
 
-impl DailyState {
-    /// Create new state for today
-    pub fn new(height: u64) -> Self {
-        let now = Utc::now();
-        let day_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+/// Main blockchain state
+#[derive(Debug, Clone)]
+pub struct BlockchainState {
+    /// Current UTXO set
+    utxo_set: UTXOSet,
+    
+    /// All blocks by hash
+    blocks: HashMap<String, Block>,
+    
+    /// Block hash by height
+    blocks_by_height: HashMap<u64, String>,
+    
+    /// Current chain tip (best block height)
+    chain_tip_height: u64,
+    
+    /// Current chain tip hash
+    chain_tip_hash: String,
+    
+    /// Registered masternodes
+    masternodes: HashMap<String, MasternodeInfo>,
+    
+    /// Current masternode counts by tier
+    masternode_counts: MasternodeCounts,
+    
+    /// Genesis block hash
+    genesis_hash: String,
+}
 
-        Self {
-            day_start,
-            current_height: height,
-            transactions: Vec::new(),
-            balances: HashMap::new(),
+impl BlockchainState {
+    /// Create a new blockchain state with genesis block
+    pub fn new(genesis_block: Block) -> Result<Self, StateError> {
+        let mut state = Self {
+            utxo_set: UTXOSet::new(),
+            blocks: HashMap::new(),
+            blocks_by_height: HashMap::new(),
+            chain_tip_height: 0,
+            chain_tip_hash: genesis_block.hash.clone(),
             masternodes: HashMap::new(),
-            mempool: Vec::new(),
+            masternode_counts: MasternodeCounts {
+                free: 0,
+                bronze: 0,
+                silver: 0,
+                gold: 0,
+            },
+            genesis_hash: genesis_block.hash.clone(),
+        };
+
+        // Validate and add genesis block
+        genesis_block.validate_structure()?;
+        
+        // Apply genesis coinbase to UTXO set
+        if let Some(coinbase) = genesis_block.coinbase() {
+            state.utxo_set.apply_transaction(coinbase)?;
         }
+
+        // Store genesis block
+        state.blocks_by_height.insert(0, genesis_block.hash.clone());
+        state.blocks.insert(genesis_block.hash.clone(), genesis_block);
+
+        Ok(state)
     }
 
-    /// Check if we should finalize (past midnight UTC)
-    pub fn should_finalize(&self) -> bool {
-        let now = Utc::now();
-        now.date_naive() > self.day_start.date_naive()
+    /// Get current chain tip height
+    pub fn chain_tip_height(&self) -> u64 {
+        self.chain_tip_height
     }
 
-    /// Get time until finalization
-    pub fn seconds_until_finalize(&self) -> i64 {
-        let next_midnight = self.day_start + chrono::Duration::days(1);
-        (next_midnight - Utc::now()).num_seconds()
+    /// Get current chain tip hash
+    pub fn chain_tip_hash(&self) -> &str {
+        &self.chain_tip_hash
     }
 
-    /// Add transaction to mempool
-    pub fn add_to_mempool(&mut self, tx: Transaction) {
-        self.mempool.push(tx);
+    /// Get genesis hash
+    pub fn genesis_hash(&self) -> &str {
+        &self.genesis_hash
     }
 
-    /// Process transaction (move from mempool to confirmed)
-    pub fn confirm_transaction(&mut self, txid: &str) -> Option<Transaction> {
-        if let Some(pos) = self.mempool.iter().position(|tx| tx.txid == txid) {
-            let tx = self.mempool.remove(pos);
+    /// Get block by hash
+    pub fn get_block(&self, hash: &str) -> Option<&Block> {
+        self.blocks.get(hash)
+    }
 
-            // Update balances
-            if let Some(balance) = self.balances.get_mut(&tx.from) {
-                *balance = balance.saturating_sub(tx.amount + tx.fee);
+    /// Get block by height
+    pub fn get_block_by_height(&self, height: u64) -> Option<&Block> {
+        self.blocks_by_height
+            .get(&height)
+            .and_then(|hash| self.blocks.get(hash))
+    }
+
+    /// Check if block exists
+    pub fn has_block(&self, hash: &str) -> bool {
+        self.blocks.contains_key(hash)
+    }
+
+    /// Get balance for an address
+    pub fn get_balance(&self, address: &str) -> u64 {
+        self.utxo_set.get_balance(address)
+    }
+
+    /// Get UTXO set reference
+    pub fn utxo_set(&self) -> &UTXOSet {
+        &self.utxo_set
+    }
+
+    /// Get masternode counts
+    pub fn masternode_counts(&self) -> &MasternodeCounts {
+        &self.masternode_counts
+    }
+
+    /// Get total supply
+    pub fn total_supply(&self) -> u64 {
+        self.utxo_set.total_supply()
+    }
+
+    /// Add a new block to the chain
+    pub fn add_block(&mut self, block: Block) -> Result<(), StateError> {
+        // Check if block already exists
+        if self.has_block(&block.hash) {
+            return Err(StateError::DuplicateBlock);
+        }
+
+        // Validate block structure
+        block.validate_structure()?;
+
+        // Check if this connects to our chain
+        if block.header.block_number == 0 {
+            // Can't add another genesis block
+            return Err(StateError::InvalidBlockHeight);
+        }
+
+        // Verify previous block exists
+        if !self.has_block(&block.header.previous_hash) {
+            return Err(StateError::OrphanBlock);
+        }
+
+        // Verify block height is correct
+        let expected_height = self.chain_tip_height + 1;
+        if block.header.block_number != expected_height {
+            return Err(StateError::InvalidBlockHeight);
+        }
+
+        // Verify previous hash matches chain tip
+        if block.header.previous_hash != self.chain_tip_hash {
+            return Err(StateError::InvalidPreviousHash);
+        }
+
+        // Create UTXO snapshot for potential rollback
+        let utxo_snapshot = self.utxo_set.snapshot();
+
+        // Validate and apply block to UTXO set
+        match block.validate_and_apply(&mut self.utxo_set, &self.masternode_counts) {
+            Ok(_) => {
+                // Success! Add block to chain
+                self.blocks_by_height.insert(block.header.block_number, block.hash.clone());
+                self.chain_tip_height = block.header.block_number;
+                self.chain_tip_hash = block.hash.clone();
+                self.blocks.insert(block.hash.clone(), block);
+                Ok(())
             }
-
-            *self.balances.entry(tx.to.clone()).or_insert(0) += tx.amount;
-
-            self.transactions.push(tx.clone());
-            Some(tx)
-        } else {
-            None
+            Err(e) => {
+                // Rollback UTXO changes
+                self.utxo_set.restore(utxo_snapshot);
+                Err(e.into())
+            }
         }
     }
 
-    /// Get balance
-    pub fn get_balance(&self, address: &Address) -> u64 {
-        *self.balances.get(address).unwrap_or(&0)
+    /// Register a new masternode
+    pub fn register_masternode(
+        &mut self,
+        address: String,
+        tier: MasternodeTier,
+        collateral_tx: String,
+    ) -> Result<(), StateError> {
+        // Verify collateral requirement
+        let required_collateral = tier.collateral_requirement();
+        
+        if required_collateral > 0 {
+            // For paid tiers, verify the address has sufficient balance
+            let balance = self.get_balance(&address);
+            if balance < required_collateral {
+                return Err(StateError::InvalidMasternodeCount);
+            }
+        }
+
+        // Create masternode info
+        let masternode = MasternodeInfo {
+            address: address.clone(),
+            tier,
+            collateral_tx,
+            registered_height: self.chain_tip_height,
+            last_seen: chrono::Utc::now().timestamp(),
+            is_active: true,
+        };
+
+        // Update counts
+        match tier {
+            MasternodeTier::Free => self.masternode_counts.free += 1,
+            MasternodeTier::Bronze => self.masternode_counts.bronze += 1,
+            MasternodeTier::Silver => self.masternode_counts.silver += 1,
+            MasternodeTier::Gold => self.masternode_counts.gold += 1,
+        }
+
+        // Store masternode
+        self.masternodes.insert(address, masternode);
+
+        Ok(())
     }
 
-    /// Set balance (for genesis/rewards)
-    pub fn set_balance(&mut self, address: Address, amount: u64) {
-        self.balances.insert(address, amount);
+    /// Deactivate a masternode
+    pub fn deactivate_masternode(&mut self, address: &str) -> Result<(), StateError> {
+        let masternode = self.masternodes
+            .get_mut(address)
+            .ok_or(StateError::InvalidMasternodeCount)?;
+
+        if !masternode.is_active {
+            return Ok(()); // Already inactive
+        }
+
+        masternode.is_active = false;
+
+        // Update counts
+        match masternode.tier {
+            MasternodeTier::Free => self.masternode_counts.free = self.masternode_counts.free.saturating_sub(1),
+            MasternodeTier::Bronze => self.masternode_counts.bronze = self.masternode_counts.bronze.saturating_sub(1),
+            MasternodeTier::Silver => self.masternode_counts.silver = self.masternode_counts.silver.saturating_sub(1),
+            MasternodeTier::Gold => self.masternode_counts.gold = self.masternode_counts.gold.saturating_sub(1),
+        }
+
+        Ok(())
     }
 
-    /// Create state snapshot for block
-    pub fn create_snapshot(&self) -> StateSnapshot {
-        StateSnapshot {
-            balances: self.balances.clone(),
-            transaction_count: self.transactions.len() as u64,
-            total_fees: self.transactions.iter().map(|tx| tx.fee).sum(),
+    /// Get masternode info
+    pub fn get_masternode(&self, address: &str) -> Option<&MasternodeInfo> {
+        self.masternodes.get(address)
+    }
+
+    /// Get all active masternodes
+    pub fn get_active_masternodes(&self) -> Vec<&MasternodeInfo> {
+        self.masternodes
+            .values()
+            .filter(|mn| mn.is_active)
+            .collect()
+    }
+
+    /// Get masternodes by tier
+    pub fn get_masternodes_by_tier(&self, tier: MasternodeTier) -> Vec<&MasternodeInfo> {
+        self.masternodes
+            .values()
+            .filter(|mn| mn.is_active && mn.tier == tier)
+            .collect()
+    }
+
+    /// Validate a transaction against current UTXO set
+    pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), StateError> {
+        // Validate structure
+        tx.validate_structure()?;
+
+        // Skip UTXO validation for coinbase
+        if tx.is_coinbase() {
+            return Ok(());
+        }
+
+        // Verify all inputs exist in UTXO set
+        for input in &tx.inputs {
+            if !self.utxo_set.contains(&input.previous_output) {
+                return Err(StateError::TransactionError(TransactionError::InvalidInput));
+            }
+        }
+
+        // Verify input amounts >= output amounts (implicit fee check)
+        let _fee = tx.fee(self.utxo_set.utxos())?;
+
+        Ok(())
+    }
+
+    /// Get chain statistics
+    pub fn get_stats(&self) -> ChainStats {
+        ChainStats {
+            chain_height: self.chain_tip_height,
+            total_blocks: self.blocks.len(),
+            total_supply: self.total_supply(),
+            utxo_count: self.utxo_set.len(),
+            active_masternodes: self.masternode_counts.total(),
+            free_masternodes: self.masternode_counts.free,
+            bronze_masternodes: self.masternode_counts.bronze,
+            silver_masternodes: self.masternode_counts.silver,
+            gold_masternodes: self.masternode_counts.gold,
         }
     }
 }
 
-/// Snapshot of state (saved in block)
+/// Chain statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateSnapshot {
-    pub balances: HashMap<Address, u64>,
-    pub transaction_count: u64,
-    pub total_fees: u64,
+pub struct ChainStats {
+    pub chain_height: u64,
+    pub total_blocks: usize,
+    pub total_supply: u64,
+    pub utxo_count: usize,
+    pub active_masternodes: u64,
+    pub free_masternodes: u64,
+    pub bronze_masternodes: u64,
+    pub silver_masternodes: u64,
+    pub gold_masternodes: u64,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::TxOutput;
+
+    fn create_genesis_block() -> Block {
+        let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
+        Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs)
+    }
 
     #[test]
-    fn test_daily_state() {
-        let mut state = DailyState::new(1);
+    fn test_blockchain_initialization() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        
+        let state = BlockchainState::new(genesis).unwrap();
+        
+        assert_eq!(state.chain_tip_height(), 0);
+        assert_eq!(state.chain_tip_hash(), genesis_hash);
+        assert_eq!(state.total_supply(), 100_000_000_000);
+    }
 
-        state.set_balance("addr1".to_string(), 1000);
-        assert_eq!(state.get_balance(&"addr1".to_string()), 1000);
+    #[test]
+    fn test_add_block() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let mut state = BlockchainState::new(genesis).unwrap();
+        
+        // Create block 1
+        let outputs = vec![TxOutput::new(10_000_000_000, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        
+        state.add_block(block1).unwrap();
+        
+        assert_eq!(state.chain_tip_height(), 1);
+        assert!(state.get_block_by_height(1).is_some());
+    }
 
-        let tx = Transaction {
-            txid: "tx1".to_string(),
-            from: "addr1".to_string(),
-            to: "addr2".to_string(),
-            amount: 100,
-            fee: 1,
-            timestamp: Utc::now().timestamp(),
-            signature: vec![],
-        };
+    #[test]
+    fn test_masternode_registration() {
+        let genesis = create_genesis_block();
+        let mut state = BlockchainState::new(genesis).unwrap();
+        
+        // Register free tier masternode
+        state.register_masternode(
+            "masternode1".to_string(),
+            MasternodeTier::Free,
+            "collateral_tx".to_string(),
+        ).unwrap();
+        
+        assert_eq!(state.masternode_counts().free, 1);
+        assert!(state.get_masternode("masternode1").is_some());
+    }
 
-        state.add_to_mempool(tx);
-        assert_eq!(state.mempool.len(), 1);
-
-        state.confirm_transaction("tx1");
-        assert_eq!(state.mempool.len(), 0);
-        assert_eq!(state.transactions.len(), 1);
-        assert_eq!(state.get_balance(&"addr1".to_string()), 899);
-        assert_eq!(state.get_balance(&"addr2".to_string()), 100);
+    #[test]
+    fn test_get_balance() {
+        let genesis = create_genesis_block();
+        let state = BlockchainState::new(genesis).unwrap();
+        
+        // Genesis address should have balance
+        assert_eq!(state.get_balance("genesis"), 100_000_000_000);
+        assert_eq!(state.get_balance("nonexistent"), 0);
     }
 }

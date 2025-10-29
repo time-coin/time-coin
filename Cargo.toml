@@ -8,7 +8,7 @@ members = [
     "purchase",
     "wallet",
     "api",
-    # "storage",
+    "storage",
     "crypto",
     "cli",
 ]
