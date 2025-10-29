@@ -498,6 +498,7 @@ async fn main() {
                             tokio::spawn(async move {
                                 conn.keep_alive().await;
                             });
+
                         }
                     }
                 });
@@ -516,6 +517,7 @@ async fn main() {
                 eprintln!("API server error: {}", e);
             }
         });
+
 
         let mode_str = match consensus_mode {
             time_consensus::ConsensusMode::Development => "DEV",
@@ -546,12 +548,28 @@ async fn main() {
         }
     });
 
+
     println!("{}", "🔨 Starting block producer...".yellow());
     
     let block_producer = BlockProducer::new(node_id, peer_manager.clone());
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
 
+
+    // Masternode synchronization task - syncs connected peers every 30 seconds
+    let peer_mgr_sync = peer_manager.clone();
+    let consensus_sync = consensus.clone();
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(30));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            let peers = peer_mgr_sync.get_connected_peers().await;
+            for peer in peers {
+                consensus_sync.add_masternode(peer.address.ip().to_string()).await;
+            }
+        }
+    });
     let mut counter = 0;
     let consensus_heartbeat = consensus.clone();
     loop {
