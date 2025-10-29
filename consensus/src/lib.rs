@@ -74,6 +74,31 @@ impl ConsensusEngine {
         *masternodes = peer_ips;
     }
 
+    /// Get the masternode that should produce the next block (round-robin by IP)
+    pub async fn get_block_producer(&self, block_height: u64) -> Option<String> {
+        let masternodes = self.masternodes.read().await;
+        if masternodes.is_empty() {
+            return None;
+        }
+        
+        // Sort masternodes by IP for deterministic order
+        let mut sorted_nodes: Vec<String> = masternodes.iter().cloned().collect();
+        sorted_nodes.sort();
+        
+        // Round-robin selection
+        let index = (block_height as usize) % sorted_nodes.len();
+        Some(sorted_nodes[index].clone())
+    }
+    
+    /// Check if this node is the block producer for given height
+    pub async fn is_my_turn(&self, block_height: u64, my_ip: &str) -> bool {
+        match self.get_block_producer(block_height).await {
+            Some(producer) => producer == my_ip,
+            None => false,
+        }
+    }
+
+    /// Sync masternode list with current peers (replaces existing list)
     /// Check if network has BFT quorum (minimum 3 masternodes)
     pub async fn has_bft_quorum(&self) -> bool {
         self.masternode_count().await >= MIN_BFT_QUORUM
