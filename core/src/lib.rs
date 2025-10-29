@@ -11,7 +11,7 @@ pub mod finalizer;
 pub mod masternode_tx;
 
 // Re-export commonly used types
-pub use block::{Block, BlockHeader};
+pub use block::{Block, BlockHeader, MasternodeCounts, MasternodeTier, calculate_treasury_reward, calculate_total_masternode_reward};
 pub use transaction::{Transaction, TxInput, TxOutput, OutPoint, TransactionError, SpecialTransaction};
 pub use utxo_set::{UTXOSet, UTXOSetSnapshot};
 
