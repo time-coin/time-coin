@@ -484,7 +484,7 @@ async fn main() {
                             peer_manager_clone.add_connected_peer(info).await;
                             
                             let prev_count = consensus_clone.masternode_count().await;
-                            consensus_clone.add_masternode(peer_addr.to_string()).await;
+                            consensus_clone.add_masternode(peer_addr.ip().to_string()).await;
                             let new_count = consensus_clone.masternode_count().await;
                             
                             if prev_count < 3 && new_count >= 3 {
@@ -577,6 +577,10 @@ async fn main() {
         counter += 1;
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
         
+        // Sync masternodes with actual connected peers
+        let current_peers = peer_manager.get_peer_ips().await;
+        consensus_heartbeat.sync_masternodes(current_peers).await;
+
         let total_nodes = consensus_heartbeat.masternode_count().await;
         let mode = consensus_heartbeat.consensus_mode().await;
         let consensus_mode = match mode {

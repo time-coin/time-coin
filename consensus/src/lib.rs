@@ -68,6 +68,12 @@ impl ConsensusEngine {
         self.masternodes.read().await.len()
     }
 
+    /// Sync masternode list with current peers (replaces existing list)
+    pub async fn sync_masternodes(&self, peer_ips: Vec<String>) {
+        let mut masternodes = self.masternodes.write().await;
+        *masternodes = peer_ips;
+    }
+
     /// Check if network has BFT quorum (minimum 3 masternodes)
     pub async fn has_bft_quorum(&self) -> bool {
         self.masternode_count().await >= MIN_BFT_QUORUM
