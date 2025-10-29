@@ -1,0 +1,29 @@
+# TIME Coin Testnet Configuration
+
+[node]
+network = "testnet"
+mode = "production"
+
+[blockchain]
+genesis_file = "~/time-coin-node/config/genesis-testnet.json"
+data_dir = "./data"
+
+[network]
+listen_addr = "0.0.0.0:24100"
+external_addr = ""
+bootstrap_nodes = []
+peer_discovery_url = "https://time-coin.io/api/peers"
+
+[masternode]
+enabled = true
+
+[rpc]
+enabled = true
+bind = "127.0.0.1"
+port = 24101
+
+[storage]
+data_dir = "./data"
+
+[logging]
+level = "info"
