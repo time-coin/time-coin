@@ -5,7 +5,8 @@ network = "testnet"
 mode = "production"
 
 [blockchain]
-genesis_file = "~/time-coin-node/config/genesis-testnet.json"
+# Use $HOME for proper expansion, or use absolute path: /root/time-coin-node/config/genesis-testnet.json
+genesis_file = "$HOME/time-coin-node/config/genesis-testnet.json"
 data_dir = "./data"
 
 [network]
