@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use time_api::{start_server, ApiState};
 use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
+use time_consensus::ConsensusEngine;
 use tokio::time;
 
 #[derive(Parser)]
@@ -210,7 +211,7 @@ async fn main() {
     // Display banner with network
     if is_testnet {
         println!("{}", "╔══════════════════════════════════════╗".yellow().bold());
-        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]    ║".yellow().bold());
+        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]   ║".yellow().bold());
         println!("{}", "╚══════════════════════════════════════╝".yellow().bold());
     } else {
         println!("{}", "TIME Coin Node v0.1.0".cyan().bold());
@@ -251,6 +252,18 @@ async fn main() {
     }
 
     println!("\n{}", "✓ Blockchain initialized".green());
+    
+    // Initialize consensus engine
+    let consensus = Arc::new(ConsensusEngine::new(is_dev_mode));
+    
+    // Register self as a masternode
+    let node_id = if let Ok(ip) = local_ip_address::local_ip() {
+        ip.to_string()
+    } else {
+        "unknown".to_string()
+    };
+    consensus.add_masternode(node_id.clone()).await;
+    
     println!("{}", "⏳ Starting peer discovery...".yellow());
 
     let network_type = if is_testnet {
@@ -288,11 +301,32 @@ async fn main() {
     }
 
     println!("{}", "✓ Peer discovery started".green());
-    println!("{}", "✓ Masternode services starting".green());
 
-    if is_dev_mode {
-        println!("{}", "✓ Dev mode: Single-node consensus active".green());
+    // Display consensus status
+    let total_masternodes = consensus.masternode_count().await;
+    
+    println!("\n{}", "Consensus Status:".cyan().bold());
+    println!("  Active Masternodes: {}", total_masternodes.to_string().yellow());
+    
+    let consensus_mode = consensus.consensus_mode().await;
+    match consensus_mode {
+        time_consensus::ConsensusMode::Development => {
+            println!("  Mode: {} {}", "Development".yellow().bold(), "(auto-approve)".bright_black());
+        }
+        time_consensus::ConsensusMode::BootstrapNoQuorum => {
+            println!("  Mode: {} {}", "Bootstrap".yellow().bold(), "(no voting)".bright_black());
+            println!("  {} Need {} more masternode(s) for BFT consensus", 
+                "⚠".yellow(), 
+                (3 - total_masternodes).to_string().yellow().bold()
+            );
+        }
+        time_consensus::ConsensusMode::BFT => {
+            println!("  Mode: {} {}", "BFT".green().bold(), "(2/3+ voting)".bright_black());
+            println!("  {} Byzantine Fault Tolerant", "✓".green());
+        }
     }
+
+    println!("\n{}", "✓ Masternode services starting".green());
 
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "127.0.0.1".to_string());
@@ -313,11 +347,28 @@ async fn main() {
         match PeerListener::bind(peer_listener_addr, network_type).await {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
+                let consensus_clone = consensus.clone();
                 tokio::spawn(async move {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
                             let info = conn.peer_info().await;
+                            let peer_addr = info.address.clone();
+                            
                             peer_manager_clone.add_connected_peer(info).await;
+                            
+                            // Register peer as masternode in consensus
+                            let prev_count = consensus_clone.masternode_count().await;
+                            consensus_clone.add_masternode(peer_addr.to_string()).await;
+                            let new_count = consensus_clone.masternode_count().await;
+                            
+                            // Check if we just reached BFT quorum
+                            if prev_count < 3 && new_count >= 3 {
+                                println!("\n{}", "═══════════════════════════════════════".green().bold());
+                                println!("{}", "🛡️  BFT CONSENSUS ACTIVATED!".green().bold());
+                                println!("   {} masternodes active", new_count);
+                                println!("   Requiring 2/3+ approval for blocks");
+                                println!("{}", "═══════════════════════════════════════".green().bold());
+                            }
 
                             tokio::spawn(async move {
                                 conn.keep_alive().await;
@@ -341,7 +392,13 @@ async fn main() {
             }
         });
 
-        println!("\n{}", format!("Node Status: ACTIVE [{}]", network_name).green().bold());
+        let mode_str = match consensus_mode {
+            time_consensus::ConsensusMode::Development => "DEV",
+            time_consensus::ConsensusMode::BootstrapNoQuorum => "BOOTSTRAP",
+            time_consensus::ConsensusMode::BFT => "BFT",
+        };
+
+        println!("\n{}", format!("Node Status: ACTIVE [{}] [{}]", network_name, mode_str).green().bold());
     }
     
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
@@ -366,44 +423,52 @@ async fn main() {
 
     println!("{}", "🔨 Starting block producer...".yellow());
     
-    let node_id = if let Ok(ip) = local_ip_address::local_ip() {
-        ip.to_string()
-    } else {
-        "unknown".to_string()
-    };
-    
     let block_producer = BlockProducer::new(node_id, peer_manager.clone());
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
 
     let mut counter = 0;
+    let consensus_heartbeat = consensus.clone();
     loop {
         time::sleep(Duration::from_secs(60)).await;
         counter += 1;
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
         
+        let total_nodes = consensus_heartbeat.masternode_count().await;
+        let mode = consensus_heartbeat.consensus_mode().await;
+        let consensus_mode = match mode {
+            time_consensus::ConsensusMode::Development => "DEV",
+            time_consensus::ConsensusMode::BootstrapNoQuorum => "BOOTSTRAP",
+            time_consensus::ConsensusMode::BFT => "BFT",
+        };
+        
         if is_testnet {
             println!(
-                "[{}] {} #{} {}",
+                "[{}] {} #{} | {} nodes | {} mode | {}",
                 timestamp,
-                "Node heartbeat".bright_black(),
+                "Heartbeat".bright_black(),
                 counter,
+                total_nodes.to_string().yellow(),
+                consensus_mode.yellow(),
                 "[TESTNET]".yellow()
             );
         } else if is_dev_mode {
             println!(
-                "[{}] {} #{} {}",
+                "[{}] {} #{} | {} nodes | {}",
                 timestamp,
-                "Node heartbeat".bright_black(),
+                "Heartbeat".bright_black(),
                 counter,
+                total_nodes.to_string().yellow(),
                 "(dev mode)".yellow()
             );
         } else {
             println!(
-                "[{}] {} #{}",
+                "[{}] {} #{} | {} nodes | {} mode",
                 timestamp,
-                "Node heartbeat".bright_black(),
-                counter
+                "Heartbeat".bright_black(),
+                counter,
+                total_nodes.to_string().yellow(),
+                consensus_mode.yellow()
             );
         }
     }

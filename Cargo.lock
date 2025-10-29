@@ -2049,6 +2049,7 @@ dependencies = [
  "serde",
  "serde_json",
  "time-api",
+ "time-consensus",
  "time-core",
  "time-network",
  "tokio",

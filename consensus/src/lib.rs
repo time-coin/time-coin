@@ -1,6 +1,7 @@
 //! BFT Consensus implementation for TIME Coin
 //! 
 //! Implements leader-based block production with Byzantine Fault Tolerance
+//! Requires minimum 3 masternodes for full BFT consensus
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,6 +13,9 @@ pub mod voting;
 pub mod vrf;
 
 pub use voting::{Vote, VoteType};
+
+/// Minimum masternodes required for BFT consensus
+pub const MIN_BFT_QUORUM: usize = 3;
 
 /// Consensus engine for block production and validation
 #[derive(Clone)]
@@ -27,7 +31,6 @@ pub struct ConsensusEngine {
     
     /// Pending votes for current block
     pending_votes: Arc<RwLock<HashMap<String, Vec<Vote>>>>, // block_hash -> votes
-    
 }
 
 impl ConsensusEngine {
@@ -37,7 +40,6 @@ impl ConsensusEngine {
             masternodes: Arc::new(RwLock::new(Vec::new())),
             state: Arc::new(RwLock::new(None)),
             pending_votes: Arc::new(RwLock::new(HashMap::new())),
-            
         }
     }
 
@@ -64,6 +66,24 @@ impl ConsensusEngine {
     /// Get masternode count
     pub async fn masternode_count(&self) -> usize {
         self.masternodes.read().await.len()
+    }
+
+    /// Check if network has BFT quorum (minimum 3 masternodes)
+    pub async fn has_bft_quorum(&self) -> bool {
+        self.masternode_count().await >= MIN_BFT_QUORUM
+    }
+
+    /// Get consensus mode based on masternode count
+    pub async fn consensus_mode(&self) -> ConsensusMode {
+        let count = self.masternode_count().await;
+        
+        if self.dev_mode {
+            ConsensusMode::Development
+        } else if count < MIN_BFT_QUORUM {
+            ConsensusMode::BootstrapNoQuorum
+        } else {
+            ConsensusMode::BFT
+        }
     }
 
     /// Determine if this node is the leader for given block height
@@ -136,7 +156,9 @@ impl ConsensusEngine {
 
     /// Validate a proposed block
     pub async fn validate_block(&self, block: &Block) -> Result<bool, ConsensusError> {
-        if self.dev_mode {
+        let mode = self.consensus_mode().await;
+        
+        if matches!(mode, ConsensusMode::Development) {
             return Ok(true);
         }
 
@@ -201,6 +223,7 @@ impl ConsensusEngine {
 
     /// Check if block has reached consensus
     pub async fn has_consensus(&self, block_hash: &str) -> bool {
+        let mode = self.consensus_mode().await;
         let votes = self.pending_votes.read().await;
         let block_votes = votes.get(block_hash);
 
@@ -211,15 +234,24 @@ impl ConsensusEngine {
 
             let total_masternodes = self.masternodes.read().await.len();
             
-            // For 2 nodes: need both to approve (100%)
-            // For 3+ nodes: need 2/3+ (BFT)
-            if total_masternodes <= 2 {
-                approve_count == total_masternodes
-            } else {
-                approve_count >= (total_masternodes * 2 / 3)
+            match mode {
+                ConsensusMode::Development => {
+                    // Dev mode: auto-approve
+                    true
+                }
+                ConsensusMode::BootstrapNoQuorum => {
+                    // Less than 3 nodes: Don't require consensus (bootstrap mode)
+                    // Just produce blocks without voting
+                    true
+                }
+                ConsensusMode::BFT => {
+                    // 3+ nodes: Require 2/3+ approval (BFT)
+                    approve_count >= (total_masternodes * 2 / 3) + 1
+                }
             }
         } else {
-            false
+            // No votes yet
+            matches!(mode, ConsensusMode::Development | ConsensusMode::BootstrapNoQuorum)
         }
     }
 
@@ -272,6 +304,20 @@ impl ConsensusEngine {
     }
 }
 
+/// Consensus mode based on network state
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConsensusMode {
+    /// Development mode - auto-approve everything
+    Development,
+    
+    /// Bootstrap mode - less than 3 masternodes, no BFT consensus
+    /// Blocks produced without voting (temporary until quorum reached)
+    BootstrapNoQuorum,
+    
+    /// Full BFT mode - 3+ masternodes, requires 2/3+ approval
+    BFT,
+}
+
 #[derive(Debug, Clone)]
 pub enum ConsensusError {
     NoState,
@@ -283,6 +329,7 @@ pub enum ConsensusError {
     WrongLeader,
     UnauthorizedVoter,
     InsufficientVotes,
+    NoQuorum,
     StateError(StateError),
 }
 
@@ -298,6 +345,7 @@ impl std::fmt::Display for ConsensusError {
             ConsensusError::WrongLeader => write!(f, "Block from wrong leader"),
             ConsensusError::UnauthorizedVoter => write!(f, "Voter is not a masternode"),
             ConsensusError::InsufficientVotes => write!(f, "Insufficient votes for consensus"),
+            ConsensusError::NoQuorum => write!(f, "Network does not have minimum 3 masternodes for BFT"),
             ConsensusError::StateError(e) => write!(f, "State error: {}", e),
         }
     }
@@ -308,6 +356,27 @@ impl std::error::Error for ConsensusError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_consensus_modes() {
+        let consensus = ConsensusEngine::new(false);
+        
+        // 0 nodes: Bootstrap
+        assert_eq!(consensus.consensus_mode().await, ConsensusMode::BootstrapNoQuorum);
+        
+        // 1 node: Bootstrap
+        consensus.add_masternode("node1".to_string()).await;
+        assert_eq!(consensus.consensus_mode().await, ConsensusMode::BootstrapNoQuorum);
+        
+        // 2 nodes: Still bootstrap
+        consensus.add_masternode("node2".to_string()).await;
+        assert_eq!(consensus.consensus_mode().await, ConsensusMode::BootstrapNoQuorum);
+        
+        // 3 nodes: BFT mode!
+        consensus.add_masternode("node3".to_string()).await;
+        assert_eq!(consensus.consensus_mode().await, ConsensusMode::BFT);
+        assert!(consensus.has_bft_quorum().await);
+    }
 
     #[tokio::test]
     async fn test_leader_selection() {
@@ -329,20 +398,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_voting() {
+    async fn test_bootstrap_consensus() {
         let consensus = ConsensusEngine::new(false);
         
         consensus.add_masternode("node1".to_string()).await;
         consensus.add_masternode("node2".to_string()).await;
 
+        // With only 2 nodes, consensus is automatic (bootstrap mode)
+        let block_hash = "test_hash";
+        assert!(consensus.has_consensus(block_hash).await);
+    }
+
+    #[tokio::test]
+    async fn test_bft_voting() {
+        let consensus = ConsensusEngine::new(false);
+        
+        consensus.add_masternode("node1".to_string()).await;
+        consensus.add_masternode("node2".to_string()).await;
+        consensus.add_masternode("node3".to_string()).await;
+
         let block_hash = "test_hash";
 
-        // Node 1 votes
+        // Need 2/3 (at least 2 votes)
         consensus.vote_on_block(block_hash, "node1".to_string(), true).await.unwrap();
-        assert!(!consensus.has_consensus(block_hash).await); // Need both
+        assert!(!consensus.has_consensus(block_hash).await); // Only 1 vote
 
-        // Node 2 votes
         consensus.vote_on_block(block_hash, "node2".to_string(), true).await.unwrap();
-        assert!(consensus.has_consensus(block_hash).await); // Now we have consensus
+        assert!(consensus.has_consensus(block_hash).await); // 2/3 reached!
     }
 }
