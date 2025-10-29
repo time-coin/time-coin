@@ -1,6 +1,6 @@
 use axum::{
     extract::State,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use crate::{ApiState, ApiError, ApiResult};
@@ -13,6 +13,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
+        .route("/transaction", post(submit_transaction))
 }
 
 async fn root() -> &'static str {
@@ -138,5 +139,45 @@ async fn get_snapshot(
         balances: balances.clone(),
         masternodes,
         timestamp: chrono::Utc::now().timestamp(),
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct TransactionRequest {
+    from: String,
+    to: String,
+    amount: u64,
+    timestamp: i64,
+    signature: String,
+}
+
+#[derive(serde::Serialize)]
+struct TransactionResponse {
+    success: bool,
+    tx_id: String,
+    message: String,
+}
+
+async fn submit_transaction(
+    State(_state): State<ApiState>,
+    Json(tx): Json<TransactionRequest>,
+) -> ApiResult<Json<TransactionResponse>> {
+    // Generate transaction ID
+    let tx_id = format!("{:x}", md5::compute(format!("{}{}{}{}{}", tx.from, tx.to, tx.amount, tx.timestamp, tx.signature)));
+    
+    println!("📝 Transaction received:");
+    println!("   From:   {}...", &tx.from[..16]);
+    println!("   To:     {}...", &tx.to[..16]);
+    println!("   Amount: {} TIME", tx.amount);
+    println!("   TX ID:  {}", tx_id);
+    println!("   Signature: {}...", &tx.signature[..16]);
+    
+    // TODO: Actually process transaction (validate, add to mempool, broadcast)
+    // For now, just accept it
+    
+    Ok(Json(TransactionResponse {
+        success: true,
+        tx_id,
+        message: "Transaction accepted and queued for processing".to_string(),
     }))
 }
