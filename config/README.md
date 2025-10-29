@@ -1,51 +1,34 @@
-# TIME Coin Configuration Files
+# TIME Coin Configuration
 
 ## Testnet Setup
 
-### 1. Create Genesis File
+1. **Copy config file:**
 ```bash
-# Option A: Use the script
-./scripts/create-genesis.sh ~/time-coin-node/config
-
-# Option B: Copy from repo
-cp config/genesis-testnet.json ~/time-coin-node/config/
+   mkdir -p ~/time-coin-node/config
+   cp config/testnet.toml ~/time-coin-node/config/
+   cp config/genesis-testnet.json ~/time-coin-node/config/
 ```
 
-### 2. Update Config Path
+2. **Edit paths in testnet.toml:**
+   - If running as root: Use `/root/time-coin-node/config/genesis-testnet.json`
+   - If running as user: Use `/home/username/time-coin-node/config/genesis-testnet.json`
+   - Or use `$HOME/time-coin-node/config/genesis-testnet.json` (recommended)
 
-Edit `testnet.toml` and update the genesis path:
-```toml
-[blockchain]
-# Use absolute path (recommended for systemd services)
-genesis_file = "/root/time-coin-node/config/genesis-testnet.json"
-
-# Or use $HOME variable (works in most cases)
-genesis_file = "$HOME/time-coin-node/config/genesis-testnet.json"
-```
-
-### 3. Verify Genesis Loads
-
-After starting the node, check logs:
+3. **Start node:**
 ```bash
-sudo journalctl -u time-node -n 50 --no-pager | grep -A 10 "Genesis"
+   time-node -c ~/time-coin-node/config/testnet.toml
 ```
 
-You should see:
-```
-╔═══════════════════════════════════════════════════╗
-║         GENESIS BLOCK LOADED                      ║
-╚═══════════════════════════════════════════════════╝
-```
+## Path Expansion
 
-## Files
+The node expands these variables in config paths:
+- `$HOME` - Your home directory
+- `~` - Your home directory (at start of path)
 
-- `genesis-testnet.json` - Testnet genesis block (20M TIME supply)
-- `testnet.toml` - Example testnet configuration
-- `README.md` - This file
+## Genesis File
 
-## Troubleshooting
-
-**Genesis not found error:**
-- Make sure path in `testnet.toml` uses absolute path or `$HOME` (not `~`)
-- Verify file exists: `ls -la /root/time-coin-node/config/genesis-testnet.json`
-- Check config: `cat ~/time-coin-node/config/testnet.toml | grep genesis_file`
+The genesis file must exist before starting the node. It defines:
+- Network type (testnet/mainnet)
+- Initial supply allocation
+- Genesis timestamp
+- Starting block hash
