@@ -456,7 +456,7 @@ async fn main() {
     println!("\n{}", "✓ Masternode services starting".green());
 
     let api_enabled = config.rpc.enabled.unwrap_or(true);
-    let api_bind = config.rpc.bind.unwrap_or_else(|| "127.0.0.1".to_string());
+    let api_bind = config.rpc.bind.unwrap_or_else(|| "0.0.0.0".to_string());
     let api_port = config.rpc.port.unwrap_or(24101);
 
     if api_enabled {
