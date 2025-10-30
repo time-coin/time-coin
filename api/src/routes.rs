@@ -11,7 +11,7 @@ pub fn create_routes() -> Router<ApiState> {
     Router::new()
         .route("/", get(root))
         .route("/blockchain/info", get(get_blockchain_info))
-        .route("/blockchain/block/:height", get(get_block_by_height))
+        .route("/blockchain/block/{height}", get(get_block_by_height))
         .route("/balance/{address}", get(get_balance))
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
