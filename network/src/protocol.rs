@@ -154,6 +154,13 @@ pub struct TransactionValidation {
     pub timestamp: u64,
 }
 
+/// Block data for sync
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockData {
+    pub block: Vec<u8>,
+    pub height: u64,
+}
+
 /// Network message envelope
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetworkMessage {
@@ -161,9 +168,12 @@ pub enum NetworkMessage {
     Pong,
     Transaction(TransactionMessage),
     ValidationResponse(TransactionValidation),
-    BlockProposal(Vec<u8>), // Placeholder for block data
+    BlockProposal(Vec<u8>),
+    GetBlockchainHeight,
+    BlockchainHeight(u64),
+    GetBlocks { start_height: u64, end_height: u64 },
+    BlocksData(Vec<BlockData>),
 }
-
 impl NetworkMessage {
     pub fn serialize(&self) -> Result<Vec<u8>, String> {
         serde_json::to_vec(self).map_err(|e| e.to_string())
