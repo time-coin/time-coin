@@ -125,9 +125,96 @@ impl BlockProducer {
                                     
                                     if peer_height >= expected_height {
                                         println!("{}", "      ✓ Peer has all blocks! Syncing from peer...".green());
-                                        // TODO: Implement block sync from peer
-                                        println!("{}", "      ⚠ Block sync not yet implemented - will be added".yellow());
-                                        println!("{}", "      For now, restart nodes one at a time".yellow());
+                                        
+
+                                        // Sync blocks from peer
+
+                                        let mut blockchain = self.blockchain.write().await;
+
+                                        let current_height = blockchain.chain_tip_height();
+
+                                        
+
+                                        for height in (current_height + 1)..=expected_height {
+
+                                            println!("      📥 Downloading block #{}...", height);
+
+                                            
+
+                                            match reqwest::get(format!("http://{}:24101/blockchain/block/{}", peer, height)).await {
+
+                                                Ok(resp) => {
+
+                                                    match resp.json::<serde_json::Value>().await {
+
+                                                        Ok(json) => {
+
+                                                            if let Some(block_data) = json.get("block") {
+
+                                                                match serde_json::from_value::<time_core::block::Block>(block_data.clone()) {
+
+                                                                    Ok(block) => {
+
+                                                                        match blockchain.add_block(block.clone()) {
+
+                                                                            Ok(_) => println!("         ✓ Block #{} synced", height),
+
+                                                                            Err(e) => {
+
+                                                                                println!("         ✗ Failed to add block #{}: {:?}", height, e);
+
+                                                                                println!("      ⚠ Sync failed, stopping");
+
+                                                                                return;
+
+                                                                            }
+
+                                                                        }
+
+                                                                    }
+
+                                                                    Err(e) => {
+
+                                                                        println!("         ✗ Failed to parse block: {:?}", e);
+
+                                                                        return;
+
+                                                                    }
+
+                                                                }
+
+                                                            }
+
+                                                        }
+
+                                                        Err(e) => {
+
+                                                            println!("         ✗ Failed to parse response: {:?}", e);
+
+                                                            return;
+
+                                                        }
+
+                                                    }
+
+                                                }
+
+                                                Err(e) => {
+
+                                                    println!("         ✗ Failed to download block: {:?}", e);
+
+                                                    return;
+
+                                                }
+
+                                            }
+
+                                        }
+
+                                        
+
+                                        println!("{}", "      ✅ Sync complete!".green());
+
                                         return;
                                     }
                                 }
