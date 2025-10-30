@@ -84,28 +84,75 @@ impl BlockProducer {
         let duration = now.signed_duration_since(genesis_time);
         let days_since_genesis = duration.num_days();
         
-        // DEBUG: Always print these values
-        println!("🔍 DEBUG: Catch-up check:");
-        println!("   Current time: {}", now.format("%Y-%m-%d %H:%M:%S UTC"));
-        println!("   Genesis time: {}", genesis_time.format("%Y-%m-%d %H:%M:%S UTC"));
-        println!("   Days since genesis: {}", days_since_genesis);
-        println!("   Current height: {}", current_height);
-        
         let expected_height = days_since_genesis as u64;
+        
+        println!("🔍 Catch-up check:");
+        println!("   Current height: {}", current_height);
         println!("   Expected height: {}", expected_height);
-        println!("   Condition (current < expected): {} < {} = {}", 
-                 current_height, expected_height, current_height < expected_height);
         
         if current_height < expected_height {
             let missed_blocks = expected_height - current_height;
             
             println!("\n{}", "⚠️  MISSED BLOCKS DETECTED".yellow().bold());
-            println!("   Current height: {}", current_height);
-            println!("   Expected height: {}", expected_height);
-            println!("   Missed blocks: {}", missed_blocks);
+            println!("   Missing {} block(s)", missed_blocks);
             println!();
             
-            // Check if this node should create the catch-up blocks
+            // STEP 1: Check if any peers already have these blocks
+            println!("{}", "   📡 Checking if peers have these blocks...".cyan());
+            let peers = self.peer_manager.get_peer_ips().await;
+            
+            if !peers.is_empty() {
+                // Try to get blockchain info from peers
+                for peer in peers.iter().take(3) {  // Check up to 3 peers
+                    println!("      Checking {}...", peer.bright_black());
+                    
+                    // Try to get their blockchain height via API
+                    if let Ok(response) = tokio::time::timeout(
+                        Duration::from_secs(5),
+                        reqwest::get(format!("http://{}:24101/blockchain/info", peer))
+                    ).await {
+                        if let Ok(resp) = response {
+                            if let Ok(info) = resp.json::<serde_json::Value>().await {
+                                if let Some(peer_height) = info.get("height").and_then(|h| h.as_u64()) {
+                                    println!("      Peer height: {}", peer_height);
+                                    
+                                    if peer_height >= expected_height {
+                                        println!("{}", "      ✓ Peer has all blocks! Syncing from peer...".green());
+                                        // TODO: Implement block sync from peer
+                                        println!("{}", "      ⚠ Block sync not yet implemented - will be added".yellow());
+                                        println!("{}", "      For now, restart nodes one at a time".yellow());
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                println!("{}", "      ℹ No peers have the missing blocks yet".bright_black());
+            }
+            
+            // STEP 2: Wait for BFT consensus before producing blocks
+            println!();
+            println!("{}", "   ⏳ Waiting for BFT consensus...".cyan());
+            
+            // Wait up to 30 seconds for BFT to activate
+            for i in 0..30 {
+                if self.consensus.has_bft_quorum().await {
+                    println!("{}", "   ✓ BFT consensus active!".green());
+                    break;
+                }
+                
+                if i == 29 {
+                    println!("{}", "   ⚠ BFT not yet active, proceeding anyway...".yellow());
+                }
+                
+                time::sleep(Duration::from_secs(1)).await;
+            }
+            
+            println!();
+            
+            // STEP 3: Check if this node should create the catch-up blocks
             let is_my_turn = self.consensus.is_my_turn(current_height, &self.node_id).await;
             
             if is_my_turn {
@@ -134,8 +181,22 @@ impl BlockProducer {
                 println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
                 println!();
             } else {
-                println!("{}", "   👀 Waiting for designated producer to create catch-up blocks...".cyan());
+                println!("{}", "   👀 Not my turn - waiting for designated producer...".cyan());
+                println!("{}", "   (Other node should create blocks shortly)".bright_black());
                 println!();
+                
+                // Wait and monitor for blocks to appear
+                println!("{}", "   ⏳ Monitoring for new blocks...".cyan());
+                for _attempt in 0..60 {
+                    time::sleep(Duration::from_secs(2)).await;
+                    let new_height = self.load_block_height();
+                    if new_height >= expected_height {
+                        println!("{}", "   ✓ Blocks received from designated producer!".green());
+                        return;
+                    }
+                }
+                
+                println!("{}", "   ⚠ Timeout waiting for blocks".yellow());
             }
         } else {
             println!("   ✓ No missed blocks\n");
