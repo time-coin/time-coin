@@ -82,10 +82,11 @@ pub struct BlockchainState {
     
     /// Current chain tip (best block height)
     chain_tip_height: u64,
+    /// Database for persistence
+    db: crate::db::BlockchainDB,
     
     /// Current chain tip hash
     chain_tip_hash: String,
-    db: crate::db::BlockchainDB,
     /// Registered masternodes
     masternodes: HashMap<String, MasternodeInfo>,
     
@@ -208,38 +209,33 @@ impl BlockchainState {
         if self.has_block(&block.hash) {
             return Err(StateError::DuplicateBlock);
         }
-
         // Validate block structure
         block.validate_structure()?;
-
         // Check if this connects to our chain
         if block.header.block_number == 0 {
-            // Can't add another genesis block
+            // Cant add another genesis block
             return Err(StateError::InvalidBlockHeight);
         }
-
         // Verify previous block exists
         if !self.has_block(&block.header.previous_hash) {
             return Err(StateError::OrphanBlock);
         }
-
         // Verify block height is correct
         let expected_height = self.chain_tip_height + 1;
         if block.header.block_number != expected_height {
             return Err(StateError::InvalidBlockHeight);
         }
-
         // Verify previous hash matches chain tip
         if block.header.previous_hash != self.chain_tip_hash {
             return Err(StateError::InvalidPreviousHash);
         }
-
         // Create UTXO snapshot for potential rollback
         let utxo_snapshot = self.utxo_set.snapshot();
-
         // Validate and apply block to UTXO set
         match block.validate_and_apply(&mut self.utxo_set, &self.masternode_counts) {
             Ok(_) => {
+                // Save block to disk FIRST (before moving into HashMap)
+                self.db.save_block(&block)?;
                 // Success! Add block to chain
                 self.blocks_by_height.insert(block.header.block_number, block.hash.clone());
                 self.chain_tip_height = block.header.block_number;
@@ -254,6 +250,7 @@ impl BlockchainState {
             }
         }
     }
+
 
     /// Register a new masternode
     pub fn register_masternode(
