@@ -104,7 +104,7 @@ async fn get_genesis(
 ) -> ApiResult<Json<serde_json::Value>> {
     // Read genesis from file if it exists
     let genesis_path = std::env::var("GENESIS_PATH")
-        .unwrap_or_else(|_| "/root/time-coin-node/config/genesis-testnet.json".to_string());
+        .unwrap_or_else(|_| "/root/time-coin-node/data/genesis.json".to_string());
     
     match std::fs::read_to_string(&genesis_path) {
         Ok(contents) => {

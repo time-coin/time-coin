@@ -23,7 +23,7 @@ port = 24101
 
 [blockchain]
 # Path to genesis block
-genesis_file = "$HOME/time-coin-node/data/genesis-testnet.json"
+genesis_file = "$HOME/time-coin-node/data/genesis.json"
 data_dir = "$HOME/time-coin-node/data/blockchain"
 
 [consensus]

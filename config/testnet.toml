@@ -7,7 +7,7 @@ mode = "production"
 [blockchain]
 # Genesis will be downloaded from network if not present
 # Uncomment to use local file:
-# genesis_file = "$HOME/time-coin-node/config/genesis-testnet.json"
+# genesis_file = "$HOME/time-coin-node/config/genesis.json"
 data_dir = "./data"
 
 [network]
