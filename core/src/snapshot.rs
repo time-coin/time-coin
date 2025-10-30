@@ -5,7 +5,7 @@ use crate::state::StateError;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, Duration};
+use std::time::SystemTime;
 
 /// Hot state snapshot - current block period in memory
 #[derive(Debug, Clone, Serialize, Deserialize)]
