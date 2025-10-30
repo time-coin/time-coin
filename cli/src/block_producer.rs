@@ -1,6 +1,6 @@
 use tokio::sync::RwLock;
 use time_core::state::BlockchainState;
-use time_core::block::{Block, BlockHeader, calculate_treasury_reward, calculate_tier_reward};
+use time_core::block::{Block, BlockHeader};
 use time_core::transaction::{Transaction, TxOutput};
 use time_core::MasternodeTier;
 use std::time::Duration;
@@ -315,7 +315,6 @@ impl BlockProducer {
 
     async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) -> bool {
         use time_core::block::{calculate_treasury_reward, calculate_tier_reward};
-        use time_core::MasternodeTier;
         
         let mut blockchain = self.blockchain.write().await;
         

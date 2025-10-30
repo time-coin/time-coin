@@ -361,7 +361,7 @@ pub fn calculate_treasury_reward() -> u64 {
 /// Formula: BASE * ln(1 + total_masternodes / SCALE)
 pub fn calculate_total_masternode_reward(counts: &MasternodeCounts) -> u64 {
     const TIME_UNIT: u64 = 100_000_000;
-    const BASE_REWARD: f64 = 95.0; // 95 TIME base
+    const BASE_REWARD: f64 = 2000.0; // 95 TIME base
     const SCALE_FACTOR: f64 = 50.0; // Controls growth speed
     
     let total_nodes = counts.total() as f64;
@@ -482,4 +482,196 @@ mod tests {
         assert!(block.transactions[0].is_coinbase());
         assert!(!block.hash.is_empty());
     }
+#[test]
+fn test_tier_economics() {
+    use super::*;
+    const TIME_UNIT: u64 = 100_000_000;
+    
+    // Test different network scenarios
+    let scenarios = vec![
+        ("Early network", MasternodeCounts { free: 50, bronze: 10, silver: 3, gold: 1 }),
+        ("Growing network", MasternodeCounts { free: 200, bronze: 50, silver: 20, gold: 10 }),
+        ("Mature network", MasternodeCounts { free: 1000, bronze: 200, silver: 50, gold: 20 }),
+    ];
+    
+    for (name, counts) in scenarios {
+        println!("\n{}: {} total nodes", name, counts.total());
+        println!("Total pool: {} TIME", calculate_total_masternode_reward(&counts) / TIME_UNIT);
+        
+        let free_reward = calculate_tier_reward(MasternodeTier::Free, &counts);
+        let bronze_reward = calculate_tier_reward(MasternodeTier::Bronze, &counts);
+        let silver_reward = calculate_tier_reward(MasternodeTier::Silver, &counts);
+        let gold_reward = calculate_tier_reward(MasternodeTier::Gold, &counts);
+        
+        println!("  Free:   {:.2} TIME/day", free_reward as f64 / TIME_UNIT as f64);
+        println!("  Bronze: {:.2} TIME/day (APY: {}%)", bronze_reward as f64 / TIME_UNIT as f64, (bronze_reward * 365 / TIME_UNIT / 1000));
+        println!("  Silver: {:.2} TIME/day (APY: {}%)", silver_reward as f64 / TIME_UNIT as f64, (silver_reward * 365 / TIME_UNIT / 10000));
+        println!("  Gold:   {:.2} TIME/day (APY: {}%)", gold_reward as f64 / TIME_UNIT as f64, (gold_reward * 365 / TIME_UNIT / 100000));
+    }
+}
+    #[test]
+    fn test_distribute_masternode_rewards() {
+        let masternodes = vec![
+            ("addr1".to_string(), MasternodeTier::Free),
+            ("addr2".to_string(), MasternodeTier::Free),
+            ("addr3".to_string(), MasternodeTier::Bronze),
+            ("addr4".to_string(), MasternodeTier::Silver),
+            ("addr5".to_string(), MasternodeTier::Gold),
+        ];
+        
+        let counts = MasternodeCounts {
+            free: 2,
+            bronze: 1,
+            silver: 1,
+            gold: 1,
+        };
+        
+        let outputs = distribute_masternode_rewards(&masternodes, &counts);
+        
+        // Should have 5 outputs (one per masternode)
+        assert_eq!(outputs.len(), 5);
+        
+        // Calculate expected values
+        let total_pool = calculate_total_masternode_reward(&counts);
+        let total_weight = counts.total_weight(); // 2*1 + 1*10 + 1*25 + 1*50 = 87
+        let per_weight = total_pool / total_weight;
+        
+        // Verify each tier gets correct reward
+        assert_eq!(outputs[0].amount, per_weight * 1);  // Free
+        assert_eq!(outputs[1].amount, per_weight * 1);  // Free
+        assert_eq!(outputs[2].amount, per_weight * 10); // Bronze
+        assert_eq!(outputs[3].amount, per_weight * 25); // Silver
+        assert_eq!(outputs[4].amount, per_weight * 50); // Gold
+    }
+    
+    #[test]
+    fn test_create_coinbase_transaction() {
+        let masternodes = vec![
+            ("masternode1".to_string(), MasternodeTier::Bronze),
+            ("masternode2".to_string(), MasternodeTier::Silver),
+        ];
+        
+        let counts = MasternodeCounts {
+            free: 0,
+            bronze: 1,
+            silver: 1,
+            gold: 0,
+        };
+        
+        let tx = create_coinbase_transaction(
+            100,
+            "treasury_addr",
+            &masternodes,
+            &counts,
+            50_000_000, // 0.5 TIME in fees
+        );
+        
+        // Verify it's a coinbase
+        assert!(tx.is_coinbase());
+        
+        // Should have: 1 treasury + 2 masternodes + 1 fee output = 4 outputs
+        assert_eq!(tx.outputs.len(), 4);
+        
+        // First output is treasury (5 TIME)
+        assert_eq!(tx.outputs[0].amount, 5 * 100_000_000);
+        assert_eq!(tx.outputs[0].address, "treasury_addr");
+        
+        // Last output is fees to block producer
+        assert_eq!(tx.outputs[3].amount, 50_000_000);
+        assert_eq!(tx.outputs[3].address, "masternode1");
+    }
+    
+    #[test]
+    fn test_reward_scaling_with_growth() {
+        // Test that rewards scale logarithmically
+        let scenarios = vec![
+            (10, MasternodeCounts { free: 10, bronze: 0, silver: 0, gold: 0 }),
+            (100, MasternodeCounts { free: 100, bronze: 0, silver: 0, gold: 0 }),
+            (1000, MasternodeCounts { free: 1000, bronze: 0, silver: 0, gold: 0 }),
+        ];
+        
+        for (count, counts) in &scenarios {
+            let total = calculate_total_masternode_reward(&counts);
+            println!("{} masternodes: {} TIME total", count, total / 100_000_000);
+        }
+        
+        // Verify logarithmic growth (not linear)
+        let pool_10 = calculate_total_masternode_reward(&scenarios[0].1);
+        let pool_100 = calculate_total_masternode_reward(&scenarios[1].1);
+        let pool_1000 = calculate_total_masternode_reward(&scenarios[2].1);
+        
+        // 10x increase in nodes should NOT be 10x increase in rewards
+        assert!(pool_100 < pool_10 * 10);
+        assert!(pool_1000 < pool_100 * 10);
+    }
+
+}
+
+/// Distribute masternode rewards to all active masternodes
+/// Returns a vector of TxOutput for the coinbase transaction
+pub fn distribute_masternode_rewards(
+    active_masternodes: &[(String, MasternodeTier)],
+    counts: &MasternodeCounts,
+) -> Vec<crate::transaction::TxOutput> {
+    let mut outputs = Vec::new();
+    
+    // Calculate total pool
+    let total_pool = calculate_total_masternode_reward(counts);
+    let total_weight = counts.total_weight();
+    
+    if total_weight == 0 || active_masternodes.is_empty() {
+        return outputs;
+    }
+    
+    // Calculate reward per weight unit
+    let per_weight = total_pool / total_weight;
+    
+    // Distribute to each masternode based on their tier weight
+    for (address, tier) in active_masternodes {
+        let reward = per_weight * tier.weight();
+        if reward > 0 {
+            outputs.push(crate::transaction::TxOutput::new(
+                reward,
+                address.clone(),
+            ));
+        }
+    }
+    
+    outputs
+}
+
+/// Create a complete coinbase transaction with all block rewards
+pub fn create_coinbase_transaction(
+    _block_number: u64,
+    treasury_address: &str,
+    active_masternodes: &[(String, MasternodeTier)],
+    counts: &MasternodeCounts,
+    transaction_fees: u64,
+) -> crate::transaction::Transaction {
+    let mut outputs = Vec::new();
+    
+    // Treasury reward (always 5 TIME)
+    let treasury_reward = calculate_treasury_reward();
+    outputs.push(crate::transaction::TxOutput::new(
+        treasury_reward,
+        treasury_address.to_string(),
+    ));
+    
+    // Masternode rewards
+    let masternode_outputs = distribute_masternode_rewards(active_masternodes, counts);
+    outputs.extend(masternode_outputs);
+    
+    // Transaction fees go to block producer (if any)
+    if transaction_fees > 0 && !active_masternodes.is_empty() {
+        // Give fees to the first masternode (block producer)
+        if let Some((producer_address, _)) = active_masternodes.first() {
+            outputs.push(crate::transaction::TxOutput::new(
+                transaction_fees,
+                producer_address.clone(),
+            ));
+        }
+    }
+    
+    // Create coinbase transaction
+    crate::transaction::Transaction::new(vec![], outputs)
 }
