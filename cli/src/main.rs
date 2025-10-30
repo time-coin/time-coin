@@ -246,9 +246,13 @@ async fn snapshot_sync(
                 println!("     Masternodes: {}", snapshot.masternodes.len().to_string().yellow());
                 println!("     State Hash: {}...", snapshot.state_hash[..16].to_string().bright_blue());
                 
-                // Verify snapshot integrity
-                let mut state_data = format!("{:?}", snapshot.balances);
-                state_data.push_str(&format!("{:?}", snapshot.masternodes));
+                // Verify snapshot integrity with deterministic serialization
+                let mut sorted_balances: Vec<_> = snapshot.balances.iter().collect();
+                sorted_balances.sort_by_key(|&(k, _)| k);
+                let mut sorted_masternodes = snapshot.masternodes.clone();
+                sorted_masternodes.sort();
+                
+                let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
                 let computed_hash = format!("{:x}", md5::compute(&state_data));
                 
                 if computed_hash == snapshot.state_hash {

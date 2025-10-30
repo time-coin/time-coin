@@ -131,9 +131,13 @@ async fn get_snapshot(
     let balances = state.balances.read().await;
     let masternodes = state.peer_manager.get_peer_ips().await;
     
-    // Calculate state hash for verification
-    let mut state_data = format!("{:?}", *balances);
-    state_data.push_str(&format!("{:?}", masternodes));
+    // Calculate state hash for verification with deterministic serialization
+    let mut sorted_balances: Vec<_> = balances.iter().collect();
+    sorted_balances.sort_by_key(|&(k, _)| k);
+    let mut sorted_masternodes = masternodes.clone();
+    sorted_masternodes.sort();
+    
+    let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
     let state_hash = format!("{:x}", md5::compute(&state_data));
     
     Ok(Json(SnapshotResponse {
