@@ -159,6 +159,13 @@ impl BlockProducer {
             
             println!();
             
+            // DEBUG: Show masternode list and selection
+            let masternodes = self.consensus.get_masternodes().await;
+            println!("   🔍 Masternode list: {:?}", masternodes);
+            let selected = self.consensus.get_block_producer(current_height).await;
+            println!("   🎯 Selected producer for block {}: {:?}", current_height, selected);
+            println!("   🆔 My ID: {}", self.node_id);
+            println!();
             // STEP 3: Check if this node should create the catch-up blocks
             let is_my_turn = self.consensus.is_my_turn(current_height, &self.node_id).await;
             
