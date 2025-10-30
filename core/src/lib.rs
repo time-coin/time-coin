@@ -5,6 +5,7 @@ pub mod transaction;
 pub mod utxo_set;
 pub mod mempool;
 pub mod state;
+pub mod db;
 pub mod constants;
 pub mod checkpoint;
 pub mod finalizer;

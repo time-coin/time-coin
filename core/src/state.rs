@@ -14,6 +14,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub enum StateError {
+    IoError(String),
     BlockError(BlockError),
     TransactionError(TransactionError),
     InvalidBlockHeight,
@@ -31,10 +32,11 @@ impl std::fmt::Display for StateError {
             StateError::TransactionError(e) => write!(f, "Transaction error: {}", e),
             StateError::InvalidBlockHeight => write!(f, "Invalid block height"),
             StateError::BlockNotFound => write!(f, "Block not found"),
-            StateError::InvalidPreviousHash => write!(f, "Invalid previous block hash"),
+            StateError::InvalidPreviousHash => write!(f, "Invalid previous hash"),
             StateError::DuplicateBlock => write!(f, "Duplicate block"),
-            StateError::OrphanBlock => write!(f, "Orphan block (parent not found)"),
+            StateError::OrphanBlock => write!(f, "Orphan block"),
             StateError::InvalidMasternodeCount => write!(f, "Invalid masternode count"),
+            StateError::IoError(msg) => write!(f, "IO error: {}", msg),
         }
     }
 }
@@ -81,7 +83,7 @@ pub struct BlockchainState {
     
     /// Current chain tip hash
     chain_tip_hash: String,
-    
+    db: crate::db::BlockchainDB,
     /// Registered masternodes
     masternodes: HashMap<String, MasternodeInfo>,
     
@@ -94,7 +96,14 @@ pub struct BlockchainState {
 
 impl BlockchainState {
     /// Create a new blockchain state with genesis block
-    pub fn new(genesis_block: Block) -> Result<Self, StateError> {
+    /// Create a new blockchain state with genesis block and database
+    pub fn new(genesis_block: Block, db_path: &str) -> Result<Self, StateError> {
+        // Open database
+        let db = crate::db::BlockchainDB::open(db_path)?;
+        
+        // Try to load blocks from disk
+        let existing_blocks = db.load_all_blocks()?;
+        
         let mut state = Self {
             utxo_set: UTXOSet::new(),
             blocks: HashMap::new(),
@@ -109,20 +118,33 @@ impl BlockchainState {
                 gold: 0,
             },
             genesis_hash: genesis_block.hash.clone(),
+            db,
         };
-
-        // Validate and add genesis block
-        genesis_block.validate_structure()?;
         
-        // Apply genesis coinbase to UTXO set
-        if let Some(coinbase) = genesis_block.coinbase() {
-            state.utxo_set.apply_transaction(coinbase)?;
+        if existing_blocks.is_empty() {
+            // No blocks on disk, add genesis
+            genesis_block.validate_structure()?;
+            // Apply genesis coinbase to UTXO set
+            for tx in &genesis_block.transactions {
+                state.utxo_set.apply_transaction(tx)?;
+            }
+            state.blocks.insert(genesis_block.hash.clone(), genesis_block.clone());
+            state.blocks_by_height.insert(0, genesis_block.hash.clone());
+            state.db.save_block(&genesis_block)?;
+        } else {
+            // Load blocks from disk into memory
+            for block in existing_blocks {
+                // Apply transactions to UTXO set
+                for tx in &block.transactions {
+                    state.utxo_set.apply_transaction(tx)?;
+                }
+                state.chain_tip_height = block.header.block_number;
+                state.chain_tip_hash = block.hash.clone();
+                state.blocks.insert(block.hash.clone(), block.clone());
+                state.blocks_by_height.insert(block.header.block_number, block.hash.clone());
+            }
         }
-
-        // Store genesis block
-        state.blocks_by_height.insert(0, genesis_block.hash.clone());
-        state.blocks.insert(genesis_block.hash.clone(), genesis_block);
-
+        
         Ok(state)
     }
 
@@ -385,7 +407,7 @@ mod tests {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
         
-        let state = BlockchainState::new(genesis).unwrap();
+        let state = BlockchainState::new(genesis, "/tmp/test_blockchain_1").unwrap();
         
         assert_eq!(state.chain_tip_height(), 0);
         assert_eq!(state.chain_tip_hash(), genesis_hash);
@@ -396,7 +418,7 @@ mod tests {
     fn test_add_block() {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
-        let mut state = BlockchainState::new(genesis).unwrap();
+        let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_2").unwrap();
         
         // Create block 1
         let outputs = vec![TxOutput::new(10_000_000_000, "miner1".to_string())];
@@ -411,7 +433,7 @@ mod tests {
     #[test]
     fn test_masternode_registration() {
         let genesis = create_genesis_block();
-        let mut state = BlockchainState::new(genesis).unwrap();
+        let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_3").unwrap();
         
         // Register free tier masternode
         state.register_masternode(
@@ -427,7 +449,7 @@ mod tests {
     #[test]
     fn test_get_balance() {
         let genesis = create_genesis_block();
-        let state = BlockchainState::new(genesis).unwrap();
+        let state = BlockchainState::new(genesis, "/tmp/test_blockchain_4").unwrap();
         
         // Genesis address should have balance
         assert_eq!(state.get_balance("genesis"), 100_000_000_000);

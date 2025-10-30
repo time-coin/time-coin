@@ -489,7 +489,7 @@ async fn main() {
         }],
         hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
     };
-    let blockchain = Arc::new(RwLock::new(BlockchainState::new(genesis_block).expect("Failed to create blockchain state")));
+    let blockchain = Arc::new(RwLock::new(BlockchainState::new(genesis_block, "/root/time-coin-node/data/blockchain").expect("Failed to create blockchain state")));
 
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "0.0.0.0".to_string());
