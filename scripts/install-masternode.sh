@@ -205,7 +205,7 @@ StandardError=journal
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=read-only
+ProtectHome=no
 
 [Install]
 WantedBy=multi-user.target
