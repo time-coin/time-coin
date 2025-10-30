@@ -280,3 +280,51 @@ pub async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<serde_js
         "count": peer_info.len()
     })))
 }
+
+/// Get block by height
+pub async fn get_block_by_height(
+    State(state): State<ApiState>,
+    Path(height): Path<u64>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let blockchain = state.blockchain.read().unwrap();
+    
+    match blockchain.get_block_by_height(height) {
+        Some(block) => Ok(Json(serde_json::json!({
+            "header": {
+                "version": block.header.version,
+                "previous_hash": block.header.previous_hash,
+                "merkle_root": block.header.merkle_root,
+                "timestamp": block.header.timestamp,
+                "block_number": block.header.block_number,
+            },
+            "transactions": block.transactions,
+            "masternode_signatures": block.masternode_signatures,
+            "hash": block.hash,
+        }))),
+        None => Err(ApiError::NotFound(format!("Block {} not found", height))),
+    }
+}
+
+/// Get block by height
+pub async fn get_block_by_height(
+    State(state): State<ApiState>,
+    Path(height): Path<u64>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let blockchain = state.blockchain.read().unwrap();
+    
+    match blockchain.get_block_by_height(height) {
+        Some(block) => Ok(Json(serde_json::json!({
+            "header": {
+                "version": block.header.version,
+                "previous_hash": block.header.previous_hash,
+                "merkle_root": block.header.merkle_root,
+                "timestamp": block.header.timestamp,
+                "block_number": block.header.block_number,
+            },
+            "transactions": block.transactions,
+            "masternode_signatures": block.masternode_signatures,
+            "hash": block.hash,
+        }))),
+        None => Err(ApiError::NotFound(format!("Block {} not found", height))),
+    }
+}
