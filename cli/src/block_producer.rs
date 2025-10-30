@@ -235,7 +235,6 @@ impl BlockProducer {
         // Get active masternodes and distribute rewards
         let active_masternodes = self.consensus.get_masternodes().await;
         if !active_masternodes.is_empty() {
-            // Calculate rewards per tier
             let tiers = [
                 MasternodeTier::Free,
                 MasternodeTier::Bronze,
@@ -246,7 +245,6 @@ impl BlockProducer {
             for tier in tiers {
                 let tier_reward = calculate_tier_reward(tier, &masternode_counts);
                 if tier_reward > 0 {
-                    // Distribute evenly among nodes of this tier
                     let tier_nodes: Vec<_> = active_masternodes.iter()
                         .filter(|mn| mn.starts_with(&format!("{:?}", tier).to_lowercase()))
                         .collect();
@@ -274,18 +272,22 @@ impl BlockProducer {
             timestamp: timestamp.timestamp(),
         };
         
-        let block = Block {
+        // Create temporary block to calculate merkle root
+        let mut block = Block {
             header: BlockHeader {
                 block_number: block_num,
                 timestamp,
                 previous_hash,
-                merkle_root: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                merkle_root: String::new(),
                 validator_signature: self.node_id.clone(),
                 validator_address: self.node_id.clone(),
             },
             transactions: vec![coinbase_tx],
             hash: format!("{:x}", md5::compute(format!("{}{}{}", block_num, timestamp.timestamp(), self.node_id))),
         };
+        
+        // Calculate and set merkle root
+        block.header.merkle_root = block.calculate_merkle_root();
         
         println!("      Block Hash: {}...", &block.hash[..16]);
         
