@@ -38,7 +38,7 @@ struct BlockchainInfoResponse {
 async fn get_blockchain_info(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<BlockchainInfoResponse>> {
-    let blockchain = state.blockchain.read().await;
+    let blockchain = state.blockchain.read().unwrap();
     let balances = state.balances.read().await;
     let total_supply: u64 = balances.values().sum();
 
@@ -70,7 +70,7 @@ async fn get_block_by_height(
 
 ) -> ApiResult<Json<BlockResponse>> {
 
-    let blockchain = state.blockchain.read().await;
+    let blockchain = state.blockchain.read().unwrap();
 
     
 
