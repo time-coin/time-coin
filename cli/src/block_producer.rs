@@ -83,7 +83,7 @@ impl BlockProducer {
     }
 
     async fn catch_up_missed_blocks(&self) {
-        let current_height = self.load_block_height();
+        let current_height = self.blockchain.read().await.chain_tip_height();
         let now = Utc::now();
         
         // Genesis: Oct 24, 2025 00:00:00 UTC
