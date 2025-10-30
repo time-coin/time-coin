@@ -355,7 +355,7 @@ async fn main() {
 
     let genesis_path = config.blockchain.genesis_file
         .map(|p| expand_path(&p))
-        .unwrap_or_else(|| "/root/time-coin-node/config/genesis-testnet.json".to_string());
+        .unwrap_or_else(|| "/root/time-coin-node/data/genesis.json".to_string());
     
     std::env::set_var("GENESIS_PATH", &genesis_path);
     
