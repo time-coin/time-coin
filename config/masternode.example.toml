@@ -19,7 +19,7 @@ listen_addr = "0.0.0.0:24000"
 external_addr = "YOUR_PUBLIC_IP:24000"
 
 [rpc]
-bind = "127.0.0.1"
+bind = "0.0.0.0"
 port = 24001
 
 [performance]
