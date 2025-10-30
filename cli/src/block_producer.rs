@@ -80,7 +80,7 @@ impl BlockProducer {
         let now = Utc::now();
         
         // Genesis: Oct 24, 2024 00:00:00 UTC
-        let genesis_time = Utc.with_ymd_and_hms(2024, 10, 24, 0, 0, 0).unwrap();
+        let genesis_time = Utc.with_ymd_and_hms(2025, 10, 24, 0, 0, 0).unwrap();
         let duration = now.signed_duration_since(genesis_time);
         let days_since_genesis = duration.num_days();
         
