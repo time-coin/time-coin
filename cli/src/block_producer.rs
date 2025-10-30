@@ -84,8 +84,17 @@ impl BlockProducer {
         let duration = now.signed_duration_since(genesis_time);
         let days_since_genesis = duration.num_days();
         
-        // Expected height = days since genesis + 1 (genesis is block 0, day 0 produces block 1, etc)
+        // DEBUG: Always print these values
+        println!("🔍 DEBUG: Catch-up check:");
+        println!("   Current time: {}", now.format("%Y-%m-%d %H:%M:%S UTC"));
+        println!("   Genesis time: {}", genesis_time.format("%Y-%m-%d %H:%M:%S UTC"));
+        println!("   Days since genesis: {}", days_since_genesis);
+        println!("   Current height: {}", current_height);
+        
         let expected_height = days_since_genesis as u64;
+        println!("   Expected height: {}", expected_height);
+        println!("   Condition (current < expected): {} < {} = {}", 
+                 current_height, expected_height, current_height < expected_height);
         
         if current_height < expected_height {
             let missed_blocks = expected_height - current_height;
@@ -128,6 +137,8 @@ impl BlockProducer {
                 println!("{}", "   👀 Waiting for designated producer to create catch-up blocks...".cyan());
                 println!();
             }
+        } else {
+            println!("   ✓ No missed blocks\n");
         }
     }
 
