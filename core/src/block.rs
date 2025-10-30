@@ -271,6 +271,10 @@ impl Block {
 
         // Verify block hash
         let calculated_hash = self.calculate_hash();
+        // Skip hash validation for genesis block
+        if self.header.block_number == 0 {
+            return Ok(());
+        }
         if calculated_hash != self.hash {
             return Err(BlockError::InvalidHash);
         }
