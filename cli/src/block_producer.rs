@@ -168,13 +168,16 @@ impl BlockProducer {
                 println!();
                 
                 for i in 0..missed_blocks {
-                    let height = current_height + i;
+                    let height = current_height + 1 + i;
                     let block_time = genesis_time + chrono::Duration::days(height as i64);
                     
                     println!("   📦 Creating catch-up block #{}...", height);
                     println!("      Timestamp: {}", block_time.format("%Y-%m-%d %H:%M:%S UTC"));
                     
-                    self.produce_catch_up_block(height, block_time).await;
+                    if !self.produce_catch_up_block(height, block_time).await {
+                        println!("   ⚠ Stopping catch-up due to error");
+                        break;
+                    }
                     
                     // Save after each block
                     self.save_block_height(height + 1);
@@ -210,7 +213,7 @@ impl BlockProducer {
         }
     }
 
-    async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) {
+    async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) -> bool {
         use time_core::block::{calculate_treasury_reward, calculate_tier_reward};
         use time_core::MasternodeTier;
         
@@ -224,7 +227,6 @@ impl BlockProducer {
         
         let masternode_counts = blockchain.masternode_counts().clone();
         
-        // Create outputs for treasury and masternode rewards
         let mut outputs = vec![
             TxOutput { 
                 amount: calculate_treasury_reward(),
@@ -232,15 +234,9 @@ impl BlockProducer {
             }
         ];
         
-        // Get active masternodes and distribute rewards
         let active_masternodes = self.consensus.get_masternodes().await;
         if !active_masternodes.is_empty() {
-            let tiers = [
-                MasternodeTier::Free,
-                MasternodeTier::Bronze,
-                MasternodeTier::Silver,
-                MasternodeTier::Gold,
-            ];
+            let tiers = [MasternodeTier::Free, MasternodeTier::Bronze, MasternodeTier::Silver, MasternodeTier::Gold];
             
             for tier in tiers {
                 let tier_reward = calculate_tier_reward(tier, &masternode_counts);
@@ -252,17 +248,13 @@ impl BlockProducer {
                     if !tier_nodes.is_empty() {
                         let reward_per_node = tier_reward / tier_nodes.len() as u64;
                         for node in tier_nodes {
-                            outputs.push(TxOutput {
-                                amount: reward_per_node,
-                                address: node.clone(),
-                            });
+                            outputs.push(TxOutput { amount: reward_per_node, address: node.clone() });
                         }
                     }
                 }
             }
         }
         
-        // Create coinbase transaction
         let coinbase_tx = Transaction {
             txid: format!("coinbase_{}", block_num),
             version: 1,
@@ -272,7 +264,6 @@ impl BlockProducer {
             timestamp: timestamp.timestamp(),
         };
         
-        // Create temporary block to calculate merkle root
         let mut block = Block {
             header: BlockHeader {
                 block_number: block_num,
@@ -283,11 +274,11 @@ impl BlockProducer {
                 validator_address: self.node_id.clone(),
             },
             transactions: vec![coinbase_tx],
-            hash: format!("{:x}", md5::compute(format!("{}{}{}", block_num, timestamp.timestamp(), self.node_id))),
+            hash: String::new(),
         };
         
-        // Calculate and set merkle root
         block.header.merkle_root = block.calculate_merkle_root();
+        block.hash = block.calculate_hash();
         
         println!("      Block Hash: {}...", &block.hash[..16]);
         
@@ -295,9 +286,11 @@ impl BlockProducer {
             Ok(_) => {
                 println!("      ✓ Block #{} created and stored", block_num);
                 let _ = self.consensus.vote_on_block(&block.hash, self.node_id.clone(), true).await;
+                true
             }
             Err(e) => {
                 println!("      ✗ Failed to add block: {:?}", e);
+                false
             }
         }
     }
