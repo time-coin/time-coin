@@ -26,9 +26,9 @@ impl BlockProducer {
 
     fn load_block_height(&self) -> u64 {
         if let Ok(contents) = std::fs::read_to_string(&self.height_file) {
-            contents.trim().parse().unwrap_or(1)
+            contents.trim().parse().unwrap_or(0)
         } else {
-            1
+            0
         }
     }
 
@@ -85,7 +85,7 @@ impl BlockProducer {
         let days_since_genesis = duration.num_days();
         
         // Expected height = days since genesis + 1 (genesis is block 0, day 0 produces block 1, etc)
-        let expected_height = (days_since_genesis + 1) as u64;
+        let expected_height = days_since_genesis as u64;
         
         if current_height < expected_height {
             let missed_blocks = expected_height - current_height;
