@@ -1,5 +1,5 @@
-//! API State Management
 use time_core::state::BlockchainState;
+//! API State Management
 use std::sync::Arc;
 use time_network::PeerManager;
 use time_network::discovery::PeerDiscovery;
@@ -17,7 +17,6 @@ pub struct ApiState {
     pub peer_discovery: Arc<RwLock<PeerDiscovery>>,
     pub peer_manager: Arc<PeerManager>,
     pub admin_token: Option<String>,
-    pub blockchain: Arc<RwLock<BlockchainState>>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,7 +46,7 @@ pub struct GrantData {
 }
 
 impl ApiState {
-    pub fn new(dev_mode: bool, network: String, peer_discovery: Arc<RwLock<PeerDiscovery>>, peer_manager: Arc<PeerManager>, admin_token: Option<String>, blockchain: Arc<RwLock<BlockchainState>>) -> Self {
+    pub fn new(dev_mode: bool, network: String, peer_discovery: Arc<RwLock<PeerDiscovery>>, peer_manager: Arc<PeerManager>, admin_token: Option<String>) -> Self {
         let mut balances = HashMap::new();
 
         // Initialize genesis balances (1M TIME)
@@ -77,7 +76,6 @@ impl ApiState {
             network,
             peer_discovery,
             admin_token,
-            blockchain,
             peer_manager,
         }
     }

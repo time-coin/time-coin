@@ -35,14 +35,14 @@ struct BlockchainInfoResponse {
 async fn get_blockchain_info(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<BlockchainInfoResponse>> {
-    let blockchain = state.blockchain.read().await;
     let balances = state.balances.read().await;
     let total_supply: u64 = balances.values().sum();
-
+    
     Ok(Json(BlockchainInfoResponse {
         network: state.network.clone(),
-        height: blockchain.chain_tip_height(),
-        best_block_hash: blockchain.chain_tip_hash().to_string(),
+        height: 0,
+        best_block_hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048"
+            .to_string(),
         total_supply,
         timestamp: chrono::Utc::now().timestamp(),
     }))
@@ -131,13 +131,9 @@ async fn get_snapshot(
     let balances = state.balances.read().await;
     let masternodes = state.peer_manager.get_peer_ips().await;
     
-    // Calculate state hash for verification with deterministic serialization
-    let mut sorted_balances: Vec<_> = balances.iter().collect();
-    sorted_balances.sort_by_key(|&(k, _)| k);
-    let mut sorted_masternodes = masternodes.clone();
-    sorted_masternodes.sort();
-    
-    let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
+    // Calculate state hash for verification
+    let mut state_data = format!("{:?}", *balances);
+    state_data.push_str(&format!("{:?}", masternodes));
     let state_hash = format!("{:x}", md5::compute(&state_data));
     
     Ok(Json(SnapshotResponse {

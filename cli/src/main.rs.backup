@@ -10,9 +10,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use time_api::{start_server, ApiState};
-use time_core::state::BlockchainState;
-use time_core::block::{Block, BlockHeader};
-use chrono::TimeZone;
 use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
 use time_consensus::ConsensusEngine;
 use tokio::time;
@@ -249,13 +246,9 @@ async fn snapshot_sync(
                 println!("     Masternodes: {}", snapshot.masternodes.len().to_string().yellow());
                 println!("     State Hash: {}...", snapshot.state_hash[..16].to_string().bright_blue());
                 
-                // Verify snapshot integrity with deterministic serialization
-                let mut sorted_balances: Vec<_> = snapshot.balances.iter().collect();
-                sorted_balances.sort_by_key(|&(k, _)| k);
-                let mut sorted_masternodes = snapshot.masternodes.clone();
-                sorted_masternodes.sort();
-                
-                let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
+                // Verify snapshot integrity
+                let mut state_data = format!("{:?}", snapshot.balances);
+                state_data.push_str(&format!("{:?}", snapshot.masternodes));
                 let computed_hash = format!("{:x}", md5::compute(&state_data));
                 
                 if computed_hash == snapshot.state_hash {
@@ -463,20 +456,6 @@ async fn main() {
     }
 
     println!("\n{}", "✓ Masternode services starting".green());
-    // Initialize blockchain state with genesis block
-    let genesis_block = Block {
-        header: BlockHeader {
-            block_number: 0,
-            timestamp: chrono::Utc.with_ymd_and_hms(2025, 10, 24, 0, 0, 0).unwrap(),
-            previous_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            merkle_root: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            validator_signature: "genesis".to_string(),
-            validator_address: "genesis".to_string(),
-        },
-        transactions: vec![],
-        hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
-    };
-    let blockchain = Arc::new(RwLock::new(BlockchainState::new(genesis_block).expect("Failed to create blockchain state")));
 
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "0.0.0.0".to_string());
@@ -491,7 +470,6 @@ async fn main() {
             discovery.clone(),
             peer_manager.clone(),
             admin_token,
-            blockchain.clone(),
         );
 
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
@@ -575,7 +553,7 @@ async fn main() {
 
     println!("{}", "🔨 Starting block producer...".yellow());
     
-    let block_producer = BlockProducer::new(node_id.clone(), peer_manager.clone(), consensus.clone(), blockchain.clone());
+    let block_producer = BlockProducer::new(node_id.clone(), peer_manager.clone(), consensus.clone());
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
 

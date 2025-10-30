@@ -1,6 +1,3 @@
-use tokio::sync::RwLock;
-use time_core::state::BlockchainState;
-use time_core::block::{Block, BlockHeader};
 use std::time::Duration;
 use tokio::time;
 use std::sync::Arc;
@@ -14,18 +11,16 @@ pub struct BlockProducer {
     node_id: String,
     peer_manager: Arc<PeerManager>,
     consensus: Arc<ConsensusEngine>,
-    blockchain: Arc<RwLock<BlockchainState>>,
     height_file: String,
 }
 
 impl BlockProducer {
-    pub fn new(node_id: String, peer_manager: Arc<PeerManager>, consensus: Arc<ConsensusEngine>, blockchain: Arc<RwLock<BlockchainState>>) -> Self {
+    pub fn new(node_id: String, peer_manager: Arc<PeerManager>, consensus: Arc<ConsensusEngine>) -> Self {
         BlockProducer {
             node_id,
             peer_manager,
             consensus,
             height_file: "/root/time-coin-node/data/block_height.txt".to_string(),
-            blockchain,
         }
     }
 
@@ -209,38 +204,14 @@ impl BlockProducer {
     }
 
     async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) {
-        let mut blockchain = self.blockchain.write().await;
+        let block_hash = format!("{:x}", md5::compute(format!("{}{}{}", block_num, timestamp.timestamp(), self.node_id)));
         
-        let previous_hash = if block_num == 0 {
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
-        } else {
-            blockchain.chain_tip_hash().to_string()
-        };
+        println!("      Block Hash: {}...", &block_hash[..16]);
         
-        let block = Block {
-            header: BlockHeader {
-                block_number: block_num,
-                timestamp,
-                previous_hash,
-                merkle_root: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-                validator_signature: self.node_id.clone(),
-                validator_address: self.node_id.clone(),
-            },
-            transactions: vec![],
-            hash: format!("{:x}", md5::compute(format!("{}{}{}", block_num, timestamp.timestamp(), self.node_id))),
-        };
+        // Auto-approve catch-up blocks (retroactive blocks for past days)
+        let _ = self.consensus.vote_on_block(&block_hash, self.node_id.clone(), true).await;
         
-        println!("      Block Hash: {}...", &block.hash[..16]);
-        
-        match blockchain.add_block(block.clone()) {
-            Ok(_) => {
-                println!("      ✓ Block #{} created and stored", block_num);
-                let _ = self.consensus.vote_on_block(&block.hash, self.node_id.clone(), true).await;
-            }
-            Err(e) => {
-                println!("      ✗ Failed to add block: {:?}", e);
-            }
-        }
+        println!("      ✓ Block #{} created", block_num);
     }
 
     async fn produce_block(&self) {
