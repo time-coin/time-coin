@@ -53,7 +53,7 @@ fn main() {
     println!("💾 Test 4: Save snapshot to disk");
     let stats_before = manager.get_stats();
     let start = Instant::now();
-    manager.save_snapshot().unwrap();
+    manager.force_save_snapshot().unwrap();
     let elapsed = start.elapsed();
     println!("✅ Snapshot saved in {:?}", elapsed);
     println!("   Mempool size: {}", stats_before.mempool_size);

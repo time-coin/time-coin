@@ -2,10 +2,11 @@
 
 use crate::transaction::Transaction;
 use crate::state::StateError;
+use crate::db::BlockchainDB;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Hot state snapshot - current block period in memory
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +21,7 @@ pub struct HotStateSnapshot {
 /// Hot state manager - keeps current activity in memory
 pub struct HotStateManager {
     hot_state: Arc<RwLock<HotState>>,
+    db: Arc<BlockchainDB>,
     snapshot_interval: u64,
     last_snapshot: Arc<RwLock<SystemTime>>,
 }
@@ -36,7 +38,7 @@ pub struct HotState {
 }
 
 impl HotStateManager {
-    pub fn new(_db: Arc<crate::db::BlockchainDB>, snapshot_interval_secs: u64) -> Result<Self, StateError> {
+    pub fn new(db: Arc<BlockchainDB>, snapshot_interval_secs: u64) -> Result<Self, StateError> {
         let hot_state = Arc::new(RwLock::new(HotState {
             current_height: 0,
             mempool: VecDeque::new(),
@@ -48,13 +50,50 @@ impl HotStateManager {
         
         Ok(HotStateManager {
             hot_state,
+            db,
             snapshot_interval: snapshot_interval_secs,
             last_snapshot: Arc::new(RwLock::new(SystemTime::now())),
         })
     }
     
+    /// Load from disk on startup
     pub fn load_from_disk(&self) -> Result<(), StateError> {
-        println!("⚠️  Snapshot loading not yet implemented");
+        println!("🔄 Loading hot state from disk...");
+        
+        // Try to load snapshot
+        let snapshot = match self.db.load_snapshot()? {
+            Some(s) => s,
+            None => {
+                println!("⚠️  No snapshot found, starting fresh");
+                return Ok(());
+            }
+        };
+        
+        println!("✅ Loaded snapshot from {} (height {})", 
+                 format_timestamp(snapshot.snapshot_time), 
+                 snapshot.current_height);
+        
+        // Restore hot state
+        let mut state = self.hot_state.write().unwrap();
+        state.current_height = snapshot.current_height;
+        state.last_block_hash = snapshot.last_block_hash;
+        
+        // Restore mempool
+        state.mempool.clear();
+        state.tx_hash_set.clear();
+        for tx in snapshot.mempool {
+            state.tx_hash_set.insert(tx.txid.clone());
+            state.mempool.push_back(tx.clone());
+            state.recent_txs.push_back(tx);
+        }
+        
+        // Restore tx hash set from recent hashes
+        for hash in snapshot.recent_tx_hashes {
+            state.tx_hash_set.insert(hash);
+        }
+        
+        println!("✅ Restored {} transactions in mempool", state.mempool.len());
+        
         Ok(())
     }
     
@@ -101,19 +140,62 @@ impl HotStateManager {
         state.tx_hash_set.contains(&hash_str)
     }
     
+    /// Save snapshot to disk (periodic backup)
     pub fn save_snapshot(&self) -> Result<(), StateError> {
         let now = SystemTime::now();
         let last = *self.last_snapshot.read().unwrap();
         
+        // Check if enough time has passed
         if now.duration_since(last).unwrap().as_secs() < self.snapshot_interval {
             return Ok(());
         }
         
         let state = self.hot_state.read().unwrap();
-        println!("💾 Snapshot saved (height: {}, mempool: {} txs)", 
-                 state.current_height, state.mempool.len());
         
+        // Create snapshot
+        let snapshot = HotStateSnapshot {
+            current_height: state.current_height,
+            mempool: state.mempool.iter().cloned().collect(),
+            recent_tx_hashes: state.tx_hash_set.iter().cloned().collect(),
+            snapshot_time: now.duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            last_block_hash: state.last_block_hash.clone(),
+        };
+        
+        // Save to disk
+        self.db.save_snapshot(&snapshot)?;
+        
+        // Update last snapshot time
         *self.last_snapshot.write().unwrap() = now;
+        
+        println!("💾 Snapshot saved (height: {}, mempool: {} txs)", 
+                 snapshot.current_height, snapshot.mempool.len());
+        
+        Ok(())
+    }
+
+    /// Force save snapshot to disk (ignores time interval)
+    pub fn force_save_snapshot(&self) -> Result<(), StateError> {
+        let now = SystemTime::now();
+        let state = self.hot_state.read().unwrap();
+        
+        // Create snapshot
+        let snapshot = HotStateSnapshot {
+            current_height: state.current_height,
+            mempool: state.mempool.iter().cloned().collect(),
+            recent_tx_hashes: state.tx_hash_set.iter().cloned().collect(),
+            snapshot_time: now.duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            last_block_hash: state.last_block_hash.clone(),
+        };
+        
+        // Save to disk
+        self.db.save_snapshot(&snapshot)?;
+        
+        // Update last snapshot time
+        *self.last_snapshot.write().unwrap() = now;
+        
+        println!("💾 Snapshot force saved (height: {}, mempool: {} txs)", 
+                 snapshot.current_height, snapshot.mempool.len());
+        
         Ok(())
     }
     
@@ -136,4 +218,12 @@ pub struct HotStateStats {
     pub pending_utxo_count: usize,
     pub cached_addresses: usize,
     pub current_height: u64,
+}
+
+// Helper function
+fn format_timestamp(secs: u64) -> String {
+    use std::time::Duration;
+    let duration = Duration::from_secs(secs);
+    let datetime = SystemTime::UNIX_EPOCH + duration;
+    format!("{:?}", datetime)
 }

@@ -1,6 +1,6 @@
 //! Sled-based persistence for blockchain data
 use crate::block::Block;
-use crate::StateError;
+use crate::state::StateError;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
@@ -60,5 +60,33 @@ impl BlockchainDB {
         }
         
         Ok(blocks)
+    }
+    
+    /// Save hot state snapshot
+    pub fn save_snapshot(&self, snapshot: &crate::snapshot::HotStateSnapshot) -> Result<(), StateError> {
+        let data = bincode::serialize(snapshot)
+            .map_err(|e| StateError::IoError(format!("Failed to serialize snapshot: {}", e)))?;
+        
+        self.db.insert(b"snapshot:hot_state", data)
+            .map_err(|e| StateError::IoError(format!("Failed to save snapshot: {}", e)))?;
+        
+        // Flush to ensure it's on disk
+        self.db.flush()
+            .map_err(|e| StateError::IoError(format!("Failed to flush snapshot: {}", e)))?;
+        
+        Ok(())
+    }
+
+    /// Load latest hot state snapshot
+    pub fn load_snapshot(&self) -> Result<Option<crate::snapshot::HotStateSnapshot>, StateError> {
+        match self.db.get(b"snapshot:hot_state") {
+            Ok(Some(data)) => {
+                let snapshot = bincode::deserialize(&data)
+                    .map_err(|e| StateError::IoError(format!("Failed to deserialize snapshot: {}", e)))?;
+                Ok(Some(snapshot))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(StateError::IoError(format!("Failed to load snapshot: {}", e))),
+        }
     }
 }
