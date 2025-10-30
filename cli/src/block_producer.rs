@@ -1,6 +1,8 @@
 use tokio::sync::RwLock;
 use time_core::state::BlockchainState;
-use time_core::block::{Block, BlockHeader};
+use time_core::block::{Block, BlockHeader, calculate_treasury_reward, calculate_tier_reward};
+use time_core::transaction::{Transaction, TxOutput};
+use time_core::MasternodeTier;
 use std::time::Duration;
 use tokio::time;
 use std::sync::Arc;
@@ -209,12 +211,67 @@ impl BlockProducer {
     }
 
     async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) {
+        use time_core::block::{calculate_treasury_reward, calculate_tier_reward};
+        use time_core::MasternodeTier;
+        
         let mut blockchain = self.blockchain.write().await;
         
         let previous_hash = if block_num == 0 {
             "0000000000000000000000000000000000000000000000000000000000000000".to_string()
         } else {
             blockchain.chain_tip_hash().to_string()
+        };
+        
+        let masternode_counts = blockchain.masternode_counts().clone();
+        
+        // Create outputs for treasury and masternode rewards
+        let mut outputs = vec![
+            TxOutput { 
+                amount: calculate_treasury_reward(),
+                address: "TIME1treasury00000000000000000000000000".to_string()
+            }
+        ];
+        
+        // Get active masternodes and distribute rewards
+        let active_masternodes = self.consensus.get_masternodes().await;
+        if !active_masternodes.is_empty() {
+            // Calculate rewards per tier
+            let tiers = [
+                MasternodeTier::Free,
+                MasternodeTier::Bronze,
+                MasternodeTier::Silver,
+                MasternodeTier::Gold,
+            ];
+            
+            for tier in tiers {
+                let tier_reward = calculate_tier_reward(tier, &masternode_counts);
+                if tier_reward > 0 {
+                    // Distribute evenly among nodes of this tier
+                    let tier_nodes: Vec<_> = active_masternodes.iter()
+                        .filter(|mn| mn.starts_with(&format!("{:?}", tier).to_lowercase()))
+                        .collect();
+                    
+                    if !tier_nodes.is_empty() {
+                        let reward_per_node = tier_reward / tier_nodes.len() as u64;
+                        for node in tier_nodes {
+                            outputs.push(TxOutput {
+                                amount: reward_per_node,
+                                address: node.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Create coinbase transaction
+        let coinbase_tx = Transaction {
+            txid: format!("coinbase_{}", block_num),
+            version: 1,
+            inputs: vec![],
+            outputs,
+            lock_time: 0,
+            timestamp: timestamp.timestamp(),
         };
         
         let block = Block {
@@ -226,7 +283,7 @@ impl BlockProducer {
                 validator_signature: self.node_id.clone(),
                 validator_address: self.node_id.clone(),
             },
-            transactions: vec![],
+            transactions: vec![coinbase_tx],
             hash: format!("{:x}", md5::compute(format!("{}{}{}", block_num, timestamp.timestamp(), self.node_id))),
         };
         
