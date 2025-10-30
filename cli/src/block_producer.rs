@@ -165,6 +165,7 @@ impl BlockProducer {
             if is_my_turn {
                 println!("{}", "   🔨 I am the designated producer for catch-up blocks".green());
                 println!("   Creating {} missed block(s)...", missed_blocks);
+            let mut all_success = true;
                 println!();
                 
                 for i in 0..missed_blocks {
@@ -176,6 +177,7 @@ impl BlockProducer {
                     
                     if !self.produce_catch_up_block(height, block_time).await {
                         println!("   ⚠ Stopping catch-up due to error");
+                        all_success = false;
                         break;
                     }
                     
@@ -187,7 +189,11 @@ impl BlockProducer {
                 }
                 
                 println!();
+            if all_success {
                 println!("{}", "   ✅ Catch-up complete!".green().bold());
+            } else {
+                println!("{}", "   ❌ Catch-up failed!".red());
+            }
                 println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
                 println!();
             } else {

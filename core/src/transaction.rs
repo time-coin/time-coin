@@ -190,7 +190,8 @@ impl Transaction {
     /// Basic validation (structure checks)
     pub fn validate_structure(&self) -> Result<(), TransactionError> {
         // Must have at least one input and output
-        if self.inputs.is_empty() {
+        // Coinbase transactions have no inputs
+        if self.inputs.is_empty() && !self.is_coinbase() {
             return Err(TransactionError::InvalidInput);
         }
         if self.outputs.is_empty() {
