@@ -46,6 +46,7 @@ impl BlockProducer {
     }
 
     async fn run(&self) {
+        println!("⚠️  Note: Missed block catch-up not yet implemented");
         let now = Utc::now();
         let next_midnight = (now + chrono::Duration::days(1))
             .date_naive()
