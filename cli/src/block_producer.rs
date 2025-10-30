@@ -311,6 +311,20 @@ impl BlockProducer {
         } else {
             println!("   ✓ No missed blocks\n");
         }
+
+        // Verify our chain state with peers after sync
+        let blockchain = self.blockchain.read().await;
+        let height = blockchain.chain_tip_height();
+        let tip_hash = blockchain.chain_tip_hash().to_string();
+        drop(blockchain);
+        let peers = self.peer_manager.get_peer_ips().await;
+        
+        let (consensus_reached, _agreements, disagreements) =
+            self.consensus.announce_chain_state(height, tip_hash, peers).await;
+        
+        if !consensus_reached && !disagreements.is_empty() {
+            println!("{}", "⚠️  WARNING: Network disagrees with our chain state!".yellow().bold());
+        }
     }
 
     async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) -> bool {
