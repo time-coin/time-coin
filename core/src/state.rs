@@ -21,6 +21,7 @@ pub enum StateError {
     BlockNotFound,
     InvalidPreviousHash,
     DuplicateBlock,
+    DuplicateTransaction,
     OrphanBlock,
     InvalidMasternodeCount,
 }
@@ -34,6 +35,7 @@ impl std::fmt::Display for StateError {
             StateError::BlockNotFound => write!(f, "Block not found"),
             StateError::InvalidPreviousHash => write!(f, "Invalid previous hash"),
             StateError::DuplicateBlock => write!(f, "Duplicate block"),
+            StateError::DuplicateTransaction => write!(f, "Duplicate transaction"),
             StateError::OrphanBlock => write!(f, "Orphan block"),
             StateError::InvalidMasternodeCount => write!(f, "Invalid masternode count"),
             StateError::IoError(msg) => write!(f, "IO error: {}", msg),
