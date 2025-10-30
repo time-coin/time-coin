@@ -12,6 +12,7 @@ use std::time::Duration;
 use time_api::{start_server, ApiState};
 use time_core::state::BlockchainState;
 use time_core::block::{Block, BlockHeader};
+use time_core::transaction::{Transaction, TxOutput};
 use chrono::TimeZone;
 use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
 use time_consensus::ConsensusEngine;
@@ -473,7 +474,19 @@ async fn main() {
             validator_signature: "genesis".to_string(),
             validator_address: "genesis".to_string(),
         },
-        transactions: vec![],
+        transactions: vec![Transaction {
+            txid: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![
+                TxOutput { amount: 50_000_000_000_000, address: "TIME1treasury00000000000000000000000000".to_string() },
+                TxOutput { amount: 10_000_000_000_000, address: "TIME1development0000000000000000000000".to_string() },
+                TxOutput { amount: 10_000_000_000_000, address: "TIME1operations0000000000000000000000".to_string() },
+                TxOutput { amount: 30_000_000_000_000, address: "TIME1rewards000000000000000000000000000".to_string() },
+            ],
+            lock_time: 0,
+            timestamp: 1729728000,
+        }],
         hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
     };
     let blockchain = Arc::new(RwLock::new(BlockchainState::new(genesis_block).expect("Failed to create blockchain state")));
