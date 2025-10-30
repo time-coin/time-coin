@@ -79,7 +79,7 @@ impl BlockProducer {
         let current_height = self.load_block_height();
         let now = Utc::now();
         
-        // Genesis: Oct 24, 2024 00:00:00 UTC
+        // Genesis: Oct 24, 2025 00:00:00 UTC
         let genesis_time = Utc.with_ymd_and_hms(2025, 10, 24, 0, 0, 0).unwrap();
         let duration = now.signed_duration_since(genesis_time);
         let days_since_genesis = duration.num_days();
