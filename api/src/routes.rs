@@ -1,3 +1,5 @@
+use axum::extract::Path;
+use serde::Serialize;
 use axum::{
     extract::State,
     routing::{get, post},
@@ -9,6 +11,7 @@ pub fn create_routes() -> Router<ApiState> {
     Router::new()
         .route("/", get(root))
         .route("/blockchain/info", get(get_blockchain_info))
+        .route("/blockchain/block/:height", get(get_block_by_height))
         .route("/balance/{address}", get(get_balance))
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
@@ -46,6 +49,43 @@ async fn get_blockchain_info(
         total_supply,
         timestamp: chrono::Utc::now().timestamp(),
     }))
+}
+
+
+#[derive(Serialize)]
+
+struct BlockResponse {
+
+    block: time_core::block::Block,
+
+}
+
+
+
+async fn get_block_by_height(
+
+    Path(height): Path<u64>,
+
+    State(state): State<ApiState>,
+
+) -> ApiResult<Json<BlockResponse>> {
+
+    let blockchain = state.blockchain.read().await;
+
+    
+
+    match blockchain.get_block_by_height(height) {
+
+        Some(block) => Ok(Json(BlockResponse {
+
+            block: block.clone(),
+
+        })),
+
+        None => Err(ApiError::TransactionNotFound(format!("Block {} not found", height))),
+
+    }
+
 }
 
 #[derive(serde::Serialize)]
