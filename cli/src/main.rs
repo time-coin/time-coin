@@ -360,7 +360,7 @@ async fn main() {
                 
                 // Show peer details
                 for (i, peer) in peers.iter().enumerate() {
-                    println!("    {}. {}", i + 1, peer.bright_black());
+                    println!("    {}. {:?}", i + 1, peer);
                 }
                 
                 peer_manager.connect_to_peers(peers.clone()).await;
