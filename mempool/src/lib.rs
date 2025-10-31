@@ -13,9 +13,10 @@ use time_core::{Transaction, TransactionError};
 pub struct Mempool {
     /// Pending transactions by txid
     transactions: Arc<RwLock<HashMap<String, MempoolEntry>>>,
-    
     /// Maximum size of mempool
     max_size: usize,
+    /// Reference to blockchain for UTXO validation (optional)
+    blockchain: Option<Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
 }
 
 /// Entry in the mempool with metadata
@@ -23,10 +24,8 @@ pub struct Mempool {
 pub struct MempoolEntry {
     /// The transaction
     pub transaction: Transaction,
-    
     /// When it was added to mempool
     pub added_at: i64,
-    
     /// Priority score (higher = included sooner)
     pub priority: u64,
 }
@@ -37,11 +36,33 @@ impl Mempool {
         Self {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             max_size,
+            blockchain: None,
+        }
+    }
+
+    /// Create mempool with blockchain validation
+    pub fn with_blockchain(
+        max_size: usize,
+        blockchain: Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
+    ) -> Self {
+        Self {
+            transactions: Arc::new(RwLock::new(HashMap::new())),
+            max_size,
+            blockchain: Some(blockchain),
         }
     }
 
     /// Add a transaction to the mempool
     pub async fn add_transaction(&self, tx: Transaction) -> Result<(), MempoolError> {
+        // Validate transaction structure
+        tx.validate_structure()
+            .map_err(MempoolError::InvalidTransaction)?;
+
+        // Validate UTXO if blockchain is available
+        if let Some(blockchain) = &self.blockchain {
+            self.validate_utxo(&tx, blockchain).await?;
+        }
+
         let mut pool = self.transactions.write().await;
 
         // Check if already in mempool
@@ -74,6 +95,53 @@ impl Mempool {
         println!("📝 Added transaction {} to mempool (priority: {})", 
             &tx.txid[..16], priority);
 
+        Ok(())
+    }
+
+    /// Validate transaction against UTXO set
+    async fn validate_utxo(
+        &self,
+        tx: &Transaction,
+        blockchain: &Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
+    ) -> Result<(), MempoolError> {
+        // Skip validation for coinbase transactions
+        if tx.is_coinbase() {
+            return Ok(());
+        }
+
+        let chain = blockchain.read().await;
+        let utxo_set = chain.utxo_set();
+        
+        let mut input_sum = 0u64;
+        
+        // Validate all inputs exist and are unspent
+        for input in &tx.inputs {
+            match utxo_set.get(&input.previous_output) {
+                Some(utxo) => {
+                    input_sum = input_sum.checked_add(utxo.amount)
+                        .ok_or(MempoolError::InvalidTransaction(
+                            time_core::TransactionError::InvalidAmount
+                        ))?;
+                }
+                None => {
+                    // Input does not exist or already spent
+                    return Err(MempoolError::InvalidTransaction(
+                        time_core::TransactionError::InvalidInput
+                    ));
+                }
+            }
+        }
+        
+        // Calculate output sum
+        let output_sum: u64 = tx.outputs.iter().map(|o| o.amount).sum();
+        
+        // Inputs must be >= outputs
+        if input_sum < output_sum {
+            return Err(MempoolError::InvalidTransaction(
+                time_core::TransactionError::InsufficientFunds
+            ));
+        }
+        
         Ok(())
     }
 
@@ -141,13 +209,12 @@ impl Mempool {
         }
     }
 
-    /// Calculate total fee for a transaction
     /// Save mempool to disk
     pub async fn save_to_disk(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let pool = self.transactions.read().await;
         let entries: Vec<&MempoolEntry> = pool.values().collect();
         
-        // Create directory if it doesnt exist
+        // Create directory if it doesn't exist
         if let Some(parent) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -206,7 +273,7 @@ impl Mempool {
         removed
     }
 
-
+    /// Calculate total fee for a transaction
     fn calculate_fee(&self, tx: &Transaction) -> u64 {
         // Fee = sum(inputs) - sum(outputs)
         // For now, we'll use a simple estimation

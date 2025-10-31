@@ -676,7 +676,7 @@ async fn main() {
     println!("\n{}", "✓ Masternode services starting".green());
     
     // Initialize mempool for pending transactions
-    let mempool = Arc::new(time_mempool::Mempool::new(10000));
+    let mempool = Arc::new(time_mempool::Mempool::with_blockchain(10000, blockchain.clone()));
     
     // Load mempool from disk
     
