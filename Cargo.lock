@@ -406,6 +406,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
  "pkcs8",
+ "serde",
  "signature",
 ]
 
@@ -2064,6 +2065,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "time-cli"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "ed25519-dalek",
+ "hex",
+ "local-ip-address",
+ "owo-colors",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sled",
+ "time-api",
+ "time-core",
+ "time-network",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "time-consensus"
 version = "0.1.0"
 dependencies = [
@@ -2145,27 +2168,6 @@ dependencies = [
  "time-core",
  "time-mempool",
  "tokio",
-]
-
-[[package]]
-name = "time-node"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "local-ip-address",
- "md5",
- "owo-colors",
- "reqwest 0.11.27",
- "serde",
- "serde_json",
- "time-api",
- "time-consensus",
- "time-core",
- "time-mempool",
- "time-network",
- "tokio",
- "toml",
 ]
 
 [[package]]
