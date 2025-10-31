@@ -369,6 +369,7 @@ async fn main() {
     println!("Config file: {:?}", config_path);
     println!("Network: {}", network_name.yellow().bold());
     println!("Version: {}", time_network::protocol::full_version().bright_black());
+    println!("Version: {}", time_network::protocol::full_version().bright_black());
     println!();
 
     let is_dev_mode = cli.dev
