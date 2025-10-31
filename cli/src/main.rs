@@ -285,11 +285,38 @@ async fn get_local_height(blockchain: &Arc<RwLock<BlockchainState>>) -> u64 {
 }
 
 /// Query network for current height
+/// Query network for current height
 async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
-    // TODO: Implement actual height query to peers
-    // For now, return None to indicate we don't know
-    let _peers = peer_manager.get_peer_ips().await;
-    None
+    let peers = peer_manager.get_peer_ips().await;
+    
+    if peers.is_empty() {
+        return None;
+    }
+    
+    // Query multiple peers and take the highest height
+    let mut max_height = 0u64;
+    let mut successful_queries = 0;
+    
+    for peer in peers.iter().take(3) { // Query up to 3 peers
+        match peer_manager.request_blockchain_info(peer).await {
+            Ok(height) => {
+                successful_queries += 1;
+                if height > max_height {
+                    max_height = height;
+                }
+                println!("   {} reports height: {}", peer.bright_black(), height.to_string().yellow());
+            }
+            Err(_) => {
+                // Silently skip peers that dont respond
+            }
+        }
+    }
+    
+    if successful_queries > 0 {
+        Some(max_height)
+    } else {
+        None
+    }
 }
 
 #[tokio::main]
