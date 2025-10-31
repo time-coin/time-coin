@@ -13,7 +13,6 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/blockchain/info", get(get_blockchain_info))
         .route("/blockchain/block/{height}", get(get_block_by_height))
         .route("/balance/{address}", get(get_balance))
-        // .route("/invalidated/{address}", get(get_invalidated_transactions)) // TODO: Implement
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
@@ -21,6 +20,13 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/propose", post(propose_block))
         .route("/vote", post(cast_vote))
         .route("/quorum/{block_hash}", get(check_quorum))
+        // Mempool endpoints
+        .route("/mempool/status", get(get_mempool_status))
+        .route("/mempool/add", post(add_to_mempool))
+        .route("/mempool/all", get(get_all_mempool_txs))
+        // Transaction consensus endpoints
+        .route("/consensus/tx-proposal", post(receive_tx_proposal))
+        .route("/consensus/tx-vote", post(receive_tx_vote))
 }
 
 async fn root() -> &'static str {
@@ -58,8 +64,8 @@ struct BlockResponse {
 }
 
 async fn get_block_by_height(
-    Path(height): Path<u64>,
     State(state): State<ApiState>,
+    Path(height): Path<u64>,
 ) -> ApiResult<Json<BlockResponse>> {
     let blockchain = state.blockchain.read().await;
 
@@ -78,8 +84,8 @@ struct BalanceResponse {
 }
 
 async fn get_balance(
-    Path(address): Path<String>,
     State(state): State<ApiState>,
+    Path(address): Path<String>,
 ) -> ApiResult<Json<BalanceResponse>> {
     let balances = state.balances.read().await;
     let balance = balances.get(&address).copied().unwrap_or(0);
@@ -288,4 +294,83 @@ async fn check_quorum(
         total_nodes: 0,
         required: 0,
     }))
+}
+
+// Mempool endpoints
+#[derive(serde::Serialize)]
+struct MempoolStatusResponse {
+    size: usize,
+    transactions: Vec<String>,
+}
+
+async fn get_mempool_status(
+    State(state): State<ApiState>,
+) -> ApiResult<Json<MempoolStatusResponse>> {
+    let mempool = state.mempool.as_ref()
+        .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
+    
+    let transactions = mempool.get_all_transactions().await;
+    let tx_ids: Vec<String> = transactions.iter()
+        .map(|tx| tx.txid.clone())
+        .collect();
+    
+    Ok(Json(MempoolStatusResponse {
+        size: tx_ids.len(),
+        transactions: tx_ids,
+    }))
+}
+
+async fn add_to_mempool(
+    State(state): State<ApiState>,
+    Json(tx): Json<time_core::Transaction>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let mempool = state.mempool.as_ref()
+        .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
+    
+    mempool.add_transaction(tx.clone()).await
+        .map_err(|e| ApiError::Internal(format!("Failed to add transaction: {}", e)))?;
+    
+    // Broadcast to peers
+    if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
+        broadcaster.broadcast_transaction(tx).await;
+    }
+    
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Transaction added to mempool and broadcast"
+    })))
+}
+
+async fn get_all_mempool_txs(
+    State(state): State<ApiState>,
+) -> ApiResult<Json<Vec<time_core::Transaction>>> {
+    let mempool = state.mempool.as_ref()
+        .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
+    
+    let transactions = mempool.get_all_transactions().await;
+    Ok(Json(transactions))
+}
+
+async fn receive_tx_proposal(
+    State(state): State<ApiState>,
+    Json(proposal): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    println!("📬 Received transaction proposal for block");
+    
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Transaction proposal received"
+    })))
+}
+
+async fn receive_tx_vote(
+    State(state): State<ApiState>,
+    Json(vote): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    println!("🗳️  Received transaction set vote");
+    
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Vote received"
+    })))
 }

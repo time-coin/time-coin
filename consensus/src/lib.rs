@@ -519,3 +519,149 @@ mod tests {
     }
 }
 
+
+/// Transaction consensus - nodes agree on which transactions go in the block
+pub mod tx_consensus {
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use serde::{Deserialize, Serialize};
+
+    /// Proposed transaction set for a block
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct TransactionProposal {
+        /// Block height this is for
+        pub block_height: u64,
+        
+        /// Transaction IDs proposed
+        pub tx_ids: Vec<String>,
+        
+        /// Proposer node
+        pub proposer: String,
+        
+        /// Merkle root of transactions
+        pub merkle_root: String,
+        
+        /// Timestamp
+        pub timestamp: i64,
+    }
+
+    /// Vote on a transaction set
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct TxSetVote {
+        pub block_height: u64,
+        pub merkle_root: String,
+        pub voter: String,
+        pub approve: bool,
+        pub timestamp: i64,
+    }
+
+    /// Manages consensus on which transactions go in each block
+    pub struct TxConsensusManager {
+        /// Current proposals by block height
+        proposals: Arc<RwLock<HashMap<u64, TransactionProposal>>>,
+        
+        /// Votes on proposals (block_height -> merkle_root -> votes)
+        votes: Arc<RwLock<HashMap<u64, HashMap<String, Vec<TxSetVote>>>>>,
+        
+        /// Registered masternodes
+        masternodes: Arc<RwLock<Vec<String>>>,
+    }
+
+    impl TxConsensusManager {
+        pub fn new() -> Self {
+            Self {
+                proposals: Arc::new(RwLock::new(HashMap::new())),
+                votes: Arc::new(RwLock::new(HashMap::new())),
+                masternodes: Arc::new(RwLock::new(Vec::new())),
+            }
+        }
+
+        /// Set masternodes list
+        pub async fn set_masternodes(&self, nodes: Vec<String>) {
+            let mut masternodes = self.masternodes.write().await;
+            *masternodes = nodes;
+        }
+
+        /// Propose a transaction set for a block
+        pub async fn propose_tx_set(&self, proposal: TransactionProposal) {
+            let mut proposals = self.proposals.write().await;
+            proposals.insert(proposal.block_height, proposal.clone());
+            
+            println!("📋 Transaction set proposed for block {}", proposal.block_height);
+            println!("   {} transactions", proposal.tx_ids.len());
+            println!("   Merkle root: {}...", &proposal.merkle_root[..16]);
+        }
+
+        /// Vote on a transaction set
+        pub async fn vote_on_tx_set(&self, vote: TxSetVote) -> Result<(), String> {
+            let masternodes = self.masternodes.read().await;
+            
+            // Verify voter is a masternode
+            if !masternodes.contains(&vote.voter) {
+                return Err("Voter is not a registered masternode".to_string());
+            }
+            
+            let mut votes = self.votes.write().await;
+            
+            votes.entry(vote.block_height)
+                .or_insert_with(HashMap::new)
+                .entry(vote.merkle_root.clone())
+                .or_insert_with(Vec::new)
+                .push(vote.clone());
+            
+            Ok(())
+        }
+
+        /// Check if transaction set has consensus
+        pub async fn has_tx_consensus(&self, block_height: u64, merkle_root: &str) -> (bool, usize, usize) {
+            let votes = self.votes.read().await;
+            let masternodes = self.masternodes.read().await;
+            
+            let total_nodes = masternodes.len();
+            
+            if total_nodes == 0 {
+                return (false, 0, 0);
+            }
+            
+            let vote_list = votes
+                .get(&block_height)
+                .and_then(|h| h.get(merkle_root))
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            
+            let approvals = vote_list.iter()
+                .filter(|v| v.approve)
+                .count();
+            
+            // Need 2/3+ approval
+            let required = (total_nodes * 2 + 2) / 3;
+            let has_consensus = approvals >= required;
+            
+            (has_consensus, approvals, total_nodes)
+        }
+
+        /// Get the agreed transaction set for a block (if consensus reached)
+        pub async fn get_agreed_tx_set(&self, block_height: u64) -> Option<TransactionProposal> {
+            let proposals = self.proposals.read().await;
+            let proposal = proposals.get(&block_height)?;
+            
+            let (has_consensus, _, _) = self.has_tx_consensus(block_height, &proposal.merkle_root).await;
+            
+            if has_consensus {
+                Some(proposal.clone())
+            } else {
+                None
+            }
+        }
+
+        /// Clear old proposals and votes
+        pub async fn cleanup_old(&self, current_height: u64) {
+            let mut proposals = self.proposals.write().await;
+            let mut votes = self.votes.write().await;
+            
+            proposals.retain(|&h, _| h >= current_height.saturating_sub(10));
+            votes.retain(|&h, _| h >= current_height.saturating_sub(10));
+        }
+    }
+}

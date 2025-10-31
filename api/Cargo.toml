@@ -9,6 +9,7 @@ time-network = { path = "../network" }
 time-core = { version = "0.1.0", path = "../core" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
 time-consensus = { version = "0.1.0", path = "../consensus" }
+time-mempool = { path = "../mempool" }
 
 # Web framework
 axum = "0.8"

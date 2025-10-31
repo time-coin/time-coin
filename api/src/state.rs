@@ -4,8 +4,8 @@ use std::sync::Arc;
 use time_network::PeerManager;
 use time_network::discovery::PeerDiscovery;
 use tokio::sync::RwLock;
-
 use std::collections::HashMap;
+
 #[derive(Clone)]
 pub struct ApiState {
     pub balances: Arc<RwLock<HashMap<String, u64>>>,
@@ -18,6 +18,9 @@ pub struct ApiState {
     pub peer_manager: Arc<PeerManager>,
     pub admin_token: Option<String>,
     pub blockchain: Arc<RwLock<BlockchainState>>,
+    pub mempool: Option<Arc<time_mempool::Mempool>>,
+    pub tx_consensus: Option<Arc<time_consensus::tx_consensus::TxConsensusManager>>,
+    pub tx_broadcaster: Option<Arc<time_network::tx_broadcast::TransactionBroadcaster>>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,9 +50,16 @@ pub struct GrantData {
 }
 
 impl ApiState {
-    pub fn new(dev_mode: bool, network: String, peer_discovery: Arc<RwLock<PeerDiscovery>>, peer_manager: Arc<PeerManager>, admin_token: Option<String>, blockchain: Arc<RwLock<BlockchainState>>) -> Self {
+    pub fn new(
+        dev_mode: bool, 
+        network: String, 
+        peer_discovery: Arc<RwLock<PeerDiscovery>>, 
+        peer_manager: Arc<PeerManager>, 
+        admin_token: Option<String>, 
+        blockchain: Arc<RwLock<BlockchainState>>
+    ) -> Self {
         let mut balances = HashMap::new();
-
+        
         // Initialize genesis balances (1M TIME)
         balances.insert(
             "TIME1treasury00000000000000000000000000".to_string(),
@@ -67,7 +77,7 @@ impl ApiState {
             "TIME1rewards000000000000000000000000000".to_string(),
             30_000_000_000_000, // 300,000 TIME
         );
-
+        
         Self {
             balances: Arc::new(RwLock::new(balances)),
             transactions: Arc::new(RwLock::new(HashMap::new())),
@@ -79,6 +89,27 @@ impl ApiState {
             admin_token,
             blockchain,
             peer_manager,
+            mempool: None,
+            tx_consensus: None,
+            tx_broadcaster: None,
         }
+    }
+
+    /// Set mempool (called after ApiState creation)
+    pub fn with_mempool(mut self, mempool: Arc<time_mempool::Mempool>) -> Self {
+        self.mempool = Some(mempool);
+        self
+    }
+
+    /// Set transaction consensus manager
+    pub fn with_tx_consensus(mut self, tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>) -> Self {
+        self.tx_consensus = Some(tx_consensus);
+        self
+    }
+
+    /// Set transaction broadcaster
+    pub fn with_tx_broadcaster(mut self, tx_broadcaster: Arc<time_network::tx_broadcast::TransactionBroadcaster>) -> Self {
+        self.tx_broadcaster = Some(tx_broadcaster);
+        self
     }
 }

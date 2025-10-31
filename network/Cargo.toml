@@ -6,13 +6,15 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
+time-core = { path = "../core" }
+time-mempool = { path = "../mempool" }
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "macros"] }
 reqwest = { version = "0.12", features = ["json"] }
-
 local-ip-address = "0.5"
 rand = "0.8"
 chrono.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
