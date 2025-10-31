@@ -278,6 +278,20 @@ async fn snapshot_sync(
     Err("Could not download valid snapshot from any peer".into())
 }
 
+/// Get local blockchain height from disk
+async fn get_local_height(blockchain: &Arc<RwLock<BlockchainState>>) -> u64 {
+    let chain = blockchain.read().await;
+    0 // TODO: Implement proper height tracking in BlockchainState
+}
+
+/// Query network for current height
+async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
+    // TODO: Implement actual height query to peers
+    // For now, return None to indicate we don't know
+    let _peers = peer_manager.get_peer_ips().await;
+    None
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -309,11 +323,12 @@ async fn main() {
     // Banner with network indicator
     if is_testnet {
         println!("{}", "╔══════════════════════════════════════╗".yellow().bold());
-        println!("{}", "║   TIME Coin Node v0.1.0 [TESTNET]    ║".yellow().bold());
+        println!("{}", format!("║   TIME Coin Node v{:<20} ║", time_network::protocol::full_version()).yellow().bold());
+        println!("{}", "║              [TESTNET]               ║".yellow().bold());
         println!("{}", "╚══════════════════════════════════════╝".yellow().bold());
     } else {
         println!("{}", "╔══════════════════════════════════════╗".cyan().bold());
-        println!("{}", "║   TIME Coin Node v0.1.0              ║".cyan().bold());
+        println!("{}", format!("║   TIME Coin Node v{:<20} ║", time_network::protocol::full_version()).cyan().bold());
         println!("{}", "╚══════════════════════════════════════╝".cyan().bold());
     }
     
@@ -343,12 +358,73 @@ async fn main() {
         NetworkType::Mainnet
     };
 
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 1: Load blockchain from disk (or genesis if first run)
+    // ═══════════════════════════════════════════════════════════════
+    
+    let genesis_path = config.blockchain.genesis_file
+        .map(|p| expand_path(&p))
+        .unwrap_or_else(|| "/root/time-coin-node/data/genesis.json".to_string());
+    
+    std::env::set_var("GENESIS_PATH", &genesis_path);
+    
+    // Try to load genesis block
+    let _genesis = match load_genesis(&genesis_path) {
+        Ok(g) => {
+            display_genesis(&g);
+            println!("{}", "✓ Genesis block verified".green());
+            Some(g)
+        }
+        Err(_) => {
+            println!("{}", "⚠ Genesis block not found locally".yellow());
+            println!("{}", "  Will attempt to download from peers after connection".bright_black());
+            None
+        }
+    };
+
+    // Initialize blockchain state with genesis block
+    let genesis_block = Block {
+        header: BlockHeader {
+            block_number: 0,
+            timestamp: chrono::Utc.with_ymd_and_hms(2025, 10, 24, 0, 0, 0).unwrap(),
+            previous_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            merkle_root: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            validator_signature: "genesis".to_string(),
+            validator_address: "genesis".to_string(),
+        },
+        transactions: vec![Transaction {
+            txid: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![
+                TxOutput { amount: 50_000_000_000_000, address: "TIME1treasury00000000000000000000000000".to_string() },
+                TxOutput { amount: 10_000_000_000_000, address: "TIME1development0000000000000000000000".to_string() },
+                TxOutput { amount: 10_000_000_000_000, address: "TIME1operations0000000000000000000000".to_string() },
+                TxOutput { amount: 30_000_000_000_000, address: "TIME1rewards000000000000000000000000000".to_string() },
+            ],
+            lock_time: 0,
+            timestamp: 1729728000,
+        }],
+        hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
+    };
+    
+    let blockchain = Arc::new(RwLock::new(
+        BlockchainState::new(genesis_block, "/root/time-coin-node/data/blockchain")
+            .expect("Failed to create blockchain state")
+    ));
+
+    let local_height = get_local_height(&blockchain).await;
+    println!("{}", format!("📊 Local blockchain height: {}", local_height).cyan());
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 2: Peer discovery and connection
+    // ═══════════════════════════════════════════════════════════════
+
     let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
     let listen_addr = "0.0.0.0:24100".parse().unwrap();
     let peer_manager = std::sync::Arc::new(PeerManager::new(network_type.clone(), listen_addr));
 
-    // Peer Discovery - with detailed output
-    println!("{}", "⏳ Starting peer discovery...".yellow());
+    println!("\n{}", "⏳ Starting peer discovery...".yellow());
     
     match discovery.write().await.bootstrap().await {
         Ok(peers) => {
@@ -365,7 +441,7 @@ async fn main() {
                 
                 peer_manager.connect_to_peers(peers.clone()).await;
                 
-                // Give peers time to connect before attempting genesis download
+                // Give peers time to connect
                 println!("{}", "  ⏳ Waiting for peer connections...".bright_black());
                 tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 
@@ -386,61 +462,79 @@ async fn main() {
         }
     }
 
-    // Genesis Block Loading
-    let genesis_path = config.blockchain.genesis_file
-        .map(|p| expand_path(&p))
-        .unwrap_or_else(|| "/root/time-coin-node/data/genesis.json".to_string());
-    
-    std::env::set_var("GENESIS_PATH", &genesis_path);
-    
-    let _genesis = match load_genesis(&genesis_path) {
-        Ok(g) => {
-            display_genesis(&g);
-            println!("{}", "✓ Genesis block verified".green());
-            Some(g)
-        }
-        Err(_) => {
-            match download_genesis_from_peers(&peer_manager, &genesis_path).await {
-                Ok(g) => {
-                    display_genesis(&g);
-                    println!("{}", "✓ Genesis block downloaded and verified".green());
-                    Some(g)
-                }
-                Err(e) => {
-                    println!("{} {}", "⚠".yellow(), e);
-                    println!("  {}", "Node will continue without genesis verification".yellow());
-                    None
-                }
-            }
-        }
-    };
-
-    // SNAPSHOT SYNC - Fast blockchain synchronization
-    if !cli.full_sync && !peer_manager.get_peer_ips().await.is_empty() {
-        match snapshot_sync(&peer_manager).await {
-            Ok(snapshot) => {
-                println!("\n{}", "╔═══════════════════════════════════════════════════╗".green().bold());
-                println!("{}", "║     ⚡ FAST SYNC COMPLETE                         ║".green().bold());
-                println!("{}", "╚═══════════════════════════════════════════════════╝".green().bold());
-                println!("  Synchronized to height: {}", snapshot.height.to_string().yellow().bold());
-                println!("  Loaded {} account balances", snapshot.balances.len().to_string().yellow());
-                println!("  Registered {} masternodes", snapshot.masternodes.len().to_string().yellow());
-                println!("  Sync time: <1 second {}", "⚡".green());
-                println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
-                
-                // Note: In production, we'd load the snapshot into the blockchain state here
+    // Download genesis if we didn't have it
+    if _genesis.is_none() && !peer_manager.get_peer_ips().await.is_empty() {
+        match download_genesis_from_peers(&peer_manager, &genesis_path).await {
+            Ok(g) => {
+                display_genesis(&g);
+                println!("{}", "✓ Genesis block downloaded and verified".green());
             }
             Err(e) => {
-                println!("{} Could not perform fast sync: {}", "⚠".yellow(), e);
-                println!("  {}", "Continuing with empty state (first node)".bright_black());
+                println!("{} {}", "⚠".yellow(), e);
+                println!("  {}", "Node will continue without genesis verification".yellow());
             }
         }
-    } else if cli.full_sync {
-        println!("{}", "📚 Full sync mode - downloading entire blockchain...".cyan());
-        // TODO: Implement full block-by-block sync
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 3: Check if we need to sync
+    // ═══════════════════════════════════════════════════════════════
+    
+    let network_height = get_network_height(&peer_manager).await;
+    let needs_sync = if let Some(net_height) = network_height {
+        println!("{}", format!("📊 Network blockchain height: {}", net_height).cyan());
+        net_height > local_height
+    } else {
+        // If we can't determine network height, assume we might need sync if we have peers
+        !peer_manager.get_peer_ips().await.is_empty() && local_height == 0
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 4: Synchronize blockchain if needed
+    // ═══════════════════════════════════════════════════════════════
+    
+    if needs_sync && !peer_manager.get_peer_ips().await.is_empty() {
+        if !cli.full_sync {
+            // Try FAST SYNC first
+            match snapshot_sync(&peer_manager).await {
+                Ok(snapshot) => {
+                    println!("\n{}", "╔═══════════════════════════════════════════════════╗".green().bold());
+                    println!("{}", "║     ⚡ FAST SYNC COMPLETE                         ║".green().bold());
+                    println!("{}", "╚═══════════════════════════════════════════════════╝".green().bold());
+                    println!("  Synchronized to height: {}", snapshot.height.to_string().yellow().bold());
+                    println!("  Loaded {} account balances", snapshot.balances.len().to_string().yellow());
+                    println!("  Registered {} masternodes", snapshot.masternodes.len().to_string().yellow());
+                    println!("  Sync time: <1 second {}", "⚡".green());
+                    println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
+                    
+                    // TODO: Load the snapshot into the blockchain state
+                }
+                Err(e) => {
+                    println!("{} Fast sync failed: {}", "⚠".yellow(), e);
+                    println!("{}", "  Falling back to block-by-block sync...".cyan());
+                    
+                    // TODO: Implement block-by-block sync fallback
+                    println!("{}", "  📚 Block-by-block sync not yet implemented".yellow());
+                    println!("  {}", "Continuing with current state".bright_black());
+                }
+            }
+        } else {
+            // Full sync requested
+            println!("{}", "📚 Full sync mode - downloading entire blockchain...".cyan());
+            // TODO: Implement full block-by-block sync
+            println!("{}", "  Block-by-block sync not yet implemented".yellow());
+        }
+    } else if needs_sync {
+        println!("{}", "⚠ Blockchain may be out of sync, but no peers available".yellow());
+    } else {
+        println!("{}", "✓ Blockchain is up to date".green());
     }
 
     println!("\n{}", "✓ Blockchain initialized".green());
+    
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 5: Initialize consensus and services
+    // ═══════════════════════════════════════════════════════════════
     
     // Initialize Consensus Engine
     let consensus = Arc::new(ConsensusEngine::new(is_dev_mode));
@@ -494,37 +588,6 @@ async fn main() {
 
     println!("\n{}", "✓ Masternode services starting".green());
     
-    // Initialize blockchain state with genesis block
-    let genesis_block = Block {
-        header: BlockHeader {
-            block_number: 0,
-            timestamp: chrono::Utc.with_ymd_and_hms(2025, 10, 24, 0, 0, 0).unwrap(),
-            previous_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            merkle_root: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            validator_signature: "genesis".to_string(),
-            validator_address: "genesis".to_string(),
-        },
-        transactions: vec![Transaction {
-            txid: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            version: 1,
-            inputs: vec![],
-            outputs: vec![
-                TxOutput { amount: 50_000_000_000_000, address: "TIME1treasury00000000000000000000000000".to_string() },
-                TxOutput { amount: 10_000_000_000_000, address: "TIME1development0000000000000000000000".to_string() },
-                TxOutput { amount: 10_000_000_000_000, address: "TIME1operations0000000000000000000000".to_string() },
-                TxOutput { amount: 30_000_000_000_000, address: "TIME1rewards000000000000000000000000000".to_string() },
-            ],
-            lock_time: 0,
-            timestamp: 1729728000,
-        }],
-        hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
-    };
-    
-    let blockchain = Arc::new(RwLock::new(
-        BlockchainState::new(genesis_block, "/root/time-coin-node/data/blockchain")
-            .expect("Failed to create blockchain state")
-    ));
-
     // Initialize mempool for pending transactions
     let mempool = Arc::new(time_mempool::Mempool::new(10000));
     println!("{}", "✓ Mempool initialized (capacity: 10,000)".green());
@@ -680,8 +743,6 @@ async fn main() {
     
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
-    
-    
     println!();
 
     // Masternode synchronization task
