@@ -1,22 +1,40 @@
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use clap::Parser;
+
 use std::sync::Arc;
+
 use tokio::sync::RwLock;
+
 use owo_colors::OwoColorize;
+
 use serde::Deserialize;
+
 
 mod block_producer;
 use block_producer::BlockProducer;
+
 use std::path::PathBuf;
+
 use std::time::Duration;
 
+
 use time_api::{start_server, ApiState};
+
 use time_core::state::BlockchainState;
+
 use time_core::block::{Block, BlockHeader};
+
 use time_core::transaction::{Transaction, TxOutput};
+
 use chrono::TimeZone;
+
 use time_network::{NetworkType, PeerDiscovery, PeerManager, PeerListener};
+
 use time_consensus::ConsensusEngine;
+
 use tokio::time;
+
 
 #[derive(Parser)]
 #[command(name = "time-node")]
@@ -674,6 +692,7 @@ async fn main() {
     }
 
     println!("\n{}", "✓ Masternode services starting".green());
+    println!("Version: v{}", VERSION);
     
     // Initialize mempool for pending transactions
     let mempool = Arc::new(time_mempool::Mempool::with_blockchain(10000, blockchain.clone()));
@@ -825,6 +844,7 @@ async fn main() {
         };
 
         println!("\n{}", format!("Node Status: ACTIVE [{}] [{}]", network_name, mode_str).green().bold());
+    println!("Version: {}", VERSION);
     }
     
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
