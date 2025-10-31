@@ -8,8 +8,6 @@ use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use time_core::{Transaction, TransactionError};
-use ed25519_dalek::{Verifier, VerifyingKey, Signature};
-use sha2::{Sha256, Digest};
 
 /// Transaction pool for pending transactions
 pub struct Mempool {
@@ -19,8 +17,6 @@ pub struct Mempool {
     max_size: usize,
     /// Reference to blockchain for UTXO validation (optional)
     blockchain: Option<Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
-    /// Track UTXOs being spent by transactions in mempool (to prevent double-spends)
-    spent_utxos: Arc<RwLock<std::collections::HashSet<time_core::OutPoint>>>,
 }
 
 /// Entry in the mempool with metadata
@@ -41,7 +37,6 @@ impl Mempool {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             max_size,
             blockchain: None,
-            spent_utxos: Arc::new(RwLock::new(std::collections::HashSet::new())),
         }
     }
 
@@ -54,7 +49,6 @@ impl Mempool {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             max_size,
             blockchain: Some(blockchain),
-            spent_utxos: Arc::new(RwLock::new(std::collections::HashSet::new())),
         }
     }
 
@@ -63,12 +57,6 @@ impl Mempool {
         // Validate transaction structure
         tx.validate_structure()
             .map_err(MempoolError::InvalidTransaction)?;
-
-        // Check for double-spend in mempool
-        self.check_double_spend(&tx).await?;
-
-        // Verify signatures
-        self.verify_signatures(&tx).await?;
 
         // Validate UTXO if blockchain is available
         if let Some(blockchain) = &self.blockchain {
@@ -107,124 +95,7 @@ impl Mempool {
         println!("📝 Added transaction {} to mempool (priority: {})", 
             &tx.txid[..16], priority);
 
-        // Mark UTXOs as spent
-        drop(pool);
-        self.mark_spent(&tx).await;
-
         Ok(())
-    }
-
-    /// Verify transaction signatures
-    async fn verify_signatures(&self, tx: &Transaction) -> Result<(), MempoolError> {
-        // Skip for coinbase transactions (they have no inputs)
-        if tx.is_coinbase() {
-            return Ok(());
-        }
-
-        // Get transaction hash for signing
-        let tx_hash = self.calculate_tx_hash(tx);
-
-        for input in &tx.inputs {
-            // Verify signature length
-            if input.public_key.len() != 32 {
-                return Err(MempoolError::InvalidTransaction(
-                    TransactionError::InvalidSignature
-                ));
-            }
-
-            if input.signature.len() != 64 {
-                return Err(MempoolError::InvalidTransaction(
-                    TransactionError::InvalidSignature
-                ));
-            }
-
-            // Create verifying key from public key
-            let public_key_bytes: [u8; 32] = input.public_key[..32]
-                .try_into()
-                .map_err(|_| MempoolError::InvalidTransaction(
-                    TransactionError::InvalidSignature
-                ))?;
-
-            let verifying_key = VerifyingKey::from_bytes(&public_key_bytes)
-                .map_err(|_| MempoolError::InvalidTransaction(
-                    TransactionError::InvalidSignature
-                ))?;
-
-            // Create signature
-            let signature_bytes: [u8; 64] = input.signature[..64]
-                .try_into()
-                .map_err(|_| MempoolError::InvalidTransaction(
-                    TransactionError::InvalidSignature
-                ))?;
-
-            let signature = Signature::from_bytes(&signature_bytes);
-
-            // Verify signature
-            if verifying_key.verify(&tx_hash, &signature).is_err() {
-                return Err(MempoolError::InvalidTransaction(
-                    TransactionError::InvalidSignature
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Calculate transaction hash for signing
-    fn calculate_tx_hash(&self, tx: &Transaction) -> Vec<u8> {
-        let mut hasher = Sha256::new();
-        
-        // Hash transaction fields (excluding signatures)
-        hasher.update(tx.txid.as_bytes());
-        hasher.update(&tx.version.to_le_bytes());
-        
-        for input in &tx.inputs {
-            hasher.update(input.previous_output.txid.as_bytes());
-            hasher.update(&input.previous_output.vout.to_le_bytes());
-            hasher.update(&input.public_key);
-            hasher.update(&input.sequence.to_le_bytes());
-        }
-        
-        for output in &tx.outputs {
-            hasher.update(output.address.as_bytes());
-            hasher.update(&output.amount.to_le_bytes());
-        }
-        
-        hasher.update(&tx.lock_time.to_le_bytes());
-        hasher.update(&tx.timestamp.to_le_bytes());
-        
-        hasher.finalize().to_vec()
-    }
-
-    /// Check for double-spend attempts
-    async fn check_double_spend(&self, tx: &Transaction) -> Result<(), MempoolError> {
-        let spent = self.spent_utxos.read().await;
-
-        for input in &tx.inputs {
-            if spent.contains(&input.previous_output) {
-                return Err(MempoolError::DoubleSpend);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Mark UTXOs as spent
-    async fn mark_spent(&self, tx: &Transaction) {
-        let mut spent = self.spent_utxos.write().await;
-        
-        for input in &tx.inputs {
-            spent.insert(input.previous_output.clone());
-        }
-    }
-
-    /// Release spent UTXOs when transaction is removed
-    async fn release_spent(&self, tx: &Transaction) {
-        let mut spent = self.spent_utxos.write().await;
-        
-        for input in &tx.inputs {
-            spent.remove(&input.previous_output);
-        }
     }
 
     /// Validate transaction against UTXO set
@@ -277,14 +148,7 @@ impl Mempool {
     /// Remove a transaction from mempool (after inclusion in block)
     pub async fn remove_transaction(&self, txid: &str) -> Option<Transaction> {
         let mut pool = self.transactions.write().await;
-        if let Some(entry) = pool.remove(txid) {
-            let tx = entry.transaction.clone();
-            drop(pool);
-            self.release_spent(&tx).await;
-            Some(tx)
-        } else {
-            None
-        }
+        pool.remove(txid).map(|entry| entry.transaction)
     }
 
     /// Get transaction by ID
@@ -335,21 +199,13 @@ impl Mempool {
     pub async fn clear(&self) {
         let mut pool = self.transactions.write().await;
         pool.clear();
-        
-        // Also clear spent UTXOs
-        let mut spent = self.spent_utxos.write().await;
-        spent.clear();
     }
 
     /// Remove transactions that are now invalid
     pub async fn remove_invalid_transactions(&self, invalid_txids: Vec<String>) {
         let mut pool = self.transactions.write().await;
         for txid in invalid_txids {
-            if let Some(entry) = pool.remove(&txid) {
-                drop(pool);
-                self.release_spent(&entry.transaction).await;
-                pool = self.transactions.write().await;
-            }
+            pool.remove(&txid);
         }
     }
 
@@ -393,14 +249,7 @@ impl Mempool {
                 break;
             }
             
-            let tx = entry.transaction.clone();
-            pool.insert(tx.txid.clone(), entry);
-            drop(pool);
-            
-            // Mark UTXOs as spent
-            self.mark_spent(&tx).await;
-            
-            pool = self.transactions.write().await;
+            pool.insert(entry.transaction.txid.clone(), entry);
             loaded += 1;
         }
         
@@ -411,23 +260,15 @@ impl Mempool {
     pub async fn cleanup_stale(&self) -> usize {
         let mut pool = self.transactions.write().await;
         let now = chrono::Utc::now().timestamp();
-        let mut removed_txs = Vec::new();
+        let mut removed = 0;
         
         pool.retain(|_, entry| {
             let is_fresh = now - entry.added_at < 86400;
             if !is_fresh {
-                removed_txs.push(entry.transaction.clone());
+                removed += 1;
             }
             is_fresh
         });
-        
-        let removed = removed_txs.len();
-        drop(pool);
-        
-        // Release spent UTXOs for removed transactions
-        for tx in removed_txs {
-            self.release_spent(&tx).await;
-        }
         
         removed
     }
@@ -451,7 +292,6 @@ pub enum MempoolError {
     DuplicateTransaction,
     MemPoolFull,
     InvalidTransaction(TransactionError),
-    DoubleSpend,
 }
 
 impl std::fmt::Display for MempoolError {
@@ -460,7 +300,6 @@ impl std::fmt::Display for MempoolError {
             MempoolError::DuplicateTransaction => write!(f, "Transaction already in mempool"),
             MempoolError::MemPoolFull => write!(f, "Mempool is full"),
             MempoolError::InvalidTransaction(e) => write!(f, "Invalid transaction: {}", e),
-            MempoolError::DoubleSpend => write!(f, "Double-spend attempt detected"),
         }
     }
 }
