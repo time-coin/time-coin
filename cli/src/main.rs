@@ -319,7 +319,58 @@ async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
     }
 }
 
+/// Sync mempool from connected peers
+async fn sync_mempool_from_peers(
+    peer_manager: &Arc<PeerManager>,
+    mempool: &Arc<time_mempool::Mempool>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let peers = peer_manager.get_peer_ips().await;
+    
+    if peers.is_empty() {
+        return Ok(0);
+    }
+    
+    println!("\n{}", "📥 Syncing mempool from network...".cyan());
+    
+    let mut total_added = 0;
+    
+    for peer in peers.iter().take(3) {
+        println!("   Requesting mempool from {}...", peer.bright_black());
+        
+        match peer_manager.request_mempool(peer).await {
+            Ok(transactions) => {
+                println!("   ✓ Received {} transactions", transactions.len().to_string().yellow());
+                
+                for tx in transactions {
+                    match mempool.add_transaction(tx).await {
+                        Ok(_) => {
+                            total_added += 1;
+                        }
+                        Err(_) => {
+                            // Already in mempool or invalid, skip silently
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("   ✗ Failed: {}", e.to_string().bright_black());
+            }
+        }
+    }
+    
+    if total_added > 0 {
+        println!("{}", format!("✓ Added {} new transactions from network", total_added).green());
+    } else {
+        println!("{}", "✓ Mempool is up to date".green());
+    }
+    
+    Ok(total_added)
+}
+
+
 #[tokio::main]
+
+/// Sync mempool from connected peers
 async fn main() {
     let cli = Cli::parse();
 
@@ -628,19 +679,42 @@ async fn main() {
     let mempool = Arc::new(time_mempool::Mempool::new(10000));
     
     // Load mempool from disk
+    
     let mempool_path = "/root/time-coin-node/data/mempool.json";
+    
     match mempool.load_from_disk(mempool_path).await {
+    
         Ok(count) if count > 0 => {
+    
             println!("{}", format!("✓ Loaded {} transactions from mempool", count).green());
+    
         }
+    
         Ok(_) => {
+    
             println!("{}", "✓ Starting with empty mempool".bright_black());
+    
         }
+    
         Err(e) => {
+    
             println!("{}", format!("⚠ Could not load mempool: {}", e).yellow());
+    
+        }
+    
+    }
+    
+    println!("{}", "✓ Mempool initialized (capacity: 10,000)".green());
+    
+    // Sync mempool from network peers
+    if !peer_manager.get_peer_ips().await.is_empty() {
+        match sync_mempool_from_peers(&peer_manager, &mempool).await {
+            Ok(_) => {},
+            Err(e) => {
+                println!("{}", format!("⚠ Could not sync mempool from peers: {}", e).yellow());
+            }
         }
     }
-    println!("{}", "✓ Mempool initialized (capacity: 10,000)".green());
 
     // Initialize transaction consensus manager
     let tx_consensus = Arc::new(time_consensus::tx_consensus::TxConsensusManager::new());

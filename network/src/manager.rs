@@ -160,6 +160,24 @@ impl PeerManager {
     }
 
     /// Request blockchain info (height) from a peer
+    /// Request mempool from a peer
+    pub async fn request_mempool(&self, peer_addr: &str) -> Result<Vec<time_core::Transaction>, Box<dyn std::error::Error>> {
+        let url = format!("http://{}:24101/mempool/all", peer_addr.replace(":24100", ""));
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+        
+        let response = client.get(&url).send().await?;
+        
+        if !response.status().is_success() {
+            return Err(format!("Failed to get mempool: {}", response.status()).into());
+        }
+        
+        let transactions: Vec<time_core::Transaction> = response.json().await?;
+        Ok(transactions)
+    }
+
+
     pub async fn request_blockchain_info(&self, peer_addr: &str) -> Result<u64, Box<dyn std::error::Error>> {
         let url = format!("http://{}:24101/blockchain/info", peer_addr.replace(":24100", ""));
         let client = reqwest::Client::builder()
