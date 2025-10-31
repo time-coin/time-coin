@@ -280,7 +280,7 @@ async fn snapshot_sync(
 
 /// Get local blockchain height from disk
 async fn get_local_height(blockchain: &Arc<RwLock<BlockchainState>>) -> u64 {
-    let chain = blockchain.read().await;
+    let _chain = blockchain.read().await;
     0 // TODO: Implement proper height tracking in BlockchainState
 }
 
