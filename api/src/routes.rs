@@ -13,6 +13,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/blockchain/info", get(get_blockchain_info))
         .route("/blockchain/block/{height}", get(get_block_by_height))
         .route("/balance/{address}", get(get_balance))
+        .route("/utxos/{address}", get(get_utxos_by_address))
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
@@ -91,6 +92,42 @@ async fn get_balance(
     let balance = balances.get(&address).copied().unwrap_or(0);
 
     Ok(Json(BalanceResponse { address, balance }))
+}
+
+#[derive(Serialize)]
+struct UtxoResponse {
+    address: String,
+    utxos: Vec<UtxoInfo>,
+}
+
+#[derive(Serialize)]
+struct UtxoInfo {
+    txid: String,
+    vout: u32,
+    amount: u64,
+}
+
+async fn get_utxos_by_address(
+    State(state): State<ApiState>,
+    Path(address): Path<String>,
+) -> ApiResult<Json<UtxoResponse>> {
+    let blockchain = state.blockchain.read().await;
+    let utxo_set = blockchain.utxo_set();
+    
+    let mut utxos = Vec::new();
+    
+    for (outpoint, output) in utxo_set.get_utxos_by_address(&address) {
+        utxos.push(UtxoInfo {
+            txid: outpoint.txid.clone(),
+            vout: outpoint.vout,
+            amount: output.amount,
+        });
+    }
+    
+    Ok(Json(UtxoResponse {
+        address,
+        utxos,
+    }))
 }
 
 #[derive(serde::Serialize)]

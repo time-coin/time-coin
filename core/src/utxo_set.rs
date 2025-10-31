@@ -41,6 +41,16 @@ impl UTXOSet {
     }
 
     /// Remove a spent UTXO
+    /// Get all UTXOs for a specific address
+    pub fn get_utxos_by_address(&self, address: &str) -> Vec<(OutPoint, &TxOutput)> {
+        self.utxos
+            .iter()
+            .filter(|(_, output)| output.address == address)
+            .map(|(outpoint, output)| (outpoint.clone(), output))
+            .collect()
+    }
+
+
     pub fn remove_utxo(&mut self, outpoint: &OutPoint) -> Option<TxOutput> {
         if let Some(output) = self.utxos.remove(outpoint) {
             self.total_supply = self.total_supply.saturating_sub(output.amount);
