@@ -1,6 +1,7 @@
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use clap::Parser;
+use time_wallet::{Wallet, NetworkType as WalletNetworkType};
 
 use std::sync::Arc;
 
@@ -651,6 +652,20 @@ async fn main() {
     };
     consensus.add_masternode(node_id.clone()).await;
 
+    // Load or create wallet
+    let data_dir = "/root/time-coin-node/data";
+    let wallet = match load_or_create_wallet(data_dir) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("Failed to load/create wallet: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let wallet_address = wallet.address_string();
+    println!("Wallet Address: {}", wallet_address);
+
+    consensus.register_wallet(node_id.clone(), wallet_address.clone()).await;
+
     // Register all connected peers as masternodes
     {
         let peers = peer_manager.get_connected_peers().await;
@@ -1004,5 +1019,15 @@ async fn main() {
                 consensus_mode.yellow()
             );
         }
+    }
+}
+fn load_or_create_wallet(data_dir: &str) -> Result<Wallet, Box<dyn std::error::Error>> {
+    let wallet_path = format!("{}/wallet.json", data_dir);
+    if std::path::Path::new(&wallet_path).exists() {
+        Ok(Wallet::load_from_file(&wallet_path)?)
+    } else {
+        let wallet = Wallet::new(WalletNetworkType::Testnet)?;
+        wallet.save_to_file(&wallet_path)?;
+        Ok(wallet)
     }
 }

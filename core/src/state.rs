@@ -67,6 +67,7 @@ pub struct MasternodeInfo {
     pub registered_height: u64,
     pub last_seen: i64,
     pub is_active: bool,
+    pub wallet_address: String,
 }
 
 /// Main blockchain state
@@ -262,6 +263,7 @@ impl BlockchainState {
         address: String,
         tier: MasternodeTier,
         collateral_tx: String,
+        wallet_address: String,
     ) -> Result<(), StateError> {
         // Verify collateral requirement
         let required_collateral = tier.collateral_requirement();
@@ -282,6 +284,7 @@ impl BlockchainState {
             registered_height: self.chain_tip_height,
             last_seen: chrono::Utc::now().timestamp(),
             is_active: true,
+            wallet_address,
         };
 
         // Update counts

@@ -363,7 +363,7 @@ impl BlockProducer {
             }
         ];
         
-        let active_masternodes = self.consensus.get_masternodes().await;
+        let active_masternodes = self.consensus.get_masternodes_with_wallets().await;
         if !active_masternodes.is_empty() {
             let tiers = [MasternodeTier::Free, MasternodeTier::Bronze, MasternodeTier::Silver, MasternodeTier::Gold];
             
@@ -371,13 +371,13 @@ impl BlockProducer {
                 let tier_reward = calculate_tier_reward(tier, &masternode_counts);
                 if tier_reward > 0 {
                     let tier_nodes: Vec<_> = active_masternodes.iter()
-                        .filter(|mn| mn.starts_with(&format!("{:?}", tier).to_lowercase()))
+                        .filter(|(node_id, _)| node_id.starts_with(&format!("{:?}", tier).to_lowercase()))
                         .collect();
                     
                     if !tier_nodes.is_empty() {
                         let reward_per_node = tier_reward / tier_nodes.len() as u64;
-                        for node in tier_nodes {
-                            outputs.push(TxOutput { amount: reward_per_node, address: node.clone() });
+                        for (_, wallet_addr) in tier_nodes {
+                            outputs.push(TxOutput { amount: reward_per_node, address: wallet_addr.clone() });
                         }
                     }
                 }
@@ -414,7 +414,7 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✓ Block #{} created and stored", block_num);
-                let _ = self.consensus.vote_on_block(&block.hash, self.node_id.clone(), true).await;
+                let _ = self.consensus.vote_on_block(block.hash.clone(), self.node_id.clone(), true).await;
                 true
             }
             Err(e) => {
@@ -508,7 +508,7 @@ impl BlockProducer {
             }
         ];
 
-        let active_masternodes = self.consensus.get_masternodes().await;
+        let active_masternodes = self.consensus.get_masternodes_with_wallets().await;
         if !active_masternodes.is_empty() {
             let tiers = [MasternodeTier::Free, MasternodeTier::Bronze, MasternodeTier::Silver, MasternodeTier::Gold];
 
@@ -516,13 +516,13 @@ impl BlockProducer {
                 let tier_reward = calculate_tier_reward(tier, &masternode_counts);
                 if tier_reward > 0 {
                     let tier_nodes: Vec<_> = active_masternodes.iter()
-                        .filter(|mn| mn.starts_with(&format!("{:?}", tier).to_lowercase()))
+                        .filter(|(node_id, _)| node_id.starts_with(&format!("{:?}", tier).to_lowercase()))
                         .collect();
 
                     if !tier_nodes.is_empty() {
                         let reward_per_node = tier_reward / tier_nodes.len() as u64;
-                        for node in tier_nodes {
-                            outputs.push(TxOutput { amount: reward_per_node, address: node.clone() });
+                        for (_, wallet_addr) in tier_nodes {
+                            outputs.push(TxOutput { amount: reward_per_node, address: wallet_addr.clone() });
                         }
                     }
                 }
@@ -568,7 +568,7 @@ impl BlockProducer {
                 drop(blockchain); // Release lock before voting
 
                 // Now vote on it
-                let _ = self.consensus.vote_on_block(&block.hash, self.node_id.clone(), true).await;
+                let _ = self.consensus.vote_on_block(block.hash.clone(), self.node_id.clone(), true).await;
 
                 let peers = self.peer_manager.get_peer_ips().await;
                 println!("   📡 Broadcasting to {} peer(s)...", peers.len());
@@ -641,7 +641,7 @@ impl BlockProducer {
         let block_hash = blockchain.chain_tip_hash().to_string();
         drop(blockchain);
 
-        let _ = self.consensus.vote_on_block(&block_hash, self.node_id.clone(), approve).await;
+        let _ = self.consensus.vote_on_block(block_hash.clone(), self.node_id.clone(), approve).await;
 
         println!("   ⏳ Waiting for network consensus...");
         time::sleep(Duration::from_secs(10)).await;
