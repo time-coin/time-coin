@@ -360,7 +360,7 @@ async fn main() {
                 
                 // Show peer details
                 for (i, peer) in peers.iter().enumerate() {
-                    println!("    {}. {:?}", i + 1, peer);
+                    println!("    {}. {} (last seen: {})", i + 1, peer.address, chrono::DateTime::<chrono::Utc>::from_timestamp(peer.last_seen as i64, 0).map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string()).unwrap_or_else(|| "unknown".to_string()));
                 }
                 
                 peer_manager.connect_to_peers(peers.clone()).await;
@@ -681,29 +681,6 @@ async fn main() {
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
     
-    // Display next block production time
-    let genesis_time = chrono::Utc.with_ymd_and_hms(2025, 10, 24, 0, 0, 0).unwrap();
-    let now = chrono::Utc::now();
-    let days_since_genesis = (now - genesis_time).num_days();
-    let next_block_time = genesis_time + chrono::Duration::days(days_since_genesis + 1);
-    let wait_duration = next_block_time - now;
-    
-    println!("{}", "🔍 Catch-up check:".bright_black());
-    println!("   Current height: {}", days_since_genesis.to_string().yellow());
-    println!("   Expected height: {}", days_since_genesis.to_string().yellow());
-    println!("{}", "   ✓ No missed blocks".green());
-    
-    println!("{}", format!("⏰ Next block production at: {}", 
-        next_block_time.format("%Y-%m-%d %H:%M:%S UTC")).cyan());
-    
-    if wait_duration.num_hours() > 0 {
-        println!("   Waiting {} hours {} minutes...", 
-            wait_duration.num_hours(),
-            wait_duration.num_minutes() % 60
-        );
-    } else {
-        println!("   Producing block soon...");
-    }
     
     println!();
 
