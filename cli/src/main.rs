@@ -126,8 +126,8 @@ fn display_genesis(genesis: &serde_json::Value) {
         println!("\n{}: {}", "Network".yellow().bold(), network);
     }
 
-    if let Some(version) = genesis.get("version").and_then(|v| v.as_u64()) {
-        println!("{}: {}", "Version".yellow().bold(), version);
+    if let Some(_version) = genesis.get("version").and_then(|v| v.as_u64()) {
+        println!("{}: {}", "Software Version".yellow().bold(), time_network::protocol::full_version());
     }
 
     if let Some(message) = genesis.get("message").and_then(|v| v.as_str()) {
