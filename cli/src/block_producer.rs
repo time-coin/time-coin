@@ -13,6 +13,8 @@ use owo_colors::OwoColorize;
 use std::path::Path;
 
 pub struct BlockProducer {
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     node_id: String,
     peer_manager: Arc<PeerManager>,
     consensus: Arc<ConsensusEngine>,
@@ -441,11 +443,21 @@ impl BlockProducer {
 
             if is_my_turn {
                 println!("\n{}", "   🏆 I AM THE BLOCK PRODUCER!".green().bold());
-                
-                // Actually create the block!
-                if self.create_and_propose_block(block_num, timestamp).await {
-                    // Increment and save height after successful production
-                    self.save_block_height(block_num + 1);
+
+                // Step 1: Propose transaction set to validators
+                if self.propose_transaction_set(block_num).await {
+                    // Step 2: Wait for transaction consensus
+                    if self.wait_for_tx_consensus(block_num).await {
+                        // Step 3: Create block with approved transactions
+                        if self.create_and_propose_block(block_num, timestamp).await {
+                            // Increment and save height after successful production
+                            self.save_block_height(block_num + 1);
+                        }
+                    } else {
+                        println!("\n{}", "   ❌ Transaction consensus failed - skipping block".red());
+                    }
+                } else {
+                    println!("\n{}", "   ❌ Failed to propose transactions".red());
                 }
             } else {
                 println!("\n{}", "   👀 VALIDATOR MODE - Waiting for proposal...".cyan());
@@ -608,7 +620,7 @@ impl BlockProducer {
             }
         }
     }
-    async fn wait_and_validate(&self, block_num: u64, proposer: &str) {
+    async fn wait_and_validate(&self, _block_num: u64, proposer: &str) {
         println!("   Waiting for proposal from {}...", proposer.yellow());
 
         // In a real implementation, we'd listen for the block over the network
@@ -643,5 +655,118 @@ impl BlockProducer {
             println!("      {}/{} approvals (need {}/{})",
                 approvals, total, (total * 2 + 2) / 3, total);
         }
+    }
+
+    /// Propose transaction set to validators
+    async fn propose_transaction_set(&self, block_num: u64) -> bool {
+        println!("\n{}", "   📋 STEP 1: Proposing transaction set".cyan().bold());
+        
+        // Select transactions from mempool
+        let selected_txs = self.mempool.select_transactions(1000).await;
+        let tx_count = selected_txs.len();
+        
+        if tx_count > 0 {
+            println!("   Selected {} transactions from mempool", tx_count);
+        } else {
+            println!("   No pending transactions in mempool");
+        }
+        
+        // Calculate merkle root of transaction IDs
+        let tx_ids: Vec<String> = selected_txs.iter().map(|tx| tx.txid.clone()).collect();
+        let merkle_data = format!("{:?}", tx_ids);
+        let merkle_root = format!("{:x}", md5::compute(&merkle_data));
+        
+        // Create proposal
+        let proposal = time_consensus::tx_consensus::TransactionProposal {
+            block_height: block_num,
+            tx_ids: tx_ids.clone(),
+            proposer: self.node_id.clone(),
+            merkle_root: merkle_root.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+        
+        // Store in our own tx_consensus
+        self.tx_consensus.propose_tx_set(proposal.clone()).await;
+        
+        // Auto-approve our own proposal
+        let vote = time_consensus::tx_consensus::TxSetVote {
+            block_height: block_num,
+            merkle_root: merkle_root.clone(),
+            voter: self.node_id.clone(),
+            approve: true,
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+        let _ = self.tx_consensus.vote_on_tx_set(vote).await;
+        
+        println!("   ✓ Self-voted: APPROVE");
+        println!("   Merkle root: {}...", &merkle_root[..16]);
+        
+        // Broadcast proposal to all peers
+        let peers = self.peer_manager.get_peer_ips().await;
+        if peers.is_empty() {
+            println!("   ⚠️  No peers to broadcast to");
+            return true; // Approve if alone
+        }
+        
+        println!("   📡 Broadcasting proposal to {} peer(s)...", peers.len());
+        
+        for peer in peers {
+            let proposal_json = serde_json::to_value(&proposal).unwrap();
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let url = format!("http://{}:24101/consensus/tx-proposal", peer);
+                let _ = client.post(&url)
+                    .json(&proposal_json)
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send()
+                    .await;
+            });
+        }
+        
+        true
+    }
+    
+    /// Wait for transaction consensus from validators
+    async fn wait_for_tx_consensus(&self, block_num: u64) -> bool {
+        println!("\n{}", "   🗳️  STEP 2: Waiting for transaction consensus".cyan().bold());
+        
+        // Get the proposal we made
+        let proposal = match self.tx_consensus.get_proposal(block_num).await {
+            Some(p) => p,
+            None => {
+                println!("   ❌ No proposal found");
+                return false;
+            }
+        };
+        
+        let merkle_root = proposal.merkle_root;
+        let timeout = time::Instant::now() + Duration::from_secs(30);
+        let mut last_status = (0, 0);
+        
+        while time::Instant::now() < timeout {
+            let (has_consensus, approvals, total) = 
+                self.tx_consensus.has_tx_consensus(block_num, &merkle_root).await;
+            
+            if (approvals, total) != last_status {
+                println!("   Votes: {} approve (need {}/{})",
+                    approvals.to_string().green(),
+                    ((total * 2 + 2) / 3).to_string().yellow(),
+                    total
+                );
+                last_status = (approvals, total);
+            }
+            
+            if has_consensus {
+                println!("\n{}", "   ✅ TRANSACTION CONSENSUS REACHED!".green().bold());
+                println!("      {}/{} validators approved the transaction set", approvals, total);
+                return true;
+            }
+            
+            time::sleep(Duration::from_secs(2)).await;
+        }
+        
+        println!("\n{}", "   ❌ TIMEOUT - Transaction consensus not reached".red());
+        println!("      Final: {}/{} approvals", last_status.0, last_status.1);
+        false
     }
 }

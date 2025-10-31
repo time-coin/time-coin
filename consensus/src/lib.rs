@@ -522,7 +522,7 @@ mod tests {
 
 /// Transaction consensus - nodes agree on which transactions go in the block
 pub mod tx_consensus {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::RwLock;
     use serde::{Deserialize, Serialize};
@@ -662,6 +662,12 @@ pub mod tx_consensus {
             
             proposals.retain(|&h, _| h >= current_height.saturating_sub(10));
             votes.retain(|&h, _| h >= current_height.saturating_sub(10));
+        }
+
+        /// Get a proposal for a block height
+        pub async fn get_proposal(&self, block_height: u64) -> Option<TransactionProposal> {
+            let proposals = self.proposals.read().await;
+            proposals.get(&block_height).cloned()
         }
     }
 }

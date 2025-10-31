@@ -355,11 +355,63 @@ async fn receive_tx_proposal(
     State(state): State<ApiState>,
     Json(proposal): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    println!("📬 Received transaction proposal for block");
+    use time_consensus::tx_consensus::TransactionProposal;
+    
+    // Parse the proposal
+    let tx_proposal: TransactionProposal = serde_json::from_value(proposal)
+        .map_err(|e| ApiError::Internal(format!("Invalid proposal format: {}", e)))?;
+    
+    println!("📬 Received transaction proposal for block {}", tx_proposal.block_height);
+    println!("   Proposer: {}", tx_proposal.proposer);
+    println!("   Transactions: {}", tx_proposal.tx_ids.len());
+    println!("   Merkle root: {}...", &tx_proposal.merkle_root[..16]);
+    
+    // Store proposal in tx_consensus
+    if let Some(tx_consensus) = state.tx_consensus.as_ref() {
+        tx_consensus.propose_tx_set(tx_proposal.clone()).await;
+        
+        // Auto-vote if we're a validator (not the proposer)
+        let blockchain = state.blockchain.read().await;
+        let node_id = blockchain.chain_tip_hash().to_string(); // Use our node ID
+        drop(blockchain);
+        
+        if node_id != tx_proposal.proposer {
+            // Validate the transactions exist in our mempool
+            let mut all_valid = true;
+            if let Some(mempool) = state.mempool.as_ref() {
+                for txid in &tx_proposal.tx_ids {
+                    if !mempool.contains(txid).await {
+                        println!("   ⚠️  Transaction {} not in our mempool", &txid[..16]);
+                        all_valid = false;
+                    }
+                }
+            }
+            
+            // Cast our vote
+            let vote = time_consensus::tx_consensus::TxSetVote {
+                block_height: tx_proposal.block_height,
+                merkle_root: tx_proposal.merkle_root.clone(),
+                voter: node_id.to_string(),
+                approve: all_valid,
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            
+            let _ = tx_consensus.vote_on_tx_set(vote.clone()).await;
+            
+            let vote_type = if all_valid { "APPROVE ✓" } else { "REJECT ✗" };
+            println!("   🗳️  Auto-voted: {}", vote_type);
+            
+            // Broadcast our vote to other nodes
+            if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
+                let vote_json = serde_json::to_value(&vote).unwrap();
+                broadcaster.broadcast_tx_vote(vote_json).await;
+            }
+        }
+    }
     
     Ok(Json(serde_json::json!({
         "success": true,
-        "message": "Transaction proposal received"
+        "message": "Transaction proposal received and processed"
     })))
 }
 
@@ -367,10 +419,33 @@ async fn receive_tx_vote(
     State(state): State<ApiState>,
     Json(vote): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    println!("🗳️  Received transaction set vote");
+    use time_consensus::tx_consensus::TxSetVote;
+    
+    // Parse the vote
+    let tx_vote: TxSetVote = serde_json::from_value(vote)
+        .map_err(|e| ApiError::Internal(format!("Invalid vote format: {}", e)))?;
+    
+    let vote_type = if tx_vote.approve { "APPROVE ✓" } else { "REJECT ✗" };
+    println!("🗳️  Received transaction set vote: {} from {}", vote_type, tx_vote.voter);
+    
+    // Store vote in tx_consensus
+    if let Some(tx_consensus) = state.tx_consensus.as_ref() {
+        tx_consensus.vote_on_tx_set(tx_vote.clone()).await
+            .map_err(|e| ApiError::Internal(e))?;
+        
+        // Check if we now have consensus
+        let (has_consensus, approvals, total) = tx_consensus
+            .has_tx_consensus(tx_vote.block_height, &tx_vote.merkle_root).await;
+        
+        if has_consensus {
+            println!("   ✅ Transaction set consensus reached! ({}/{})", approvals, total);
+        } else {
+            println!("   ⏳ Waiting for consensus... ({}/{})", approvals, total);
+        }
+    }
     
     Ok(Json(serde_json::json!({
         "success": true,
-        "message": "Vote received"
+        "message": "Vote recorded"
     })))
 }
