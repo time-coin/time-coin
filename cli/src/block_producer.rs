@@ -18,16 +18,27 @@ pub struct BlockProducer {
     consensus: Arc<ConsensusEngine>,
     blockchain: Arc<RwLock<BlockchainState>>,
     height_file: String,
+    mempool: Arc<time_mempool::Mempool>,
+    tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
 }
 
 impl BlockProducer {
-    pub fn new(node_id: String, peer_manager: Arc<PeerManager>, consensus: Arc<ConsensusEngine>, blockchain: Arc<RwLock<BlockchainState>>) -> Self {
+    pub fn new(
+        node_id: String, 
+        peer_manager: Arc<PeerManager>, 
+        consensus: Arc<ConsensusEngine>, 
+        blockchain: Arc<RwLock<BlockchainState>>,
+        mempool: Arc<time_mempool::Mempool>,
+        tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+    ) -> Self {
         BlockProducer {
             node_id,
             peer_manager,
             consensus,
             height_file: "/root/time-coin-node/data/block_height.txt".to_string(),
             blockchain,
+            mempool,
+            tx_consensus,
         }
     }
 
@@ -456,6 +467,16 @@ impl BlockProducer {
 
         println!("   📦 Creating real block...");
 
+        // Step 1: Select transactions from mempool
+        let mempool_txs = self.mempool.select_transactions(1000).await; // Max 1000 txs per block
+        let mempool_count = mempool_txs.len();
+        
+        if mempool_count > 0 {
+            println!("   📋 Selected {} transactions from mempool", mempool_count);
+        } else {
+            println!("   📋 No pending transactions in mempool");
+        }
+
         let mut blockchain = self.blockchain.write().await;
 
         let previous_hash = if block_num == 0 {
@@ -466,6 +487,7 @@ impl BlockProducer {
 
         let masternode_counts = blockchain.masternode_counts().clone();
 
+        // Step 2: Create coinbase transaction with rewards
         let mut outputs = vec![
             TxOutput {
                 amount: calculate_treasury_reward(),
@@ -503,6 +525,10 @@ impl BlockProducer {
             timestamp: timestamp.timestamp(),
         };
 
+        // Step 3: Build block with coinbase + mempool transactions
+        let mut all_transactions = vec![coinbase_tx];
+        all_transactions.extend(mempool_txs.clone());
+
         let mut block = Block {
             header: BlockHeader {
                 block_number: block_num,
@@ -512,7 +538,7 @@ impl BlockProducer {
                 validator_signature: self.node_id.clone(),
                 validator_address: self.node_id.clone(),
             },
-            transactions: vec![coinbase_tx],
+            transactions: all_transactions,
             hash: String::new(),
         };
 
@@ -520,15 +546,17 @@ impl BlockProducer {
         block.hash = block.calculate_hash();
 
         println!("      Block Hash: {}...", &block.hash[..16]);
+        println!("      Transactions: {} (1 coinbase + {} from mempool)", 
+            block.transactions.len(), mempool_count);
 
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✓ Block #{} created and stored", block_num);
                 drop(blockchain); // Release lock before voting
-                
+
                 // Now vote on it
                 let _ = self.consensus.vote_on_block(&block.hash, self.node_id.clone(), true).await;
-                
+
                 let peers = self.peer_manager.get_peer_ips().await;
                 println!("   📡 Broadcasting to {} peer(s)...", peers.len());
 
@@ -554,6 +582,16 @@ impl BlockProducer {
                     if has_quorum {
                         println!("\n{}", "   ✅ QUORUM REACHED - BLOCK COMMITTED!".green().bold());
                         println!("      Final: {}/{} masternodes approved", approvals, total);
+                        
+                        // Step 4: Remove included transactions from mempool
+                        for tx in &mempool_txs {
+                            self.mempool.remove_transaction(&tx.txid).await;
+                        }
+                        
+                        if mempool_count > 0 {
+                            println!("      🗑️  Removed {} transactions from mempool", mempool_count);
+                        }
+                        
                         return true;
                     }
 
@@ -570,7 +608,6 @@ impl BlockProducer {
             }
         }
     }
-
     async fn wait_and_validate(&self, block_num: u64, proposer: &str) {
         println!("   Waiting for proposal from {}...", proposer.yellow());
 

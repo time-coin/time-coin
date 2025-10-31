@@ -491,6 +491,28 @@ async fn main() {
     };
     let blockchain = Arc::new(RwLock::new(BlockchainState::new(genesis_block, "/root/time-coin-node/data/blockchain").expect("Failed to create blockchain state")));
 
+    // Initialize mempool for pending transactions (needed by both API and BlockProducer)
+    let mempool = Arc::new(time_mempool::Mempool::new(10000)); // Max 10k transactions
+    println!("{}", "✓ Mempool initialized (capacity: 10,000)".green());
+
+    // Initialize transaction consensus manager
+    let tx_consensus = Arc::new(time_consensus::tx_consensus::TxConsensusManager::new());
+    
+    // Set masternodes in tx_consensus (sync with main consensus)
+    let masternodes = consensus.get_masternodes().await;
+    tx_consensus.set_masternodes(masternodes).await;
+    println!("{}", "✓ Transaction consensus manager initialized".green());
+
+    // Initialize transaction broadcaster
+    let tx_broadcaster = Arc::new(time_network::tx_broadcast::TransactionBroadcaster::new(mempool.clone()));
+    
+    // Update broadcaster with current peers
+    let current_peers = peer_manager.get_peer_ips().await;
+    tx_broadcaster.update_peers(current_peers).await;
+    println!("{}", "✓ Transaction broadcaster initialized".green());
+
+    println!();
+
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "0.0.0.0".to_string());
     let api_port = config.rpc.port.unwrap_or(24101);
@@ -498,6 +520,7 @@ async fn main() {
     if api_enabled {
         let admin_token = config.rpc.admin_token.clone();
         let bind_addr = format!("{}:{}", api_bind, api_port);
+
         let api_state = ApiState::new(
             is_dev_mode,
             network_name.to_lowercase(),
@@ -505,7 +528,10 @@ async fn main() {
             peer_manager.clone(),
             admin_token,
             blockchain.clone(),
-        );
+        )
+        .with_mempool(mempool.clone())
+        .with_tx_consensus(tx_consensus.clone())
+        .with_tx_broadcaster(tx_broadcaster.clone());
 
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
         match PeerListener::bind(peer_listener_addr, network_type).await {
@@ -588,7 +614,7 @@ async fn main() {
 
     println!("{}", "🔨 Starting block producer...".yellow());
     
-    let block_producer = BlockProducer::new(node_id.clone(), peer_manager.clone(), consensus.clone(), blockchain.clone());
+    let block_producer = BlockProducer::new(node_id.clone(), peer_manager.clone(), consensus.clone(), blockchain.clone(), mempool.clone(), tx_consensus.clone());
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
 
