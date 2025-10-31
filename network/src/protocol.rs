@@ -8,6 +8,11 @@ use std::net::SocketAddr;
 
 /// Current TIME Coin version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const GIT_HASH: &str = env!("GIT_HASH");
+
+pub fn full_version() -> String {
+    format!("{}-{}", VERSION, GIT_HASH)
+}
 
 /// Protocol version for compatibility checking
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -38,7 +43,7 @@ impl HandshakeMessage {
     /// Create a new handshake message
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
         HandshakeMessage {
-            version: VERSION.to_string(),
+            version: full_version(),
             protocol_version: PROTOCOL_VERSION,
             network,
             listen_addr,
@@ -87,7 +92,7 @@ pub struct ProtocolVersion {
 impl ProtocolVersion {
     pub fn current() -> Self {
         ProtocolVersion {
-            software_version: VERSION.to_string(),
+            software_version: full_version(),
             protocol_version: PROTOCOL_VERSION,
         }
     }
@@ -213,4 +218,29 @@ pub struct Ping {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Pong {
     pub timestamp: i64,
+}
+
+/// Check if a peer version is outdated
+/// Check if a peer version is outdated compared to ours
+pub fn is_version_outdated(peer_version: &str) -> bool {
+    if peer_version == "unknown" {
+        return false; // Don't warn about unknown versions
+    }
+    
+    // Extract git hash from versions (format: "0.1.0-abc123")
+    let current_hash = GIT_HASH;
+    let peer_hash = peer_version.split('-').last().unwrap_or("");
+    
+    // Different git commits mean different versions
+    current_hash != peer_hash && !peer_hash.is_empty()
+}
+
+/// Get a user-friendly version mismatch message
+pub fn version_mismatch_message(peer_addr: &str, peer_version: &str) -> String {
+    format!(
+        "⚠️  Peer {} is running version {} (current: {}). Please update!",
+        peer_addr,
+        peer_version,
+        full_version()
+    )
 }

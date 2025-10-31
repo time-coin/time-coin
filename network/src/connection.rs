@@ -39,6 +39,14 @@ impl PeerConnection {
         
         peer.lock().await.update_version(their_handshake.version.clone());
         
+        // Check version and warn if outdated
+        if crate::protocol::is_version_outdated(&their_handshake.version) {
+            println!("{}", crate::protocol::version_mismatch_message(
+                &their_handshake.listen_addr.to_string(),
+                &their_handshake.version
+            ));
+        }
+        
         Ok(PeerConnection { stream, peer_info: peer })
     }
 
