@@ -626,6 +626,20 @@ async fn main() {
     
     // Initialize mempool for pending transactions
     let mempool = Arc::new(time_mempool::Mempool::new(10000));
+    
+    // Load mempool from disk
+    let mempool_path = "/root/time-coin-node/data/mempool.json";
+    match mempool.load_from_disk(mempool_path).await {
+        Ok(count) if count > 0 => {
+            println!("{}", format!("✓ Loaded {} transactions from mempool", count).green());
+        }
+        Ok(_) => {
+            println!("{}", "✓ Starting with empty mempool".bright_black());
+        }
+        Err(e) => {
+            println!("{}", format!("⚠ Could not load mempool: {}", e).yellow());
+        }
+    }
     println!("{}", "✓ Mempool initialized (capacity: 10,000)".green());
 
     // Initialize transaction consensus manager
@@ -785,6 +799,30 @@ async fn main() {
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
     println!();
+
+    // Mempool persistence task
+    let mempool_persist = mempool.clone();
+    let mempool_path_persist = mempool_path.to_string();
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(60));
+        interval.tick().await;
+        
+        loop {
+            interval.tick().await;
+            
+            // Clean up stale transactions
+            let removed = mempool_persist.cleanup_stale().await;
+            if removed > 0 {
+                println!("{}", format!("🗑️  Removed {} stale transactions from mempool", removed).bright_black());
+            }
+            
+            // Save to disk
+            if let Err(e) = mempool_persist.save_to_disk(&mempool_path_persist).await {
+                eprintln!("Failed to save mempool: {}", e);
+            }
+        }
+    });
+
 
     // Transaction broadcaster synchronization task
     let peer_mgr_bc = peer_manager.clone();

@@ -4,6 +4,7 @@
 //! Provides validation, ordering, and transaction selection for block production.
 
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use time_core::{Transaction, TransactionError};
@@ -18,7 +19,7 @@ pub struct Mempool {
 }
 
 /// Entry in the mempool with metadata
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MempoolEntry {
     /// The transaction
     pub transaction: Transaction,
@@ -141,6 +142,71 @@ impl Mempool {
     }
 
     /// Calculate total fee for a transaction
+    /// Save mempool to disk
+    pub async fn save_to_disk(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let pool = self.transactions.read().await;
+        let entries: Vec<&MempoolEntry> = pool.values().collect();
+        
+        // Create directory if it doesnt exist
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        
+        let json = serde_json::to_string_pretty(&entries)?;
+        std::fs::write(path, json)?;
+        
+        Ok(())
+    }
+
+    /// Load mempool from disk
+    pub async fn load_from_disk(&self, path: &str) -> Result<usize, Box<dyn std::error::Error>> {
+        if !std::path::Path::new(path).exists() {
+            return Ok(0);
+        }
+        
+        let json = std::fs::read_to_string(path)?;
+        let entries: Vec<MempoolEntry> = serde_json::from_str(&json)?;
+        
+        let mut pool = self.transactions.write().await;
+        let mut loaded = 0;
+        let now = chrono::Utc::now().timestamp();
+        
+        for entry in entries {
+            // Skip transactions older than 24 hours
+            if now - entry.added_at > 86400 {
+                continue;
+            }
+            
+            // Skip if mempool is full
+            if pool.len() >= self.max_size {
+                break;
+            }
+            
+            pool.insert(entry.transaction.txid.clone(), entry);
+            loaded += 1;
+        }
+        
+        Ok(loaded)
+    }
+
+    /// Clean up stale transactions (older than 24 hours)
+    pub async fn cleanup_stale(&self) -> usize {
+        let mut pool = self.transactions.write().await;
+        let now = chrono::Utc::now().timestamp();
+        let mut removed = 0;
+        
+        pool.retain(|_, entry| {
+            let is_fresh = now - entry.added_at < 86400;
+            if !is_fresh {
+                removed += 1;
+            }
+            is_fresh
+        });
+        
+        removed
+    }
+
+
     fn calculate_fee(&self, tx: &Transaction) -> u64 {
         // Fee = sum(inputs) - sum(outputs)
         // For now, we'll use a simple estimation
