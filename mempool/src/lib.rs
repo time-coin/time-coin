@@ -104,9 +104,9 @@ impl Mempool {
         tx: &Transaction,
         blockchain: &Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
     ) -> Result<(), MempoolError> {
-        // Skip validation for coinbase transactions
+        // Coinbase transactions should ONLY be created by block producers
         if tx.is_coinbase() {
-            return Ok(());
+            return Err(MempoolError::InvalidTransaction(time_core::TransactionError::InvalidInput));
         }
 
         let chain = blockchain.read().await;
