@@ -66,6 +66,7 @@ impl BlockProducer {
     }
 
     async fn run(&self) {
+        // Just wait until midnight - no immediate announcements
         // Check for missed blocks on startup
         self.catch_up_missed_blocks().await;
 
