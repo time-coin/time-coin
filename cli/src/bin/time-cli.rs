@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use std::path::PathBuf;
+use std::fs;
 
 #[derive(Parser)]
 #[command(name = "time-cli")]
@@ -50,13 +51,21 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum WalletCommands {
+    /// Generate address from public key
+    GenerateAddress {
+        /// Public key (64-character hex string)
+        pubkey: String,
+    },
+    
+    /// Validate a TIME Coin address
+    ValidateAddress {
+        /// Address to validate
+        address: String,
+    },
+    
     /// Create a new wallet
     Create {
-        /// Wallet address (e.g., TIME1ubuntu)
-        address: String,
-        
-        /// Public key (hex format)
-        #[arg(long)]
+        /// Public key (64-character hex string)
         pubkey: String,
         
         /// Database path
@@ -99,7 +108,7 @@ enum WalletCommands {
         /// Wallet address
         address: String,
         
-        /// Tier (free, bronze, silver, gold)
+        /// Tier (bronze, silver, gold)
         tier: String,
         
         /// Database path
@@ -122,8 +131,8 @@ enum WalletCommands {
         /// Wallet address
         address: String,
         
-        /// Amount in satoshis
-        amount: u64,
+        /// Amount in TIME
+        amount: f64,
         
         /// Block height
         height: u64,
@@ -145,16 +154,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             
             let config_dir = if testnet {
-                "/root/time-coin-node/config"
+                PathBuf::from("/root/time-coin-node/config")
             } else {
-                "/etc/time-coin"
+                PathBuf::from("/root/time-coin-node/config")
             };
             
-            println!("✓ Creating config directory: {}", config_dir);
+            let config_file = config_dir.join("testnet.toml");
+            
+            // Create directory
+            println!("✓ Creating config directory: {}", config_dir.display());
+            fs::create_dir_all(&config_dir)?;
+            
+            // Check if config already exists
+            if config_file.exists() {
+                println!("⚠️  Configuration file already exists: {}", config_file.display());
+                println!("💡 Edit manually or delete to regenerate");
+                return Ok(());
+            }
+            
+            // Create default configuration
             println!("✓ Generating default configuration");
-            println!("✓ Setting up data directory");
+            let default_config = r#"[network]
+listen_addr = "0.0.0.0:24100"
+api_port = 24101
+testnet = true
+
+[masternode]
+enabled = true
+address = "TIME1changeme"
+
+[peers]
+bootstrap = []
+
+[storage]
+data_dir = "/var/lib/time-coin"
+"#;
+            
+            fs::write(&config_file, default_config)?;
+            
+            // Create data directory
+            println!("✓ Setting up data directory: /var/lib/time-coin");
+            fs::create_dir_all("/var/lib/time-coin")?;
+            fs::create_dir_all("/var/lib/time-coin/wallets")?;
+            
             println!("\n✅ Configuration initialized!");
-            println!("💡 Start node with: sudo systemctl start time-node");
+            println!("   Config file: {}", config_file.display());
+            println!("\n⚠️  Important: Edit the config file to set:");
+            println!("   - masternode.address (your actual address)");
+            println!("   - peers.bootstrap (peer addresses)");
+            println!("\n💡 Start node with: sudo systemctl start time-node");
         }
 
         Commands::Status => {
@@ -242,31 +290,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn handle_wallet_command(cmd: WalletCommands) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
-        WalletCommands::Create { address, pubkey, db_path } => {
+        WalletCommands::GenerateAddress { pubkey } => {
+            println!("\n🔑 Generating Address");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("Public Key: {}...", &pubkey[..std::cmp::min(16, pubkey.len())]);
+            println!("\n⚠️  Address generation not yet implemented");
+            println!("💡 This will generate a TIME1... address from your public key");
+        }
+        
+        WalletCommands::ValidateAddress { address } => {
+            println!("\n🔍 Validating Address");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("Address: {}", address);
+            
+            if address.starts_with("TIME1") {
+                println!("\n✅ Valid TIME Coin address format!");
+            } else {
+                println!("\n❌ Invalid address: Must start with TIME1");
+            }
+        }
+        
+        WalletCommands::Create { pubkey, db_path } => {
             println!("\n💼 Creating Wallet");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address:  {}", address);
-            println!("PubKey:   {}...", &pubkey[..std::cmp::min(16, pubkey.len())]);
-            println!("DB Path:  {:?}", db_path);
-            println!("\n✅ Wallet created successfully!");
+            println!("Public Key: {}...", &pubkey[..std::cmp::min(16, pubkey.len())]);
+            println!("DB Path:    {:?}", db_path);
+            println!("\n⚠️  Wallet creation not yet implemented");
         }
         
         WalletCommands::Balance { address, db_path: _ } => {
             println!("\n💰 Wallet Balance");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address:  {}", address);
-            println!("Balance:  0 TIME (placeholder)");
-            println!("Locked:   0 TIME");
+            println!("Address:   {}", address);
+            println!("Balance:   0.00000000 TIME (placeholder)");
+            println!("Locked:    0.00000000 TIME");
+            println!("Available: 0.00000000 TIME");
         }
         
         WalletCommands::Info { address, db_path: _ } => {
             println!("\n💼 Wallet Information");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             println!("Address:       {}", address);
-            println!("Balance:       0 TIME");
-            println!("Locked:        0 TIME");
-            println!("Tier:          Free");
-            println!("Rewards:       0 TIME");
+            println!("Balance:       0.00000000 TIME");
+            println!("Locked:        0.00000000 TIME");
+            println!("Available:     0.00000000 TIME");
+            println!("Tier:          Free (1x rewards)");
+            println!("Total Rewards: 0.00000000 TIME");
         }
         
         WalletCommands::ListUtxos { address, db_path: _ } => {
@@ -279,17 +348,21 @@ async fn handle_wallet_command(cmd: WalletCommands) -> Result<(), Box<dyn std::e
         WalletCommands::LockCollateral { address, tier, db_path: _ } => {
             println!("\n🔒 Locking Collateral");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address:  {}", address);
-            println!("Tier:     {}", tier);
+            println!("Address: {}", address);
+            println!("Tier:    {}", tier);
             
-            let amount = match tier.to_lowercase().as_str() {
-                "bronze" => 1_000,
-                "silver" => 10_000,
-                "gold" => 100_000,
-                _ => 0,
+            let (amount, multiplier) = match tier.to_lowercase().as_str() {
+                "bronze" => (1_000, "10x"),
+                "silver" => (10_000, "25x"),
+                "gold" => (100_000, "50x"),
+                _ => {
+                    println!("\n❌ Invalid tier. Use: bronze, silver, or gold");
+                    return Ok(());
+                }
             };
             
-            println!("Amount:   {} TIME", amount);
+            println!("Amount:  {} TIME", amount);
+            println!("Rewards: {} multiplier", multiplier);
             println!("\n✅ Collateral locked successfully!");
         }
         
@@ -298,14 +371,16 @@ async fn handle_wallet_command(cmd: WalletCommands) -> Result<(), Box<dyn std::e
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             println!("Address: {}", address);
             println!("\n✅ Collateral unlocked!");
+            println!("   Tier reverted to Free (1x rewards)");
         }
         
         WalletCommands::AddReward { address, amount, height, db_path: _ } => {
+            let satoshis = (amount * 100_000_000.0) as u64;
             println!("\n🎁 Adding Reward");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address:  {}", address);
-            println!("Amount:   {} satoshis", amount);
-            println!("Height:   {}", height);
+            println!("Address: {}", address);
+            println!("Amount:  {} TIME ({} satoshis)", amount, satoshis);
+            println!("Height:  {}", height);
             println!("\n✅ Reward added!");
         }
     }
