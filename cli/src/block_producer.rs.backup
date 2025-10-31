@@ -55,7 +55,7 @@ impl BlockProducer {
     async fn run(&self) {
         // Check for missed blocks on startup
         self.catch_up_missed_blocks().await;
-
+        
         let now = Utc::now();
         let next_midnight = (now + chrono::Duration::days(1))
             .date_naive()
@@ -73,17 +73,15 @@ impl BlockProducer {
 
         time::sleep(duration_until_midnight).await;
 
-        // ✅ FIX: Produce block immediately at midnight
-        self.produce_block().await;
-
-        // Then start 24-hour interval for subsequent blocks
         let mut interval = time::interval(Duration::from_secs(86400));
+        interval.tick().await;
 
         loop {
             interval.tick().await;
             self.produce_block().await;
         }
     }
+
     async fn catch_up_missed_blocks(&self) {
         let current_height = self.blockchain.read().await.chain_tip_height();
         let now = Utc::now();
@@ -413,6 +411,7 @@ impl BlockProducer {
     async fn produce_block(&self) {
         // Load current height from disk
         let block_num = self.load_block_height();
+
         let timestamp = Utc::now();
 
         println!("\n{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_blue());
@@ -430,12 +429,10 @@ impl BlockProducer {
 
             if is_my_turn {
                 println!("\n{}", "   🏆 I AM THE BLOCK PRODUCER!".green().bold());
-                
-                // Actually create the block!
-                if self.create_and_propose_block(block_num, timestamp).await {
-                    // Increment and save height after successful production
-                    self.save_block_height(block_num + 1);
-                }
+                self.propose_and_vote(block_num, timestamp.timestamp()).await;
+
+                // Increment and save height after successful production
+                self.save_block_height(block_num + 1);
             } else {
                 println!("\n{}", "   👀 VALIDATOR MODE - Waiting for proposal...".cyan());
                 self.wait_and_validate(block_num, &selected_producer).await;
@@ -451,131 +448,52 @@ impl BlockProducer {
         println!();
     }
 
-    async fn create_and_propose_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) -> bool {
-        use time_core::block::{calculate_treasury_reward, calculate_tier_reward};
+    async fn propose_and_vote(&self, block_num: u64, timestamp: i64) {
+        let block_hash = format!("{:x}", md5::compute(format!("{}{}{}", block_num, timestamp, self.node_id)));
 
-        println!("   📦 Creating real block...");
+        println!("   📦 Creating block proposal...");
+        println!("      Block Hash: {}...", &block_hash[..16]);
 
-        let mut blockchain = self.blockchain.write().await;
+        let peers = self.peer_manager.get_peer_ips().await;
+        println!("   📡 Broadcasting to {} peer(s)...", peers.len());
 
-        let previous_hash = if block_num == 0 {
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
-        } else {
-            blockchain.chain_tip_hash().to_string()
-        };
+        println!("   🗳️  Casting my vote: APPROVE");
+        let _ = self.consensus.vote_on_block(&block_hash, self.node_id.clone(), true).await;
 
-        let masternode_counts = blockchain.masternode_counts().clone();
+        println!("\n   ⏳ Waiting for votes (60 second timeout)...");
 
-        let mut outputs = vec![
-            TxOutput {
-                amount: calculate_treasury_reward(),
-                address: "TIME1treasury00000000000000000000000000".to_string()
+        let vote_deadline = time::Instant::now() + Duration::from_secs(60);
+        let mut last_status = (0, 0);
+
+        while time::Instant::now() < vote_deadline {
+            let (has_quorum, approvals, rejections, total) = self.consensus.check_quorum(&block_hash).await;
+
+            if (approvals, rejections) != last_status {
+                println!("      Votes: {} approve, {} reject (need {}/{})",
+                    approvals.to_string().green(),
+                    rejections.to_string().red(),
+                    ((total * 2 + 2) / 3).to_string().yellow(),
+                    total
+                );
+                last_status = (approvals, rejections);
             }
-        ];
 
-        let active_masternodes = self.consensus.get_masternodes().await;
-        if !active_masternodes.is_empty() {
-            let tiers = [MasternodeTier::Free, MasternodeTier::Bronze, MasternodeTier::Silver, MasternodeTier::Gold];
-
-            for tier in tiers {
-                let tier_reward = calculate_tier_reward(tier, &masternode_counts);
-                if tier_reward > 0 {
-                    let tier_nodes: Vec<_> = active_masternodes.iter()
-                        .filter(|mn| mn.starts_with(&format!("{:?}", tier).to_lowercase()))
-                        .collect();
-
-                    if !tier_nodes.is_empty() {
-                        let reward_per_node = tier_reward / tier_nodes.len() as u64;
-                        for node in tier_nodes {
-                            outputs.push(TxOutput { amount: reward_per_node, address: node.clone() });
-                        }
-                    }
-                }
+            if has_quorum {
+                println!("\n{}", "   ✅ QUORUM REACHED - BLOCK COMMITTED!".green().bold());
+                println!("      Final: {}/{} masternodes approved", approvals, total);
+                return;
             }
+
+            time::sleep(Duration::from_secs(2)).await;
         }
 
-        let coinbase_tx = Transaction {
-            txid: format!("coinbase_{}", block_num),
-            version: 1,
-            inputs: vec![],
-            outputs,
-            lock_time: 0,
-            timestamp: timestamp.timestamp(),
-        };
-
-        let mut block = Block {
-            header: BlockHeader {
-                block_number: block_num,
-                timestamp,
-                previous_hash,
-                merkle_root: String::new(),
-                validator_signature: self.node_id.clone(),
-                validator_address: self.node_id.clone(),
-            },
-            transactions: vec![coinbase_tx],
-            hash: String::new(),
-        };
-
-        block.header.merkle_root = block.calculate_merkle_root();
-        block.hash = block.calculate_hash();
-
-        println!("      Block Hash: {}...", &block.hash[..16]);
-
-        match blockchain.add_block(block.clone()) {
-            Ok(_) => {
-                println!("      ✓ Block #{} created and stored", block_num);
-                drop(blockchain); // Release lock before voting
-                
-                // Now vote on it
-                let _ = self.consensus.vote_on_block(&block.hash, self.node_id.clone(), true).await;
-                
-                let peers = self.peer_manager.get_peer_ips().await;
-                println!("   📡 Broadcasting to {} peer(s)...", peers.len());
-
-                println!("   🗳️  Casting my vote: APPROVE");
-                println!("\n   ⏳ Waiting for votes (60 second timeout)...");
-
-                let vote_deadline = time::Instant::now() + Duration::from_secs(60);
-                let mut last_status = (0, 0);
-
-                while time::Instant::now() < vote_deadline {
-                    let (has_quorum, approvals, rejections, total) = self.consensus.check_quorum(&block.hash).await;
-
-                    if (approvals, rejections) != last_status {
-                        println!("      Votes: {} approve, {} reject (need {}/{})",
-                            approvals.to_string().green(),
-                            rejections.to_string().red(),
-                            ((total * 2 + 2) / 3).to_string().yellow(),
-                            total
-                        );
-                        last_status = (approvals, rejections);
-                    }
-
-                    if has_quorum {
-                        println!("\n{}", "   ✅ QUORUM REACHED - BLOCK COMMITTED!".green().bold());
-                        println!("      Final: {}/{} masternodes approved", approvals, total);
-                        return true;
-                    }
-
-                    time::sleep(Duration::from_secs(2)).await;
-                }
-
-                println!("\n{}", "   ❌ TIMEOUT - Block rejected (no quorum)".red());
-                println!("      Final: {}/{} votes", last_status.0, last_status.0 + last_status.1);
-                false
-            }
-            Err(e) => {
-                println!("      ✗ Failed to add block: {:?}", e);
-                false
-            }
-        }
+        println!("\n{}", "   ❌ TIMEOUT - Block rejected (no quorum)".red());
+        println!("      Final: {}/{} votes", last_status.0, last_status.0 + last_status.1);
     }
 
     async fn wait_and_validate(&self, block_num: u64, proposer: &str) {
         println!("   Waiting for proposal from {}...", proposer.yellow());
 
-        // In a real implementation, we'd listen for the block over the network
-        // For now, just simulate waiting
         time::sleep(Duration::from_secs(5)).await;
 
         println!("   📬 Block proposal received!");
@@ -586,11 +504,7 @@ impl BlockProducer {
         let vote_type = if approve { "APPROVE ✓" } else { "REJECT ✗" };
         println!("   🗳️  Casting vote: {}", vote_type.green());
 
-        // Vote on the actual block if it exists in our blockchain
-        let blockchain = self.blockchain.read().await;
-        let block_hash = blockchain.chain_tip_hash().to_string();
-        drop(blockchain);
-
+        let block_hash = format!("{:x}", md5::compute(format!("{}{}{}", block_num, proposer, "temp")));
         let _ = self.consensus.vote_on_block(&block_hash, self.node_id.clone(), approve).await;
 
         println!("   ⏳ Waiting for network consensus...");

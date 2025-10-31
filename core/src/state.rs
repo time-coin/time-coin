@@ -7,7 +7,8 @@
 //! - Chain tip and reorganization
 
 use crate::block::{Block, BlockError, MasternodeCounts, MasternodeTier};
-use crate::transaction::{Transaction, TransactionError};
+use std::sync::{Arc, RwLock};
+use crate::transaction::{Transaction, TransactionError, OutPoint};
 use crate::utxo_set::UTXOSet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -89,6 +90,8 @@ pub struct BlockchainState {
     chain_tip_hash: String,
     /// Registered masternodes
     masternodes: HashMap<String, MasternodeInfo>,
+    /// Track invalidated transactions for wallet notification
+    invalidated_transactions: Arc<RwLock<Vec<TxInvalidationEvent>>>,
     
     /// Current masternode counts by tier
     masternode_counts: MasternodeCounts,
@@ -122,6 +125,7 @@ impl BlockchainState {
             },
             genesis_hash: genesis_block.hash.clone(),
             db,
+            invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
         };
         
         if existing_blocks.is_empty() {
@@ -453,5 +457,79 @@ mod tests {
         // Genesis address should have balance
         assert_eq!(state.get_balance("genesis"), 100_000_000_000);
         assert_eq!(state.get_balance("nonexistent"), 0);
+    }
+}
+
+/// Transaction invalidation event
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TxInvalidationEvent {
+    pub txid: String,
+    pub reason: String,
+    pub timestamp: i64,
+    pub affected_addresses: Vec<String>,
+}
+    /// Process orphaned transaction and track if invalid
+impl BlockchainState {
+    pub fn process_orphaned_transaction(&mut self, tx: Transaction) -> Result<bool, StateError> {
+        // Try to validate against current UTXO state
+        match self.validate_transaction(&tx) {
+            Ok(_) => {
+                // Still valid - can go to mempool
+                Ok(true)
+            }
+            Err(e) => {
+                // NOW INVALID - create notification event
+                let event = TxInvalidationEvent {
+                    txid: tx.txid.clone(),
+                    reason: format!("Chain fork: {}", e),
+                    timestamp: chrono::Utc::now().timestamp(),
+                    affected_addresses: self.get_affected_addresses(&tx),
+                };
+                
+                self.invalidated_transactions.write().unwrap().push(event.clone());
+                
+                println!("   ❌ Transaction {} invalidated: {}", tx.txid, e);
+                Ok(false)
+            }
+        }
+    }
+    
+    /// Get all addresses involved in a transaction
+    /// Get the address that owns a UTXO
+    fn get_address_for_utxo(&self, outpoint: &OutPoint) -> Option<String> {
+        // Look up in UTXO set
+        if let Some(utxo) = self.utxo_set.get(outpoint) {
+            return Some(utxo.address.clone());
+        }
+        None
+    }
+    
+    fn get_affected_addresses(&self, tx: &Transaction) -> Vec<String> {
+        let mut addresses = Vec::new();
+        
+        // Input addresses (senders)
+        for input in &tx.inputs {
+            if let Some(addr) = self.get_address_for_utxo(&input.previous_output) {
+                addresses.push(addr);
+            }
+        }
+        
+        // Output addresses (receivers)
+        for output in &tx.outputs {
+            addresses.push(output.address.clone());
+        }
+        
+        addresses
+    }
+    
+    /// Get invalidated transactions for an address
+    pub fn get_invalidated_txs_for_address(&self, address: &str) -> Vec<TxInvalidationEvent> {
+        self.invalidated_transactions
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|event| event.affected_addresses.contains(&address.to_string()))
+            .cloned()
+            .collect()
     }
 }

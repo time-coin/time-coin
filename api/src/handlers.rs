@@ -328,3 +328,18 @@ pub async fn get_block_by_height(
         None => Err(ApiError::NotFound(format!("Block {} not found", height))),
     }
 }
+
+/// Get invalidated transactions for an address (wallet notification)
+pub async fn get_invalidated_transactions(
+    State(state): State<ApiState>,
+    Path(address): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let blockchain = state.blockchain.read().await;
+    let invalidated = blockchain.get_invalidated_txs_for_address(&address);
+    
+    Ok(Json(serde_json::json!({
+        "address": address,
+        "invalidated_count": invalidated.len(),
+        "transactions": invalidated,
+    })))
+}
