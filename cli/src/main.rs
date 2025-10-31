@@ -674,6 +674,7 @@ async fn main() {
         match PeerListener::bind(peer_listener_addr, network_type).await {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
+                let tx_broadcaster_clone = tx_broadcaster.clone();
                 let consensus_clone = consensus.clone();
                 
                 tokio::spawn(async move {
@@ -688,6 +689,10 @@ async fn main() {
                             ).green());
                             
                             peer_manager_clone.add_connected_peer(info).await;
+                            
+                            // Update transaction broadcaster with current peer list
+                            let current_peers = peer_manager_clone.get_peer_ips().await;
+                            tx_broadcaster_clone.update_peers(current_peers).await;
                             
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone.add_masternode(peer_addr.ip().to_string()).await;
@@ -780,6 +785,21 @@ async fn main() {
     block_producer.start().await;
     println!("{}", "✓ Block producer started (24-hour interval)".green());
     println!();
+
+    // Transaction broadcaster synchronization task
+    let peer_mgr_bc = peer_manager.clone();
+    let tx_bc_sync = tx_broadcaster.clone();
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(30));
+        interval.tick().await;
+        
+        loop {
+            interval.tick().await;
+            let current_peers = peer_mgr_bc.get_peer_ips().await;
+            tx_bc_sync.update_peers(current_peers).await;
+        }
+    });
+
 
     // Masternode synchronization task
     let peer_mgr_sync = peer_manager.clone();
