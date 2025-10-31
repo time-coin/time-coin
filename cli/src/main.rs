@@ -350,7 +350,14 @@ async fn main() {
     // Banner with network indicator
     if is_testnet {
         println!("{}", "╔══════════════════════════════════════╗".yellow().bold());
-        println!("{}", format!("║   TIME Coin Node v{:<20} ║", time_network::protocol::full_version()).yellow().bold());
+        let version_str = time_network::protocol::full_version();
+        let total_width: usize = 38; // Inner width of banner
+        let prefix = "TIME Coin Node ";
+        let content = format!("{}{}", prefix, version_str);
+        let padding = total_width.saturating_sub(content.len());
+        let left_pad = padding / 2;
+        let right_pad = padding - left_pad;
+        println!("{}", format!("║{:width$}{}{}║", "", content, " ".repeat(right_pad), width = left_pad).yellow().bold());
         println!("{}", "║              [TESTNET]               ║".yellow().bold());
         println!("{}", "╚══════════════════════════════════════╝".yellow().bold());
     } else {
