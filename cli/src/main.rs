@@ -928,7 +928,9 @@ async fn main() {
         tx_consensus.clone()
     );
     
-    block_producer.start().await;
+    tokio::spawn(async move {
+        block_producer.start().await;
+    });
     println!("{}", "✓ Block producer started (24-hour interval)".green());
     println!();
 
