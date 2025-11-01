@@ -77,6 +77,8 @@ impl BlockProducer {
         
         loop {
             interval.tick().await;
+            // Check for missed blocks (runs every minute)
+            self.catch_up_missed_blocks().await;
             
             let now = Utc::now();
             

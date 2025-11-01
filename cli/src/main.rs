@@ -931,7 +931,6 @@ async fn main() {
     tokio::spawn(async move {
         block_producer.start().await;
     });
-    println!("{}", "✓ Block producer started (24-hour interval)".green());
     println!();
 
     // Mempool persistence task
