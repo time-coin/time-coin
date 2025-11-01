@@ -726,13 +726,27 @@ impl BlockProducer {
             "unknown".to_string()
         };
         
-        // Get wallet addresses for voters
-        let active_masternodes = self.consensus.get_masternodes_with_wallets().await;
+        // Get wallet addresses by querying each voter's API
+        let mut voter_wallets: Vec<(String, String)> = Vec::new();
         println!("      🐛 DEBUG: voters = {:?}", voters);
-        println!("      🐛 DEBUG: active_masternodes count = {}", active_masternodes.len());
-        let voter_wallets: Vec<_> = active_masternodes.into_iter()
-            .filter(|(node_id, _)| voters.contains(node_id))
-            .collect();
+        
+        for voter in voters {
+            let url = format!("http://{}:24101/wallet/address", voter);
+            if let Ok(response) = reqwest::Client::new()
+                .get(&url)
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .await
+            {
+                if let Ok(wallet_info) = response.json::<serde_json::Value>().await {
+                    if let Some(address) = wallet_info.get("address").and_then(|a| a.as_str()) {
+                        println!("      🐛 DEBUG: {} wallet = {}", voter, address);
+                        voter_wallets.push((voter.clone(), address.to_string()));
+                    }
+                }
+            }
+        }
+        println!("      🐛 DEBUG: voter_wallets = {:?}", voter_wallets);
         println!("      🐛 DEBUG: voter_wallets = {:?}", voter_wallets);
         
         // Build outputs with treasury + voter rewards
