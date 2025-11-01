@@ -827,6 +827,8 @@ async fn main() {
                 let peer_manager_clone = peer_manager.clone();
                 let tx_broadcaster_clone = tx_broadcaster.clone();
                 let consensus_clone = consensus.clone();
+                let tx_consensus_clone = tx_consensus.clone();
+                let block_consensus_clone = block_consensus.clone();
                 
                 tokio::spawn(async move {
                     loop {
@@ -847,6 +849,9 @@ async fn main() {
                             
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone.add_masternode(peer_addr.ip().to_string()).await;
+                            let updated_masternodes = consensus_clone.get_masternodes().await;
+                            tx_consensus_clone.set_masternodes(updated_masternodes.clone()).await;
+                            block_consensus_clone.set_masternodes(updated_masternodes).await;
                             let new_count = consensus_clone.masternode_count().await;
                             
                             // Announce BFT activation
@@ -978,6 +983,8 @@ async fn main() {
     // Masternode synchronization task
     let peer_mgr_sync = peer_manager.clone();
     let consensus_sync = consensus.clone();
+    let tx_consensus_sync = tx_consensus.clone();
+    let block_consensus_sync = block_consensus.clone();
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(30));
         interval.tick().await;
@@ -987,6 +994,9 @@ async fn main() {
             let peers = peer_mgr_sync.get_connected_peers().await;
             for peer in peers {
                 consensus_sync.add_masternode(peer.address.ip().to_string()).await;
+                let updated_masternodes = consensus_sync.get_masternodes().await;
+                tx_consensus_sync.set_masternodes(updated_masternodes.clone()).await;
+                block_consensus_sync.set_masternodes(updated_masternodes).await;
             }
         }
     });
