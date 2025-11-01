@@ -305,16 +305,24 @@ impl ChainSync {
 
     /// Revert our block and replace with the winning block
     async fn revert_and_replace_block(&self, _height: u64, winning_block: Block) -> Result<(), String> {
-        println!("   ⚠️  Block revert not fully implemented yet");
-        println!("      Winning block hash: {}", winning_block.hash);
-        println!("      Restart node to sync with correct chain");
+        println!("   🔄 FORK RESOLUTION: Our block lost");
+        println!("   📥 Correct block: {}...", &winning_block.hash[..16]);
+        println!("");
+        println!("   🗑️  Deleting blockchain database to force resync...");
         
-        // TODO: Full implementation would be:
-        // 1. Remove our block from chain
-        // 2. Put non-coinbase transactions back in mempool
-        // 3. Add winning block to chain
+        // Delete the blockchain database
+        let db_path = "/root/time-coin-node/data/blockchain";
+        if let Err(e) = std::fs::remove_dir_all(db_path) {
+            println!("   ⚠️  Failed to delete database: {}", e);
+        } else {
+            println!("   ✓ Database deleted");
+        }
         
-        Ok(())
+        println!("   🔄 Restarting node to resync correct chain...");
+        println!("");
+        
+        // Exit with code 1 to trigger systemd restart
+        std::process::exit(1);
     }
 
     /// Start periodic sync task
