@@ -511,7 +511,7 @@ async fn main() {
                 TxOutput { amount: 30_000_000_000_000, address: "TIME1rewards000000000000000000000000000".to_string() },
             ],
             lock_time: 0,
-            timestamp: 1729728000,
+            timestamp: 1761264000,
         }],
         hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
     };
