@@ -927,6 +927,7 @@ async fn main() {
         consensus.clone(), 
         blockchain.clone(), 
         mempool.clone(), 
+        block_consensus.clone(),
         tx_consensus.clone()
     );
     

@@ -26,6 +26,7 @@ pub struct BlockProducer {
     blockchain: Arc<RwLock<BlockchainState>>,
     height_file: String,
     mempool: Arc<time_mempool::Mempool>,
+    block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
     tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
 }
 
@@ -36,6 +37,7 @@ impl BlockProducer {
         consensus: Arc<ConsensusEngine>,
         blockchain: Arc<RwLock<BlockchainState>>,
         mempool: Arc<time_mempool::Mempool>,
+        block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
         tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
     ) -> Self {
         BlockProducer {
@@ -45,6 +47,7 @@ impl BlockProducer {
             height_file: "/root/time-coin-node/data/block_height.txt".to_string(),
             blockchain,
             mempool,
+            block_consensus,
             tx_consensus,
         }
     }
