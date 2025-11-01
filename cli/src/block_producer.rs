@@ -94,7 +94,7 @@ impl BlockProducer {
         let now = Utc::now();
         let current_date = now.date_naive();
         
-        let genesis_date = NaiveDate::from_ymd_opt(2024, 10, 24).unwrap();
+        let genesis_date = NaiveDate::from_ymd_opt(2025, 10, 24).unwrap();
         let days_since_genesis = (current_date - genesis_date).num_days();
         let expected_height = days_since_genesis as u64;
 
