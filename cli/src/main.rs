@@ -998,13 +998,6 @@ async fn main() {
         counter += 1;
         
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
-        
-        // Sync masternodes with actual connected peers (including self)
-        let connected = peer_manager.get_connected_peers().await;
-        let mut current_peers: Vec<String> = connected.iter().map(|p| p.address.ip().to_string()).collect();
-        current_peers.sort();
-        current_peers.dedup();
-        consensus_heartbeat.sync_masternodes(current_peers).await;
 
         let total_nodes = consensus_heartbeat.masternode_count().await;
         let mode = consensus_heartbeat.consensus_mode().await;
