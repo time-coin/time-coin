@@ -819,7 +819,6 @@ async fn main() {
 
         // Start Peer Listener for incoming connections
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
-        println!("{}", format!("👂 Listening for peers on {}", peer_listener_addr).cyan());
         
         match PeerListener::bind(peer_listener_addr, network_type).await {
             Ok(peer_listener) => {
@@ -899,7 +898,6 @@ async fn main() {
         interval.tick().await; // Skip first immediate tick
         
         loop {
-            interval.tick().await;
             
             println!("{}", "📡 Discovering peers from seed nodes...".bright_black());
             if let Ok(peers) = discovery_refresh.write().await.bootstrap().await {
@@ -922,7 +920,6 @@ async fn main() {
     });
 
     // Start Block Producer
-    println!("{}", "🔨 Starting block producer...".yellow());
     
     let block_producer = BlockProducer::new(
         node_id.clone(), 
