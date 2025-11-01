@@ -896,10 +896,8 @@ async fn main() {
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(300));
         interval.tick().await; // Skip first immediate tick
-        
         loop {
-            
-            println!("{}", "📡 Discovering peers from seed nodes...".bright_black());
+            interval.tick().await;
             if let Ok(peers) = discovery_refresh.write().await.bootstrap().await {
                 if !peers.is_empty() {
                     println!(
