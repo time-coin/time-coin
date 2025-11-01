@@ -486,5 +486,19 @@ pub mod tx_consensus {
             let proposals = self.proposals.read().await;
             proposals.get(&block_height).cloned()
         }
+        /// Get list of masternodes that voted on this block's transaction set
+        pub async fn get_voters(&self, block_height: u64, merkle_root: &str) -> Vec<String> {
+            let votes = self.votes.read().await;
+            if let Some(height_votes) = votes.get(&block_height) {
+                if let Some(vote_list) = height_votes.get(merkle_root) {
+                    return vote_list.iter()
+                        .filter(|v| v.approve)
+                        .map(|v| v.voter.clone())
+                        .collect();
+                }
+            }
+            Vec::new()
+        }
+
     }
 }

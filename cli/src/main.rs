@@ -13,7 +13,9 @@ use serde::Deserialize;
 
 
 mod block_producer;
+mod chain_sync;
 use block_producer::BlockProducer;
+use chain_sync::ChainSync;
 
 use std::path::PathBuf;
 
@@ -637,6 +639,32 @@ async fn main() {
     }
 
     println!("\n{}", "✓ Blockchain initialized".green());
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 4.5: Initialize Chain Sync
+    // ═══════════════════════════════════════════════════════════════
+    let chain_sync = Arc::new(ChainSync::new(
+        Arc::clone(&blockchain),
+        Arc::clone(&peer_manager),
+    ));
+
+    // Run initial sync
+    // Check for forks first
+    println!("{}", "🔍 Checking for blockchain forks...".cyan());
+    if let Err(e) = chain_sync.detect_and_resolve_forks().await {
+        println!("   {} Fork detection failed: {}", "⚠️".yellow(), e);
+    }
+
+    println!("{}", "🔄 Syncing blockchain with network...".cyan());
+    match chain_sync.sync_from_peers().await {
+        Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
+        Ok(n) => println!("   {} Synced {} blocks", "✓".green(), n),
+        Err(e) => println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e),
+    }
+
+    // Start periodic sync
+    chain_sync.clone().start_periodic_sync().await;
+    println!("{}", "✓ Periodic chain sync started (5 min interval)".green());
     
     // ═══════════════════════════════════════════════════════════════
     // STEP 5: Initialize consensus and services
