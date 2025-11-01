@@ -728,9 +728,12 @@ impl BlockProducer {
         
         // Get wallet addresses for voters
         let active_masternodes = self.consensus.get_masternodes_with_wallets().await;
+        println!("      🐛 DEBUG: voters = {:?}", voters);
+        println!("      🐛 DEBUG: active_masternodes count = {}", active_masternodes.len());
         let voter_wallets: Vec<_> = active_masternodes.into_iter()
             .filter(|(node_id, _)| voters.contains(node_id))
             .collect();
+        println!("      🐛 DEBUG: voter_wallets = {:?}", voter_wallets);
         
         // Build outputs with treasury + voter rewards
         let mut outputs = vec![TxOutput {
