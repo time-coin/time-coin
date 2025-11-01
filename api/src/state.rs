@@ -20,6 +20,7 @@ pub struct ApiState {
     pub blockchain: Arc<RwLock<BlockchainState>>,
     pub mempool: Option<Arc<time_mempool::Mempool>>,
     pub tx_consensus: Option<Arc<time_consensus::tx_consensus::TxConsensusManager>>,
+    pub block_consensus: Option<Arc<time_consensus::block_consensus::BlockConsensusManager>>,
     pub tx_broadcaster: Option<Arc<time_network::tx_broadcast::TransactionBroadcaster>>,
 }
 
@@ -91,6 +92,7 @@ impl ApiState {
             peer_manager,
             mempool: None,
             tx_consensus: None,
+            block_consensus: None,
             tx_broadcaster: None,
         }
     }
@@ -107,6 +109,12 @@ impl ApiState {
         self
     }
 
+
+    /// Set block consensus manager
+    pub fn with_block_consensus(mut self, block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>) -> Self {
+        self.block_consensus = Some(block_consensus);
+        self
+    }
     /// Set transaction broadcaster
     pub fn with_tx_broadcaster(mut self, tx_broadcaster: Arc<time_network::tx_broadcast::TransactionBroadcaster>) -> Self {
         self.tx_broadcaster = Some(tx_broadcaster);

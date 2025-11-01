@@ -783,8 +783,10 @@ async fn main() {
     
     // Set masternodes in tx_consensus (sync with main consensus)
     let masternodes = consensus.get_masternodes().await;
-    tx_consensus.set_masternodes(masternodes).await;
-    println!("{}", "✓ Transaction consensus manager initialized".green());
+    tx_consensus.set_masternodes(masternodes.clone()).await;
+    let block_consensus = Arc::new(time_consensus::block_consensus::BlockConsensusManager::new());
+    block_consensus.set_masternodes(masternodes.clone()).await;
+    println!("{}", "✓ Block consensus manager initialized".green());
 
     // Initialize transaction broadcaster
     let tx_broadcaster = Arc::new(time_network::tx_broadcast::TransactionBroadcaster::new(mempool.clone()));
@@ -795,7 +797,6 @@ async fn main() {
     println!("{}", "✓ Transaction broadcaster initialized".green());
 
     println!();
-
     // Start API Server
     let api_enabled = config.rpc.enabled.unwrap_or(true);
     let api_bind = config.rpc.bind.unwrap_or_else(|| "0.0.0.0".to_string());
@@ -815,6 +816,7 @@ async fn main() {
         )
         .with_mempool(mempool.clone())
         .with_tx_consensus(tx_consensus.clone())
+        .with_block_consensus(block_consensus.clone())
         .with_tx_broadcaster(tx_broadcaster.clone());
 
         // Start Peer Listener for incoming connections

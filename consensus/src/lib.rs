@@ -502,3 +502,134 @@ pub mod tx_consensus {
 
     }
 }
+
+// Block consensus module - for voting on catch-up blocks
+pub mod block_consensus {
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct BlockProposal {
+        pub block_height: u64,
+        pub proposer: String,
+        pub block_hash: String,
+        pub merkle_root: String,
+        pub previous_hash: String,
+        pub timestamp: i64,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct BlockVote {
+        pub block_height: u64,
+        pub block_hash: String,
+        pub voter: String,
+        pub approve: bool,
+        pub timestamp: i64,
+    }
+
+    pub struct BlockConsensusManager {
+        proposals: Arc<RwLock<HashMap<u64, BlockProposal>>>,
+        votes: Arc<RwLock<HashMap<u64, HashMap<String, Vec<BlockVote>>>>>,
+        masternodes: Arc<RwLock<Vec<String>>>,
+    }
+
+    impl BlockConsensusManager {
+        pub fn new() -> Self {
+            Self {
+                proposals: Arc::new(RwLock::new(HashMap::new())),
+                votes: Arc::new(RwLock::new(HashMap::new())),
+                masternodes: Arc::new(RwLock::new(Vec::new())),
+            }
+        }
+
+        pub async fn set_masternodes(&self, nodes: Vec<String>) {
+            let mut masternodes = self.masternodes.write().await;
+            *masternodes = nodes;
+        }
+
+        pub async fn propose_block(&self, proposal: BlockProposal) {
+            let mut proposals = self.proposals.write().await;
+            proposals.insert(proposal.block_height, proposal);
+        }
+
+        pub async fn vote_on_block(&self, vote: BlockVote) -> Result<(), String> {
+            let masternodes = self.masternodes.read().await;
+            if !masternodes.contains(&vote.voter) {
+                return Err("Unauthorized voter".to_string());
+            }
+            drop(masternodes);
+
+            let mut votes = self.votes.write().await;
+            let height_votes = votes.entry(vote.block_height).or_insert_with(HashMap::new);
+            let block_votes = height_votes.entry(vote.block_hash.clone()).or_insert_with(Vec::new);
+
+            if block_votes.iter().any(|v| v.voter == vote.voter) {
+                return Err("Duplicate vote".to_string());
+            }
+
+            block_votes.push(vote);
+            Ok(())
+        }
+
+        pub async fn has_block_consensus(&self, block_height: u64, block_hash: &str) -> (bool, usize, usize) {
+            let masternodes = self.masternodes.read().await;
+            let total_nodes = masternodes.len();
+            drop(masternodes);
+
+            if total_nodes < 3 {
+                return (true, 0, total_nodes);
+            }
+
+            let votes = self.votes.read().await;
+            if let Some(height_votes) = votes.get(&block_height) {
+                if let Some(vote_list) = height_votes.get(block_hash) {
+                    let approvals = vote_list.iter().filter(|v| v.approve).count();
+                    let required = (total_nodes * 2 + 2) / 3;
+                    let has_consensus = approvals >= required;
+                    return (has_consensus, approvals, total_nodes);
+                }
+            }
+
+            (false, 0, total_nodes)
+        }
+
+        pub async fn get_agreed_block(&self, block_height: u64) -> Option<BlockProposal> {
+            let proposals = self.proposals.read().await;
+            let proposal = proposals.get(&block_height)?;
+
+            let (has_consensus, _, _) = self.has_block_consensus(block_height, &proposal.block_hash).await;
+
+            if has_consensus {
+                Some(proposal.clone())
+            } else {
+                None
+            }
+        }
+
+        pub async fn cleanup_old(&self, current_height: u64) {
+            let mut proposals = self.proposals.write().await;
+            let mut votes = self.votes.write().await;
+
+            proposals.retain(|&h, _| h >= current_height.saturating_sub(10));
+            votes.retain(|&h, _| h >= current_height.saturating_sub(10));
+        }
+
+        pub async fn get_proposal(&self, block_height: u64) -> Option<BlockProposal> {
+            let proposals = self.proposals.read().await;
+            proposals.get(&block_height).cloned()
+        }
+
+        /// Get list of masternodes that voted on this block
+        pub async fn get_voters(&self, block_height: u64, block_hash: &str) -> Vec<String> {
+            let votes = self.votes.read().await;
+            if let Some(height_votes) = votes.get(&block_height) {
+                if let Some(vote_list) = height_votes.get(block_hash) {
+                    return vote_list.iter()
+                        .filter(|v| v.approve)
+                        .map(|v| v.voter.clone())
+                        .collect();
+                }
+            }
+            Vec::new()
+        }
+    }
+}
