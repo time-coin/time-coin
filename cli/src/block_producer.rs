@@ -2,15 +2,12 @@ use tokio::sync::RwLock;
 use time_core::state::BlockchainState;
 use time_core::block::{Block, BlockHeader};
 use time_core::transaction::{Transaction, TxOutput};
-use time_core::MasternodeTier;
 use std::time::Duration;
-use tokio::time;
 use std::sync::Arc;
 use time_network::PeerManager;
 use time_consensus::ConsensusEngine;
 use chrono::{Utc, TimeZone, NaiveDate, Timelike};
 use owo_colors::OwoColorize;
-use std::path::Path;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -56,30 +53,50 @@ impl BlockProducer {
     }
 
 
-    pub async fn start(&self) {
-        println!("🔨 Starting block producer...");
+pub async fn start(&self) {
+        println!("Starting block producer...");
         
-        // Run catch-up check
+        // Run initial catch-up check
         self.catch_up_missed_blocks().await;
         
-        println!("✓ Block producer started (24-hour interval)");
-
-        let mut interval = time::interval(Duration::from_secs(60));
+        println!("Block producer started (24-hour interval)");
         
+        // Main loop: sleep until midnight, then produce block
         loop {
-            interval.tick().await;
-            // Check for missed blocks (runs every minute)
-            self.catch_up_missed_blocks().await;
-            
             let now = Utc::now();
             
-            // Check if it's midnight UTC
-            if now.time().hour() == 0 && now.time().minute() == 0 {
-                self.create_and_propose_block().await;
-                
-                // Sleep for 2 minutes to avoid duplicate triggers
-                tokio::time::sleep(Duration::from_secs(120)).await;
-            }
+            // Run a catch-up check each iteration
+            self.catch_up_missed_blocks().await;
+            
+            // Calculate next midnight UTC
+            let tomorrow = now.date_naive() + chrono::Duration::days(1);
+            let next_midnight = tomorrow
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc();
+            
+            let duration_until_midnight = (next_midnight - now)
+                .to_std()
+                .unwrap_or(Duration::from_secs(60));
+            
+            let hours = duration_until_midnight.as_secs() / 3600;
+            let minutes = (duration_until_midnight.as_secs() % 3600) / 60;
+            let seconds = duration_until_midnight.as_secs() % 60;
+            
+            println!("Next block at {} UTC (in {}h {}m {}s)", 
+                next_midnight.format("%Y-%m-%d %H:%M:%S"),
+                hours, minutes, seconds
+            );
+            
+            // Sleep until midnight
+            tokio::time::sleep(duration_until_midnight).await;
+            
+            // It's midnight! Produce block immediately
+            println!("Midnight reached - producing block...");
+            self.create_and_propose_block().await;
+            
+            // Sleep a few seconds to avoid duplicate triggers
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
 
@@ -287,7 +304,7 @@ impl BlockProducer {
             blockchain.chain_tip_hash().to_string()
         };
 
-        let masternode_counts = blockchain.masternode_counts().clone();
+        let _masternode_counts = blockchain.masternode_counts().clone();
 
         // Step 2: Create coinbase transaction with rewards
         let mut outputs = vec![
@@ -404,6 +421,7 @@ impl BlockProducer {
         println!("   Waiting {} hours {} minutes...", hours_left, minutes_left);
     }
 
+    #[allow(dead_code)]
     async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) -> bool {
         use time_core::block::{calculate_treasury_reward, calculate_tier_reward};
 
@@ -415,7 +433,7 @@ impl BlockProducer {
             blockchain.chain_tip_hash().to_string()
         };
 
-        let masternode_counts = blockchain.masternode_counts().clone();
+        let _masternode_counts = blockchain.masternode_counts().clone();
 
         let mut outputs = vec![
             TxOutput {
@@ -616,11 +634,11 @@ impl BlockProducer {
     ) -> time_core::block::Block {
         use time_core::block::{Block, BlockHeader};
         use time_core::transaction::{Transaction, TxOutput};
-        use time_core::MasternodeTier;
+        
         
         let blockchain = self.blockchain.read().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
-        let masternode_counts = blockchain.masternode_counts().clone();
+        let _masternode_counts = blockchain.masternode_counts().clone();
         drop(blockchain);
         
         let my_id = if let Ok(ip) = local_ip_address::local_ip() {
@@ -698,12 +716,11 @@ impl BlockProducer {
     ) -> bool {
         use time_core::block::{Block, BlockHeader};
         use time_core::transaction::{Transaction, TxOutput};
-        use time_core::MasternodeTier;
         use time_core::block::{calculate_treasury_reward, calculate_tier_reward};
         
         let mut blockchain = self.blockchain.write().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
-        let masternode_counts = blockchain.masternode_counts().clone();
+        let _masternode_counts = blockchain.masternode_counts().clone();
         
         let my_id = if let Ok(ip) = local_ip_address::local_ip() {
             ip.to_string()
