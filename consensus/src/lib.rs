@@ -631,5 +631,78 @@ pub mod block_consensus {
             }
             Vec::new()
         }
+        pub async fn store_proposal(&self, proposal: BlockProposal) {
+            let mut proposals = self.proposals.write().await;
+            proposals.insert(proposal.block_height, proposal);
+        }
+
+        pub async fn store_vote(&self, vote: BlockVote) {
+            let mut votes = self.votes.write().await;
+            let height_votes = votes.entry(vote.block_height).or_insert_with(HashMap::new);
+            let block_votes = height_votes.entry(vote.block_hash.clone()).or_insert_with(Vec::new);
+            block_votes.push(vote);
+        }
+
+        pub async fn wait_for_proposal(&self, block_height: u64) -> Option<BlockProposal> {
+            for _ in 0..300 {
+                let proposals = self.proposals.read().await;
+                if let Some(proposal) = proposals.get(&block_height) {
+                    return Some(proposal.clone());
+                }
+                drop(proposals);
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+            None
+        }
+
+        pub async fn collect_votes(&self, block_height: u64, required_votes: usize) -> (usize, usize) {
+            for _ in 0..300 {
+                let votes = self.votes.read().await;
+                if let Some(height_votes) = votes.get(&block_height) {
+                    let mut total = 0;
+                    let mut approved = 0;
+                    for (_hash, vote_list) in height_votes.iter() {
+                        for vote in vote_list {
+                            total += 1;
+                            if vote.approve {
+                                approved += 1;
+                            }
+                        }
+                    }
+                    if total >= required_votes {
+                        return (approved, total);
+                    }
+                }
+                drop(votes);
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+            let votes = self.votes.read().await;
+            if let Some(height_votes) = votes.get(&block_height) {
+                let mut total = 0;
+                let mut approved = 0;
+                for (_hash, vote_list) in height_votes.iter() {
+                    for vote in vote_list {
+                        total += 1;
+                        if vote.approve {
+                            approved += 1;
+                        }
+                    }
+                }
+                (approved, total)
+            } else {
+                (0, 0)
+            }
+        }
+
+        pub fn validate_proposal(&self, proposal: &BlockProposal, blockchain_tip_hash: &str, blockchain_height: u64) -> bool {
+            if proposal.previous_hash != blockchain_tip_hash {
+                return false;
+            }
+            if proposal.block_height != blockchain_height + 1 {
+                return false;
+            }
+            true
+        }
+
     }
 }
