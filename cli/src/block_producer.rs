@@ -24,7 +24,6 @@ pub struct BlockProducer {
     peer_manager: Arc<PeerManager>,
     consensus: Arc<ConsensusEngine>,
     blockchain: Arc<RwLock<BlockchainState>>,
-    height_file: String,
     mempool: Arc<time_mempool::Mempool>,
     block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
     tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
@@ -39,14 +38,11 @@ impl BlockProducer {
         mempool: Arc<time_mempool::Mempool>,
         block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
         tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
-        data_dir: String,
     ) -> Self {
-        let height_file = format!("{}/block_height.txt", data_dir);
         BlockProducer {
             node_id,
             peer_manager,
             consensus,
-            height_file,
             blockchain,
             mempool,
             block_consensus,
@@ -54,21 +50,11 @@ impl BlockProducer {
         }
     }
 
-    fn load_block_height(&self) -> u64 {
-        if let Ok(contents) = std::fs::read_to_string(&self.height_file) {
-            contents.trim().parse().unwrap_or(0)
-        } else {
-            0
-        }
+    async fn load_block_height(&self) -> u64 {
+        let blockchain = self.blockchain.read().await;
+        blockchain.chain_tip_height()
     }
 
-    fn save_block_height(&self, height: u64) {
-        let path = Path::new(&self.height_file);
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&self.height_file, height.to_string());
-    }
 
     pub async fn start(&self) {
         println!("🔨 Starting block producer...");
@@ -105,7 +91,7 @@ impl BlockProducer {
         let days_since_genesis = (current_date - genesis_date).num_days();
         let expected_height = days_since_genesis as u64;
 
-        let actual_height = self.load_block_height();
+        let actual_height = self.load_block_height().await;
 
         println!("🔍 Catch-up check:");
         println!("   Current height: {}", actual_height);
@@ -167,7 +153,6 @@ impl BlockProducer {
                                                             match blockchain.add_block(block.clone()) {
                                                                 Ok(_) => {
                                                                     println!("         ✓ Block #{} synced", height);
-                                                                    self.save_block_height(height);
                                                                 }
                                                                 Err(e) => {
                                                                     println!("         ✗ Failed to add block #{}: {:?}", height, e);
@@ -252,7 +237,7 @@ impl BlockProducer {
 
     async fn create_and_propose_block(&self) {
         let now = Utc::now();
-        let block_num = self.load_block_height() + 1;
+        let block_num = self.load_block_height().await + 1;
 
         println!("\n{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".cyan().bold());
         println!("{} {}", "⏰ BLOCK PRODUCTION TIME".cyan().bold(), now.format("%Y-%m-%d %H:%M:%S UTC"));
@@ -386,7 +371,6 @@ impl BlockProducer {
         // Step 4: Add to blockchain
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
-                self.save_block_height(block_num);
                 println!("{}", "   ✅ BLOCK ADDED TO CHAIN".green().bold());
                 
                 // Remove transactions from mempool
@@ -510,7 +494,6 @@ impl BlockProducer {
 
         match blockchain.add_block(block) {
             Ok(_) => {
-                self.save_block_height(block_num);
                 println!("      ✓ Block #{} created and stored", block_num);
                 true
             }
@@ -809,7 +792,6 @@ impl BlockProducer {
         println!("      📦 Finalizing block #{}...", block_num);
         match blockchain.add_block(block) {
             Ok(_) => {
-                self.save_block_height(block_num);
                 println!("      ✓ Block #{} finalized and stored", block_num);
                 true
             }
