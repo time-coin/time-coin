@@ -86,6 +86,9 @@ _timecoin_rescue_*/
 *.7z
 *.rar
 
+# ---- Nested Git Repositories ----
+time-coin/
+
 # ==========================================
 # End of .gitignore
 # ==========================================
