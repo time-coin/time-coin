@@ -39,12 +39,14 @@ impl BlockProducer {
         mempool: Arc<time_mempool::Mempool>,
         block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
         tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+        data_dir: String,
     ) -> Self {
+        let height_file = format!("{}/block_height.txt", data_dir);
         BlockProducer {
             node_id,
             peer_manager,
             consensus,
-            height_file: "/root/time-coin-node/data/block_height.txt".to_string(),
+            height_file,
             blockchain,
             mempool,
             block_consensus,

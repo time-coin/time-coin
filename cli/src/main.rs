@@ -127,6 +127,22 @@ fn expand_path(path: &str) -> String {
         .replace("~", &std::env::var("HOME").unwrap_or_default())
 }
 
+fn ensure_data_directories(base_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs;
+    
+    // Create base data directory
+    fs::create_dir_all(base_dir)?;
+    
+    // Create subdirectories
+    fs::create_dir_all(format!("{}/blockchain", base_dir))?;
+    fs::create_dir_all(format!("{}/wallets", base_dir))?;
+    fs::create_dir_all(format!("{}/logs", base_dir))?;
+    
+    println!("✓ Data directories verified: {}", base_dir);
+    
+    Ok(())
+}
+
 fn display_genesis(genesis: &serde_json::Value) {
     println!(
         "\n{}",
@@ -470,9 +486,17 @@ async fn main() {
     // STEP 1: Load blockchain from disk (or genesis if first run)
     // ═══════════════════════════════════════════════════════════════
     
+    // Get genesis path from config
     let genesis_path = config.blockchain.genesis_file
-        .map(|p| expand_path(&p))
-        .unwrap_or_else(|| "/root/time-coin-node/data/genesis.json".to_string());
+        .as_ref()
+        .map(|p| expand_path(p))
+        .unwrap_or_else(|| {
+            let default_data_dir = config.node.data_dir
+                .as_ref()
+                .map(|p| expand_path(p))
+                .unwrap_or_else(|| "/var/lib/time-coin".to_string());
+            format!("{}/genesis.json", default_data_dir)
+        });
     
     std::env::set_var("GENESIS_PATH", &genesis_path);
     
@@ -516,8 +540,23 @@ async fn main() {
         hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
     };
     
+    // Get data directory from config or use default
+    let data_dir = config.node.data_dir
+        .as_ref()
+        .map(|p| expand_path(p))
+        .or_else(|| config.blockchain.data_dir.as_ref().map(|p| expand_path(p)))
+        .unwrap_or_else(|| "/var/lib/time-coin".to_string());
+    
+    // Ensure all data directories exist
+    if let Err(e) = ensure_data_directories(&data_dir) {
+        eprintln!("Failed to create data directories: {}", e);
+        std::process::exit(1);
+    }
+    
+    println!("{}\n", format!("Data Directory: {}", data_dir).cyan());
+    
     let blockchain = Arc::new(RwLock::new(
-        BlockchainState::new(genesis_block, "/root/time-coin-node/data/blockchain")
+        BlockchainState::new(genesis_block, &format!("{}/blockchain", data_dir))
             .expect("Failed to create blockchain state")
     ));
 
@@ -681,8 +720,7 @@ async fn main() {
     consensus.add_masternode(node_id.clone()).await;
 
     // Load or create wallet
-    let data_dir = "/root/time-coin-node/data";
-    let wallet = match load_or_create_wallet(data_dir) {
+    let wallet = match load_or_create_wallet(&data_dir) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("Failed to load/create wallet: {}", e);
@@ -741,10 +779,9 @@ async fn main() {
     let mempool = Arc::new(time_mempool::Mempool::with_blockchain(10000, blockchain.clone()));
     
     // Load mempool from disk
+    let mempool_path = format!("{}/mempool.json", data_dir);
     
-    let mempool_path = "/root/time-coin-node/data/mempool.json";
-    
-    match mempool.load_from_disk(mempool_path).await {
+    match mempool.load_from_disk(&mempool_path).await {
     
         Ok(count) if count > 0 => {
     
@@ -933,7 +970,8 @@ async fn main() {
         blockchain.clone(), 
         mempool.clone(), 
         block_consensus.clone(),
-        tx_consensus.clone()
+        tx_consensus.clone(),
+        data_dir.clone()
     );
     
     tokio::spawn(async move {
@@ -943,7 +981,7 @@ async fn main() {
 
     // Mempool persistence task
     let mempool_persist = mempool.clone();
-    let mempool_path_persist = mempool_path.to_string();
+    let mempool_path_persist = mempool_path.clone();
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(60));
         interval.tick().await;
@@ -1052,7 +1090,11 @@ async fn main() {
     }
 }
 fn load_or_create_wallet(data_dir: &str) -> Result<Wallet, Box<dyn std::error::Error>> {
-    let wallet_path = format!("{}/wallet.json", data_dir);
+    // Ensure wallet directory exists
+    let wallet_dir = format!("{}/wallets", data_dir);
+    std::fs::create_dir_all(&wallet_dir)?;
+    
+    let wallet_path = format!("{}/node.json", wallet_dir);
     if std::path::Path::new(&wallet_path).exists() {
         Ok(Wallet::load_from_file(&wallet_path)?)
     } else {
