@@ -128,12 +128,13 @@ impl Transaction {
         hex::encode(self.hash())
     }
 
-    /// Get the hash for signing (without signatures)
+    /// Get the hash for signing (without signatures and public keys)
     pub fn signing_hash(&self) -> [u8; 32] {
         let mut tx_copy = self.clone();
-        // Clear all signatures
+        // Clear all signatures and public keys for signing
         for input in &mut tx_copy.inputs {
             input.signature.clear();
+            input.public_key.clear();
         }
         tx_copy.hash()
     }
