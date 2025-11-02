@@ -392,7 +392,14 @@ pub async fn start(&self) {
             timestamp: Utc::now(),
             previous_hash: previous_hash.to_string(),
             merkle_root: merkle_root.to_string(),
-            validator_signature: "".to_string(),
+            validator_signature: {
+                use sha2::{Sha256, Digest};
+                let sig_data = format!("{}{}{}", block_num, previous_hash, merkle_root);
+                let mut hasher = Sha256::new();
+                hasher.update(sig_data.as_bytes());
+                hasher.update(my_id.as_bytes());
+                format!("{:x}", hasher.finalize())
+            },
             validator_address: my_id,
         };
         
