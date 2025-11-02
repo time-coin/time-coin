@@ -249,4 +249,36 @@ impl PeerManager {
         let exchange = self.peer_exchange.read().await;
         exchange.peer_count()
     }
+    pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
+        let peers = self.peers.read().await.clone();
+        for (addr, _info) in peers {
+            let proposal_clone = proposal.clone();
+            tokio::spawn(async move {
+                let url = format!("http://{}:24101/consensus/block-proposal", addr.ip());
+                let _ = reqwest::Client::new()
+                    .post(&url)
+                    .json(&proposal_clone)
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send()
+                    .await;
+            });
+        }
+    }
+
+    pub async fn broadcast_block_vote(&self, vote: serde_json::Value) {
+        let peers = self.peers.read().await.clone();
+        for (addr, _info) in peers {
+            let vote_clone = vote.clone();
+            tokio::spawn(async move {
+                let url = format!("http://{}:24101/consensus/block-vote", addr.ip());
+                let _ = reqwest::Client::new()
+                    .post(&url)
+                    .json(&vote_clone)
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send()
+                    .await;
+            });
+        }
+    }
+
 }
