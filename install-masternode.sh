@@ -62,16 +62,17 @@ NODE_DIR="/root/time-coin-node"
 CONFIG_DIR="$NODE_DIR/config"
 SERVICE_NAME="time-node"
 
-# These values are now generic (no per-server branching)
+# Network configuration
 P2P_PORT=24100
 API_PORT=24101
+
+# Data directory - this is where blockchain data will be stored
 DATA_DIR="/var/lib/time-coin"
 
 # We'll leave masternode address empty for now and let operator configure
 MASTERNODE_ADDRESS=""
 
-# We'll prefer peer discovery instead of hardcoding other machines.
-# The node should hit this to find peers.
+# Peer discovery endpoint
 PEER_DISCOVERY_URL="https://time-coin.io/api/peers"
 
 #############################
@@ -193,43 +194,52 @@ install_binaries() {
 setup_masternode_config() {
     print_header "Setting Up Masternode Configuration"
 
+    # Create config directory
     mkdir -p "$CONFIG_DIR"
-    mkdir -p "$NODE_DIR/data"
-    mkdir -p "$NODE_DIR/logs"
-    mkdir -p "$DATA_DIR"
-    mkdir -p "$DATA_DIR/wallets"
-
+    
+    # NOTE: We don't create data directories here - the node will create them on first run
+    # This ensures proper permissions and structure
+    
     local CONFIG_FILE="$CONFIG_DIR/testnet.toml"
 
-    # We no longer prompt interactively; we just overwrite.
     print_info "Writing config to $CONFIG_FILE"
 
     cat > "$CONFIG_FILE" <<CONFIGEOF
 # TIME Coin Testnet Node Configuration
 
+[node]
+network = "testnet"
+mode = "masternode"
+# Data directory - node will create subdirectories automatically
+data_dir = "${DATA_DIR}"
+
+[blockchain]
+# Genesis file will be downloaded from network if not present
+# Or place your genesis.json in the data directory
+
+[consensus]
+dev_mode = false
+
+[rpc]
+enabled = true
+bind = "0.0.0.0"
+port = ${API_PORT}
+
 [network]
 listen_addr = "0.0.0.0:${P2P_PORT}"
 api_port = ${API_PORT}
 testnet = true
-
-# Node will fetch peers from this discovery service. This removes the need
-# to hardcode per-server peers.
 peer_discovery_url = "${PEER_DISCOVERY_URL}"
 
 [masternode]
 enabled = true
-# If this node is collateralized / staked, put its registered address here.
-# Leaving blank is fine; the node can still run/relay.
+# If this node is collateralized, put its registered address here
 address = "${MASTERNODE_ADDRESS}"
-
-[storage]
-data_dir = "${DATA_DIR}"
 CONFIGEOF
 
     print_success "Configuration created"
     print_info "Config location: $CONFIG_FILE"
-    print_info "Data dir:       $DATA_DIR"
-    print_info "Wallet dir:     $DATA_DIR/wallets"
+    print_info "Data dir:       $DATA_DIR (will be created on first run)"
     print_info "Ports:          P2P=${P2P_PORT}, API=${API_PORT} (testnet)"
 }
 
@@ -305,17 +315,17 @@ show_summary() {
     echo -e "${GREEN}✅ TIME Coin Masternode Successfully Installed!${NC}"
     echo ""
     echo -e "${BLUE}Installation Details:${NC}"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "────────────────────────────────────────────────"
     echo "Node Directory:    $NODE_DIR"
     echo "Configuration:     $CONFIG_DIR/testnet.toml"
+    echo "Data Directory:    $DATA_DIR"
     echo "Binaries:          /usr/local/bin/time-{node,cli}"
     echo "Service:           ${SERVICE_NAME}.service"
     echo "Network Ports:     ${P2P_PORT} (P2P), ${API_PORT} (API, testnet)"
-    echo "Wallet Storage:    ${DATA_DIR}/wallets"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "────────────────────────────────────────────────"
     echo ""
     echo -e "${BLUE}Useful Commands:${NC}"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "────────────────────────────────────────────────"
     echo "Node Control:"
     echo "  sudo systemctl status ${SERVICE_NAME}"
     echo "  sudo systemctl stop ${SERVICE_NAME}"
@@ -334,12 +344,22 @@ show_summary() {
     echo "  time-cli wallet create <PUBKEY>"
     echo "  time-cli wallet balance <ADDRESS>"
     echo "  time-cli wallet info <ADDRESS>"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "────────────────────────────────────────────────"
     echo ""
     echo -e "${BLUE}Firewall (if needed):${NC}"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "────────────────────────────────────────────────"
     echo "sudo ufw allow ${P2P_PORT}/tcp comment 'TIME Coin P2P'"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "────────────────────────────────────────────────"
+    echo ""
+    echo -e "${BLUE}Data Directory Structure:${NC}"
+    echo "────────────────────────────────────────────────"
+    echo "The node will automatically create:"
+    echo "  ${DATA_DIR}/blockchain/    - Blockchain data"
+    echo "  ${DATA_DIR}/wallets/       - Node wallet"
+    echo "  ${DATA_DIR}/logs/          - Log files"
+    echo "  ${DATA_DIR}/mempool.json   - Transaction pool"
+    echo "  ${DATA_DIR}/genesis.json   - Genesis block (if downloaded)"
+    echo "────────────────────────────────────────────────"
     echo ""
     echo -e "${GREEN}🎉 Your node is live on TIME Coin testnet.${NC}"
     echo ""

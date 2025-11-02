@@ -1,3 +1,4 @@
+use time_core::MasternodeTier;
 use tokio::sync::RwLock;
 use time_core::state::BlockchainState;
 use time_core::block::{Block, BlockHeader};
@@ -304,7 +305,7 @@ pub async fn start(&self) {
             blockchain.chain_tip_hash().to_string()
         };
 
-        let _masternode_counts = blockchain.masternode_counts().clone();
+        let masternode_counts = blockchain.masternode_counts().clone();
 
         // Step 2: Create coinbase transaction with rewards
         let mut outputs = vec![
@@ -433,7 +434,7 @@ pub async fn start(&self) {
             blockchain.chain_tip_hash().to_string()
         };
 
-        let _masternode_counts = blockchain.masternode_counts().clone();
+        let masternode_counts = blockchain.masternode_counts().clone();
 
         let mut outputs = vec![
             TxOutput {
@@ -638,7 +639,7 @@ pub async fn start(&self) {
         
         let blockchain = self.blockchain.read().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
-        let _masternode_counts = blockchain.masternode_counts().clone();
+        let masternode_counts = blockchain.masternode_counts().clone();
         drop(blockchain);
         
         let my_id = if let Ok(ip) = local_ip_address::local_ip() {
@@ -720,7 +721,7 @@ pub async fn start(&self) {
         
         let mut blockchain = self.blockchain.write().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
-        let _masternode_counts = blockchain.masternode_counts().clone();
+        let masternode_counts = blockchain.masternode_counts().clone();
         
         let my_id = if let Ok(ip) = local_ip_address::local_ip() {
             ip.to_string()
