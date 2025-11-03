@@ -772,7 +772,7 @@ async fn main() {
     }
 
     println!("\n{}", "✓ Masternode services starting".green());
-    println!("Version: v{}", VERSION);
+    println!("Version: {}", time_network::protocol::full_version());
     
     // Initialize mempool for pending transactions
     let mempool = Arc::new(time_mempool::Mempool::with_blockchain(10000, blockchain.clone()));
@@ -802,7 +802,26 @@ async fn main() {
     
     }
     
-    println!("{}", "✓ Mempool initialized (capacity: 10,000)".green());
+    // Calculate dynamic mempool capacity based on available RAM
+    use sysinfo::{System, SystemExt};
+    let mut sys = System::new_all();
+    sys.refresh_memory();
+    
+    let available_gb = sys.available_memory() as f64 / 1_073_741_824.0;
+    let avg_tx_size_bytes = 500; // Conservative estimate per transaction
+    
+    // Use 25% of available RAM for mempool (leave plenty for other operations)
+    let available_for_mempool = (available_gb * 0.25 * 1_073_741_824.0) as u64;
+    let estimated_capacity = (available_for_mempool / avg_tx_size_bytes).min(10_000_000);
+    
+    println!("{}", format!("✓ Mempool initialized").green());
+    println!("   Available RAM: {:.2} GB", available_gb);
+    println!("   Mempool capacity: {} transactions (~{:.0} MB)", 
+        estimated_capacity.to_string().green().bold(),
+        (estimated_capacity * avg_tx_size_bytes) as f64 / 1_048_576.0
+    );
+    println!("   Warning threshold: {} transactions", (estimated_capacity as f64 * 0.75) as u64);
+    println!("   Critical threshold: {} transactions", (estimated_capacity as f64 * 0.90) as u64);
     
     // Sync mempool from network peers
     if !peer_manager.get_peer_ips().await.is_empty() {

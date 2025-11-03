@@ -3,6 +3,9 @@
 //! Manages pending transactions that haven't been included in blocks yet.
 //! Provides validation, ordering, and transaction selection for block production.
 
+mod resource_monitor;
+pub use resource_monitor::*;
+
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use std::sync::Arc;

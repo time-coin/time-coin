@@ -33,3 +33,4 @@ md5.workspace = true
 time-consensus = { version = "0.1.0", path = "../consensus" }
 time-mempool = { version = "0.1.0", path = "../mempool" }
 time-wallet = { version = "0.1.0", path = "../wallet" }
+sysinfo = "0.29"
