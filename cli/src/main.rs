@@ -1,4 +1,3 @@
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use clap::Parser;
 use time_wallet::{Wallet, NetworkType as WalletNetworkType};
