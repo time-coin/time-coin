@@ -11,7 +11,21 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const GIT_HASH: &str = env!("GIT_HASH");
 
 pub fn full_version() -> String {
-    format!("{}-{}", VERSION, GIT_HASH)
+    // Try to get current git hash at runtime
+    let runtime_hash = std::process::Command::new("git")
+        .args(&["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            } else {
+                None
+            }
+        });
+    
+    let hash = runtime_hash.unwrap_or_else(|| GIT_HASH.to_string());
+    format!("{}-{}", VERSION, hash)
 }
 
 /// Protocol version for compatibility checking
