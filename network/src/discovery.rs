@@ -173,7 +173,7 @@ impl DnsDiscovery {
                 "dnsseed.time-coin.io".to_string(),
                 "seed.time-coin.io".to_string(),
             ],
-            NetworkType::Testnet => vec!["testnet-dnsseed.time-coin.io".to_string()],
+            NetworkType::Testnet => vec![], // DNS seeder not yet deployed
         };
 
         DnsDiscovery { 
