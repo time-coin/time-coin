@@ -307,22 +307,12 @@ impl ChainSync {
     async fn revert_and_replace_block(&self, _height: u64, winning_block: Block) -> Result<(), String> {
         println!("   🔄 FORK RESOLUTION: Our block lost");
         println!("   📥 Correct block: {}...", &winning_block.hash[..16]);
-        println!("");
-        println!("   🗑️  Deleting blockchain database to force resync...");
+        println!("   No restart needed");
         
-        // Delete the blockchain database
-        let db_path = "/root/time-coin-node/data/blockchain";
-        if let Err(e) = std::fs::remove_dir_all(db_path) {
-            println!("   ⚠️  Failed to delete database: {}", e);
-        } else {
-            println!("   ✓ Database deleted");
-        }
+        // The winning block will be applied through normal sync
+        println!("   Fork logged - will sync on next cycle");
         
-        println!("   🔄 Restarting node to resync correct chain...");
-        println!("");
-        
-        // Exit with code 1 to trigger systemd restart
-        std::process::exit(1);
+        Ok(())
     }
 
 
