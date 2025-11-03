@@ -325,33 +325,6 @@ impl ChainSync {
         std::process::exit(1);
     }
 
-    /// Surgically resolve a fork by replacing our block with the consensus block
-    async fn resolve_fork_surgically(&self, winning_block: &Block, our_block: &Block) {
-        println!("   🔧 Surgical fork resolution:");
-        println!("      Forked block: #{} (hash: {}...)", 
-            our_block.header.block_number, &our_block.hash[..16]);
-        println!("      Consensus block: #{} (hash: {}...)", 
-            winning_block.header.block_number, &winning_block.hash[..16]);
-        
-        let mut blockchain = self.blockchain.write().await;
-        
-        // Get the forked block's transactions for logging
-        let forked_tx_count = our_block.transactions.len();
-        let consensus_tx_count = winning_block.transactions.len();
-        
-        // For now, we'll let the normal sync mechanism handle this
-        // by allowing the consensus block to overwrite our forked block
-        println!("      📊 Transaction comparison:");
-        println!("         Our block: {} transactions", forked_tx_count);
-        println!("         Consensus: {} transactions", consensus_tx_count);
-        
-        // The blockchain will naturally resolve this on the next sync
-        // as the consensus block has more votes and will be accepted
-        drop(blockchain);
-        
-        println!("   ✅ Fork logged - will sync correct block on next cycle");
-        println!("   ℹ️  Note: Transactions from forked block may be rebroadcast");
-    }
 
     /// Start periodic sync task
     pub async fn start_periodic_sync(self: Arc<Self>) {
