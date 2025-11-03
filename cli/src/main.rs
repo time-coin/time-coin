@@ -948,7 +948,7 @@ async fn main() {
         };
 
         println!("\n{}", format!("Node Status: ACTIVE [{}] [{}]", network_name, mode_str).green().bold());
-    println!("Version: {}", VERSION);
+    println!("Version: {}", time_network::protocol::full_version());
     }
     
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
