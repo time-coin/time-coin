@@ -382,6 +382,27 @@ impl BlockchainState {
             gold_masternodes: self.masternode_counts.gold,
         }
     }
+
+    /// Replace a block at a specific height (for fork resolution)
+    pub fn replace_block(&mut self, height: u64, new_block: Block) -> Result<(), StateError> {
+        new_block.validate_structure()?;
+        
+        if let Some(old_hash) = self.blocks_by_height.get(&height).cloned() {
+            self.blocks.remove(&old_hash);
+            
+            if self.chain_tip_hash == old_hash {
+                self.chain_tip_hash = new_block.hash.clone();
+            }
+            
+            self.blocks_by_height.insert(height, new_block.hash.clone());
+            self.blocks.insert(new_block.hash.clone(), new_block.clone());
+            self.db.save_block(&new_block)?;
+            
+            Ok(())
+        } else {
+            Err(StateError::BlockNotFound)
+        }
+    }
 }
 
 /// Chain statistics
