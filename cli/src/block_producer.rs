@@ -60,7 +60,6 @@ pub async fn start(&self) {
         println!("Starting block producer...");
         
         // Run initial catch-up check
-        self.catch_up_missed_blocks().await;
         
         println!("Block producer started (24-hour interval)");
         
