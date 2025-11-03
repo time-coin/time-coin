@@ -271,8 +271,20 @@ pub async fn start(&self) {
             return;
         }
         
-        let masternodes = self.consensus.get_masternodes().await;
+        let all_masternodes = self.consensus.get_masternodes().await;
+        
+        // Initialize health tracking for any new masternodes
+        for mn in &all_masternodes {
+            self.block_consensus.init_masternode_health(mn.clone()).await;
+        }
+        
+        // Get only active masternodes for consensus
+        let masternodes = self.block_consensus.get_active_masternodes(&all_masternodes).await;
         let required_votes = ((masternodes.len() * 2) / 3) + 1;
+        
+        if masternodes.len() < all_masternodes.len() {
+            println!("   ⚠️  {} masternode(s) excluded from consensus", all_masternodes.len() - masternodes.len());
+        }
         
         let selected_producer = self.select_block_producer(&masternodes, block_num);
         let my_id = if let Ok(ip) = local_ip_address::local_ip() {
@@ -313,6 +325,14 @@ pub async fn start(&self) {
             println!("   ⏳ Collecting votes (need {}/{})...", required_votes, masternodes.len());
             
             let (approved, total) = self.block_consensus.collect_votes(block_num, required_votes).await;
+            
+            // Track missed votes for health monitoring
+            for mn in &masternodes {
+                let voters = self.block_consensus.get_voters(block_num, &proposal.block_hash).await;
+                if !voters.contains(mn) {
+                    self.block_consensus.record_missed_vote(mn).await;
+                }
+            }
             
             println!("   📊 Votes: {}/{} approved", approved, total);
             

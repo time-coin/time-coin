@@ -374,6 +374,69 @@ impl std::fmt::Display for ConsensusError {
 impl std::error::Error for ConsensusError {}
 
 // Transaction consensus module
+
+/// Masternode performance status
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum NodeStatus {
+    Active,       // Full consensus participant  
+    Degraded,     // Slow but participating
+    Quarantined,  // Temporarily excluded
+    Downgraded,   // Demoted to seed node
+    Offline,      // Not responding
+}
+
+impl std::fmt::Display for NodeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            NodeStatus::Active => write!(f, "✅ ACTIVE"),
+            NodeStatus::Degraded => write!(f, "⚠️  DEGRADED"),
+            NodeStatus::Quarantined => write!(f, "🔒 QUARANTINED"),
+            NodeStatus::Downgraded => write!(f, "⬇️  DOWNGRADED"),
+            NodeStatus::Offline => write!(f, "❌ OFFLINE"),
+        }
+    }
+}
+
+/// Health metrics for a masternode
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MasternodeHealth {
+    pub address: String,
+    pub status: NodeStatus,
+    pub avg_response_time_ms: u64,
+    pub vote_participation_rate: f32,
+    pub missed_votes: u32,
+    pub consecutive_misses: u32,
+    pub last_response: i64,
+    pub status_changed_at: i64,
+    pub total_votes_cast: u32,
+    pub total_votes_expected: u32,
+}
+
+impl MasternodeHealth {
+    pub fn new(address: String) -> Self {
+        use chrono::Utc;
+        Self {
+            address,
+            status: NodeStatus::Active,
+            avg_response_time_ms: 0,
+            vote_participation_rate: 1.0,
+            missed_votes: 0,
+            consecutive_misses: 0,
+            last_response: Utc::now().timestamp(),
+            status_changed_at: Utc::now().timestamp(),
+            total_votes_cast: 0,
+            total_votes_expected: 0,
+        }
+    }
+}
+
+// Performance thresholds
+pub const RESPONSE_TIMEOUT_MS: u64 = 3000;
+pub const DEGRADED_THRESHOLD_MS: u64 = 2000;
+pub const MAX_CONSECUTIVE_MISSES: u32 = 3;
+pub const MIN_PARTICIPATION_RATE: f32 = 0.70;
+pub const QUARANTINE_DURATION_SECS: i64 = 3600; // 1 hour
+
 pub mod tx_consensus {
     use super::*;
 
@@ -530,6 +593,7 @@ pub mod block_consensus {
         proposals: Arc<RwLock<HashMap<u64, BlockProposal>>>,
         votes: Arc<RwLock<HashMap<u64, HashMap<String, Vec<BlockVote>>>>>,
         masternodes: Arc<RwLock<Vec<String>>>,
+        health: Arc<RwLock<HashMap<String, MasternodeHealth>>>,
     }
 
     impl BlockConsensusManager {
@@ -538,7 +602,8 @@ pub mod block_consensus {
                 proposals: Arc::new(RwLock::new(HashMap::new())),
                 votes: Arc::new(RwLock::new(HashMap::new())),
                 masternodes: Arc::new(RwLock::new(Vec::new())),
-            }
+            health: Arc::new(RwLock::new(HashMap::new())),
+        }
         }
 
         pub async fn set_masternodes(&self, nodes: Vec<String>) {
@@ -702,6 +767,251 @@ pub mod block_consensus {
                 return false;
             }
             true
+        }
+
+
+        /// Initialize health tracking for a masternode
+        pub async fn init_masternode_health(&self, address: String) {
+            let mut health = self.health.write().await;
+            if !health.contains_key(&address) {
+                health.insert(address.clone(), MasternodeHealth::new(address.clone()));
+                println!("📊 Health tracking initialized for {}", address);
+            }
+        }
+
+        /// Record a vote with response time
+        pub async fn record_vote_response(&self, address: &str, response_time_ms: u64) {
+            let mut health = self.health.write().await;
+            
+            if let Some(node_health) = health.get_mut(address) {
+                node_health.last_response = chrono::Utc::now().timestamp();
+                node_health.consecutive_misses = 0;
+                node_health.total_votes_cast += 1;
+                
+                // Update rolling average response time
+                let alpha = 0.3; // Smoothing factor
+                node_health.avg_response_time_ms = 
+                    ((1.0 - alpha) * node_health.avg_response_time_ms as f64 
+                    + alpha * response_time_ms as f64) as u64;
+                
+                // Update participation rate
+                if node_health.total_votes_expected > 0 {
+                    node_health.vote_participation_rate = 
+                        node_health.total_votes_cast as f32 / node_health.total_votes_expected as f32;
+                }
+                
+                // Check for state changes based on response time
+                if node_health.status == NodeStatus::Active && response_time_ms > DEGRADED_THRESHOLD_MS {
+                    self.transition_to_degraded(address).await;
+                } else if node_health.status == NodeStatus::Degraded && response_time_ms <= 1000 {
+                    // Good response from degraded node - potential recovery
+                    println!("   ✅ {} responding well ({}ms) - monitoring for recovery", address, response_time_ms);
+                }
+            }
+        }
+
+        /// Record a missed vote
+        pub async fn record_missed_vote(&self, address: &str) {
+            let mut health = self.health.write().await;
+            
+            if let Some(node_health) = health.get_mut(address) {
+                node_health.missed_votes += 1;
+                node_health.consecutive_misses += 1;
+                node_health.total_votes_expected += 1;
+                
+                // Update participation rate
+                node_health.vote_participation_rate = 
+                    node_health.total_votes_cast as f32 / node_health.total_votes_expected as f32;
+                
+                println!("   ⚠️  {} missed vote (consecutive: {}, participation: {:.1}%)", 
+                    address, 
+                    node_health.consecutive_misses,
+                    node_health.vote_participation_rate * 100.0
+                );
+                
+                // Check for state transitions
+                if node_health.consecutive_misses >= MAX_CONSECUTIVE_MISSES {
+                    if node_health.status == NodeStatus::Active {
+                        self.transition_to_quarantined(address).await;
+                    } else if node_health.status == NodeStatus::Degraded {
+                        self.transition_to_quarantined(address).await;
+                    }
+                }
+            }
+        }
+
+        /// Transition masternode to DEGRADED status
+        async fn transition_to_degraded(&self, address: &str) {
+            let mut health = self.health.write().await;
+            
+            if let Some(node_health) = health.get_mut(address) {
+                if node_health.status != NodeStatus::Degraded {
+                    node_health.status = NodeStatus::Degraded;
+                    node_health.status_changed_at = chrono::Utc::now().timestamp();
+                    
+                    println!("");
+                    println!("⚠️  ═══════════════════════════════════════════════════════");
+                    println!("⚠️  MASTERNODE DEGRADED: {}", address);
+                    println!("⚠️  ═══════════════════════════════════════════════════════");
+                    println!("   Reason: Slow response times (avg {}ms)", node_health.avg_response_time_ms);
+                    println!("   Status: Still participating in consensus");
+                    println!("   Action: Monitor network connection and server performance");
+                    println!("   Impact: May be quarantined if performance doesn't improve");
+                    println!("⚠️  ═══════════════════════════════════════════════════════");
+                    println!("");
+                }
+            }
+        }
+
+        /// Transition masternode to QUARANTINED status
+        async fn transition_to_quarantined(&self, address: &str) {
+            let mut health = self.health.write().await;
+            
+            if let Some(node_health) = health.get_mut(address) {
+                node_health.status = NodeStatus::Quarantined;
+                node_health.status_changed_at = chrono::Utc::now().timestamp();
+                
+                let quarantine_until = chrono::Utc::now() + chrono::Duration::seconds(QUARANTINE_DURATION_SECS);
+                
+                println!("");
+                println!("🔒 ═══════════════════════════════════════════════════════");
+                println!("🔒 MASTERNODE QUARANTINED: {}", address);
+                println!("🔒 ═══════════════════════════════════════════════════════");
+                println!("   Reason: {} consecutive missed votes", node_health.consecutive_misses);
+                println!("   Participation rate: {:.1}%", node_health.vote_participation_rate * 100.0);
+                println!("   Status: EXCLUDED from consensus");
+                println!("   Duration: 1 hour (until {})", quarantine_until.format("%H:%M:%S UTC"));
+                println!("   ");
+                println!("   ⚠️  OPERATOR ACTION REQUIRED:");
+                println!("   1. Check server is online and responsive");
+                println!("   2. Check network connectivity");
+                println!("   3. Review server logs for errors");
+                println!("   4. Verify firewall allows port 24101");
+                println!("   ");
+                println!("   If issues persist, node will be downgraded to seed-only");
+                println!("🔒 ═══════════════════════════════════════════════════════");
+                println!("");
+            }
+        }
+
+        /// Transition masternode to DOWNGRADED status (seed node only)
+        async fn transition_to_downgraded(&self, address: &str) {
+            let mut health = self.health.write().await;
+            
+            if let Some(node_health) = health.get_mut(address) {
+                node_health.status = NodeStatus::Downgraded;
+                node_health.status_changed_at = chrono::Utc::now().timestamp();
+                
+                println!("");
+                println!("⬇️  ═══════════════════════════════════════════════════════");
+                println!("⬇️  MASTERNODE DOWNGRADED: {}", address);
+                println!("⬇️  ═══════════════════════════════════════════════════════");
+                println!("   Reason: Persistent poor performance after quarantine");
+                println!("   Status: DEMOTED to seed node only");
+                println!("   ");
+                println!("   ❌ NO LONGER:");
+                println!("   - Participating in consensus votes");
+                println!("   - Earning block rewards");
+                println!("   - Validating transactions");
+                println!("   ");
+                println!("   ✅ STILL:");
+                println!("   - Serving as seed node for peer discovery");
+                println!("   - Collateral locked");
+                println!("   ");
+                println!("   🔧 TO REGAIN MASTERNODE STATUS:");
+                println!("   1. Fix performance issues (target <1000ms response)");
+                println!("   2. Ensure 99%+ uptime");
+                println!("   3. Node will automatically retest and promote if healthy");
+                println!("   ");
+                println!("   Contact: Check node logs and system resources");
+                println!("⬇️  ═══════════════════════════════════════════════════════");
+                println!("");
+            }
+        }
+
+        /// Get only active masternodes (for consensus)
+        pub async fn get_active_masternodes(&self, all_masternodes: &[String]) -> Vec<String> {
+            let health = self.health.read().await;
+            
+            let active: Vec<String> = all_masternodes.iter()
+                .filter(|addr| {
+                    health.get(*addr)
+                        .map(|h| h.status == NodeStatus::Active)
+                        .unwrap_or(true) // Default to active if not tracked yet
+                })
+                .cloned()
+                .collect();
+            
+            let excluded = all_masternodes.len() - active.len();
+            if excluded > 0 {
+                println!("   ℹ️  Consensus pool: {} active, {} excluded", active.len(), excluded);
+            }
+            
+            active
+        }
+
+        /// Check for quarantine expiration and recovery
+        pub async fn check_quarantine_expiration(&self) {
+            let mut addresses_to_downgrade = Vec::new();
+            
+            {
+                let mut health = self.health.write().await;
+                let now = chrono::Utc::now().timestamp();
+                
+                for (address, node_health) in health.iter_mut() {
+                    if node_health.status == NodeStatus::Quarantined {
+                        let time_in_quarantine = now - node_health.status_changed_at;
+                        
+                        if time_in_quarantine >= QUARANTINE_DURATION_SECS {
+                            // Check if they've improved
+                            if node_health.consecutive_misses < MAX_CONSECUTIVE_MISSES {
+                                println!("✅ {} quarantine expired - restoring to ACTIVE", address);
+                                node_health.status = NodeStatus::Active;
+                                node_health.consecutive_misses = 0;
+                                node_health.status_changed_at = now;
+                            } else {
+                                // Mark for downgrade (will be done after releasing lock)
+                                addresses_to_downgrade.push(address.clone());
+                            }
+                        }
+                    }
+                }
+            } // Release lock
+            
+            // Now downgrade nodes that need it
+            for address in addresses_to_downgrade {
+                self.transition_to_downgraded(&address).await;
+            }
+        }
+
+        /// Print health status report
+        pub async fn print_health_report(&self) {
+            let health = self.health.read().await;
+            
+            if health.is_empty() {
+                return;
+            }
+            
+            println!("");
+            println!("📊 ═══════════════════════════════════════════════════════");
+            println!("📊 MASTERNODE HEALTH REPORT");
+            println!("📊 ═══════════════════════════════════════════════════════");
+            
+            for (address, node_health) in health.iter() {
+                println!("   {} {} - {}ms avg - {:.0}% participation", 
+                    node_health.status,
+                    address,
+                    node_health.avg_response_time_ms,
+                    node_health.vote_participation_rate * 100.0
+                );
+                
+                if node_health.status != NodeStatus::Active {
+                    println!("      Consecutive misses: {}", node_health.consecutive_misses);
+                }
+            }
+            
+            println!("📊 ═══════════════════════════════════════════════════════");
+            println!("");
         }
 
     }
