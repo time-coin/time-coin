@@ -461,6 +461,36 @@ mod tests {
         assert_eq!(state.get_balance("genesis"), 100_000_000_000);
         assert_eq!(state.get_balance("nonexistent"), 0);
     }
+
+    /// Replace a block at a specific height (for fork resolution)
+    pub fn replace_block(&mut self, height: u64, new_block: Block) -> Result<(), StateError> {
+        // Validate the new block
+        new_block.validate_structure()?;
+        
+        // Check if block exists at this height
+        if let Some(old_hash) = self.blocks_by_height.get(&height) {
+            let old_hash = old_hash.clone();
+            
+            // Remove old block
+            self.blocks.remove(&old_hash);
+            
+            // Update chain tip if this was it
+            if self.chain_tip_hash == old_hash {
+                self.chain_tip_hash = new_block.hash.clone();
+            }
+            
+            // Insert new block
+            self.blocks_by_height.insert(height, new_block.hash.clone());
+            self.blocks.insert(new_block.hash.clone(), new_block.clone());
+            
+            // Save to database
+            self.db.save_block(&new_block)?;
+            
+            Ok(())
+        } else {
+            Err(StateError::BlockNotFound)
+        }
+    }
 }
 
 /// Transaction invalidation event
