@@ -145,17 +145,17 @@ fn ensure_data_directories(base_dir: &str) -> Result<(), Box<dyn std::error::Err
 fn display_genesis(genesis: &serde_json::Value) {
     println!(
         "\n{}",
-        "╔═══════════════════════════════════════════════════╗".cyan()
+        "╔══════════════════════════════════════╗".cyan()
     );
     println!(
         "{}",
-        "║         GENESIS BLOCK LOADED                      ║"
+        "║         GENESIS BLOCK LOADED         ║"
             .cyan()
             .bold()
     );
     println!(
         "{}",
-        "╚═══════════════════════════════════════════════════╝".cyan()
+        "╚══════════════════════════════════════╝".cyan()
     );
 
     if let Some(network) = genesis.get("network").and_then(|v| v.as_str()) {
@@ -1074,6 +1074,7 @@ async fn main() {
     // Main heartbeat loop with detailed status
     let mut counter = 0;
     let consensus_heartbeat = consensus.clone();
+    let block_consensus_heartbeat = block_consensus.clone();
     
     loop {
         time::sleep(Duration::from_secs(60)).await;
@@ -1081,7 +1082,7 @@ async fn main() {
         
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
 
-        let total_nodes = consensus_heartbeat.masternode_count().await;
+        let total_nodes = block_consensus_heartbeat.active_masternode_count().await;
         let mode = consensus_heartbeat.consensus_mode().await;
         let consensus_mode = match mode {
             time_consensus::ConsensusMode::Development => "DEV",

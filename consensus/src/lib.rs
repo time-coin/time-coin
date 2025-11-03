@@ -950,6 +950,20 @@ pub mod block_consensus {
             active
         }
 
+        /// Count only active masternodes
+        pub async fn active_masternode_count(&self) -> usize {
+            let masternodes = self.masternodes.read().await;
+            let health = self.health.read().await;
+            
+            masternodes.iter()
+                .filter(|addr| {
+                    health.get(*addr)
+                        .map(|h| h.status == NodeStatus::Active)
+                        .unwrap_or(true)
+                })
+                .count()
+        }
+        
         /// Check for quarantine expiration and recovery
         pub async fn check_quarantine_expiration(&self) {
             let mut addresses_to_downgrade = Vec::new();
