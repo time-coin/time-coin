@@ -304,29 +304,22 @@ impl ChainSync {
     }
 
     /// Revert our block and replace with the winning block
-    async fn revert_and_replace_block(&self, _height: u64, winning_block: Block) -> Result<(), String> {
+    async fn revert_and_replace_block(&self, height: u64, winning_block: Block) -> Result<(), String> {
         println!("   🔄 FORK RESOLUTION: Our block lost");
         println!("   📥 Correct block: {}...", &winning_block.hash[..16]);
-        println!("   No restart needed");
         
-        // Request the winning block from network
-        println!("   Fetching consensus block from network...");
-        
-        // Try to get the winning block from peers
-        let peer_ips = self.peer_manager.get_peer_ips().await;
-        for peer_ip in peer_ips {
-            let url = format!("http://{}:24101/blockchain/block/{}", peer_ip, winning_block.hash);
-            if let Ok(response) = reqwest::get(&url).await {
-                if response.status().is_success() {
-                    println!("   Downloaded consensus block from {}", peer_ip);
-                    // The block will be applied on next validation
-                    return Ok(());
-                }
+        // Replace the forked block with the consensus block
+        let mut blockchain = self.blockchain.write().await;
+        match blockchain.replace_block(height, winning_block) {
+            Ok(_) => {
+                println!("   ✅ Block replaced successfully");
+                Ok(())
+            }
+            Err(e) => {
+                println!("   ⚠️  Failed to replace block: {:?}", e);
+                Err(format!("Fork resolution failed: {:?}", e))
             }
         }
-        
-        println!("   Fork marked - will resolve on next sync");
-        Ok(())
     }
 
 
