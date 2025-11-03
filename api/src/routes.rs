@@ -499,7 +499,11 @@ async fn receive_block_proposal(
     
     println!("📦 Received block proposal for height {}", block_proposal.block_height);
     println!("   Proposer: {}", block_proposal.proposer);
-    println!("   Block hash: {}...", &block_proposal.block_hash[..16]);
+    if !block_proposal.block_hash.is_empty() {
+        println!("   Block hash: {}...", &block_proposal.block_hash[..16]);
+    } else {
+        println!("   Block hash: (pending)");
+    }
     
     if let Some(block_consensus) = state.block_consensus.as_ref() {
         block_consensus.propose_block(block_proposal.clone()).await;

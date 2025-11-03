@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::sync::Arc;
 use time_network::PeerManager;
 use time_consensus::ConsensusEngine;
-use chrono::{Utc, TimeZone, NaiveDate, Timelike};
+use chrono::{Utc, TimeZone, NaiveDate};
 use owo_colors::OwoColorize;
 use serde::Deserialize;
 
@@ -24,6 +24,7 @@ pub struct BlockProducer {
     blockchain: Arc<RwLock<BlockchainState>>,
     mempool: Arc<time_mempool::Mempool>,
     block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
+    #[allow(dead_code)]
     tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
 }
 
@@ -35,7 +36,8 @@ impl BlockProducer {
         blockchain: Arc<RwLock<BlockchainState>>,
         mempool: Arc<time_mempool::Mempool>,
         block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
-        tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+        #[allow(dead_code)]
+    tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
     ) -> Self {
         BlockProducer {
             node_id,
@@ -351,7 +353,7 @@ pub async fn start(&self) {
                 
                 println!("   {} Voted {}", if is_valid { "✅" } else { "❌" }, if is_valid { "APPROVE" } else { "REJECT" });
                 
-                let (approved, total) = self.block_consensus.collect_votes(block_num, required_votes).await;
+                let (approved, _total) = self.block_consensus.collect_votes(block_num, required_votes).await;
                 
                 if approved >= required_votes {
                     println!("   ✅ Block approved - syncing...");
@@ -429,6 +431,7 @@ pub async fn start(&self) {
         }
     }
     
+    #[allow(dead_code)]
     async fn produce_catch_up_block(&self, block_num: u64, timestamp: chrono::DateTime<Utc>) -> bool {
         use time_core::block::{calculate_treasury_reward, calculate_tier_reward};
 
@@ -645,7 +648,7 @@ pub async fn start(&self) {
         
         let blockchain = self.blockchain.read().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
-        let masternode_counts = blockchain.masternode_counts().clone();
+        let _masternode_counts = blockchain.masternode_counts().clone();
         drop(blockchain);
         
         let my_id = if let Ok(ip) = local_ip_address::local_ip() {
