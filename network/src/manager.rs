@@ -7,6 +7,7 @@ use std::sync::Arc;
 use local_ip_address::local_ip;
 use crate::protocol::{NetworkMessage, TransactionMessage};
 use tokio::sync::RwLock;
+use tracing::{info, debug};
 
 #[derive(serde::Deserialize, Debug)]
 pub struct Snapshot {
@@ -36,46 +37,69 @@ impl PeerManager {
         }
     }
 
+    /// Attempt to connect to a peer and manage the live connection entry.
+    /// Returns Err(String) on connect failure (keeps same signature as original).
     pub async fn connect_to_peer(&self, peer: PeerInfo) -> Result<(), String> {
+        // Skip self
         if let Ok(my_ip) = local_ip() {
             if peer.address.ip() == my_ip {
                 return Ok(());
             }
         }
-        if peer.address == self.listen_addr { return Ok(()); }
+        if peer.address == self.listen_addr {
+            return Ok(());
+        }
 
         let peer_addr = peer.address;
         let peer_arc = Arc::new(tokio::sync::Mutex::new(peer.clone()));
 
         match PeerConnection::connect(peer_arc.clone(), self.network.clone(), self.listen_addr).await {
             Ok(conn) => {
+                // On successful connect, get peer info and record
                 let info = conn.peer_info().await;
-                println!("✓ Connected to {} (v{})", info.address, info.version);
+                info!(peer = %info.address, version = %info.version, "connected to peer");
 
+                // Insert into the active peers map
                 self.peers.write().await.insert(peer_addr, info.clone());
-                
+
+                // Persist discovery / mark success in peer exchange
                 self.add_discovered_peer(
                     peer_addr.ip().to_string(),
                     peer_addr.port(),
                     info.version.clone()
                 ).await;
-                
+
                 self.record_peer_success(&peer_addr.to_string()).await;
 
+                // Clone the Arc for the spawned task so cleanup always has access.
                 let peers_clone = self.peers.clone();
+
+                // Spawn a task to run the connection keep-alive and cleanup on exit.
                 tokio::spawn(async move {
-                    conn.keep_alive().await;
-                    peers_clone.write().await.remove(&peer_addr);
+                    // Await the keep-alive loop. We don't assume its return type here
+                    // (it may be `()` or `Result<_, _>`), so assign into `_` to be generic.
+                    let _ = conn.keep_alive().await;
+                    debug!(peer = %peer_addr, "peer keep_alive finished");
+
+                    // Always attempt to remove the peer from active map when the connection finishes.
+                    if peers_clone.write().await.remove(&peer_addr).is_some() {
+                        info!(peer = %peer_addr, "removed peer from active peers after disconnect");
+                    } else {
+                        debug!(peer = %peer_addr, "peer not present in active peers map at disconnect");
+                    }
                 });
+
                 Ok(())
             }
             Err(e) => {
+                // On connect failure, record failure and return error
                 self.record_peer_failure(&peer_addr.to_string()).await;
                 Err(e)
             }
         }
     }
 
+    /// Connect concurrently to a list of peers.
     pub async fn connect_to_peers(&self, peer_list: Vec<PeerInfo>) {
         for peer in peer_list {
             let mgr = self.clone();
@@ -85,14 +109,23 @@ impl PeerManager {
         }
     }
 
+    /// Return a vector of active PeerInfo entries (live connections).
     pub async fn get_connected_peers(&self) -> Vec<PeerInfo> {
         self.peers.read().await.values().cloned().collect()
     }
 
-    pub async fn peer_count(&self) -> usize {
+    /// Return the number of currently active (live) peer connections.
+    pub async fn active_peer_count(&self) -> usize {
         self.peers.read().await.len()
     }
 
+    /// Keep the old helper name but delegate to active_peer_count for clarity.
+    pub async fn peer_count(&self) -> usize {
+        self.active_peer_count().await
+    }
+
+    /// Insert/update a connected peer in the active map.
+    /// This centralizes insertion logic so callers can use this instead of direct map edits.
     pub async fn add_connected_peer(&self, peer: PeerInfo) {
         if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
             return;
@@ -100,13 +133,14 @@ impl PeerManager {
         let mut peers = self.peers.write().await;
 
         if let Some(existing) = peers.get(&peer.address) {
+            // keep an existing known good version over unknown version
             if existing.version != "unknown" && peer.version == "unknown" {
                 return;
             }
         }
 
         peers.insert(peer.address, peer.clone());
-        
+
         self.add_discovered_peer(
             peer.address.ip().to_string(),
             peer.address.port(),
@@ -114,19 +148,11 @@ impl PeerManager {
         ).await;
     }
 
-    fn clone(&self) -> Self {
-        PeerManager {
-            network: self.network.clone(),
-            listen_addr: self.listen_addr,
-            peers: self.peers.clone(),
-            peer_exchange: self.peer_exchange.clone(),
-        }
-    }
-
     pub async fn get_peer_ips(&self) -> Vec<String> {
+        // Return host:port strings (unique) rather than bare IPs
         self.peers.read().await
             .values()
-            .map(|p| p.address.ip().to_string())
+            .map(|p| p.address.to_string())
             .collect()
     }
 
@@ -135,9 +161,9 @@ impl PeerManager {
         let peer_count = peers.len();
 
         let message = NetworkMessage::Transaction(tx);
-        let _data = message.serialize()?;
+        let _data = message.serialize()?; // keep existing behavior; serialize may be used later
 
-        println!("📡 Broadcasting transaction to {} peer(s)...", peer_count);
+        info!(count = peer_count, "broadcasting transaction to peers");
 
         Ok(peer_count)
     }
@@ -159,45 +185,42 @@ impl PeerManager {
         }
     }
 
-    /// Request blockchain info (height) from a peer
     /// Request mempool from a peer
     pub async fn request_mempool(&self, peer_addr: &str) -> Result<Vec<time_core::Transaction>, Box<dyn std::error::Error>> {
         let url = format!("http://{}:24101/mempool/all", peer_addr.replace(":24100", ""));
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        
+
         let response = client.get(&url).send().await?;
-        
+
         if !response.status().is_success() {
             return Err(format!("Failed to get mempool: {}", response.status()).into());
         }
-        
+
         let transactions: Vec<time_core::Transaction> = response.json().await?;
         Ok(transactions)
     }
-
 
     pub async fn request_blockchain_info(&self, peer_addr: &str) -> Result<u64, Box<dyn std::error::Error>> {
         let url = format!("http://{}:24101/blockchain/info", peer_addr.replace(":24100", ""));
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
-        
+
         let response = client.get(&url).send().await?;
-        
+
         if !response.status().is_success() {
             return Err(format!("Failed to get blockchain info: {}", response.status()).into());
         }
-        
+
         let info: serde_json::Value = response.json().await?;
         let height = info.get("height")
             .and_then(|h| h.as_u64())
             .ok_or("Invalid height in response")?;
-        
+
         Ok(height)
     }
-
 
     pub async fn request_snapshot(&self, peer_addr: &str) -> Result<Snapshot, Box<dyn std::error::Error>> {
         let url = format!("http://{}:24101/snapshot", peer_addr.replace(":24100", ""));
@@ -246,9 +269,11 @@ impl PeerManager {
     }
 
     pub async fn known_peer_count(&self) -> usize {
+        // number of remembered/persisted peers in peer_exchange
         let exchange = self.peer_exchange.read().await;
         exchange.peer_count()
     }
+
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
         let peers = self.peers.read().await.clone();
         for (addr, _info) in peers {
@@ -280,5 +305,16 @@ impl PeerManager {
             });
         }
     }
+}
 
+// Implement Clone trait for PeerManager so `.clone()` is idiomatic.
+impl Clone for PeerManager {
+    fn clone(&self) -> Self {
+        PeerManager {
+            network: self.network.clone(),
+            listen_addr: self.listen_addr,
+            peers: self.peers.clone(),
+            peer_exchange: self.peer_exchange.clone(),
+        }
+    }
 }

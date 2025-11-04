@@ -2249,6 +2249,8 @@ dependencies = [
  "time-core",
  "time-mempool",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
