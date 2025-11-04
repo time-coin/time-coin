@@ -1,6 +1,6 @@
 
 use clap::Parser;
-use time_wallet::{Wallet, NetworkType as WalletNetworkType};
+use wallet::{Wallet, NetworkType as WalletNetworkType};
 
 use std::sync::Arc;
 

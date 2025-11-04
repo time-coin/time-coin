@@ -8,16 +8,16 @@ use thiserror::Error;
 pub enum TransactionError {
     #[error("Invalid transaction input")]
     InvalidInput,
-    
+
     #[error("Invalid transaction output")]
     InvalidOutput,
-    
+
     #[error("Invalid signature")]
     InvalidSignature,
-    
+
     #[error("Invalid amount (must be > 0)")]
     InvalidAmount,
-    
+
     #[error("Serialization error")]
     SerializationError,
 }
@@ -122,7 +122,7 @@ impl Transaction {
         let hash = Sha256::digest(&serialized);
         hash.into()
     }
-    
+
     /// Get transaction hash as hex string (TXID)
     pub fn txid(&self) -> String {
         hex::encode(self.hash())
@@ -131,7 +131,6 @@ impl Transaction {
     /// Get the hash for signing (without signatures and public keys)
     pub fn signing_hash(&self) -> [u8; 32] {
         let mut tx_copy = self.clone();
-        // Clear all signatures and public keys for signing
         for input in &mut tx_copy.inputs {
             input.signature.clear();
             input.public_key.clear();
@@ -157,8 +156,7 @@ impl Transaction {
 
     /// Sign all inputs with the same keypair
     pub fn sign_all(&mut self, keypair: &Keypair) -> Result<(), TransactionError> {
-        let num_inputs = self.inputs.len();
-        for i in 0..num_inputs {
+        for i in 0..self.inputs.len() {
             self.sign(keypair, i)?;
         }
         Ok(())
@@ -203,12 +201,12 @@ impl Transaction {
     pub fn is_coinbase(&self) -> bool {
         self.inputs.is_empty()
     }
-    
+
     /// Serialize to bytes
     pub fn to_bytes(&self) -> Result<Vec<u8>, TransactionError> {
         bincode::serialize(self).map_err(|_| TransactionError::SerializationError)
     }
-    
+
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, TransactionError> {
         bincode::deserialize(bytes).map_err(|_| TransactionError::SerializationError)
@@ -225,14 +223,13 @@ impl Default for Transaction {
 mod tests {
     use super::*;
     use crate::address::NetworkType;
-    use crate::keypair::Keypair;
 
     #[test]
     fn test_transaction_creation() {
         let tx = Transaction::new();
         assert_eq!(tx.version, 1);
-        assert_eq!(tx.inputs.len(), 0);
-        assert_eq!(tx.outputs.len(), 0);
+        assert!(tx.inputs.is_empty());
+        assert!(tx.outputs.is_empty());
     }
 
     #[test]
@@ -242,8 +239,10 @@ mod tests {
         let input = TxInput::new([1u8; 32], 0);
         tx.add_input(input);
 
-        let public_key = Keypair::generate().public_key_bytes();
-        let address = Address::from_public_key(&public_key, NetworkType::Mainnet).unwrap();
+        let keypair = Keypair::generate().expect("Failed to generate keypair");
+        let public_key = keypair.public_key_bytes();
+        let address = Address::from_public_key(&public_key, NetworkType::Mainnet)
+            .expect("Failed to generate address");
         let output = TxOutput::new(1000, address);
         tx.add_output(output).unwrap();
 
@@ -255,8 +254,7 @@ mod tests {
     #[test]
     fn test_transaction_hash() {
         let mut tx = Transaction::new();
-        let input = TxInput::new([1u8; 32], 0);
-        tx.add_input(input);
+        tx.add_input(TxInput::new([1u8; 32], 0));
 
         let hash1 = tx.hash();
         let hash2 = tx.hash();
@@ -267,45 +265,39 @@ mod tests {
 
     #[test]
     fn test_sign_and_verify() {
-        let keypair = Keypair::generate();
+        let keypair = Keypair::generate().expect("Failed to generate keypair");
         let public_key = keypair.public_key_bytes();
-        let address = Address::from_public_key(&public_key, NetworkType::Mainnet).unwrap();
+        let address = Address::from_public_key(&public_key, NetworkType::Mainnet)
+            .expect("Failed to generate address");
 
         let mut tx = Transaction::new();
-        let input = TxInput::new([1u8; 32], 0);
-        tx.add_input(input);
+        tx.add_input(TxInput::new([1u8; 32], 0));
 
         let output = TxOutput::new(1000, address);
         tx.add_output(output).unwrap();
 
-        // Sign the transaction
         tx.sign_all(&keypair).unwrap();
-
-        // Verify the signature
         assert!(tx.verify_all().is_ok());
     }
 
     #[test]
     fn test_invalid_signature() {
-        let keypair1 = Keypair::generate();
-        let keypair2 = Keypair::generate();
+        let keypair1 = Keypair::generate().expect("Failed to generate keypair");
+        let keypair2 = Keypair::generate().expect("Failed to generate keypair");
         let public_key = keypair1.public_key_bytes();
-        let address = Address::from_public_key(&public_key, NetworkType::Mainnet).unwrap();
+        let address = Address::from_public_key(&public_key, NetworkType::Mainnet)
+            .expect("Failed to generate address");
 
         let mut tx = Transaction::new();
-        let input = TxInput::new([1u8; 32], 0);
-        tx.add_input(input);
+        tx.add_input(TxInput::new([1u8; 32], 0));
 
         let output = TxOutput::new(1000, address);
         tx.add_output(output).unwrap();
 
-        // Sign with keypair1
         tx.sign_all(&keypair1).unwrap();
 
-        // Replace signature with wrong one
         tx.inputs[0].signature = keypair2.sign(&tx.signing_hash());
 
-        // Verification should fail
         assert!(tx.verify_all().is_err());
     }
 

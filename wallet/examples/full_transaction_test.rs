@@ -1,7 +1,7 @@
 //! Full Transaction Testing - Send coins and test security
 //! Simulates real-world transaction scenarios
 
-use time_wallet::{Wallet, NetworkType, UTXO};
+use wallet::{Wallet, NetworkType, UTXO};
 use std::collections::HashMap;
 
 struct MockBlockchain {
@@ -35,7 +35,7 @@ impl MockBlockchain {
         self.spent_utxos.push((address, tx_hash, index));
     }
     
-    fn process_transaction(&mut self, from: &str, tx: &time_wallet::Transaction) -> Result<(), String> {
+    fn process_transaction(&mut self, from: &str, tx: &wallet::Transaction) -> Result<(), String> {
         // Verify signature
         tx.verify_all().map_err(|e| format!("Invalid signature: {:?}", e))?;
         
@@ -252,14 +252,14 @@ fn main() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     
     // Mallory creates a transaction but tries to use Alice's UTXO
-    let mut forged_tx = time_wallet::Transaction::new();
+    let mut forged_tx = wallet::Transaction::new();
     
     // Try to spend Alice's UTXO (if she has any)
     if let Some(alice_utxo) = blockchain.get_utxos(&alice.address_string()).first() {
-        let input = time_wallet::TxInput::new(alice_utxo.tx_hash, alice_utxo.output_index);
+        let input = wallet::TxInput::new(alice_utxo.tx_hash, alice_utxo.output_index);
         forged_tx.add_input(input);
         
-        let output = time_wallet::TxOutput::new(
+        let output = wallet::TxOutput::new(
             alice_utxo.amount - 1_000_000,
             mallory.address().clone()
         );

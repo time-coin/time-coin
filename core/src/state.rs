@@ -70,6 +70,15 @@ pub struct MasternodeInfo {
     pub wallet_address: String,
 }
 
+/// Transaction invalidation event
+#[derive(Debug, Clone, Serialize)]
+pub struct TxInvalidationEvent {
+    pub txid: String,
+    pub reason: String,
+    pub timestamp: i64,
+    pub affected_addresses: Vec<String>,
+}
+
 /// Main blockchain state
 #[derive(Debug, Clone)]
 pub struct BlockchainState {
@@ -84,13 +93,16 @@ pub struct BlockchainState {
     
     /// Current chain tip (best block height)
     chain_tip_height: u64,
+    
     /// Database for persistence
     db: crate::db::BlockchainDB,
     
     /// Current chain tip hash
     chain_tip_hash: String,
+    
     /// Registered masternodes
     masternodes: HashMap<String, MasternodeInfo>,
+    
     /// Track invalidated transactions for wallet notification
     invalidated_transactions: Arc<RwLock<Vec<TxInvalidationEvent>>>,
     
@@ -103,12 +115,8 @@ pub struct BlockchainState {
 
 impl BlockchainState {
     /// Create a new blockchain state with genesis block
-    /// Create a new blockchain state with genesis block and database
     pub fn new(genesis_block: Block, db_path: &str) -> Result<Self, StateError> {
-        // Open database
         let db = crate::db::BlockchainDB::open(db_path)?;
-        
-        // Try to load blocks from disk
         let existing_blocks = db.load_all_blocks()?;
         
         let mut state = Self {
@@ -130,9 +138,7 @@ impl BlockchainState {
         };
         
         if existing_blocks.is_empty() {
-            // No blocks on disk, add genesis
             genesis_block.validate_structure()?;
-            // Apply genesis coinbase to UTXO set
             for tx in &genesis_block.transactions {
                 state.utxo_set.apply_transaction(tx)?;
             }
@@ -140,9 +146,7 @@ impl BlockchainState {
             state.blocks_by_height.insert(0, genesis_block.hash.clone());
             state.db.save_block(&genesis_block)?;
         } else {
-            // Load blocks from disk into memory
             for block in existing_blocks {
-                // Apply transactions to UTXO set
                 for tx in &block.transactions {
                     state.utxo_set.apply_transaction(tx)?;
                 }
@@ -210,38 +214,28 @@ impl BlockchainState {
 
     /// Add a new block to the chain
     pub fn add_block(&mut self, block: Block) -> Result<(), StateError> {
-        // Check if block already exists
         if self.has_block(&block.hash) {
             return Err(StateError::DuplicateBlock);
         }
-        // Validate block structure
         block.validate_structure()?;
-        // Check if this connects to our chain
         if block.header.block_number == 0 {
-            // Cant add another genesis block
             return Err(StateError::InvalidBlockHeight);
         }
-        // Verify previous block exists
         if !self.has_block(&block.header.previous_hash) {
             return Err(StateError::OrphanBlock);
         }
-        // Verify block height is correct
-        let expected_height = self.chain_tip_height + 1;
-        if block.header.block_number != expected_height {
+        if block.header.block_number != self.chain_tip_height + 1 {
             return Err(StateError::InvalidBlockHeight);
         }
-        // Verify previous hash matches chain tip
         if block.header.previous_hash != self.chain_tip_hash {
             return Err(StateError::InvalidPreviousHash);
         }
-        // Create UTXO snapshot for potential rollback
+
         let utxo_snapshot = self.utxo_set.snapshot();
-        // Validate and apply block to UTXO set
+
         match block.validate_and_apply(&mut self.utxo_set, &self.masternode_counts) {
             Ok(_) => {
-                // Save block to disk FIRST (before moving into HashMap)
                 self.db.save_block(&block)?;
-                // Success! Add block to chain
                 self.blocks_by_height.insert(block.header.block_number, block.hash.clone());
                 self.chain_tip_height = block.header.block_number;
                 self.chain_tip_hash = block.hash.clone();
@@ -249,13 +243,11 @@ impl BlockchainState {
                 Ok(())
             }
             Err(e) => {
-                // Rollback UTXO changes
                 self.utxo_set.restore(utxo_snapshot);
                 Err(e.into())
             }
         }
     }
-
 
     /// Register a new masternode
     pub fn register_masternode(
@@ -265,18 +257,14 @@ impl BlockchainState {
         collateral_tx: String,
         wallet_address: String,
     ) -> Result<(), StateError> {
-        // Verify collateral requirement
         let required_collateral = tier.collateral_requirement();
-        
         if required_collateral > 0 {
-            // For paid tiers, verify the address has sufficient balance
             let balance = self.get_balance(&address);
             if balance < required_collateral {
                 return Err(StateError::InvalidMasternodeCount);
             }
         }
 
-        // Create masternode info
         let masternode = MasternodeInfo {
             address: address.clone(),
             tier,
@@ -287,7 +275,6 @@ impl BlockchainState {
             wallet_address,
         };
 
-        // Update counts
         match tier {
             MasternodeTier::Free => self.masternode_counts.free += 1,
             MasternodeTier::Bronze => self.masternode_counts.bronze += 1,
@@ -295,9 +282,7 @@ impl BlockchainState {
             MasternodeTier::Gold => self.masternode_counts.gold += 1,
         }
 
-        // Store masternode
         self.masternodes.insert(address, masternode);
-
         Ok(())
     }
 
@@ -308,12 +293,11 @@ impl BlockchainState {
             .ok_or(StateError::InvalidMasternodeCount)?;
 
         if !masternode.is_active {
-            return Ok(()); // Already inactive
+            return Ok(());
         }
 
         masternode.is_active = false;
 
-        // Update counts
         match masternode.tier {
             MasternodeTier::Free => self.masternode_counts.free = self.masternode_counts.free.saturating_sub(1),
             MasternodeTier::Bronze => self.masternode_counts.bronze = self.masternode_counts.bronze.saturating_sub(1),
@@ -331,10 +315,7 @@ impl BlockchainState {
 
     /// Get all active masternodes
     pub fn get_active_masternodes(&self) -> Vec<&MasternodeInfo> {
-        self.masternodes
-            .values()
-            .filter(|mn| mn.is_active)
-            .collect()
+        self.masternodes.values().filter(|mn| mn.is_active).collect()
     }
 
     /// Get masternodes by tier
@@ -345,26 +326,18 @@ impl BlockchainState {
             .collect()
     }
 
-    /// Validate a transaction against current UTXO set
+    /// Validate a transaction
     pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), StateError> {
-        // Validate structure
         tx.validate_structure()?;
-
-        // Skip UTXO validation for coinbase
         if tx.is_coinbase() {
             return Ok(());
         }
-
-        // Verify all inputs exist in UTXO set
         for input in &tx.inputs {
             if !self.utxo_set.contains(&input.previous_output) {
                 return Err(StateError::TransactionError(TransactionError::InvalidInput));
             }
         }
-
-        // Verify input amounts >= output amounts (implicit fee check)
         let _fee = tx.fee(self.utxo_set.utxos())?;
-
         Ok(())
     }
 
@@ -383,25 +356,67 @@ impl BlockchainState {
         }
     }
 
-    /// Replace a block at a specific height (for fork resolution)
+    /// Replace a block at a specific height
     pub fn replace_block(&mut self, height: u64, new_block: Block) -> Result<(), StateError> {
         new_block.validate_structure()?;
-        
-        if let Some(old_hash) = self.blocks_by_height.get(&height).cloned() {
+        if let Some(old_hash) = self.blocks_by_height.get(&height) {
+            let old_hash = old_hash.clone();
             self.blocks.remove(&old_hash);
-            
             if self.chain_tip_hash == old_hash {
                 self.chain_tip_hash = new_block.hash.clone();
             }
-            
             self.blocks_by_height.insert(height, new_block.hash.clone());
             self.blocks.insert(new_block.hash.clone(), new_block.clone());
             self.db.save_block(&new_block)?;
-            
             Ok(())
         } else {
             Err(StateError::BlockNotFound)
         }
+    }
+
+    /// Process orphaned transaction
+    pub fn process_orphaned_transaction(&mut self, tx: Transaction) -> Result<bool, StateError> {
+        match self.validate_transaction(&tx) {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                let event = TxInvalidationEvent {
+                    txid: tx.txid.clone(),
+                    reason: format!("Chain fork: {}", e),
+                    timestamp: chrono::Utc::now().timestamp(),
+                    affected_addresses: self.get_affected_addresses(&tx),
+                };
+                self.invalidated_transactions.write().unwrap().push(event.clone());
+                println!("   ❌ Transaction {} invalidated: {}", tx.txid, e);
+                Ok(false)
+            }
+        }
+    }
+
+    fn get_address_for_utxo(&self, outpoint: &OutPoint) -> Option<String> {
+        self.utxo_set.get(outpoint).map(|u| u.address.clone())
+    }
+
+    fn get_affected_addresses(&self, tx: &Transaction) -> Vec<String> {
+        let mut addresses = Vec::new();
+        for input in &tx.inputs {
+            if let Some(addr) = self.get_address_for_utxo(&input.previous_output) {
+                addresses.push(addr);
+            }
+        }
+        for output in &tx.outputs {
+            addresses.push(output.address.clone());
+        }
+        addresses
+    }
+
+    pub fn get_invalidated_txs_for_address(&self, address: &str) -> Vec<TxInvalidationEvent> {
+        self.invalidated_transactions
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|event| event.affected_addresses.contains(&address.to_string()))
+            .cloned()
+            .collect()
     }
 }
 
@@ -419,6 +434,7 @@ pub struct ChainStats {
     pub gold_masternodes: u64,
 }
 
+/// Test module
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,9 +449,7 @@ mod tests {
     fn test_blockchain_initialization() {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
-        
         let state = BlockchainState::new(genesis, "/tmp/test_blockchain_1").unwrap();
-        
         assert_eq!(state.chain_tip_height(), 0);
         assert_eq!(state.chain_tip_hash(), genesis_hash);
         assert_eq!(state.total_supply(), 100_000_000_000);
@@ -446,13 +460,9 @@ mod tests {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
         let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_2").unwrap();
-        
-        // Create block 1
         let outputs = vec![TxOutput::new(10_000_000_000, "miner1".to_string())];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
-        
         state.add_block(block1).unwrap();
-        
         assert_eq!(state.chain_tip_height(), 1);
         assert!(state.get_block_by_height(1).is_some());
     }
@@ -461,14 +471,12 @@ mod tests {
     fn test_masternode_registration() {
         let genesis = create_genesis_block();
         let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_3").unwrap();
-        
-        // Register free tier masternode
         state.register_masternode(
             "masternode1".to_string(),
             MasternodeTier::Free,
             "collateral_tx".to_string(),
+            "wallet_address".to_string(),
         ).unwrap();
-        
         assert_eq!(state.masternode_counts().free, 1);
         assert!(state.get_masternode("masternode1").is_some());
     }
@@ -477,113 +485,7 @@ mod tests {
     fn test_get_balance() {
         let genesis = create_genesis_block();
         let state = BlockchainState::new(genesis, "/tmp/test_blockchain_4").unwrap();
-        
-        // Genesis address should have balance
         assert_eq!(state.get_balance("genesis"), 100_000_000_000);
         assert_eq!(state.get_balance("nonexistent"), 0);
-    }
-
-    /// Replace a block at a specific height (for fork resolution)
-    pub fn replace_block(&mut self, height: u64, new_block: Block) -> Result<(), StateError> {
-        // Validate the new block
-        new_block.validate_structure()?;
-        
-        // Check if block exists at this height
-        if let Some(old_hash) = self.blocks_by_height.get(&height) {
-            let old_hash = old_hash.clone();
-            
-            // Remove old block
-            self.blocks.remove(&old_hash);
-            
-            // Update chain tip if this was it
-            if self.chain_tip_hash == old_hash {
-                self.chain_tip_hash = new_block.hash.clone();
-            }
-            
-            // Insert new block
-            self.blocks_by_height.insert(height, new_block.hash.clone());
-            self.blocks.insert(new_block.hash.clone(), new_block.clone());
-            
-            // Save to database
-            self.db.save_block(&new_block)?;
-            
-            Ok(())
-        } else {
-            Err(StateError::BlockNotFound)
-        }
-    }
-}
-
-/// Transaction invalidation event
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct TxInvalidationEvent {
-    pub txid: String,
-    pub reason: String,
-    pub timestamp: i64,
-    pub affected_addresses: Vec<String>,
-}
-    /// Process orphaned transaction and track if invalid
-impl BlockchainState {
-    pub fn process_orphaned_transaction(&mut self, tx: Transaction) -> Result<bool, StateError> {
-        // Try to validate against current UTXO state
-        match self.validate_transaction(&tx) {
-            Ok(_) => {
-                // Still valid - can go to mempool
-                Ok(true)
-            }
-            Err(e) => {
-                // NOW INVALID - create notification event
-                let event = TxInvalidationEvent {
-                    txid: tx.txid.clone(),
-                    reason: format!("Chain fork: {}", e),
-                    timestamp: chrono::Utc::now().timestamp(),
-                    affected_addresses: self.get_affected_addresses(&tx),
-                };
-                
-                self.invalidated_transactions.write().unwrap().push(event.clone());
-                
-                println!("   ❌ Transaction {} invalidated: {}", tx.txid, e);
-                Ok(false)
-            }
-        }
-    }
-    
-    /// Get all addresses involved in a transaction
-    /// Get the address that owns a UTXO
-    fn get_address_for_utxo(&self, outpoint: &OutPoint) -> Option<String> {
-        // Look up in UTXO set
-        if let Some(utxo) = self.utxo_set.get(outpoint) {
-            return Some(utxo.address.clone());
-        }
-        None
-    }
-    
-    fn get_affected_addresses(&self, tx: &Transaction) -> Vec<String> {
-        let mut addresses = Vec::new();
-        
-        // Input addresses (senders)
-        for input in &tx.inputs {
-            if let Some(addr) = self.get_address_for_utxo(&input.previous_output) {
-                addresses.push(addr);
-            }
-        }
-        
-        // Output addresses (receivers)
-        for output in &tx.outputs {
-            addresses.push(output.address.clone());
-        }
-        
-        addresses
-    }
-    
-    /// Get invalidated transactions for an address
-    pub fn get_invalidated_txs_for_address(&self, address: &str) -> Vec<TxInvalidationEvent> {
-        self.invalidated_transactions
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|event| event.affected_addresses.contains(&address.to_string()))
-            .cloned()
-            .collect()
     }
 }

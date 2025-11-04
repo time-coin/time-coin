@@ -76,7 +76,8 @@ fn main() {
     // Test 6: Get mempool transactions
     println!("📦 Test 6: Get transactions for block building");
     let start = Instant::now();
-    let txs = manager2.get_mempool_transactions(1000);
+    let _txs = manager2.get_mempool_transactions(1000);
+
     let elapsed = start.elapsed();
     println!("✅ Retrieved 1,000 transactions in {:?}", elapsed);
     println!("   Average: {:.2} µs per transaction\n", elapsed.as_micros() as f64 / 1000.0);

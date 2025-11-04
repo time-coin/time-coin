@@ -1,7 +1,7 @@
 //! Improved wallet demonstration
 //! Run with: cargo run --example wallet_demo
 
-use time_wallet::{Wallet, NetworkType, UTXO};
+use wallet::{Wallet, NetworkType, UTXO};
 
 fn main() {
     println!("========================================");
