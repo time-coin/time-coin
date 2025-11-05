@@ -193,7 +193,7 @@ We welcome contributions. Please see CONTRIBUTING.md in the project root for gui
 
 - Website: https://time-coin.io
 - Telegram: https://t.me/+CaN6EflYM-83OTY0
-- Twitter: @TIMEcoin515010
+- Twitter: [@TIMEcoin515010](https://twitter.com/TIMEcoin515010)
 - GitHub: https://github.com/time-coin/time-coin
 
 ## License
