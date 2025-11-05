@@ -7,7 +7,7 @@ fn main() {
 
     // Get git commit hash
     let output = Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output();
 
     let git_hash = if let Ok(output) = output {
