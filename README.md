@@ -1,3 +1,4 @@
+```markdown
 # TIME Coin ⏰
 
 A next-generation cryptocurrency featuring 24-hour time blocks, instant transaction finality, and masternode-powered consensus.
@@ -24,7 +25,7 @@ TIME Coin separates transaction finality from block production:
 ## Masternode Tiers
 
 | Tier | Collateral | APY | Voting Power |
-|------|-----------|-----|--------------|
+|------|-----------:|-----:|--------------|
 | Bronze | 1,000 TIME | 18% | 1x |
 | Silver | 10,000 TIME | 19.8% | 5x |
 | Gold   | 100,000 TIME | 22.5% | 10x |
@@ -81,9 +82,10 @@ Setting up a TIME Coin masternode is a two-step process:
 Prepare your Ubuntu server with all dependencies:
 
 ```bash
-curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup-system.sh
-chmod +x setup-system.sh
-sudo ./setup-system.sh
+# download helper script from repository
+curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup/setup-testnet-node.sh
+chmod +x setup-testnet-node.sh
+sudo ./setup-testnet-node.sh
 ```
 
 This installs:
@@ -97,8 +99,9 @@ Build and deploy the masternode:
 
 ```bash
 cd ~/time-coin
-chmod +x scripts/install-masternode.sh
-sudo ./scripts/install-masternode.sh
+# installer is located under scripts/setup/
+chmod +x scripts/setup-masternode.sh
+sudo ./scripts/setup-masternode.sh
 ```
 
 This will:
@@ -130,7 +133,7 @@ To update to the latest version:
 ```bash
 cd ~/time-coin
 git pull origin main
-sudo bash ./scripts/install-masternode.sh
+sudo bash ./scripts/setup-masternode.sh
 systemctl restart time-node
 ```
 
@@ -139,9 +142,11 @@ systemctl restart time-node
 TIME Coin uses 24-hour themed ports:
 
 | Network | P2P Port | RPC Port |
-|---------|----------|----------|
+|---------|---------:|---------:|
 | Testnet | 24100 | 24101 |
 | Mainnet | 24000 | 24001 |
+
+Note: the canonical default ports for Testnet are P2P=24100 and RPC=24101. These defaults can be overridden in config/testnet.toml — the setup scripts and node will respect the config values if changed.
 
 If using a firewall, allow the P2P port:
 
@@ -178,3 +183,4 @@ See [SECURITY.md](SECURITY.md) for reporting security vulnerabilities.
 ---
 
 **⏰ TIME is money. Make it accessible.**
+```
