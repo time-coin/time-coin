@@ -61,7 +61,7 @@ impl Wallet {
         let address = Address::from_public_key(&public_key, network)?;
 
         Ok(Self {
-            keypair,
+            keypair: keypair,
             address,
             network,
             balance: 0,
@@ -77,7 +77,7 @@ impl Wallet {
         let address = Address::from_public_key(&public_key, network)?;
 
         Ok(Self {
-            keypair,
+            keypair: keypair,
             address,
             network,
             balance: 0,
@@ -93,7 +93,7 @@ impl Wallet {
         let address = Address::from_public_key(&public_key, network)?;
 
         Ok(Self {
-            keypair,
+            keypair: keypair,
             address,
             network,
             balance: 0,
