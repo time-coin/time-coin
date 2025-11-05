@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn test_masternode_rewards() {
         let mut node = Masternode::new(
-            Address::from_string("TIME1test").unwrap(),
+            Address::from_public_key(&[0u8; 32], wallet::NetworkType::Mainnet).unwrap(),
             "tx_hash".to_string(),
             10_000 * COIN,
         )
@@ -303,14 +303,14 @@ mod tests {
         let mut network = MasternodeNetwork::new();
 
         let node1 = Masternode::new(
-            Address::from_string("TIME1node1").unwrap(),
+            Address::from_public_key(&[1u8; 32], wallet::NetworkType::Mainnet).unwrap(),
             "tx1".to_string(),
             1_000 * COIN,
         )
         .unwrap();
 
         let node2 = Masternode::new(
-            Address::from_string("TIME1node2").unwrap(),
+            Address::from_public_key(&[2u8; 32], wallet::NetworkType::Mainnet).unwrap(),
             "tx2".to_string(),
             100_000 * COIN,
         )
