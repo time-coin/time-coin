@@ -51,14 +51,9 @@ impl BlockchainDB {
         let mut blocks = Vec::new();
         let mut height = 0u64;
 
-        loop {
-            match self.load_block(height)? {
-                Some(block) => {
-                    blocks.push(block);
-                    height += 1;
-                }
-                None => break,
-            }
+        while let Some(block) = self.load_block(height)? {
+            blocks.push(block);
+            height += 1;
         }
 
         Ok(blocks)

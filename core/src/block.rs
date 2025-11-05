@@ -191,7 +191,7 @@ impl Block {
         hasher.update(self.header.validator_address.as_bytes());
 
         let hash1 = hasher.finalize();
-        let hash2 = Sha3_256::digest(&hash1);
+        let hash2 = Sha3_256::digest(hash1);
 
         hex::encode(hash2)
     }

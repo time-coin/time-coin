@@ -460,6 +460,7 @@ pub struct ChainStats {
 mod tests {
     use super::*;
     use crate::transaction::TxOutput;
+    use std::fs;
 
     fn create_genesis_block() -> Block {
         let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
@@ -470,7 +471,16 @@ mod tests {
     fn test_blockchain_initialization() {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
-        let state = BlockchainState::new(genesis, "/tmp/test_blockchain_1").unwrap();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let state = BlockchainState::new(genesis, &db_path).unwrap();
         assert_eq!(state.chain_tip_height(), 0);
         assert_eq!(state.chain_tip_hash(), genesis_hash);
         assert_eq!(state.total_supply(), 100_000_000_000);
@@ -480,8 +490,18 @@ mod tests {
     fn test_add_block() {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
-        let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_2").unwrap();
-        let outputs = vec![TxOutput::new(10_000_000_000, "miner1".to_string())];
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+        // Use the allowed coinbase amount (treasury 5 TIME = 5 * 100_000_000 = 500_000_000)
+        let outputs = vec![TxOutput::new(500_000_000, "miner1".to_string())];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
         assert_eq!(state.chain_tip_height(), 1);
@@ -491,7 +511,16 @@ mod tests {
     #[test]
     fn test_masternode_registration() {
         let genesis = create_genesis_block();
-        let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_3").unwrap();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
         state
             .register_masternode(
                 "masternode1".to_string(),
@@ -507,7 +536,16 @@ mod tests {
     #[test]
     fn test_get_balance() {
         let genesis = create_genesis_block();
-        let state = BlockchainState::new(genesis, "/tmp/test_blockchain_4").unwrap();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let state = BlockchainState::new(genesis, &db_path).unwrap();
         assert_eq!(state.get_balance("genesis"), 100_000_000_000);
         assert_eq!(state.get_balance("nonexistent"), 0);
     }

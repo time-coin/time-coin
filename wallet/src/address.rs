@@ -95,7 +95,7 @@ impl Address {
     }
 
     /// Convert address to string
-    pub fn to_string(&self) -> String {
+    fn format_address(&self) -> String {
         // Add checksum
         let checksum = Self::checksum(&self.bytes);
         let mut full = self.bytes.clone();
@@ -134,27 +134,27 @@ impl Address {
     /// Compute hash160 (SHA256 + RIPEMD160)
     fn hash160_data(data: &[u8]) -> [u8; 20] {
         let sha256_hash = Sha256::digest(data);
-        let ripemd_hash = ripemd::Ripemd160::digest(&sha256_hash);
+        let ripemd_hash = ripemd::Ripemd160::digest(sha256_hash);
         ripemd_hash.into()
     }
 
     /// Compute checksum (first 4 bytes of double SHA256)
     fn checksum(data: &[u8]) -> [u8; 4] {
         let hash1 = Sha256::digest(data);
-        let hash2 = Sha256::digest(&hash1);
+        let hash2 = Sha256::digest(hash1);
         [hash2[0], hash2[1], hash2[2], hash2[3]]
     }
 }
 
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.format_address())
     }
 }
 
 impl fmt::Debug for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Address({})", self.to_string())
+        write!(f, "Address({})", self.format_address())
     }
 }
 

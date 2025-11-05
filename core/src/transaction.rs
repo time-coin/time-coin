@@ -122,7 +122,7 @@ impl Transaction {
     pub fn calculate_txid(&self) -> String {
         let data = self.serialize_for_signing();
         let hash1 = Sha3_256::digest(&data);
-        let hash2 = Sha3_256::digest(&hash1);
+        let hash2 = Sha3_256::digest(hash1);
         hex::encode(hash2)
     }
 

@@ -1,5 +1,6 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -57,7 +58,12 @@ mod signing_key_serde {
 
 impl Keypair {
     pub fn generate() -> Result<Self, KeypairError> {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        // ed25519-dalek v2 does not expose `SigningKey::generate`.
+        // Generate 32 random bytes and construct a SigningKey via from_bytes.
+        let mut rng = OsRng;
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+        let signing_key = SigningKey::from_bytes(&bytes);
         Ok(Keypair { signing_key })
     }
 
