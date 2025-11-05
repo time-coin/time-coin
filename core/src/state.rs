@@ -460,6 +460,7 @@ pub struct ChainStats {
 mod tests {
     use super::*;
     use crate::transaction::TxOutput;
+    use std::fs;
 
     fn create_genesis_block() -> Block {
         let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
@@ -481,7 +482,8 @@ mod tests {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
         let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_2").unwrap();
-        let outputs = vec![TxOutput::new(10_000_000_000, "miner1".to_string())];
+        // Use the allowed coinbase amount (treasury 5 TIME = 5 * 100_000_000 = 500_000_000)
+        let outputs = vec![TxOutput::new(500_000_000, "miner1".to_string())];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
         assert_eq!(state.chain_tip_height(), 1);
