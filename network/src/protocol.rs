@@ -126,7 +126,7 @@ mod tests {
         let addr = "127.0.0.1:24100".parse().unwrap();
         let handshake = HandshakeMessage::new(NetworkType::Testnet, addr);
 
-        assert_eq!(handshake.version.split("-").next().unwrap(), VERSION);
+        assert_eq!(handshake.version, VERSION);
         assert_eq!(handshake.protocol_version, PROTOCOL_VERSION);
         assert_eq!(handshake.network, NetworkType::Testnet);
     }
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn test_protocol_version() {
         let version = ProtocolVersion::current();
-        assert_eq!(version.software_version.split("-").next().unwrap(), VERSION);
+        assert_eq!(version.software_version, VERSION);
         assert_eq!(version.protocol_version, PROTOCOL_VERSION);
     }
 }

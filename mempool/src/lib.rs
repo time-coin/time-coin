@@ -107,10 +107,9 @@ impl Mempool {
 
         pool.insert(tx.txid.clone(), entry);
 
-        let id_display = if tx.txid.len() > 16 { &tx.txid[..16] } else { &tx.txid };
         println!(
             "📝 Added transaction {} to mempool (priority: {})",
-            id_display,
+            &tx.txid[..16],
             priority
         );
 
