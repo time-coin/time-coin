@@ -1,67 +1,73 @@
-#!/bin/bash
-# Validates that all script references in README.md exist in the repository
-# Exits with non-zero status if any referenced files are missing
+#!/usr/bin/env bash
+# scripts/ci/check-readme-scripts.sh
+# Checks README.md and docs/*.md for references to scripts/* and verifies file existence.
+# Exits non-zero if any referenced script path is missing.
+#
+# Portable adjustments made for Git Bash / MSYS:
+# - Avoid use of [[ ... =~ ... ]] with complex character classes (can fail on some bash builds)
+# - Use a case-based loop to trim trailing punctuation
+# - Use a safe grep pattern with hyphen at start of class
 
-set -e
+set -euo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+MISSES=()
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-README_FILE="$REPO_ROOT/README.md"
+# Start with README.md
+FILES_TO_SCAN=("$ROOT_DIR/README.md")
 
-if [ ! -f "$README_FILE" ]; then
-    echo -e "${RED}Error: README.md not found at $README_FILE${NC}"
-    exit 1
-fi
+# Add docs/*.md (if any)
+while IFS= read -r -d '' f; do
+  FILES_TO_SCAN+=("$f")
+done < <(find "$ROOT_DIR/docs" -maxdepth 2 -type f -name '*.md' -print0 2>/dev/null || true)
 
-echo "Checking README.md for script references..."
-echo "Repository root: $REPO_ROOT"
-echo ""
+echo "Scanning ${#FILES_TO_SCAN[@]} markdown file(s) for scripts/ references..."
 
-# Extract script references from README.md
-# Look for patterns like:
-# - scripts/something.sh
-# - ./scripts/something.sh
-# - scripts/setup/something.sh
-# We'll extract all references to files under scripts/
+for md in "${FILES_TO_SCAN[@]}"; do
+  [ -f "$md" ] || continue
 
-MISSING_FILES=()
-CHECKED_FILES=()
+  # Extract substrings that start with scripts/ (or ./scripts/ or /scripts/) up to the next whitespace/punctuation
+  # grep will return one match per line; use || true so absence of matches doesn't cause failure
+  while IFS= read -r match; do
+    # Normalize leading ./ or / to repo-relative path
+    candidate="${match#./}"
+    candidate="${candidate#/}"
 
-# Use grep to find all script references in the file
-# This regex looks for scripts/ followed by any path-like characters
-SCRIPT_REFS=$(grep -oE '(\./)?scripts/[a-zA-Z0-9_./\-]+\.(sh|md|toml|yml|yaml|txt)' "$README_FILE" | sed 's|^\./||' | sort -u)
-
-# Check each unique script reference
-while IFS= read -r script_path; do
-    # Skip empty lines
-    [ -z "$script_path" ] && continue
-    
-    full_path="$REPO_ROOT/$script_path"
-    if [ -f "$full_path" ]; then
-        echo -e "${GREEN}✓${NC} Found: $script_path"
-    else
-        echo -e "${RED}✗${NC} Missing: $script_path"
-        MISSING_FILES+=("$script_path")
-    fi
-done <<< "$SCRIPT_REFS"
-
-echo ""
-
-# Report results
-if [ ${#MISSING_FILES[@]} -eq 0 ]; then
-    echo -e "${GREEN}All script references are valid!${NC}"
-    exit 0
-else
-    echo -e "${RED}Error: Found ${#MISSING_FILES[@]} missing script reference(s):${NC}"
-    for file in "${MISSING_FILES[@]}"; do
-        echo -e "${RED}  - $file${NC}"
+    # Strip trailing punctuation characters if present: ) , ] ; " ' space
+    # Use a case statement to avoid =~ and maintain portability
+    while [ -n "$candidate" ]; do
+      last_char="${candidate: -1}"
+      case "$last_char" in
+        ')'|','|']'|';'|'"'|"'"|' ')
+          candidate=${candidate%?}
+          ;;
+        *)
+          break
+          ;;
+      esac
     done
-    echo ""
-    echo "Please update README.md to reference existing files or create the missing files."
-    exit 1
+
+    # Skip empty results
+    if [ -z "$candidate" ]; then
+      continue
+    fi
+
+    # Check existence relative to repo root
+    if [ ! -e "$ROOT_DIR/$candidate" ]; then
+      MISSES+=("$candidate (referenced in $md)")
+    fi
+  done < <(grep -oE '(\./|/)?scripts/[-A-Za-z0-9._/]*' "$md" || true)
+done
+
+if [ "${#MISSES[@]}" -ne 0 ]; then
+  echo "ERROR: The following referenced script files are missing in the repository:"
+  for m in "${MISSES[@]}"; do
+    echo "  - $m"
+  done
+  echo ""
+  echo "Please ensure these paths exist or update the documentation to the correct paths."
+  exit 1
 fi
+
+echo "OK: All referenced scripts exist."
+exit 0
