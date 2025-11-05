@@ -172,7 +172,7 @@ testnet_auto_fund = true
 [rpc]
 enabled = true
 bind = "127.0.0.1"
-port = 9877
+port = 24101
 # Only allow local connections for security
 
 [logging]
@@ -316,7 +316,7 @@ echo "  • Node Name: $NODE_NAME"
 echo "  • Tier: $TIER ($COLLATERAL TIME)"
 echo "  • Public IP: $PUBLIC_IP"
 echo "  • P2P Port: 9876"
-echo "  • RPC Port: 9877 (local only)"
+echo "  • RPC Port: 24101 (local only)"
 echo "  • Config: ~/time-coin-node/config/testnet.toml"
 echo "  • Data: ~/time-coin-node/data"
 echo "  • Logs: ~/time-coin-node/logs"
