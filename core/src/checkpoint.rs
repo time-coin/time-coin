@@ -22,7 +22,7 @@ impl Checkpoint {
 
     pub fn is_checkpoint_block(block_number: u64) -> bool {
         // Checkpoint every 24 hours (17,280 blocks at 5 seconds)
-        block_number % 17_280 == 0
+        block_number.is_multiple_of(17_280)
     }
 }
 
