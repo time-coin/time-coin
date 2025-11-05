@@ -57,11 +57,7 @@ impl IntoResponse for ApiError {
                 "invalid_private_key",
                 "Private key format is invalid".to_string(),
             ),
-            ApiError::Unauthorized(msg) => (
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                msg,
-            ),
+            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized", msg),
             ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg),
         };
 

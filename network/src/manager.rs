@@ -1,13 +1,13 @@
 //! Peer connection manager
 use crate::connection::PeerConnection;
 use crate::discovery::{NetworkType, PeerInfo};
+use crate::protocol::{NetworkMessage, TransactionMessage};
+use local_ip_address::local_ip;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use local_ip_address::local_ip;
-use crate::protocol::{NetworkMessage, TransactionMessage};
 use tokio::sync::RwLock;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 #[derive(serde::Deserialize, Debug)]
 pub struct Snapshot {
@@ -31,9 +31,9 @@ impl PeerManager {
             network,
             listen_addr,
             peers: Arc::new(RwLock::new(HashMap::new())),
-            peer_exchange: Arc::new(RwLock::new(
-                crate::peer_exchange::PeerExchange::new("/root/time-coin-node/data/peers.json".to_string())
-            )),
+            peer_exchange: Arc::new(RwLock::new(crate::peer_exchange::PeerExchange::new(
+                "/root/time-coin-node/data/peers.json".to_string(),
+            ))),
         }
     }
 
@@ -53,7 +53,9 @@ impl PeerManager {
         let peer_addr = peer.address;
         let peer_arc = Arc::new(tokio::sync::Mutex::new(peer.clone()));
 
-        match PeerConnection::connect(peer_arc.clone(), self.network.clone(), self.listen_addr).await {
+        match PeerConnection::connect(peer_arc.clone(), self.network.clone(), self.listen_addr)
+            .await
+        {
             Ok(conn) => {
                 // On successful connect, get peer info and record
                 let info = conn.peer_info().await;
@@ -66,8 +68,9 @@ impl PeerManager {
                 self.add_discovered_peer(
                     peer_addr.ip().to_string(),
                     peer_addr.port(),
-                    info.version.clone()
-                ).await;
+                    info.version.clone(),
+                )
+                .await;
 
                 self.record_peer_success(&peer_addr.to_string()).await;
 
@@ -144,13 +147,16 @@ impl PeerManager {
         self.add_discovered_peer(
             peer.address.ip().to_string(),
             peer.address.port(),
-            peer.version.clone()
-        ).await;
+            peer.version.clone(),
+        )
+        .await;
     }
 
     pub async fn get_peer_ips(&self) -> Vec<String> {
         // Return host:port strings (unique) rather than bare IPs
-        self.peers.read().await
+        self.peers
+            .read()
+            .await
             .values()
             .map(|p| p.address.to_string())
             .collect()
@@ -168,7 +174,10 @@ impl PeerManager {
         Ok(peer_count)
     }
 
-    pub async fn request_genesis(&self, peer_addr: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    pub async fn request_genesis(
+        &self,
+        peer_addr: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         let url = format!("http://{}:24101/genesis", peer_addr.replace(":24100", ""));
 
         let client = reqwest::Client::builder()
@@ -186,8 +195,14 @@ impl PeerManager {
     }
 
     /// Request mempool from a peer
-    pub async fn request_mempool(&self, peer_addr: &str) -> Result<Vec<time_core::Transaction>, Box<dyn std::error::Error>> {
-        let url = format!("http://{}:24101/mempool/all", peer_addr.replace(":24100", ""));
+    pub async fn request_mempool(
+        &self,
+        peer_addr: &str,
+    ) -> Result<Vec<time_core::Transaction>, Box<dyn std::error::Error>> {
+        let url = format!(
+            "http://{}:24101/mempool/all",
+            peer_addr.replace(":24100", "")
+        );
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
@@ -202,8 +217,14 @@ impl PeerManager {
         Ok(transactions)
     }
 
-    pub async fn request_blockchain_info(&self, peer_addr: &str) -> Result<u64, Box<dyn std::error::Error>> {
-        let url = format!("http://{}:24101/blockchain/info", peer_addr.replace(":24100", ""));
+    pub async fn request_blockchain_info(
+        &self,
+        peer_addr: &str,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        let url = format!(
+            "http://{}:24101/blockchain/info",
+            peer_addr.replace(":24100", "")
+        );
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
@@ -215,14 +236,18 @@ impl PeerManager {
         }
 
         let info: serde_json::Value = response.json().await?;
-        let height = info.get("height")
+        let height = info
+            .get("height")
             .and_then(|h| h.as_u64())
             .ok_or("Invalid height in response")?;
 
         Ok(height)
     }
 
-    pub async fn request_snapshot(&self, peer_addr: &str) -> Result<Snapshot, Box<dyn std::error::Error>> {
+    pub async fn request_snapshot(
+        &self,
+        peer_addr: &str,
+    ) -> Result<Snapshot, Box<dyn std::error::Error>> {
         let url = format!("http://{}:24101/snapshot", peer_addr.replace(":24100", ""));
 
         let client = reqwest::Client::builder()

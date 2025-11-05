@@ -1,4 +1,4 @@
-use wallet::{Wallet, UTXO, NetworkType};
+use wallet::{NetworkType, Wallet, UTXO};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== TIME Coin Wallet Example ===\n");

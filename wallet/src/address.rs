@@ -1,19 +1,19 @@
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AddressError {
     #[error("Invalid public key")]
     InvalidPublicKey,
-    
+
     #[error("Invalid address format")]
     InvalidAddress,
-    
+
     #[error("Invalid address checksum")]
     InvalidChecksum,
-    
+
     #[error("Invalid address version")]
     InvalidVersion,
 }
@@ -111,7 +111,7 @@ impl Address {
     pub fn version(&self) -> u8 {
         self.bytes[0]
     }
-    
+
     /// Get network type
     pub fn network(&self) -> NetworkType {
         if self.version() == NetworkType::Testnet.version_byte() {

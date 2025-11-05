@@ -1,6 +1,6 @@
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug)]
@@ -116,34 +116,42 @@ impl Keypair {
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(signature);
         let sig = Signature::from_bytes(&sig_bytes);
-        
+
         self.public_key()
             .verify(message, &sig)
             .map_err(|_| KeypairError::VerificationError)
     }
 
-    pub fn verify_with_public_key(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<(), KeypairError> {
+    pub fn verify_with_public_key(
+        public_key: &[u8],
+        message: &[u8],
+        signature: &[u8],
+    ) -> Result<(), KeypairError> {
         verify_signature(public_key, message, signature)
     }
 }
 
-pub fn verify_signature(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<(), KeypairError> {
+pub fn verify_signature(
+    public_key: &[u8],
+    message: &[u8],
+    signature: &[u8],
+) -> Result<(), KeypairError> {
     if public_key.len() != 32 {
         return Err(KeypairError::VerificationError);
     }
     if signature.len() != 64 {
         return Err(KeypairError::SignatureError);
     }
-    
+
     let mut pk_bytes = [0u8; 32];
     pk_bytes.copy_from_slice(public_key);
-    let verifying_key = VerifyingKey::from_bytes(&pk_bytes)
-        .map_err(|_| KeypairError::VerificationError)?;
-    
+    let verifying_key =
+        VerifyingKey::from_bytes(&pk_bytes).map_err(|_| KeypairError::VerificationError)?;
+
     let mut sig_bytes = [0u8; 64];
     sig_bytes.copy_from_slice(signature);
     let sig = Signature::from_bytes(&sig_bytes);
-    
+
     verifying_key
         .verify(message, &sig)
         .map_err(|_| KeypairError::VerificationError)
@@ -153,9 +161,9 @@ pub fn keypair_from_seed(seed: &[u8]) -> Result<Keypair, KeypairError> {
     if seed.len() < 32 {
         return Err(KeypairError::GenerationError);
     }
-    
+
     let mut secret_bytes = [0u8; 32];
     secret_bytes.copy_from_slice(&seed[..32]);
-    
+
     Keypair::from_bytes(&secret_bytes)
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use sysinfo::{System, SystemExt};
+use tokio::sync::RwLock;
 
 pub struct ResourceMonitor {
     system: Arc<RwLock<System>>,
@@ -16,16 +16,16 @@ impl ResourceMonitor {
             critical_threshold_percent: 90.0,
         }
     }
-    
+
     pub async fn check_memory(&self) -> MemoryStatus {
         let mut sys = self.system.write().await;
         sys.refresh_memory();
-        
+
         let total_mem = sys.total_memory();
         let used_mem = sys.used_memory();
         let available_mem = sys.available_memory();
         let usage_percent = (used_mem as f64 / total_mem as f64) * 100.0;
-        
+
         let status = if usage_percent >= self.critical_threshold_percent {
             MemoryLevel::Critical
         } else if usage_percent >= self.warning_threshold_percent {
@@ -33,7 +33,7 @@ impl ResourceMonitor {
         } else {
             MemoryLevel::Normal
         };
-        
+
         MemoryStatus {
             total_gb: total_mem as f64 / 1_073_741_824.0,
             used_gb: used_mem as f64 / 1_073_741_824.0,
@@ -42,8 +42,12 @@ impl ResourceMonitor {
             level: status,
         }
     }
-    
-    pub fn estimate_transaction_capacity(&self, tx_size_bytes: usize, available_memory_bytes: u64) -> usize {
+
+    pub fn estimate_transaction_capacity(
+        &self,
+        tx_size_bytes: usize,
+        available_memory_bytes: u64,
+    ) -> usize {
         (available_memory_bytes as usize / tx_size_bytes).min(10_000_000)
     }
 }
@@ -59,9 +63,9 @@ pub struct MemoryStatus {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MemoryLevel {
-    Normal,    // < 75%
-    Warning,   // 75-90%
-    Critical,  // > 90%
+    Normal,   // < 75%
+    Warning,  // 75-90%
+    Critical, // > 90%
 }
 
 impl MemoryStatus {
@@ -75,10 +79,15 @@ impl MemoryStatus {
                 println!("⚠️  ═══════════════════════════════════════════════════════");
                 println!("⚠️  MEMORY WARNING");
                 println!("⚠️  ═══════════════════════════════════════════════════════");
-                println!("   System Memory: {:.1}% used ({:.2} GB / {:.2} GB)", 
-                    self.usage_percent, self.used_gb, self.total_gb);
+                println!(
+                    "   System Memory: {:.1}% used ({:.2} GB / {:.2} GB)",
+                    self.usage_percent, self.used_gb, self.total_gb
+                );
                 println!("   Available: {:.2} GB", self.available_gb);
-                println!("   Mempool: {} transactions ({:.1} MB)", mempool_count, mempool_size_mb);
+                println!(
+                    "   Mempool: {} transactions ({:.1} MB)",
+                    mempool_count, mempool_size_mb
+                );
                 println!("");
                 println!("   ACTION: Memory usage is elevated");
                 println!("   - Mempool pruning may activate soon");
@@ -92,10 +101,15 @@ impl MemoryStatus {
                 println!("🚨 ═══════════════════════════════════════════════════════");
                 println!("🚨 CRITICAL: MEMORY EXHAUSTION");
                 println!("🚨 ═══════════════════════════════════════════════════════");
-                println!("   System Memory: {:.1}% used ({:.2} GB / {:.2} GB)", 
-                    self.usage_percent, self.used_gb, self.total_gb);
+                println!(
+                    "   System Memory: {:.1}% used ({:.2} GB / {:.2} GB)",
+                    self.usage_percent, self.used_gb, self.total_gb
+                );
                 println!("   Available: {:.2} GB", self.available_gb);
-                println!("   Mempool: {} transactions ({:.1} MB)", mempool_count, mempool_size_mb);
+                println!(
+                    "   Mempool: {} transactions ({:.1} MB)",
+                    mempool_count, mempool_size_mb
+                );
                 println!("");
                 println!("   🚨 EMERGENCY ACTIONS ACTIVE:");
                 println!("   ✓ Rejecting new transactions");

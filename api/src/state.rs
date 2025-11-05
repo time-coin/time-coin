@@ -1,10 +1,10 @@
 //! API State Management
-use time_core::state::BlockchainState;
-use std::sync::Arc;
-use time_network::PeerManager;
-use time_network::discovery::PeerDiscovery;
-use tokio::sync::RwLock;
 use std::collections::HashMap;
+use std::sync::Arc;
+use time_core::state::BlockchainState;
+use time_network::discovery::PeerDiscovery;
+use time_network::PeerManager;
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -52,15 +52,15 @@ pub struct GrantData {
 
 impl ApiState {
     pub fn new(
-        dev_mode: bool, 
-        network: String, 
-        peer_discovery: Arc<RwLock<PeerDiscovery>>, 
-        peer_manager: Arc<PeerManager>, 
-        admin_token: Option<String>, 
-        blockchain: Arc<RwLock<BlockchainState>>
+        dev_mode: bool,
+        network: String,
+        peer_discovery: Arc<RwLock<PeerDiscovery>>,
+        peer_manager: Arc<PeerManager>,
+        admin_token: Option<String>,
+        blockchain: Arc<RwLock<BlockchainState>>,
     ) -> Self {
         let mut balances = HashMap::new();
-        
+
         // Initialize genesis balances (1M TIME)
         balances.insert(
             "TIME1treasury00000000000000000000000000".to_string(),
@@ -78,7 +78,7 @@ impl ApiState {
             "TIME1rewards000000000000000000000000000".to_string(),
             30_000_000_000_000, // 300,000 TIME
         );
-        
+
         Self {
             balances: Arc::new(RwLock::new(balances)),
             transactions: Arc::new(RwLock::new(HashMap::new())),
@@ -104,19 +104,27 @@ impl ApiState {
     }
 
     /// Set transaction consensus manager
-    pub fn with_tx_consensus(mut self, tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>) -> Self {
+    pub fn with_tx_consensus(
+        mut self,
+        tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+    ) -> Self {
         self.tx_consensus = Some(tx_consensus);
         self
     }
 
-
     /// Set block consensus manager
-    pub fn with_block_consensus(mut self, block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>) -> Self {
+    pub fn with_block_consensus(
+        mut self,
+        block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
+    ) -> Self {
         self.block_consensus = Some(block_consensus);
         self
     }
     /// Set transaction broadcaster
-    pub fn with_tx_broadcaster(mut self, tx_broadcaster: Arc<time_network::tx_broadcast::TransactionBroadcaster>) -> Self {
+    pub fn with_tx_broadcaster(
+        mut self,
+        tx_broadcaster: Arc<time_network::tx_broadcast::TransactionBroadcaster>,
+    ) -> Self {
         self.tx_broadcaster = Some(tx_broadcaster);
         self
     }

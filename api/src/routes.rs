@@ -1,11 +1,11 @@
+use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
-use serde::Serialize;
 use axum::{
     extract::State,
     routing::{get, post},
     Json, Router,
 };
-use crate::{ApiState, ApiError, ApiResult};
+use serde::Serialize;
 
 pub fn create_routes() -> Router<ApiState> {
     Router::new()
@@ -76,7 +76,10 @@ async fn get_block_by_height(
         Some(block) => Ok(Json(BlockResponse {
             block: block.clone(),
         })),
-        None => Err(ApiError::TransactionNotFound(format!("Block {} not found", height))),
+        None => Err(ApiError::TransactionNotFound(format!(
+            "Block {} not found",
+            height
+        ))),
     }
 }
 
@@ -115,9 +118,9 @@ async fn get_utxos_by_address(
 ) -> ApiResult<Json<UtxoResponse>> {
     let blockchain = state.blockchain.read().await;
     let utxo_set = blockchain.utxo_set();
-    
+
     let mut utxos = Vec::new();
-    
+
     for (outpoint, output) in utxo_set.get_utxos_by_address(&address) {
         utxos.push(UtxoInfo {
             txid: outpoint.txid.clone(),
@@ -125,11 +128,8 @@ async fn get_utxos_by_address(
             amount: output.amount,
         });
     }
-    
-    Ok(Json(UtxoResponse {
-        address,
-        utxos,
-    }))
+
+    Ok(Json(UtxoResponse { address, utxos }))
 }
 
 #[derive(serde::Serialize)]
@@ -145,9 +145,7 @@ struct PeersResponse {
     count: usize,
 }
 
-async fn get_peers(
-    State(state): State<ApiState>,
-) -> ApiResult<Json<PeersResponse>> {
+async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<PeersResponse>> {
     let peers = state.peer_manager.get_connected_peers().await;
 
     let peer_info: Vec<PeerInfo> = peers
@@ -167,9 +165,7 @@ async fn get_peers(
     }))
 }
 
-async fn get_genesis(
-    State(_state): State<ApiState>,
-) -> ApiResult<Json<serde_json::Value>> {
+async fn get_genesis(State(_state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
     let genesis_path = std::env::var("GENESIS_PATH")
         .unwrap_or_else(|_| "/root/time-coin-node/data/genesis.json".to_string());
 
@@ -179,7 +175,7 @@ async fn get_genesis(
                 .map_err(|e| ApiError::Internal(format!("Failed to parse genesis: {}", e)))?;
             Ok(Json(genesis))
         }
-        Err(_) => Err(ApiError::Internal("Genesis block not found".to_string()))
+        Err(_) => Err(ApiError::Internal("Genesis block not found".to_string())),
     }
 }
 
@@ -192,9 +188,7 @@ struct SnapshotResponse {
     timestamp: i64,
 }
 
-async fn get_snapshot(
-    State(state): State<ApiState>,
-) -> ApiResult<Json<SnapshotResponse>> {
+async fn get_snapshot(State(state): State<ApiState>) -> ApiResult<Json<SnapshotResponse>> {
     let balances = state.balances.read().await;
     let masternodes = state.peer_manager.get_peer_ips().await;
 
@@ -235,7 +229,13 @@ async fn submit_transaction(
     State(_state): State<ApiState>,
     Json(tx): Json<TransactionRequest>,
 ) -> ApiResult<Json<TransactionResponse>> {
-    let tx_id = format!("{:x}", md5::compute(format!("{}{}{}{}{}", tx.from, tx.to, tx.amount, tx.timestamp, tx.signature)));
+    let tx_id = format!(
+        "{:x}",
+        md5::compute(format!(
+            "{}{}{}{}{}",
+            tx.from, tx.to, tx.amount, tx.timestamp, tx.signature
+        ))
+    );
 
     println!("📝 Transaction received:");
     println!("   From:   {}...", &tx.from[..16]);
@@ -345,14 +345,14 @@ struct MempoolStatusResponse {
 async fn get_mempool_status(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<MempoolStatusResponse>> {
-    let mempool = state.mempool.as_ref()
+    let mempool = state
+        .mempool
+        .as_ref()
         .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
-    
+
     let transactions = mempool.get_all_transactions().await;
-    let tx_ids: Vec<String> = transactions.iter()
-        .map(|tx| tx.txid.clone())
-        .collect();
-    
+    let tx_ids: Vec<String> = transactions.iter().map(|tx| tx.txid.clone()).collect();
+
     Ok(Json(MempoolStatusResponse {
         size: tx_ids.len(),
         transactions: tx_ids,
@@ -363,17 +363,21 @@ async fn add_to_mempool(
     State(state): State<ApiState>,
     Json(tx): Json<time_core::Transaction>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let mempool = state.mempool.as_ref()
+    let mempool = state
+        .mempool
+        .as_ref()
         .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
-    
-    mempool.add_transaction(tx.clone()).await
+
+    mempool
+        .add_transaction(tx.clone())
+        .await
         .map_err(|e| ApiError::Internal(format!("Failed to add transaction: {}", e)))?;
-    
+
     // Broadcast to peers
     if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
         broadcaster.broadcast_transaction(tx).await;
     }
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Transaction added to mempool and broadcast"
@@ -383,9 +387,11 @@ async fn add_to_mempool(
 async fn get_all_mempool_txs(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<Vec<time_core::Transaction>>> {
-    let mempool = state.mempool.as_ref()
+    let mempool = state
+        .mempool
+        .as_ref()
         .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
-    
+
     let transactions = mempool.get_all_transactions().await;
     Ok(Json(transactions))
 }
@@ -395,25 +401,28 @@ async fn receive_tx_proposal(
     Json(proposal): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::tx_consensus::TransactionProposal;
-    
+
     // Parse the proposal
     let tx_proposal: TransactionProposal = serde_json::from_value(proposal)
         .map_err(|e| ApiError::Internal(format!("Invalid proposal format: {}", e)))?;
-    
-    println!("📬 Received transaction proposal for block {}", tx_proposal.block_height);
+
+    println!(
+        "📬 Received transaction proposal for block {}",
+        tx_proposal.block_height
+    );
     println!("   Proposer: {}", tx_proposal.proposer);
     println!("   Transactions: {}", tx_proposal.tx_ids.len());
     println!("   Merkle root: {}...", &tx_proposal.merkle_root[..16]);
-    
+
     // Store proposal in tx_consensus
     if let Some(tx_consensus) = state.tx_consensus.as_ref() {
         tx_consensus.propose_tx_set(tx_proposal.clone()).await;
-        
+
         // Auto-vote if we're a validator (not the proposer)
         let blockchain = state.blockchain.read().await;
         let node_id = blockchain.chain_tip_hash().to_string(); // Use our node ID
         drop(blockchain);
-        
+
         if node_id != tx_proposal.proposer {
             // Validate the transactions exist in our mempool
             let mut all_valid = true;
@@ -425,7 +434,7 @@ async fn receive_tx_proposal(
                     }
                 }
             }
-            
+
             // Cast our vote
             let vote = time_consensus::tx_consensus::TxSetVote {
                 block_height: tx_proposal.block_height,
@@ -434,12 +443,16 @@ async fn receive_tx_proposal(
                 approve: all_valid,
                 timestamp: chrono::Utc::now().timestamp(),
             };
-            
+
             let _ = tx_consensus.vote_on_tx_set(vote.clone()).await;
-            
-            let vote_type = if all_valid { "APPROVE ✓" } else { "REJECT ✗" };
+
+            let vote_type = if all_valid {
+                "APPROVE ✓"
+            } else {
+                "REJECT ✗"
+            };
             println!("   🗳️  Auto-voted: {}", vote_type);
-            
+
             // Broadcast our vote to other nodes
             if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
                 let vote_json = serde_json::to_value(&vote).unwrap();
@@ -447,7 +460,7 @@ async fn receive_tx_proposal(
             }
         }
     }
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Transaction proposal received and processed"
@@ -459,30 +472,43 @@ async fn receive_tx_vote(
     Json(vote): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::tx_consensus::TxSetVote;
-    
+
     // Parse the vote
     let tx_vote: TxSetVote = serde_json::from_value(vote)
         .map_err(|e| ApiError::Internal(format!("Invalid vote format: {}", e)))?;
-    
-    let vote_type = if tx_vote.approve { "APPROVE ✓" } else { "REJECT ✗" };
-    println!("🗳️  Received transaction set vote: {} from {}", vote_type, tx_vote.voter);
-    
+
+    let vote_type = if tx_vote.approve {
+        "APPROVE ✓"
+    } else {
+        "REJECT ✗"
+    };
+    println!(
+        "🗳️  Received transaction set vote: {} from {}",
+        vote_type, tx_vote.voter
+    );
+
     // Store vote in tx_consensus
     if let Some(tx_consensus) = state.tx_consensus.as_ref() {
-        tx_consensus.vote_on_tx_set(tx_vote.clone()).await
+        tx_consensus
+            .vote_on_tx_set(tx_vote.clone())
+            .await
             .map_err(|e| ApiError::Internal(e))?;
-        
+
         // Check if we now have consensus
         let (has_consensus, approvals, total) = tx_consensus
-            .has_tx_consensus(tx_vote.block_height, &tx_vote.merkle_root).await;
-        
+            .has_tx_consensus(tx_vote.block_height, &tx_vote.merkle_root)
+            .await;
+
         if has_consensus {
-            println!("   ✅ Transaction set consensus reached! ({}/{})", approvals, total);
+            println!(
+                "   ✅ Transaction set consensus reached! ({}/{})",
+                approvals, total
+            );
         } else {
             println!("   ⏳ Waiting for consensus... ({}/{})", approvals, total);
         }
     }
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Vote recorded"
@@ -493,22 +519,25 @@ async fn receive_block_proposal(
     Json(proposal): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::block_consensus::BlockProposal;
-    
+
     let block_proposal: BlockProposal = serde_json::from_value(proposal)
         .map_err(|e| ApiError::Internal(format!("Invalid proposal format: {}", e)))?;
-    
-    println!("📦 Received block proposal for height {}", block_proposal.block_height);
+
+    println!(
+        "📦 Received block proposal for height {}",
+        block_proposal.block_height
+    );
     println!("   Proposer: {}", block_proposal.proposer);
     if !block_proposal.block_hash.is_empty() {
         println!("   Block hash: {}...", &block_proposal.block_hash[..16]);
     } else {
         println!("   Block hash: (pending)");
     }
-    
+
     if let Some(block_consensus) = state.block_consensus.as_ref() {
         block_consensus.propose_block(block_proposal.clone()).await;
     }
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Block proposal received"
@@ -520,27 +549,37 @@ async fn receive_block_vote(
     Json(vote): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::block_consensus::BlockVote;
-    
+
     let block_vote: BlockVote = serde_json::from_value(vote)
         .map_err(|e| ApiError::Internal(format!("Invalid vote format: {}", e)))?;
-    
-    let vote_type = if block_vote.approve { "APPROVE ✓" } else { "REJECT ✗" };
-    println!("🗳️  Received block vote: {} from {}", vote_type, block_vote.voter);
-    
+
+    let vote_type = if block_vote.approve {
+        "APPROVE ✓"
+    } else {
+        "REJECT ✗"
+    };
+    println!(
+        "🗳️  Received block vote: {} from {}",
+        vote_type, block_vote.voter
+    );
+
     if let Some(block_consensus) = state.block_consensus.as_ref() {
-        block_consensus.vote_on_block(block_vote.clone()).await
+        block_consensus
+            .vote_on_block(block_vote.clone())
+            .await
             .map_err(|e| ApiError::Internal(e))?;
-        
+
         let (has_consensus, approvals, total) = block_consensus
-            .has_block_consensus(block_vote.block_height, &block_vote.block_hash).await;
-        
+            .has_block_consensus(block_vote.block_height, &block_vote.block_hash)
+            .await;
+
         if has_consensus {
             println!("   ✅ CONSENSUS REACHED ({}/{})", approvals, total);
         } else {
             println!("   ⏳ Waiting... ({}/{})", approvals, total);
         }
     }
-    
+
     Ok(Json(serde_json::json!({
         "success": true
     })))

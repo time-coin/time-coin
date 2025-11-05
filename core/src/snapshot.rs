@@ -1,8 +1,8 @@
 //! Snapshot system for fast memory operations with disk backup
 
-use crate::transaction::Transaction;
-use crate::state::StateError;
 use crate::db::BlockchainDB;
+use crate::state::StateError;
+use crate::transaction::Transaction;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
@@ -47,7 +47,7 @@ impl HotStateManager {
             balance_cache: HashMap::new(),
             last_block_hash: String::new(),
         }));
-        
+
         Ok(HotStateManager {
             hot_state,
             db,
@@ -55,11 +55,11 @@ impl HotStateManager {
             last_snapshot: Arc::new(RwLock::new(SystemTime::now())),
         })
     }
-    
+
     /// Load from disk on startup
     pub fn load_from_disk(&self) -> Result<(), StateError> {
         println!("🔄 Loading hot state from disk...");
-        
+
         // Try to load snapshot
         let snapshot = match self.db.load_snapshot()? {
             Some(s) => s,
@@ -68,16 +68,18 @@ impl HotStateManager {
                 return Ok(());
             }
         };
-        
-        println!("✅ Loaded snapshot from {} (height {})", 
-                 format_timestamp(snapshot.snapshot_time), 
-                 snapshot.current_height);
-        
+
+        println!(
+            "✅ Loaded snapshot from {} (height {})",
+            format_timestamp(snapshot.snapshot_time),
+            snapshot.current_height
+        );
+
         // Restore hot state
         let mut state = self.hot_state.write().unwrap();
         state.current_height = snapshot.current_height;
         state.last_block_hash = snapshot.last_block_hash;
-        
+
         // Restore mempool
         state.mempool.clear();
         state.tx_hash_set.clear();
@@ -86,30 +88,33 @@ impl HotStateManager {
             state.mempool.push_back(tx.clone());
             state.recent_txs.push_back(tx);
         }
-        
+
         // Restore tx hash set from recent hashes
         for hash in snapshot.recent_tx_hashes {
             state.tx_hash_set.insert(hash);
         }
-        
-        println!("✅ Restored {} transactions in mempool", state.mempool.len());
-        
+
+        println!(
+            "✅ Restored {} transactions in mempool",
+            state.mempool.len()
+        );
+
         Ok(())
     }
-    
+
     pub fn add_transaction(&self, tx: Transaction) -> Result<(), StateError> {
         let mut state = self.hot_state.write().unwrap();
-        
+
         // Check for duplicates (O(1) lookup)
         if state.tx_hash_set.contains(&tx.txid) {
             return Err(StateError::DuplicateTransaction);
         }
-        
+
         // Add to mempool
         state.tx_hash_set.insert(tx.txid.clone());
         state.mempool.push_back(tx.clone());
         state.recent_txs.push_back(tx);
-        
+
         // Keep recent_txs bounded
         while state.recent_txs.len() > 10_000 {
             if let Some(old_tx) = state.recent_txs.pop_front() {
@@ -120,38 +125,38 @@ impl HotStateManager {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     pub fn get_mempool_transactions(&self, max_count: usize) -> Vec<Transaction> {
         let state = self.hot_state.read().unwrap();
         state.mempool.iter().take(max_count).cloned().collect()
     }
-    
+
     pub fn mempool_size(&self) -> usize {
         let state = self.hot_state.read().unwrap();
         state.mempool.len()
     }
-    
+
     pub fn has_transaction(&self, tx_hash: &[u8; 32]) -> bool {
         let state = self.hot_state.read().unwrap();
         let hash_str = hex::encode(tx_hash);
         state.tx_hash_set.contains(&hash_str)
     }
-    
+
     /// Save snapshot to disk (periodic backup)
     pub fn save_snapshot(&self) -> Result<(), StateError> {
         let now = SystemTime::now();
         let last = *self.last_snapshot.read().unwrap();
-        
+
         // Check if enough time has passed
         if now.duration_since(last).unwrap().as_secs() < self.snapshot_interval {
             return Ok(());
         }
-        
+
         let state = self.hot_state.read().unwrap();
-        
+
         // Create snapshot
         let snapshot = HotStateSnapshot {
             current_height: state.current_height,
@@ -160,16 +165,19 @@ impl HotStateManager {
             snapshot_time: now.duration_since(UNIX_EPOCH).unwrap().as_secs(),
             last_block_hash: state.last_block_hash.clone(),
         };
-        
+
         // Save to disk
         self.db.save_snapshot(&snapshot)?;
-        
+
         // Update last snapshot time
         *self.last_snapshot.write().unwrap() = now;
-        
-        println!("💾 Snapshot saved (height: {}, mempool: {} txs)", 
-                 snapshot.current_height, snapshot.mempool.len());
-        
+
+        println!(
+            "💾 Snapshot saved (height: {}, mempool: {} txs)",
+            snapshot.current_height,
+            snapshot.mempool.len()
+        );
+
         Ok(())
     }
 
@@ -177,7 +185,7 @@ impl HotStateManager {
     pub fn force_save_snapshot(&self) -> Result<(), StateError> {
         let now = SystemTime::now();
         let state = self.hot_state.read().unwrap();
-        
+
         // Create snapshot
         let snapshot = HotStateSnapshot {
             current_height: state.current_height,
@@ -186,19 +194,22 @@ impl HotStateManager {
             snapshot_time: now.duration_since(UNIX_EPOCH).unwrap().as_secs(),
             last_block_hash: state.last_block_hash.clone(),
         };
-        
+
         // Save to disk
         self.db.save_snapshot(&snapshot)?;
-        
+
         // Update last snapshot time
         *self.last_snapshot.write().unwrap() = now;
-        
-        println!("💾 Snapshot force saved (height: {}, mempool: {} txs)", 
-                 snapshot.current_height, snapshot.mempool.len());
-        
+
+        println!(
+            "💾 Snapshot force saved (height: {}, mempool: {} txs)",
+            snapshot.current_height,
+            snapshot.mempool.len()
+        );
+
         Ok(())
     }
-    
+
     pub fn get_stats(&self) -> HotStateStats {
         let state = self.hot_state.read().unwrap();
         HotStateStats {

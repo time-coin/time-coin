@@ -34,7 +34,8 @@ impl Finalizer {
         state: &mut BlockchainState,
     ) -> Result<(), StateError> {
         // Find the block in pending
-        let block_index = self.pending_blocks
+        let block_index = self
+            .pending_blocks
             .iter()
             .position(|b| b.hash == block_hash)
             .ok_or(StateError::BlockNotFound)?;
@@ -62,7 +63,8 @@ impl Finalizer {
 
     /// Clear old pending blocks
     pub fn clear_old_pending(&mut self, max_height: u64) {
-        self.pending_blocks.retain(|b| b.header.block_number >= max_height);
+        self.pending_blocks
+            .retain(|b| b.header.block_number >= max_height);
     }
 }
 
@@ -89,7 +91,7 @@ mod tests {
         let mut finalizer = Finalizer::new();
         let outputs = vec![TxOutput::new(100_000_000_000, "test".to_string())];
         let block = Block::new(1, "prev".to_string(), "validator".to_string(), outputs);
-        
+
         finalizer.add_pending_block(block);
         assert_eq!(finalizer.pending_blocks().len(), 1);
     }

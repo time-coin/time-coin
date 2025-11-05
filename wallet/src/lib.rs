@@ -1,5 +1,5 @@
 //! TIME Coin Wallet Module
-//! 
+//!
 //! Improved implementation with:
 //! - UTXO model for flexible transactions
 //! - thiserror for clean error handling

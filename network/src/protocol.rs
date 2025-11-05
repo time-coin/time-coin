@@ -23,7 +23,7 @@ pub fn full_version() -> String {
                 None
             }
         });
-    
+
     let hash = runtime_hash.unwrap_or_else(|| GIT_HASH.to_string());
     format!("{}-{}", VERSION, hash)
 }
@@ -36,19 +36,19 @@ pub const PROTOCOL_VERSION: u32 = 1;
 pub struct HandshakeMessage {
     /// Software version (e.g., "1.0.0")
     pub version: String,
-    
+
     /// Protocol version for compatibility
     pub protocol_version: u32,
-    
+
     /// Network type (Mainnet or Testnet)
     pub network: NetworkType,
-    
+
     /// Peer's listening address
     pub listen_addr: SocketAddr,
-    
+
     /// Timestamp of connection
     pub timestamp: u64,
-    
+
     /// Node capabilities (future use)
     pub capabilities: Vec<String>,
 }
@@ -62,13 +62,10 @@ impl HandshakeMessage {
             network,
             listen_addr,
             timestamp: current_timestamp(),
-            capabilities: vec![
-                "masternode".to_string(),
-                "sync".to_string(),
-            ],
+            capabilities: vec!["masternode".to_string(), "sync".to_string()],
         }
     }
-    
+
     /// Validate handshake from peer
     pub fn validate(&self, expected_network: &NetworkType) -> Result<(), String> {
         // Check network compatibility
@@ -78,7 +75,7 @@ impl HandshakeMessage {
                 expected_network, self.network
             ));
         }
-        
+
         // Check protocol version compatibility
         if self.protocol_version != PROTOCOL_VERSION {
             return Err(format!(
@@ -86,10 +83,10 @@ impl HandshakeMessage {
                 PROTOCOL_VERSION, self.protocol_version
             ));
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if versions are compatible
     pub fn is_compatible(&self) -> bool {
         self.protocol_version == PROTOCOL_VERSION
@@ -128,7 +125,7 @@ mod tests {
     fn test_handshake_creation() {
         let addr = "127.0.0.1:24100".parse().unwrap();
         let handshake = HandshakeMessage::new(NetworkType::Testnet, addr);
-        
+
         assert_eq!(handshake.version, VERSION);
         assert_eq!(handshake.protocol_version, PROTOCOL_VERSION);
         assert_eq!(handshake.network, NetworkType::Testnet);
@@ -138,7 +135,7 @@ mod tests {
     fn test_handshake_validation() {
         let addr = "127.0.0.1:24100".parse().unwrap();
         let handshake = HandshakeMessage::new(NetworkType::Testnet, addr);
-        
+
         assert!(handshake.validate(&NetworkType::Testnet).is_ok());
         assert!(handshake.validate(&NetworkType::Mainnet).is_err());
     }
@@ -240,11 +237,11 @@ pub fn is_version_outdated(peer_version: &str) -> bool {
     if peer_version == "unknown" {
         return false; // Don't warn about unknown versions
     }
-    
+
     // Extract git hash from versions (format: "0.1.0-abc123")
     let current_hash = GIT_HASH;
     let peer_hash = peer_version.split('-').last().unwrap_or("");
-    
+
     // Different git commits mean different versions
     current_hash != peer_hash && !peer_hash.is_empty()
 }

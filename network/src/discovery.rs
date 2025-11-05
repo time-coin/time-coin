@@ -30,7 +30,7 @@ impl PeerInfo {
             network,
         }
     }
-    
+
     /// Create a new peer with known version
     pub fn with_version(address: SocketAddr, network: NetworkType, version: String) -> Self {
         PeerInfo {
@@ -40,13 +40,13 @@ impl PeerInfo {
             network,
         }
     }
-    
+
     /// Update the peer's version (called after handshake)
     pub fn update_version(&mut self, version: String) {
         self.version = version;
         self.last_seen = current_timestamp();
     }
-    
+
     /// Update last seen timestamp
     pub fn touch(&mut self) {
         self.last_seen = current_timestamp();
@@ -65,18 +65,12 @@ pub struct SeedNodes;
 impl SeedNodes {
     /// Mainnet seed nodes (hardcoded, always available)
     pub fn mainnet() -> Vec<&'static str> {
-        vec![
-            "50.28.104.50:24000",
-            "134.199.175.106:24000",
-        ]
+        vec!["50.28.104.50:24000", "134.199.175.106:24000"]
     }
 
     /// Testnet seed nodes
     pub fn testnet() -> Vec<&'static str> {
-        vec![
-            "50.28.104.50:24100",
-            "134.199.175.106:24100",
-        ]
+        vec!["50.28.104.50:24100", "134.199.175.106:24100"]
     }
 
     /// Get seeds for specific network
@@ -133,14 +127,14 @@ impl HttpDiscovery {
             .map_err(|e| format!("Failed to parse response: {}", e))?;
 
         // Convert strings to PeerInfo objects
-        
+
         // Filter peers by network based on port
         // Mainnet uses port 24000, Testnet uses port 24100
         let expected_port = match self.network {
             NetworkType::Mainnet => 24000,
             NetworkType::Testnet => 24100,
         };
-        
+
         let peers: Vec<PeerInfo> = peer_strings
             .into_iter()
             .filter_map(|addr_str| {
@@ -176,10 +170,7 @@ impl DnsDiscovery {
             NetworkType::Testnet => vec![], // DNS seeder not yet deployed
         };
 
-        DnsDiscovery { 
-            dns_seeds,
-            network,
-        }
+        DnsDiscovery { dns_seeds, network }
     }
 
     /// Resolve DNS seeds to get peer addresses
@@ -365,10 +356,7 @@ mod tests {
 
     #[test]
     fn test_peer_info_hash() {
-        let peer1 = PeerInfo::new(
-            "127.0.0.1:9876".parse().unwrap(),
-            NetworkType::Mainnet,
-        );
+        let peer1 = PeerInfo::new("127.0.0.1:9876".parse().unwrap(), NetworkType::Mainnet);
 
         let peer2 = peer1.clone();
 
@@ -393,9 +381,9 @@ mod tests {
     #[tokio::test]
     async fn test_http_discovery() {
         let discovery = HttpDiscovery::new(NetworkType::Testnet);
-        
+
         let result = discovery.fetch_peers().await;
-        
+
         match result {
             Ok(peers) => {
                 println!("Successfully fetched {} peers", peers.len());

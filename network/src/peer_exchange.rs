@@ -1,8 +1,8 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerInfo {
@@ -72,14 +72,15 @@ impl PeerExchange {
 
     pub fn add_peer(&mut self, address: String, port: u16, version: String) {
         let key = format!("{}:{}", address, port);
-        
+
         if let Some(peer) = self.peers.get_mut(&key) {
             peer.last_seen = Utc::now().timestamp();
             peer.version = version;
         } else {
-            self.peers.insert(key, PeerInfo::new(address, port, version));
+            self.peers
+                .insert(key, PeerInfo::new(address, port, version));
         }
-        
+
         self.save_to_disk();
     }
 
@@ -106,34 +107,35 @@ impl PeerExchange {
 
     pub fn get_best_peers(&self, count: usize) -> Vec<PeerInfo> {
         let mut peers: Vec<PeerInfo> = self.peers.values().cloned().collect();
-        
+
         let cutoff = Utc::now().timestamp() - 86400;
         peers.retain(|p| p.last_seen > cutoff);
         peers.retain(|p| p.reliability_score() >= 0.3);
-        
-        peers.sort_by(|a, b| {
-            match (a.latency_ms, b.latency_ms) {
-                (Some(a_lat), Some(b_lat)) => {
-                    let lat_cmp = a_lat.cmp(&b_lat);
-                    if lat_cmp == std::cmp::Ordering::Equal {
-                        b.reliability_score().partial_cmp(&a.reliability_score()).unwrap()
-                    } else {
-                        lat_cmp
-                    }
+
+        peers.sort_by(|a, b| match (a.latency_ms, b.latency_ms) {
+            (Some(a_lat), Some(b_lat)) => {
+                let lat_cmp = a_lat.cmp(&b_lat);
+                if lat_cmp == std::cmp::Ordering::Equal {
+                    b.reliability_score()
+                        .partial_cmp(&a.reliability_score())
+                        .unwrap()
+                } else {
+                    lat_cmp
                 }
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => b.reliability_score().partial_cmp(&a.reliability_score()).unwrap(),
             }
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => b
+                .reliability_score()
+                .partial_cmp(&a.reliability_score())
+                .unwrap(),
         });
-        
+
         peers.into_iter().take(count).collect()
     }
 
     pub fn get_all_addresses(&self) -> Vec<String> {
-        self.peers.values()
-            .map(|p| p.full_address())
-            .collect()
+        self.peers.values().map(|p| p.full_address()).collect()
     }
 
     fn load_from_disk(&mut self) {
@@ -149,7 +151,7 @@ impl PeerExchange {
         if let Some(parent) = Path::new(&self.storage_path).parent() {
             let _ = fs::create_dir_all(parent);
         }
-        
+
         if let Ok(data) = serde_json::to_string_pretty(&self.peers) {
             let _ = fs::write(&self.storage_path, data);
         }

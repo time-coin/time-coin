@@ -4,8 +4,8 @@
 
 use crate::transaction::{Transaction, TransactionError};
 use crate::utxo_set::UTXOSet;
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// Maximum transactions in mempool
 const MAX_MEMPOOL_SIZE: usize = 10_000;
@@ -26,7 +26,9 @@ impl std::fmt::Display for MempoolError {
             MempoolError::MempoolFull => write!(f, "Mempool is full"),
             MempoolError::DuplicateTransaction => write!(f, "Transaction already in mempool"),
             MempoolError::InvalidTransaction => write!(f, "Invalid transaction"),
-            MempoolError::ConflictingTransaction => write!(f, "Transaction conflicts with another in mempool"),
+            MempoolError::ConflictingTransaction => {
+                write!(f, "Transaction conflicts with another in mempool")
+            }
         }
     }
 }
@@ -52,10 +54,10 @@ struct MempoolTransaction {
 pub struct Mempool {
     /// Pending transactions by txid
     transactions: HashMap<String, MempoolTransaction>,
-    
+
     /// Track which UTXOs are being spent (to prevent double-spend in mempool)
     spent_outputs: HashSet<String>, // Format: "txid:vout"
-    
+
     /// Maximum size
     max_size: usize,
 }
@@ -80,7 +82,11 @@ impl Mempool {
     }
 
     /// Add a transaction to the mempool
-    pub fn add_transaction(&mut self, tx: Transaction, utxo_set: &UTXOSet) -> Result<(), MempoolError> {
+    pub fn add_transaction(
+        &mut self,
+        tx: Transaction,
+        utxo_set: &UTXOSet,
+    ) -> Result<(), MempoolError> {
         // Check if mempool is full
         if self.transactions.len() >= self.max_size {
             return Err(MempoolError::MempoolFull);
@@ -101,7 +107,10 @@ impl Mempool {
 
         // Check for conflicts with other mempool transactions
         for input in &tx.inputs {
-            let output_key = format!("{}:{}", input.previous_output.txid, input.previous_output.vout);
+            let output_key = format!(
+                "{}:{}",
+                input.previous_output.txid, input.previous_output.vout
+            );
             if self.spent_outputs.contains(&output_key) {
                 return Err(MempoolError::ConflictingTransaction);
             }
@@ -128,7 +137,10 @@ impl Mempool {
 
         // Mark outputs as spent
         for input in &tx.inputs {
-            let output_key = format!("{}:{}", input.previous_output.txid, input.previous_output.vout);
+            let output_key = format!(
+                "{}:{}",
+                input.previous_output.txid, input.previous_output.vout
+            );
             self.spent_outputs.insert(output_key);
         }
 
@@ -142,7 +154,10 @@ impl Mempool {
         if let Some(mempool_tx) = self.transactions.remove(txid) {
             // Unmark spent outputs
             for input in &mempool_tx.transaction.inputs {
-                let output_key = format!("{}:{}", input.previous_output.txid, input.previous_output.vout);
+                let output_key = format!(
+                    "{}:{}",
+                    input.previous_output.txid, input.previous_output.vout
+                );
                 self.spent_outputs.remove(&output_key);
             }
             Some(mempool_tx.transaction)
@@ -161,7 +176,8 @@ impl Mempool {
         let mut txs: Vec<_> = self.transactions.values().collect();
         txs.sort_by(|a, b| {
             // Sort by fee per byte (descending), then by timestamp (ascending)
-            b.fee_per_byte.cmp(&a.fee_per_byte)
+            b.fee_per_byte
+                .cmp(&a.fee_per_byte)
                 .then(a.added_timestamp.cmp(&b.added_timestamp))
         });
 
@@ -185,7 +201,10 @@ impl Mempool {
             .values()
             .filter(|mt| {
                 // Check if address appears in any output
-                mt.transaction.outputs.iter().any(|out| out.address == address)
+                mt.transaction
+                    .outputs
+                    .iter()
+                    .any(|out| out.address == address)
             })
             .map(|mt| mt.transaction.clone())
             .collect()
@@ -212,13 +231,15 @@ impl Mempool {
         let mut removed = Vec::new();
 
         // Find transactions with invalid inputs
-        let invalid_txids: Vec<String> = self.transactions
+        let invalid_txids: Vec<String> = self
+            .transactions
             .iter()
             .filter(|(_, mt)| {
                 // Check if any input no longer exists in UTXO set
-                mt.transaction.inputs.iter().any(|input| {
-                    !utxo_set.contains(&input.previous_output)
-                })
+                mt.transaction
+                    .inputs
+                    .iter()
+                    .any(|input| !utxo_set.contains(&input.previous_output))
             })
             .map(|(txid, _)| txid.clone())
             .collect();
@@ -235,7 +256,8 @@ impl Mempool {
 
     /// Get mempool statistics
     pub fn get_stats(&self) -> MempoolStats {
-        let total_fees: u64 = self.transactions
+        let total_fees: u64 = self
+            .transactions
             .values()
             .map(|mt| {
                 // Estimate fee based on fee_per_byte
@@ -249,12 +271,14 @@ impl Mempool {
         MempoolStats {
             transaction_count: self.transactions.len(),
             total_fees,
-            max_fee_per_byte: self.transactions
+            max_fee_per_byte: self
+                .transactions
                 .values()
                 .map(|mt| mt.fee_per_byte)
                 .max()
                 .unwrap_or(0),
-            min_fee_per_byte: self.transactions
+            min_fee_per_byte: self
+                .transactions
                 .values()
                 .map(|mt| mt.fee_per_byte)
                 .min()
@@ -281,7 +305,7 @@ pub struct MempoolStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{TxInput, TxOutput, OutPoint};
+    use crate::transaction::{OutPoint, TxInput, TxOutput};
 
     #[test]
     fn test_mempool_creation() {
@@ -326,7 +350,7 @@ mod tests {
         let tx = Transaction::new(vec![input], vec![output]);
 
         mempool.add_transaction(tx.clone(), &utxo_set).unwrap();
-        
+
         // Try to add same transaction again
         let result = mempool.add_transaction(tx, &utxo_set);
         assert!(matches!(result, Err(MempoolError::DuplicateTransaction)));

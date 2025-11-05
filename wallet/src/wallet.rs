@@ -10,22 +10,22 @@ use thiserror::Error;
 pub enum WalletError {
     #[error("Keypair error: {0}")]
     KeypairError(#[from] KeypairError),
-    
+
     #[error("Address error: {0}")]
     AddressError(#[from] AddressError),
-    
+
     #[error("Transaction error: {0}")]
     TransactionError(#[from] TransactionError),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Serialization error")]
     SerializationError,
-    
+
     #[error("Insufficient funds: have {have}, need {need}")]
     InsufficientFunds { have: u64, need: u64 },
-    
+
     #[error("Invalid address")]
     InvalidAddress,
 }
@@ -85,7 +85,7 @@ impl Wallet {
             utxos: Vec::new(),
         })
     }
-    
+
     /// Create a wallet from hex-encoded secret key
     pub fn from_private_key_hex(hex_key: &str, network: NetworkType) -> Result<Self, WalletError> {
         let keypair = Keypair::from_hex(hex_key)?;
@@ -116,7 +116,7 @@ impl Wallet {
     pub fn public_key(&self) -> [u8; 32] {
         self.keypair.public_key_bytes()
     }
-    
+
     /// Get the public key as hex string
     pub fn public_key_hex(&self) -> String {
         hex::encode(self.public_key())
@@ -126,7 +126,7 @@ impl Wallet {
     pub fn secret_key(&self) -> [u8; 32] {
         self.keypair.secret_key_bytes()
     }
-    
+
     /// Export private key as hex string (⚠️ Keep secret!)
     pub fn export_private_key(&self) -> String {
         self.keypair.secret_key_hex()
@@ -146,7 +146,7 @@ impl Wallet {
     pub fn nonce(&self) -> u64 {
         self.nonce
     }
-    
+
     /// Set nonce (called when syncing with blockchain)
     pub fn set_nonce(&mut self, nonce: u64) {
         self.nonce = nonce;
@@ -156,7 +156,7 @@ impl Wallet {
     pub fn increment_nonce(&mut self) {
         self.nonce += 1;
     }
-    
+
     /// Get network type
     pub fn network(&self) -> NetworkType {
         self.network
@@ -268,8 +268,8 @@ impl Wallet {
 
     /// Save wallet to file
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), WalletError> {
-        let serialized = serde_json::to_string_pretty(self)
-            .map_err(|_| WalletError::SerializationError)?;
+        let serialized =
+            serde_json::to_string_pretty(self).map_err(|_| WalletError::SerializationError)?;
         fs::write(path, serialized)?;
         Ok(())
     }
@@ -286,7 +286,7 @@ impl Wallet {
     pub fn is_testnet(&self) -> bool {
         self.network == NetworkType::Testnet
     }
-    
+
     /// Get the keypair (for advanced use)
     pub fn keypair(&self) -> &Keypair {
         &self.keypair
@@ -327,7 +327,7 @@ mod tests {
         assert_eq!(wallet1.address_string(), wallet2.address_string());
         assert_eq!(wallet1.public_key(), wallet2.public_key());
     }
-    
+
     #[test]
     fn test_wallet_from_hex() {
         let wallet1 = Wallet::new(NetworkType::Mainnet).unwrap();
@@ -367,12 +367,12 @@ mod tests {
         wallet.increment_nonce();
         assert_eq!(wallet.nonce(), 2);
     }
-    
+
     #[test]
     fn test_create_transaction_with_fee() {
         let mut sender = Wallet::new(NetworkType::Mainnet).unwrap();
         let recipient = Wallet::new(NetworkType::Mainnet).unwrap();
-        
+
         // Add UTXO to sender
         let utxo = UTXO {
             tx_hash: [1u8; 32],
@@ -381,25 +381,23 @@ mod tests {
             address: sender.address_string(),
         };
         sender.add_utxo(utxo);
-        
+
         // Create transaction with fee
-        let tx = sender.create_transaction(
-            &recipient.address_string(),
-            1000,
-            50
-        ).unwrap();
-        
+        let tx = sender
+            .create_transaction(&recipient.address_string(), 1000, 50)
+            .unwrap();
+
         assert_eq!(tx.outputs.len(), 2); // recipient + change
         assert_eq!(tx.outputs[0].amount, 1000);
         assert_eq!(tx.outputs[1].amount, 8950); // 10000 - 1000 - 50
         assert_eq!(sender.nonce(), 1); // Auto-incremented
     }
-    
+
     #[test]
     fn test_insufficient_funds() {
         let mut wallet = Wallet::new(NetworkType::Mainnet).unwrap();
         let recipient = Wallet::new(NetworkType::Mainnet).unwrap();
-        
+
         let utxo = UTXO {
             tx_hash: [1u8; 32],
             output_index: 0,
@@ -407,13 +405,9 @@ mod tests {
             address: wallet.address_string(),
         };
         wallet.add_utxo(utxo);
-        
-        let result = wallet.create_transaction(
-            &recipient.address_string(),
-            1000,
-            50
-        );
-        
+
+        let result = wallet.create_transaction(&recipient.address_string(), 1000, 50);
+
         assert!(result.is_err());
         match result {
             Err(WalletError::InsufficientFunds { have, need }) => {

@@ -1,5 +1,5 @@
 //! Blockchain State Manager for TIME Coin
-//! 
+//!
 //! Manages the blockchain state including:
 //! - UTXO set
 //! - Block chain
@@ -7,11 +7,11 @@
 //! - Chain tip and reorganization
 
 use crate::block::{Block, BlockError, MasternodeCounts, MasternodeTier};
-use std::sync::{Arc, RwLock};
-use crate::transaction::{Transaction, TransactionError, OutPoint};
+use crate::transaction::{OutPoint, Transaction, TransactionError};
 use crate::utxo_set::UTXOSet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone)]
 pub enum StateError {
@@ -84,31 +84,31 @@ pub struct TxInvalidationEvent {
 pub struct BlockchainState {
     /// Current UTXO set
     utxo_set: UTXOSet,
-    
+
     /// All blocks by hash
     blocks: HashMap<String, Block>,
-    
+
     /// Block hash by height
     blocks_by_height: HashMap<u64, String>,
-    
+
     /// Current chain tip (best block height)
     chain_tip_height: u64,
-    
+
     /// Database for persistence
     db: crate::db::BlockchainDB,
-    
+
     /// Current chain tip hash
     chain_tip_hash: String,
-    
+
     /// Registered masternodes
     masternodes: HashMap<String, MasternodeInfo>,
-    
+
     /// Track invalidated transactions for wallet notification
     invalidated_transactions: Arc<RwLock<Vec<TxInvalidationEvent>>>,
-    
+
     /// Current masternode counts by tier
     masternode_counts: MasternodeCounts,
-    
+
     /// Genesis block hash
     genesis_hash: String,
 }
@@ -118,7 +118,7 @@ impl BlockchainState {
     pub fn new(genesis_block: Block, db_path: &str) -> Result<Self, StateError> {
         let db = crate::db::BlockchainDB::open(db_path)?;
         let existing_blocks = db.load_all_blocks()?;
-        
+
         let mut state = Self {
             utxo_set: UTXOSet::new(),
             blocks: HashMap::new(),
@@ -136,13 +136,15 @@ impl BlockchainState {
             db,
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
         };
-        
+
         if existing_blocks.is_empty() {
             genesis_block.validate_structure()?;
             for tx in &genesis_block.transactions {
                 state.utxo_set.apply_transaction(tx)?;
             }
-            state.blocks.insert(genesis_block.hash.clone(), genesis_block.clone());
+            state
+                .blocks
+                .insert(genesis_block.hash.clone(), genesis_block.clone());
             state.blocks_by_height.insert(0, genesis_block.hash.clone());
             state.db.save_block(&genesis_block)?;
         } else {
@@ -153,10 +155,12 @@ impl BlockchainState {
                 state.chain_tip_height = block.header.block_number;
                 state.chain_tip_hash = block.hash.clone();
                 state.blocks.insert(block.hash.clone(), block.clone());
-                state.blocks_by_height.insert(block.header.block_number, block.hash.clone());
+                state
+                    .blocks_by_height
+                    .insert(block.header.block_number, block.hash.clone());
             }
         }
-        
+
         Ok(state)
     }
 
@@ -236,7 +240,8 @@ impl BlockchainState {
         match block.validate_and_apply(&mut self.utxo_set, &self.masternode_counts) {
             Ok(_) => {
                 self.db.save_block(&block)?;
-                self.blocks_by_height.insert(block.header.block_number, block.hash.clone());
+                self.blocks_by_height
+                    .insert(block.header.block_number, block.hash.clone());
                 self.chain_tip_height = block.header.block_number;
                 self.chain_tip_hash = block.hash.clone();
                 self.blocks.insert(block.hash.clone(), block);
@@ -288,7 +293,8 @@ impl BlockchainState {
 
     /// Deactivate a masternode
     pub fn deactivate_masternode(&mut self, address: &str) -> Result<(), StateError> {
-        let masternode = self.masternodes
+        let masternode = self
+            .masternodes
             .get_mut(address)
             .ok_or(StateError::InvalidMasternodeCount)?;
 
@@ -299,10 +305,18 @@ impl BlockchainState {
         masternode.is_active = false;
 
         match masternode.tier {
-            MasternodeTier::Free => self.masternode_counts.free = self.masternode_counts.free.saturating_sub(1),
-            MasternodeTier::Bronze => self.masternode_counts.bronze = self.masternode_counts.bronze.saturating_sub(1),
-            MasternodeTier::Silver => self.masternode_counts.silver = self.masternode_counts.silver.saturating_sub(1),
-            MasternodeTier::Gold => self.masternode_counts.gold = self.masternode_counts.gold.saturating_sub(1),
+            MasternodeTier::Free => {
+                self.masternode_counts.free = self.masternode_counts.free.saturating_sub(1)
+            }
+            MasternodeTier::Bronze => {
+                self.masternode_counts.bronze = self.masternode_counts.bronze.saturating_sub(1)
+            }
+            MasternodeTier::Silver => {
+                self.masternode_counts.silver = self.masternode_counts.silver.saturating_sub(1)
+            }
+            MasternodeTier::Gold => {
+                self.masternode_counts.gold = self.masternode_counts.gold.saturating_sub(1)
+            }
         }
 
         Ok(())
@@ -315,7 +329,10 @@ impl BlockchainState {
 
     /// Get all active masternodes
     pub fn get_active_masternodes(&self) -> Vec<&MasternodeInfo> {
-        self.masternodes.values().filter(|mn| mn.is_active).collect()
+        self.masternodes
+            .values()
+            .filter(|mn| mn.is_active)
+            .collect()
     }
 
     /// Get masternodes by tier
@@ -366,7 +383,8 @@ impl BlockchainState {
                 self.chain_tip_hash = new_block.hash.clone();
             }
             self.blocks_by_height.insert(height, new_block.hash.clone());
-            self.blocks.insert(new_block.hash.clone(), new_block.clone());
+            self.blocks
+                .insert(new_block.hash.clone(), new_block.clone());
             self.db.save_block(&new_block)?;
             Ok(())
         } else {
@@ -385,7 +403,10 @@ impl BlockchainState {
                     timestamp: chrono::Utc::now().timestamp(),
                     affected_addresses: self.get_affected_addresses(&tx),
                 };
-                self.invalidated_transactions.write().unwrap().push(event.clone());
+                self.invalidated_transactions
+                    .write()
+                    .unwrap()
+                    .push(event.clone());
                 println!("   ❌ Transaction {} invalidated: {}", tx.txid, e);
                 Ok(false)
             }
@@ -471,12 +492,14 @@ mod tests {
     fn test_masternode_registration() {
         let genesis = create_genesis_block();
         let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_3").unwrap();
-        state.register_masternode(
-            "masternode1".to_string(),
-            MasternodeTier::Free,
-            "collateral_tx".to_string(),
-            "wallet_address".to_string(),
-        ).unwrap();
+        state
+            .register_masternode(
+                "masternode1".to_string(),
+                MasternodeTier::Free,
+                "collateral_tx".to_string(),
+                "wallet_address".to_string(),
+            )
+            .unwrap();
         assert_eq!(state.masternode_counts().free, 1);
         assert!(state.get_masternode("masternode1").is_some());
     }

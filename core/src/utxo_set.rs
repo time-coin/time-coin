@@ -1,10 +1,10 @@
 //! UTXO Set Management for TIME Coin
-//! 
+//!
 //! Tracks all unspent transaction outputs in the blockchain
 
-use crate::transaction::{Transaction, OutPoint, TxOutput, TransactionError};
-use std::collections::HashMap;
+use crate::transaction::{OutPoint, Transaction, TransactionError, TxOutput};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Manages the UTXO set (all unspent transaction outputs)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +49,6 @@ impl UTXOSet {
             .map(|(outpoint, output)| (outpoint.clone(), output))
             .collect()
     }
-
 
     pub fn remove_utxo(&mut self, outpoint: &OutPoint) -> Option<TxOutput> {
         if let Some(output) = self.utxos.remove(outpoint) {
@@ -142,7 +141,7 @@ impl UTXOSet {
     /// Validate the entire UTXO set consistency
     pub fn validate(&self) -> Result<(), TransactionError> {
         let calculated_supply: u64 = self.utxos.values().map(|o| o.amount).sum();
-        
+
         if calculated_supply != self.total_supply {
             return Err(TransactionError::InvalidAmount);
         }
@@ -186,18 +185,18 @@ mod tests {
     #[test]
     fn test_utxo_set_basic_operations() {
         let mut utxo_set = UTXOSet::new();
-        
+
         let outpoint = OutPoint::new("tx1".to_string(), 0);
         let output = TxOutput::new(1000, "addr1".to_string());
-        
+
         utxo_set.add_utxo(outpoint.clone(), output.clone());
-        
+
         assert_eq!(utxo_set.len(), 1);
         assert_eq!(utxo_set.total_supply(), 1000);
         assert!(utxo_set.contains(&outpoint));
-        
+
         utxo_set.remove_utxo(&outpoint);
-        
+
         assert_eq!(utxo_set.len(), 0);
         assert_eq!(utxo_set.total_supply(), 0);
     }
@@ -205,12 +204,12 @@ mod tests {
     #[test]
     fn test_apply_transaction() {
         let mut utxo_set = UTXOSet::new();
-        
+
         // Create initial UTXO
         let prev_outpoint = OutPoint::new("prev_tx".to_string(), 0);
         let prev_output = TxOutput::new(2000, "addr1".to_string());
         utxo_set.add_utxo(prev_outpoint.clone(), prev_output);
-        
+
         // Create transaction spending it
         let input = TxInput::new("prev_tx".to_string(), 0, vec![], vec![]);
         let outputs = vec![
@@ -218,18 +217,18 @@ mod tests {
             TxOutput::new(450, "addr1".to_string()), // Change
         ];
         let tx = Transaction::new(vec![input], outputs);
-        
+
         utxo_set.apply_transaction(&tx).unwrap();
-        
+
         // Old UTXO should be gone
         assert!(!utxo_set.contains(&prev_outpoint));
-        
+
         // New UTXOs should exist
         let new_outpoint1 = OutPoint::new(tx.txid.clone(), 0);
         let new_outpoint2 = OutPoint::new(tx.txid.clone(), 1);
         assert!(utxo_set.contains(&new_outpoint1));
         assert!(utxo_set.contains(&new_outpoint2));
-        
+
         // Total supply should remain same (minus implicit fee)
         assert_eq!(utxo_set.total_supply(), 1950);
     }
@@ -237,20 +236,20 @@ mod tests {
     #[test]
     fn test_get_balance() {
         let mut utxo_set = UTXOSet::new();
-        
+
         utxo_set.add_utxo(
             OutPoint::new("tx1".to_string(), 0),
-            TxOutput::new(1000, "addr1".to_string())
+            TxOutput::new(1000, "addr1".to_string()),
         );
         utxo_set.add_utxo(
             OutPoint::new("tx2".to_string(), 0),
-            TxOutput::new(500, "addr1".to_string())
+            TxOutput::new(500, "addr1".to_string()),
         );
         utxo_set.add_utxo(
             OutPoint::new("tx3".to_string(), 0),
-            TxOutput::new(2000, "addr2".to_string())
+            TxOutput::new(2000, "addr2".to_string()),
         );
-        
+
         assert_eq!(utxo_set.get_balance("addr1"), 1500);
         assert_eq!(utxo_set.get_balance("addr2"), 2000);
         assert_eq!(utxo_set.get_balance("addr3"), 0);

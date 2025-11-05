@@ -2,9 +2,9 @@
 //!
 //! 3-tier masternode system with performance-based rewards
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::Utc;
 use time_core::Transaction;
 use wallet::Address;
 
@@ -13,9 +13,9 @@ const COIN: u64 = 100_000_000; // 1 TIME = 100,000,000 satoshis
 /// Masternode collateral tiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CollateralTier {
-    Community,     // 1,000 TIME, 18% APY, 90% uptime required
-    Verified,      // 10,000 TIME, 24% APY, 95% uptime required
-    Professional,  // 100,000 TIME, 30% APY, 98% uptime required
+    Community,    // 1,000 TIME, 18% APY, 90% uptime required
+    Verified,     // 10,000 TIME, 24% APY, 95% uptime required
+    Professional, // 100,000 TIME, 30% APY, 98% uptime required
 }
 
 impl CollateralTier {
@@ -61,7 +61,10 @@ impl CollateralTier {
     }
 
     pub fn can_verify_purchases(&self) -> bool {
-        matches!(self, CollateralTier::Verified | CollateralTier::Professional)
+        matches!(
+            self,
+            CollateralTier::Verified | CollateralTier::Professional
+        )
     }
 
     pub fn can_create_proposals(&self) -> bool {
@@ -245,9 +248,18 @@ mod tests {
 
     #[test]
     fn test_tier_from_amount() {
-        assert_eq!(CollateralTier::from_amount(1_000 * COIN).unwrap(), CollateralTier::Community);
-        assert_eq!(CollateralTier::from_amount(10_000 * COIN).unwrap(), CollateralTier::Verified);
-        assert_eq!(CollateralTier::from_amount(100_000 * COIN).unwrap(), CollateralTier::Professional);
+        assert_eq!(
+            CollateralTier::from_amount(1_000 * COIN).unwrap(),
+            CollateralTier::Community
+        );
+        assert_eq!(
+            CollateralTier::from_amount(10_000 * COIN).unwrap(),
+            CollateralTier::Verified
+        );
+        assert_eq!(
+            CollateralTier::from_amount(100_000 * COIN).unwrap(),
+            CollateralTier::Professional
+        );
         assert!(CollateralTier::from_amount(500 * COIN).is_err());
     }
 
@@ -273,7 +285,8 @@ mod tests {
             Address::from_string("TIME1test").unwrap(),
             "tx_hash".to_string(),
             10_000 * COIN,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(node.tier, CollateralTier::Verified);
 
@@ -293,13 +306,15 @@ mod tests {
             Address::from_string("TIME1node1").unwrap(),
             "tx1".to_string(),
             1_000 * COIN,
-        ).unwrap();
+        )
+        .unwrap();
 
         let node2 = Masternode::new(
             Address::from_string("TIME1node2").unwrap(),
             "tx2".to_string(),
             100_000 * COIN,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(network.register(node1.clone()).is_ok());
         assert!(network.register(node2).is_ok());

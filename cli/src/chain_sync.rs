@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use time_core::state::BlockchainState;
-use time_core::block::Block;
-use time_network::PeerManager;
 use reqwest;
 use serde::Deserialize;
+use std::sync::Arc;
+use time_core::block::Block;
+use time_core::state::BlockchainState;
+use time_network::PeerManager;
+use tokio::sync::RwLock;
 
 #[derive(Deserialize)]
 struct BlockchainInfo {
@@ -23,10 +23,7 @@ pub struct ChainSync {
 }
 
 impl ChainSync {
-    pub fn new(
-        blockchain: Arc<RwLock<BlockchainState>>,
-        peer_manager: Arc<PeerManager>,
-    ) -> Self {
+    pub fn new(blockchain: Arc<RwLock<BlockchainState>>, peer_manager: Arc<PeerManager>) -> Self {
         Self {
             blockchain,
             peer_manager,
@@ -41,7 +38,7 @@ impl ChainSync {
         for peer in peers {
             let peer_ip = peer.address.ip().to_string();
             let url = format!("http://{}:24101/blockchain/info", peer_ip);
-            
+
             match reqwest::get(&url).await {
                 Ok(response) => {
                     if let Ok(info) = response.json::<BlockchainInfo>().await {
@@ -58,7 +55,7 @@ impl ChainSync {
     /// Download a specific block from a peer
     async fn download_block(&self, peer_ip: &str, height: u64) -> Option<Block> {
         let url = format!("http://{}:24101/blockchain/block/{}", peer_ip, height);
-        
+
         match reqwest::get(&url).await {
             Ok(response) => {
                 if let Ok(block_resp) = response.json::<BlockResponse>().await {
@@ -111,13 +108,14 @@ impl ChainSync {
 
         // Query all peers
         let peer_heights = self.query_peer_heights().await;
-        
+
         if peer_heights.is_empty() {
             return Err("No peers available for sync".to_string());
         }
 
         // Find highest peer
-        let (best_peer, max_height, _) = peer_heights.iter()
+        let (best_peer, max_height, _) = peer_heights
+            .iter()
             .max_by_key(|(_, h, _)| h)
             .ok_or("No valid peer heights")?;
 
@@ -126,15 +124,21 @@ impl ChainSync {
             return Ok(0);
         }
 
-        println!("   Peer {} has height {} (we have {})", best_peer, max_height, our_height);
-        println!("   Downloading {} missing blocks...", max_height - our_height);
+        println!(
+            "   Peer {} has height {} (we have {})",
+            best_peer, max_height, our_height
+        );
+        println!(
+            "   Downloading {} missing blocks...",
+            max_height - our_height
+        );
 
         let mut synced_blocks = 0;
 
         // Download and import missing blocks
         for height in (our_height + 1)..=*max_height {
             println!("   📥 Downloading block {}...", height);
-            
+
             if let Some(block) = self.download_block(best_peer, height).await {
                 // Get expected previous hash
                 let prev_hash = {
@@ -177,7 +181,7 @@ impl ChainSync {
 
         // Query all peers for their blocks at our current height
         let peer_heights = self.query_peer_heights().await;
-        
+
         if peer_heights.is_empty() {
             return Ok(());
         }
@@ -189,7 +193,7 @@ impl ChainSync {
         };
 
         let mut competing_blocks = Vec::new();
-        
+
         for (peer_ip, peer_height, peer_hash) in peer_heights {
             if peer_height >= our_height && peer_hash != our_hash {
                 // This peer has a different block at same height - potential fork!
@@ -209,7 +213,8 @@ impl ChainSync {
         // Get our current block
         let our_block = {
             let blockchain = self.blockchain.read().await;
-            blockchain.get_block_by_height(our_height)
+            blockchain
+                .get_block_by_height(our_height)
                 .ok_or("Cannot find our own block")?
                 .clone()
         };
@@ -220,13 +225,18 @@ impl ChainSync {
 
         // Determine the winning block
         let winner = self.select_winning_block(&all_blocks)?;
-        
+
         println!("   📊 Block comparison:");
         for (source, block) in &all_blocks {
             let is_winner = block.hash == winner.hash;
             let marker = if is_winner { "✓ WINNER" } else { "✗" };
-            println!("      {} {} - Timestamp: {}, Hash: {}...", 
-                marker, source, block.header.timestamp, &block.hash[..16]);
+            println!(
+                "      {} {} - Timestamp: {}, Hash: {}...",
+                marker,
+                source,
+                block.header.timestamp,
+                &block.hash[..16]
+            );
         }
 
         // If our block lost, revert it and accept the winner
@@ -255,7 +265,7 @@ impl ChainSync {
                 best = block;
                 continue;
             }
-            
+
             if block.header.timestamp > best.header.timestamp {
                 continue;
             }
@@ -304,10 +314,14 @@ impl ChainSync {
     }
 
     /// Revert our block and replace with the winning block
-    async fn revert_and_replace_block(&self, height: u64, winning_block: Block) -> Result<(), String> {
+    async fn revert_and_replace_block(
+        &self,
+        height: u64,
+        winning_block: Block,
+    ) -> Result<(), String> {
         println!("   🔄 FORK RESOLUTION: Our block lost");
         println!("   📥 Correct block: {}...", &winning_block.hash[..16]);
-        
+
         // Replace the forked block with the consensus block
         let mut blockchain = self.blockchain.write().await;
         match blockchain.replace_block(height, winning_block) {
@@ -322,17 +336,16 @@ impl ChainSync {
         }
     }
 
-
     /// Start periodic sync task
     pub async fn start_periodic_sync(self: Arc<Self>) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300)); // 5 minutes
-            
+
             loop {
                 interval.tick().await;
-                
+
                 println!("\n🔄 Running periodic chain sync...");
-                
+
                 // First check for forks
                 if let Err(e) = self.detect_and_resolve_forks().await {
                     println!("   ⚠️  Fork detection failed: {}", e);
