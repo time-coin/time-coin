@@ -32,31 +32,23 @@ echo ""
 MISSING_FILES=()
 CHECKED_FILES=()
 
-# Use grep to find lines containing 'scripts/' and extract the paths
+# Use grep to find all script references in the file
 # This regex looks for scripts/ followed by any path-like characters
-while IFS= read -r line; do
-    # Extract all occurrences of scripts/[path] from the line
-    # Handles both ./scripts/ and scripts/ and with or without quotes
-    echo "$line" | grep -oE '(\./)?scripts/[a-zA-Z0-9_./\-]+\.(sh|md|toml|yml|yaml|txt)' | while read -r script_path; do
-        # Remove leading ./ if present
-        script_path="${script_path#./}"
-        
-        # Skip if we've already checked this file
-        if [[ " ${CHECKED_FILES[@]} " =~ " ${script_path} " ]]; then
-            continue
-        fi
-        
-        CHECKED_FILES+=("$script_path")
-        
-        full_path="$REPO_ROOT/$script_path"
-        if [ -f "$full_path" ]; then
-            echo -e "${GREEN}✓${NC} Found: $script_path"
-        else
-            echo -e "${RED}✗${NC} Missing: $script_path"
-            MISSING_FILES+=("$script_path")
-        fi
-    done
-done < "$README_FILE"
+SCRIPT_REFS=$(grep -oE '(\./)?scripts/[a-zA-Z0-9_./\-]+\.(sh|md|toml|yml|yaml|txt)' "$README_FILE" | sed 's|^\./||' | sort -u)
+
+# Check each unique script reference
+while IFS= read -r script_path; do
+    # Skip empty lines
+    [ -z "$script_path" ] && continue
+    
+    full_path="$REPO_ROOT/$script_path"
+    if [ -f "$full_path" ]; then
+        echo -e "${GREEN}✓${NC} Found: $script_path"
+    else
+        echo -e "${RED}✗${NC} Missing: $script_path"
+        MISSING_FILES+=("$script_path")
+    fi
+done <<< "$SCRIPT_REFS"
 
 echo ""
 
