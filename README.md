@@ -1,60 +1,60 @@
-```markdown
 # TIME Coin ⏰
 
 A next-generation cryptocurrency featuring 24-hour time blocks, instant transaction finality, and masternode-powered consensus.
 
-## Key Features
+## Key features
 
-- ⚡ **Instant Finality**: <3 second transaction confirmation
-- 🕐 **24-Hour Blocks**: Daily settlement for immutable checkpoints
-- 🔗 **Masternode Network**: Byzantine Fault Tolerant consensus
-- 💰 **Tiered Staking**: 18-30% APY across 5 collateral tiers
-- 🛡️ **Community Treasury**: Decentralized governance
-- 🚀 **Fair Launch**: No pre-mine, purchase-based minting
+- ⚡ Instant finality — sub-3 second transaction confirmation
+- 🕐 24-hour blocks — daily checkpoints for immutable settlement
+- 🔗 Masternode network — BFT-style consensus for instant validation
+- 💰 Tiered staking — competitive APY across collateral tiers
+- 🛡️ Community treasury — on-chain governance and funding
+- 🚀 Fair launch — no pre-mine, purchase-based minting model
 
-## Architecture
+## Architecture overview
 
-TIME Coin separates transaction finality from block production:
+TIME separates transaction finality from block production:
 
-1. **Instant Transactions**: Validated by masternodes in real-time
-2. **Daily Blocks**: Periodic checkpoints every 24 hours
-3. **BFT Consensus**: 67% validator agreement required
-4. **Masternode Rewards**: 95 TIME per block distributed based on tier
-5. **Treasury Funding**: 5 TIME per block for ecosystem development
+1. Instant transactions validated by masternodes in real time
+2. Daily blocks used as periodic immutable checkpoints
+3. BFT consensus: validators must reach a 67% agreement threshold
+4. Masternode rewards: block rewards distributed to masternodes by tier
+5. Treasury funding: a portion of each block funds ecosystem development
 
-## Masternode Tiers
+## Masternode tiers
 
-| Tier | Collateral | APY | Voting Power |
-|------|-----------:|-----:|--------------|
-| Bronze | 1,000 TIME | 18% | 1x |
-| Silver | 10,000 TIME | 19.8% | 5x |
-| Gold   | 100,000 TIME | 22.5% | 10x |
+| Tier   | Collateral   | APY   | Voting power |
+|--------|--------------:|------:|-------------:|
+| Bronze | 1,000 TIME    | 18%   | 1x |
+| Silver | 10,000 TIME   | 19.8% | 5x |
+| Gold   | 100,000 TIME  | 22.5% | 10x |
 
-## Project Structure
+## Project structure
 
 ```
 time-coin/
+├── api/            # API server
+├── cli/            # Command-line interface
 ├── core/           # Core blockchain logic
+├── crypto/         # Cryptographic primitives
 ├── masternode/     # Masternode management
-├── treasury/       # Community treasury
 ├── network/        # P2P networking
 ├── purchase/       # Fiat/crypto purchases
-├── wallet/         # Wallet implementation
-├── api/            # API server
 ├── storage/        # Database layer
-├── crypto/         # Cryptographic primitives
-└── cli/            # Command-line interface
+├── treasury/       # Community treasury
+├── wallet/         # Wallet implementation
+└── docs/           # Documentation and guides
 ```
 
-## Getting Started
+## Getting started
 
 ### Prerequisites
 
 - Rust 1.75 or higher
 - Git
-- Ubuntu 20.04+ (for masternode deployment)
+- Ubuntu 20.04+ (recommended for masternode deployments) or Debian 11+
 
-### Building from Source
+### Build from source
 
 ```bash
 # Clone the repository
@@ -67,103 +67,127 @@ cargo build --release
 # Run tests
 cargo test --all
 
-# Run a node
+# Run a node (development)
 cargo run --bin time-node --release
 ```
 
-## Running a Masternode
+## Running a masternode
 
-### Quick Installation (Ubuntu)
+Setting up a TIME Coin masternode is a two-step process: system setup and masternode installation.
 
-Setting up a TIME Coin masternode is a two-step process:
+### Step 1 — System setup (one-time)
 
-#### Step 1: System Setup (One-time)
+There are two convenient entry points for the documented installer:
 
-Prepare your Ubuntu server with all dependencies:
+- The canonical installer: scripts/setup/setup-testnet-node.sh
+- A small wrapper used for docs compatibility: scripts/dev-setup.sh (it invokes the canonical script if present)
 
+Download and run the installer (choose one):
+
+Using the canonical path (recommended when present in the repo):
 ```bash
-# download helper script from repository
-curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup/setup-testnet-node.sh
+bash scripts/setup/setup-testnet-node.sh
+```
+
+Using the convenience wrapper (this will run the canonical installer if available):
+```bash
+bash scripts/dev-setup.sh
+```
+
+Or fetch the canonical installer from the raw GitHub URL:
+```bash
+wget https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup/setup-testnet-node.sh
 chmod +x setup-testnet-node.sh
 sudo ./setup-testnet-node.sh
 ```
 
-This installs:
-- Build tools and dependencies
-- Rust toolchain
-- TIME Coin repository
+What these scripts typically do:
+- Install build tools and dependencies, including the Rust toolchain
+- Build the TIME node from source
+- Configure a testnet masternode and systemd service
+- Configure firewall rules and management helpers
 
-#### Step 2: Install Masternode
+### Step 2 — Install and configure the masternode
 
-Build and deploy the masternode:
-
+Example (from your home directory):
 ```bash
 cd ~/time-coin
-# installer is located under scripts/setup/
 chmod +x scripts/setup-masternode.sh
 sudo ./scripts/setup-masternode.sh
 ```
 
-This will:
-- Build TIME Coin in release mode
-- Install the `time-node` binary
-- Create configuration (ports 24100/24101 for testnet)
-- Set up systemd service
-- Start your masternode
+Typical post-install actions performed by the installer:
+- Build in release mode and install `time-node`
+- Create default configuration files (e.g., config/testnet.toml and genesis file)
+- Set up a systemd service and management scripts
+- Start the masternode service
 
-### Post-Installation
-
-Monitor your masternode:
+### Post-installation management
 
 ```bash
-# Check status
+# Check service status
 sudo systemctl status time-node
 
-# View live logs
+# Follow logs
 sudo journalctl -u time-node -f
 
-# Restart if needed
+# Restart the service
 sudo systemctl restart time-node
 ```
 
-### Updating Your Masternode
-
-To update to the latest version:
+### Updating your masternode
 
 ```bash
 cd ~/time-coin
 git pull origin main
 sudo bash ./scripts/setup-masternode.sh
-systemctl restart time-node
+sudo systemctl restart time-node
 ```
 
-### Network Ports
+### Network ports
 
-TIME Coin uses 24-hour themed ports:
+TIME Coin uses themed ports for P2P and RPC access:
 
-| Network | P2P Port | RPC Port |
+| Network | P2P port | RPC port |
 |---------|---------:|---------:|
-| Testnet | 24100 | 24101 |
-| Mainnet | 24000 | 24001 |
+| Testnet | 24100    | 24101    |
+| Mainnet | 24000    | 24001    |
 
-Note: the canonical default ports for Testnet are P2P=24100 and RPC=24101. These defaults can be overridden in config/testnet.toml — the setup scripts and node will respect the config values if changed.
+Defaults can be overridden in your configuration file (e.g., config/testnet.toml). The setup scripts and node will respect values set in your config.
 
-If using a firewall, allow the P2P port:
-
+If using a firewall, allow the P2P port (example for testnet):
 ```bash
 sudo ufw allow 24100/tcp comment 'TIME Coin Testnet P2P'
 ```
 
+## Configuration
+
+For testnet, copy the example config and genesis files, then edit paths as needed:
+
+```bash
+mkdir -p ~/time-coin-node/config
+cp config/testnet.toml ~/time-coin-node/config/
+cp config/genesis-testnet.json ~/time-coin-node/config/
+# edit testnet.toml to point to the correct genesis path (use $HOME or absolute path)
+```
+
+Start a node with your config:
+```bash
+time-node -c ~/time-coin-node/config/testnet.toml
+```
+
+The node expands `$HOME` and `~` in config paths.
+
 ## Documentation
 
-- [Technical Whitepaper](docs/whitepaper-technical.md)
-- [Masternode Setup Guide](docs/masternodes/setup-guide.md)
-- [API Documentation](docs/api/README.md)
-- [Architecture Overview](docs/architecture/README.md)
+- docs/whitepaper-technical.md — Technical whitepaper
+- docs/masternodes/setup-guide.md — Masternode setup guide
+- docs/api/README.md — API documentation
+- docs/architecture/README.md — Architecture overview
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions. Please see CONTRIBUTING.md in the project root for guidelines.
 
 ## Community
 
@@ -174,13 +198,12 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details
+MIT License — see LICENSE for details.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for reporting security vulnerabilities.
+See SECURITY.md for reporting vulnerabilities.
 
 ---
 
-**⏰ TIME is money. Make it accessible.**
-```
+⏰ TIME is money. Make it accessible.
