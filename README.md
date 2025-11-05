@@ -81,9 +81,9 @@ Setting up a TIME Coin masternode is a two-step process:
 Prepare your Ubuntu server with all dependencies:
 
 ```bash
-curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup-system.sh
-chmod +x setup-system.sh
-sudo ./setup-system.sh
+curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup/setup-testnet-node.sh
+chmod +x setup-testnet-node.sh
+sudo ./setup-testnet-node.sh
 ```
 
 This installs:
@@ -97,8 +97,8 @@ Build and deploy the masternode:
 
 ```bash
 cd ~/time-coin
-chmod +x scripts/install-masternode.sh
-sudo ./scripts/install-masternode.sh
+chmod +x scripts/setup-masternode.sh
+sudo ./scripts/setup-masternode.sh
 ```
 
 This will:
@@ -142,6 +142,8 @@ TIME Coin uses 24-hour themed ports:
 |---------|----------|----------|
 | Testnet | 24100 | 24101 |
 | Mainnet | 24000 | 24001 |
+
+Note: default RPC/P2P ports are P2P=24100 and RPC=24101 for testnet; these can be overridden in config/testnet.toml.
 
 If using a firewall, allow the P2P port:
 
