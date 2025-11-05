@@ -460,7 +460,6 @@ pub struct ChainStats {
 mod tests {
     use super::*;
     use crate::transaction::TxOutput;
-    use std::fs;
 
     fn create_genesis_block() -> Block {
         let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
@@ -471,6 +470,7 @@ mod tests {
     fn test_blockchain_initialization() {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
+        let _ = std::fs::remove_dir_all("/tmp/test_blockchain_1");
         let state = BlockchainState::new(genesis, "/tmp/test_blockchain_1").unwrap();
         assert_eq!(state.chain_tip_height(), 0);
         assert_eq!(state.chain_tip_hash(), genesis_hash);
@@ -481,6 +481,7 @@ mod tests {
     fn test_add_block() {
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
+        let _ = std::fs::remove_dir_all("/tmp/test_blockchain_2");
         let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_2").unwrap();
         // Use the allowed coinbase amount (treasury 5 TIME = 5 * 100_000_000 = 500_000_000)
         let outputs = vec![TxOutput::new(500_000_000, "miner1".to_string())];
@@ -493,6 +494,7 @@ mod tests {
     #[test]
     fn test_masternode_registration() {
         let genesis = create_genesis_block();
+        let _ = std::fs::remove_dir_all("/tmp/test_blockchain_3");
         let mut state = BlockchainState::new(genesis, "/tmp/test_blockchain_3").unwrap();
         state
             .register_masternode(
@@ -509,6 +511,7 @@ mod tests {
     #[test]
     fn test_get_balance() {
         let genesis = create_genesis_block();
+        let _ = std::fs::remove_dir_all("/tmp/test_blockchain_4");
         let state = BlockchainState::new(genesis, "/tmp/test_blockchain_4").unwrap();
         assert_eq!(state.get_balance("genesis"), 100_000_000_000);
         assert_eq!(state.get_balance("nonexistent"), 0);
