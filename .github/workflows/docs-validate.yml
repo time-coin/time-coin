@@ -1,18 +1,29 @@
-name: Docs Validation
+name: docs-validate
 
 on:
   push:
-    branches: [ "main", "**" ]
+    branches:
+      - main
+      - 'docs/**'
   pull_request:
-    branches: [ "main" ]
+    paths:
+      - '**/*.md'
+      - 'scripts/**'
+      - '.github/workflows/**'
 
 jobs:
-  validate-readme-scripts:
+  check-readme-scripts:
+    name: Check README script references
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Check README script references
-        run: |
-          bash scripts/ci/check-readme-scripts.sh
+        with:
+          fetch-depth: 0
+
+      - name: Ensure check script is executable
+        run: chmod +x scripts/ci/check-readme-scripts.sh || true
+
+      - name: Run README script reference checker
+        run: scripts/ci/check-readme-scripts.sh
+        
