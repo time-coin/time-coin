@@ -139,8 +139,9 @@ impl Dashboard {
             now.format("%Y-%m-%d %H:%M:%S UTC").to_string().white()
         );
         println!(
-            "  {}: http://localhost:24101",
-            "API Endpoint".bright_black()
+            "  {}: {}",
+            "API Endpoint".bright_black(),
+            &self.api_url
         );
         println!();
     }
