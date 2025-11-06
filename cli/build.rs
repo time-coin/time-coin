@@ -3,7 +3,7 @@ use std::process::Command;
 fn main() {
     // Get git commit hash
     let output = Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output();
 
     let git_hash = if let Ok(output) = output {
@@ -16,7 +16,7 @@ fn main() {
 
     // Get git branch
     let branch_output = Command::new("git")
-        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output();
 
     let git_branch = if let Ok(output) = branch_output {
