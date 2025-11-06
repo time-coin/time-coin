@@ -30,6 +30,9 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/tx-vote", post(receive_tx_vote))
         .route("/consensus/block-proposal", post(receive_block_proposal))
         .route("/consensus/block-vote", post(receive_block_vote))
+        // Finalized block endpoints
+        .route("/consensus/block/:height", get(get_consensus_block))
+        .route("/consensus/finalized-block", post(receive_finalized_block))
 }
 
 async fn root() -> &'static str {
@@ -583,4 +586,63 @@ async fn receive_block_vote(
     Ok(Json(serde_json::json!({
         "success": true
     })))
+}
+
+/// GET /consensus/block/:height - Fetch finalized block by height
+async fn get_consensus_block(
+    State(state): State<ApiState>,
+    Path(height): Path<u64>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let blockchain = state.blockchain.read().await;
+    
+    match blockchain.get_block_by_height(height) {
+        Some(block) => Ok(Json(serde_json::json!({
+            "success": true,
+            "block": block
+        }))),
+        None => Err(ApiError::TransactionNotFound(format!(
+            "Block at height {} not found",
+            height
+        ))),
+    }
+}
+
+/// POST /consensus/finalized-block - Receive pushed finalized block
+async fn receive_finalized_block(
+    State(state): State<ApiState>,
+    Json(payload): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // Parse the block from the payload
+    let block_data = payload
+        .get("block")
+        .ok_or(ApiError::Internal("Missing block field".to_string()))?;
+    
+    let block: time_core::block::Block = serde_json::from_value(block_data.clone())
+        .map_err(|e| ApiError::Internal(format!("Invalid block format: {}", e)))?;
+    
+    println!(
+        "📦 Received finalized block #{} (hash: {}...)",
+        block.header.block_number,
+        &block.hash[..16]
+    );
+    
+    // Store the block (best-effort)
+    let mut blockchain = state.blockchain.write().await;
+    match blockchain.add_block(block.clone()) {
+        Ok(_) => {
+            println!("   ✅ Block #{} stored", block.header.block_number);
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "Block stored successfully"
+            })))
+        }
+        Err(e) => {
+            // Log but don't fail - this is best-effort
+            println!("   ⚠️  Failed to store block: {:?}", e);
+            Ok(Json(serde_json::json!({
+                "success": false,
+                "message": format!("Failed to store block: {:?}", e)
+            })))
+        }
+    }
 }
