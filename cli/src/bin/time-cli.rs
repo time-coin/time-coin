@@ -149,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     match cli.command {
-        Commands::Init { testnet } => {
+        Commands::Init { testnet: _ } => {
             println!("\n⚙️  Initializing TIME Coin node configuration");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
