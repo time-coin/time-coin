@@ -1030,6 +1030,53 @@ pub mod block_consensus {
                 .count()
         }
 
+        /// Sync masternodes with connected peers and update health status
+        /// This ensures disconnected nodes are marked as Offline immediately
+        pub async fn sync_with_connected_peers(&self, connected_peer_ips: Vec<String>) {
+            let mut masternodes = self.masternodes.write().await;
+            let mut health = self.health.write().await;
+            
+            // Convert connected peers to a set for quick lookup
+            let connected_set: std::collections::HashSet<String> = 
+                connected_peer_ips.iter().cloned().collect();
+            
+            // Mark nodes that are no longer connected as Offline
+            for masternode in masternodes.iter() {
+                if !connected_set.contains(masternode) {
+                    if let Some(node_health) = health.get_mut(masternode) {
+                        if node_health.status != NodeStatus::Offline {
+                            node_health.status = NodeStatus::Offline;
+                            node_health.status_changed_at = chrono::Utc::now().timestamp();
+                        }
+                    } else {
+                        // Initialize health tracking for nodes we haven't seen before
+                        let mut new_health = MasternodeHealth::new(masternode.clone());
+                        new_health.status = NodeStatus::Offline;
+                        health.insert(masternode.clone(), new_health);
+                    }
+                }
+            }
+            
+            // Update masternode list to only include connected peers
+            *masternodes = connected_peer_ips;
+            masternodes.sort(); // Keep deterministic ordering
+            
+            // Initialize or restore Active status for newly connected nodes
+            for peer_ip in masternodes.iter() {
+                if let Some(node_health) = health.get_mut(peer_ip) {
+                    if node_health.status == NodeStatus::Offline {
+                        // Node reconnected, restore to Active
+                        node_health.status = NodeStatus::Active;
+                        node_health.consecutive_misses = 0;
+                        node_health.status_changed_at = chrono::Utc::now().timestamp();
+                    }
+                } else {
+                    // New node, initialize health tracking
+                    health.insert(peer_ip.clone(), MasternodeHealth::new(peer_ip.clone()));
+                }
+            }
+        }
+
         /// Check for quarantine expiration and recovery
         pub async fn check_quarantine_expiration(&self) {
             let mut addresses_to_downgrade = Vec::new();
