@@ -6,7 +6,10 @@ use axum::{
     Json, Router,
 };
 use serde::Serialize;
+use std::collections::HashMap;
+use owo_colors::OwoColorize;
 
+/// Create routes (existing ones retained)
 pub fn create_routes() -> Router<ApiState> {
     Router::new()
         .route("/", get(root))
@@ -17,6 +20,8 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/peers", get(get_peers))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
+        // Allow peers to push a snapshot to this node
+        .route("/snapshot/receive", post(receive_snapshot))
         .route("/transaction", post(submit_transaction))
         .route("/propose", post(propose_block))
         .route("/vote", post(cast_vote))
@@ -206,7 +211,7 @@ async fn get_genesis(State(_state): State<ApiState>) -> ApiResult<Json<serde_jso
 struct SnapshotResponse {
     height: u64,
     state_hash: String,
-    balances: std::collections::HashMap<String, u64>,
+    balances: HashMap<String, u64>,   // <- use HashMap here
     masternodes: Vec<String>,
     timestamp: i64,
 }
@@ -223,13 +228,94 @@ async fn get_snapshot(State(state): State<ApiState>) -> ApiResult<Json<SnapshotR
     let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
     let state_hash = format!("{:x}", md5::compute(&state_data));
 
+    // Use actual blockchain height if available
+    let height = {
+        let chain = state.blockchain.read().await;
+        chain.chain_tip_height()
+    };
+
     Ok(Json(SnapshotResponse {
-        height: 0,
+        height,
         state_hash,
         balances: balances.clone(),
         masternodes,
         timestamp: chrono::Utc::now().timestamp(),
     }))
+}
+
+/// POST handler to receive a pushed snapshot from a peer
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SnapshotReceiveRequest {
+    height: u64,
+    state_hash: String,
+    balances: HashMap<String, u64>,   // <- use HashMap here
+    masternodes: Vec<String>,
+    timestamp: i64,
+}
+
+async fn receive_snapshot(
+    State(state): State<ApiState>,
+    Json(req): Json<SnapshotReceiveRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // Recompute the hash locally to verify snapshot integrity
+    let mut sorted_balances: Vec<_> = req.balances.iter().collect();
+    sorted_balances.sort_by_key(|&(k, _)| k);
+    let mut sorted_masternodes = req.masternodes.clone();
+    sorted_masternodes.sort();
+
+    let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
+    let computed_hash = format!("{:x}", md5::compute(&state_data));
+
+    if computed_hash != req.state_hash {
+        eprintln!(
+            "{} {} - received snapshot hash mismatch (reported={}, computed={})",
+            "⚠".yellow(),
+            "Snapshot",
+            req.state_hash,
+            computed_hash
+        );
+        return Err(ApiError::BadRequest("Snapshot hash mismatch".to_string()));
+    }
+
+    // Apply balances to ApiState (this is the API's quick view of balances used by /snapshot)
+    {
+        let mut balances = state.balances.write().await;
+        *balances = req.balances.clone();
+    }
+
+    // Optionally: we could merge the masternode list into peer discovery / peer manager.
+    // For now we simply log it and rely on discovery mechanisms.
+    {
+        let mut mn = req.masternodes.clone();
+        mn.sort();
+        println!(
+            "{} Received snapshot (height: {}) from peer. Masternodes: {:?}",
+            "✓".green(),
+            req.height,
+            mn
+        );
+    }
+
+    // Persist the received snapshot to disk for durability so it can be inspected / loaded later
+    // Use an optional DATA_DIR env var (fallback to current dir)
+    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| ".".to_string());
+    let filename = format!("{}/snapshot_received_{}.json", data_dir, chrono::Utc::now().timestamp());
+    match serde_json::to_string_pretty(&req) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&filename, json) {
+                eprintln!("{} Failed to persist snapshot to {}: {:?}", "⚠".yellow(), filename, e);
+            } else {
+                println!("{} Snapshot written to {}", "💾".green(), filename);
+            }
+        }
+        Err(e) => {
+            eprintln!("{} Failed to serialize snapshot for disk: {:?}", "⚠".yellow(), e);
+        }
+    }
+
+    // Best-effort: notify any components if required (left as extension point)
+
+    Ok(Json(serde_json::json!({ "result": "ok" })))
 }
 
 #[derive(serde::Deserialize)]
@@ -615,11 +701,17 @@ async fn receive_finalized_block(
     State(state): State<ApiState>,
     Json(block): Json<time_core::block::Block>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    println!("📥 Received finalized block push for height {}", block.header.block_number);
+    println!(
+        "📥 Received finalized block push for height {}",
+        block.header.block_number
+    );
 
     let mut blockchain = state.blockchain.write().await;
     match blockchain.add_block(block) {
         Ok(_) => Ok(Json(serde_json::json!({"success": true}))),
-        Err(e) => Err(ApiError::Internal(format!("Failed to add pushed block: {:?}", e))),
+        Err(e) => Err(ApiError::Internal(format!(
+            "Failed to add pushed block: {:?}",
+            e
+        ))),
     }
 }

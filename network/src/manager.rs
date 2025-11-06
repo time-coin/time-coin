@@ -45,8 +45,8 @@ impl PeerManager {
                 "/root/time-coin-node/data/peers.json".to_string(),
             ))),
             last_seen: Arc::new(RwLock::new(HashMap::new())),
-            stale_after: Duration::from_secs(30),      // tune as needed
-            reaper_interval: Duration::from_secs(10),  // tune as needed
+            stale_after: Duration::from_secs(30), // tune as needed
+            reaper_interval: Duration::from_secs(10), // tune as needed
         };
 
         // start background reaper to remove stale peers

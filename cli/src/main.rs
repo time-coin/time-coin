@@ -430,16 +430,32 @@ async fn sync_mempool_from_peers(
     Ok(total_added)
 }
 
-use tokio::net::TcpStream;
-use tokio::time::{timeout, Duration};
+use tokio::time::timeout;
 
 /// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
-async fn peer_is_online(addr: &str, timeout_ms: u64) -> bool {
-    match timeout(Duration::from_millis(timeout_ms), TcpStream::connect(addr)).await {
-        Ok(Ok(_stream)) => true,
+
+
+async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
+    // Build HTTP client with timeout
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    // Use only the peer IP (strip port) to call their API port 24101
+    let host = addr.ip().to_string();
+    let url = format!("http://{}:24101/blockchain/info", host);
+
+    match timeout(std::time::Duration::from_millis(timeout_ms), client.get(&url).send()).await {
+        Ok(Ok(response)) => response.status().is_success(),
         _ => false,
     }
 }
+
+
 
 #[tokio::main]
 
