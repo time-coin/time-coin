@@ -430,6 +430,18 @@ async fn sync_mempool_from_peers(
     Ok(total_added)
 }
 
+use tokio::net::TcpStream;
+use tokio::time::{timeout, Duration};
+
+/// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
+async fn peer_is_online(addr: &str, timeout_ms: u64) -> bool {
+    match timeout(Duration::from_millis(timeout_ms), TcpStream::connect(addr)).await {
+        Ok(Ok(_stream)) => true,
+        _ => false,
+    }
+}
+
+
 #[tokio::main]
 
 /// Sync mempool from connected peers
@@ -662,16 +674,41 @@ async fn main() {
 
     println!("\n{}", "⏳ Starting peer discovery...".yellow());
 
-    match discovery.write().await.bootstrap().await {
-        Ok(peers) => {
-            if !peers.is_empty() {
+    
+let discovery_quiet = std::env::var("TIMECOIN_QUIET_DISCOVERY").is_ok();
+let strict_discovery = std::env::var("TIMECOIN_STRICT_DISCOVERY").is_ok();
+
+if !discovery_quiet {
+    println!("\n{}", "⏳ Starting peer discovery...".yellow());
+}
+
+match discovery.write().await.bootstrap().await {
+    Ok(peers) => {
+        if !peers.is_empty() {
+            // Optionally filter unreachable peers (strict mode)
+            let mut peers_to_show = peers.clone();
+            let mut peers_to_connect = peers.clone();
+
+            if strict_discovery {
+                // Check reachability for each discovered peer (timeout 2000ms per check)
+                let mut reachable = Vec::new();
+                for peer in peers.iter() {
+                    if peer_is_online(&peer.address, 2000).await {
+                        reachable.push(peer.clone());
+                    }
+                }
+                peers_to_show = reachable.clone();
+                peers_to_connect = reachable;
+            }
+
+            if !discovery_quiet {
                 println!(
                     "{}",
-                    format!("  ✓ Discovered {} peer(s)", peers.len()).green()
+                    format!("  ✓ Discovered {} peer(s)", peers_to_show.len()).green()
                 );
 
-                // Show peer details
-                for (i, peer) in peers.iter().enumerate() {
+                // Show peer details for the filtered set
+                for (i, peer) in peers_to_show.iter().enumerate() {
                     println!(
                         "    {}. {} (last seen: {})",
                         i + 1,
@@ -682,28 +719,39 @@ async fn main() {
                     );
                 }
 
-                peer_manager.connect_to_peers(peers.clone()).await;
-
-                // Give peers time to connect
-                println!("{}", "  ⏳ Waiting for peer connections...".bright_black());
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-                let connected = peer_manager.get_connected_peers().await.len();
-                if connected > 0 {
-                    println!(
-                        "{}",
-                        format!("  ✓ Connected to {} peer(s)", connected).green()
-                    );
+                if peers_to_show.len() < peers.len() {
+                    println!("  {} unreachable peer(s) were filtered out", peers.len() - peers_to_show.len());
                 }
-            } else {
-                println!("{}", "  ⚠ No peers discovered (first node?)".yellow());
             }
+
+            // Connect to the chosen set (filtered if strict_discovery, otherwise all discovered peers)
+            peer_manager.connect_to_peers(peers_to_connect).await;
+
+            // Give peers time to connect
+            if !discovery_quiet {
+                println!("{}", "  ⏳ Waiting for peer connections...".bright_black());
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+            let connected = peer_manager.get_connected_peers().await.len();
+            if connected > 0 && !discovery_quiet {
+                println!(
+                    "{}",
+                    format!("  ✓ Connected to {} peer(s)", connected).green()
+                );
+            }
+        } else if !discovery_quiet {
+            println!("{}", "  ⚠ No peers discovered (first node?)".yellow());
         }
-        Err(e) => {
+    }
+    Err(e) => {
+        if !discovery_quiet {
             println!("{}", format!("  ⚠ Peer discovery error: {}", e).yellow());
             println!("{}", "  Node will run without peers".bright_black());
         }
     }
+}
+
 
     // Download genesis if we didn't have it
     if _genesis.is_none() && !peer_manager.get_peer_ips().await.is_empty() {
