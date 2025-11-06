@@ -18,10 +18,7 @@ impl MockBlockchain {
     }
 
     fn add_utxo(&mut self, address: String, utxo: UTXO) {
-        self.utxos
-            .entry(address)
-            .or_default()
-            .push(utxo);
+        self.utxos.entry(address).or_default().push(utxo);
     }
 
     fn get_utxos(&self, address: &str) -> Vec<UTXO> {

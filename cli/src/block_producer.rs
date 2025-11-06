@@ -169,45 +169,44 @@ impl BlockProducer {
                                 ))
                                 .await
                                 {
-                                    Ok(resp) => {
-                                        match resp.json::<serde_json::Value>().await {
-                                            Ok(json) => {
-                                                if let Some(block_data) = json.get("block") {
-                                                    match serde_json::from_value::<
-                                                        time_core::block::Block,
-                                                    >(
-                                                        block_data.clone()
-                                                    ) {
-                                                        Ok(block) => {
-                                                            match blockchain
-                                                                .add_block(block.clone())
-                                                            {
-                                                                Ok(_) => {
-                                                                    println!("         ✓ Block #{} synced", height);
-                                                                }
-                                                                Err(e) => {
-                                                                    println!("         ✗ Failed to add block #{}: {:?}", height, e);
-                                                                    println!("      ⚠️ Sync failed, stopping");
-                                                                    return;
-                                                                }
+                                    Ok(resp) => match resp.json::<serde_json::Value>().await {
+                                        Ok(json) => {
+                                            if let Some(block_data) = json.get("block") {
+                                                match serde_json::from_value::<
+                                                    time_core::block::Block,
+                                                >(
+                                                    block_data.clone()
+                                                ) {
+                                                    Ok(block) => {
+                                                        match blockchain.add_block(block.clone()) {
+                                                            Ok(_) => {
+                                                                println!(
+                                                                    "         ✓ Block #{} synced",
+                                                                    height
+                                                                );
+                                                            }
+                                                            Err(e) => {
+                                                                println!("         ✗ Failed to add block #{}: {:?}", height, e);
+                                                                println!("      ⚠️ Sync failed, stopping");
+                                                                return;
                                                             }
                                                         }
-                                                        Err(e) => {
-                                                            println!("         ✗ Failed to parse block: {:?}", e);
-                                                            return;
-                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        println!("         ✗ Failed to parse block: {:?}", e);
+                                                        return;
                                                     }
                                                 }
                                             }
-                                            Err(e) => {
-                                                println!(
-                                                    "         ✗ Failed to parse response: {:?}",
-                                                    e
-                                                );
-                                                return;
-                                            }
                                         }
-                                    }
+                                        Err(e) => {
+                                            println!(
+                                                "         ✗ Failed to parse response: {:?}",
+                                                e
+                                            );
+                                            return;
+                                        }
+                                    },
                                     Err(e) => {
                                         println!("         ✗ Failed to download block: {:?}", e);
                                         return;
@@ -290,9 +289,7 @@ impl BlockProducer {
             "   Block Height:".bright_black(),
             block_num.to_string().cyan().bold()
         );
-        println!(
-            "────────────────────────────────────────────────────────────────"
-        );
+        println!("────────────────────────────────────────────────────────────────");
 
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
@@ -342,7 +339,6 @@ impl BlockProducer {
             // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
             println!("   📋 {} transactions", transactions.len());
-  
 
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
@@ -399,7 +395,10 @@ impl BlockProducer {
                 println!("   ✗ Quorum failed ({} < {})", approved, required_votes);
             }
         } else {
-            println!("   ℹ️  Producer: {}", selected_producer.as_deref().unwrap_or("unknown"));
+            println!(
+                "   ℹ️  Producer: {}",
+                selected_producer.as_deref().unwrap_or("unknown")
+            );
             println!("   ⏳ Waiting for proposal...");
 
             if let Some(proposal) = self.block_consensus.wait_for_proposal(block_num).await {
@@ -439,10 +438,13 @@ impl BlockProducer {
 
                 if approved >= required_votes {
                     println!("   ✅ Block approved - fetching finalized block...");
-                    
+
                     // Actively fetch the finalized block from producer
                     if let Some(producer_id) = selected_producer {
-                        if let Some(block) = self.fetch_finalized_block(&producer_id, block_num, &proposal.merkle_root).await {
+                        if let Some(block) = self
+                            .fetch_finalized_block(&producer_id, block_num, &proposal.merkle_root)
+                            .await
+                        {
                             // Apply the finalized block
                             let mut blockchain = self.blockchain.write().await;
                             match blockchain.add_block(block) {
@@ -480,7 +482,11 @@ impl BlockProducer {
     }
 
     /// Broadcast finalized block to peers (best-effort)
-    async fn broadcast_finalized_block(&self, block: &time_core::block::Block, masternodes: &[String]) {
+    async fn broadcast_finalized_block(
+        &self,
+        block: &time_core::block::Block,
+        masternodes: &[String],
+    ) {
         let block_json = match serde_json::to_value(block) {
             Ok(json) => json,
             Err(e) => {
@@ -496,7 +502,7 @@ impl BlockProducer {
         for node in masternodes {
             let url = format!("http://{}:24101/consensus/finalized-block", node);
             let payload_clone = payload.clone();
-            
+
             // Fire-and-forget, best-effort broadcast
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
@@ -515,13 +521,18 @@ impl BlockProducer {
     }
 
     /// Attempt to fetch finalized block from producer with retries
-    async fn fetch_finalized_block(&self, producer: &str, height: u64, expected_merkle: &str) -> Option<time_core::block::Block> {
+    async fn fetch_finalized_block(
+        &self,
+        producer: &str,
+        height: u64,
+        expected_merkle: &str,
+    ) -> Option<time_core::block::Block> {
         const MAX_ATTEMPTS: u32 = 8;
         const RETRY_DELAY_MS: u64 = 500;
 
         for attempt in 1..=MAX_ATTEMPTS {
             let url = format!("http://{}:24101/consensus/block/{}", producer, height);
-            
+
             match reqwest::Client::new()
                 .get(&url)
                 .timeout(std::time::Duration::from_secs(2))
@@ -531,14 +542,19 @@ impl BlockProducer {
                 Ok(response) => {
                     if let Ok(json) = response.json::<serde_json::Value>().await {
                         if let Some(block_data) = json.get("block") {
-                            if let Ok(block) = serde_json::from_value::<time_core::block::Block>(block_data.clone()) {
+                            if let Ok(block) = serde_json::from_value::<time_core::block::Block>(
+                                block_data.clone(),
+                            ) {
                                 // Validate merkle root matches proposal
                                 if block.header.merkle_root == expected_merkle {
                                     println!("   ✅ Fetched finalized block from {}", producer);
                                     return Some(block);
                                 } else {
-                                    println!("   ⚠️  Merkle mismatch: expected {}, got {}", 
-                                        &expected_merkle[..16], &block.header.merkle_root[..16]);
+                                    println!(
+                                        "   ⚠️  Merkle mismatch: expected {}, got {}",
+                                        &expected_merkle[..16],
+                                        &block.header.merkle_root[..16]
+                                    );
                                 }
                             }
                         }
@@ -546,7 +562,10 @@ impl BlockProducer {
                 }
                 Err(e) => {
                     if attempt < MAX_ATTEMPTS {
-                        println!("   ⏳ Fetch attempt {}/{} failed, retrying... ({:?})", attempt, MAX_ATTEMPTS, e);
+                        println!(
+                            "   ⏳ Fetch attempt {}/{} failed, retrying... ({:?})",
+                            attempt, MAX_ATTEMPTS, e
+                        );
                         tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
                     } else {
                         println!("   ⚠️  All fetch attempts failed: {:?}", e);
@@ -610,7 +629,7 @@ impl BlockProducer {
             Ok(_) => {
                 println!("   ✔ Block {} finalized", block_num);
                 drop(blockchain);
-                
+
                 for tx in transactions {
                     self.mempool.remove_transaction(&tx.txid).await;
                 }
@@ -621,7 +640,8 @@ impl BlockProducer {
                     .block_consensus
                     .get_active_masternodes(&all_masternodes)
                     .await;
-                self.broadcast_finalized_block(&block, &active_masternodes).await;
+                self.broadcast_finalized_block(&block, &active_masternodes)
+                    .await;
             }
             Err(e) => {
                 println!("   ✗ Failed: {:?}", e);
@@ -670,7 +690,10 @@ impl BlockProducer {
             .collect();
 
         if !participating_masternodes.is_empty() {
-            println!("      💡 Rewarding {} participating masternodes", participating_masternodes.len());
+            println!(
+                "      💡 Rewarding {} participating masternodes",
+                participating_masternodes.len()
+            );
             let tiers = [
                 MasternodeTier::Free,
                 MasternodeTier::Bronze,
@@ -842,10 +865,7 @@ impl BlockProducer {
                     .await;
 
                 if has_consensus {
-                    println!(
-                        "      ✔ Consensus reached! ({}/{} votes)",
-                        approvals, total
-                    );
+                    println!("      ✔ Consensus reached! ({}/{} votes)", approvals, total);
 
                     // Get list of voters for rewards
                     let voters = self
@@ -858,9 +878,7 @@ impl BlockProducer {
                         .finalize_catchup_block_with_rewards(block_num, timestamp, &voters)
                         .await;
                 } else if attempt % 5 == 0 {
-                    println!(
-                        "      ▶️ Waiting for consensus..."
-                    );
+                    println!("      ▶️ Waiting for consensus...");
                 }
             }
         }
@@ -1066,4 +1084,4 @@ impl BlockProducer {
             }
         }
     }
-} 
+}

@@ -447,13 +447,16 @@ async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
     let host = addr.ip().to_string();
     let url = format!("http://{}:24101/blockchain/info", host);
 
-    match timeout(std::time::Duration::from_millis(timeout_ms), client.get(&url).send()).await {
+    match timeout(
+        std::time::Duration::from_millis(timeout_ms),
+        client.get(&url).send(),
+    )
+    .await
+    {
         Ok(Ok(response)) => response.status().is_success(),
         _ => false,
     }
 }
-
-
 
 #[tokio::main]
 
@@ -1316,7 +1319,8 @@ async fn main() {
 
     // Helper function to extract peer IPs from PeerInfo list
     fn extract_peer_ips(peers: &[time_network::PeerInfo]) -> Vec<String> {
-        peers.iter()
+        peers
+            .iter()
             .map(|peer| peer.address.ip().to_string())
             .collect()
     }
@@ -1333,13 +1337,15 @@ async fn main() {
         loop {
             interval.tick().await;
             let peers = peer_mgr_sync.get_connected_peers().await;
-            
+
             // Get connected peer IPs using helper
             let connected_ips = extract_peer_ips(&peers);
-            
+
             // Sync block consensus manager with connected peers
-            block_consensus_sync.sync_with_connected_peers(connected_ips.clone()).await;
-            
+            block_consensus_sync
+                .sync_with_connected_peers(connected_ips.clone())
+                .await;
+
             // Also update the main consensus and tx consensus
             for peer in peers {
                 consensus_sync
@@ -1366,7 +1372,9 @@ async fn main() {
         // Sync with connected peers before getting the count
         let peers = peer_mgr_heartbeat.get_connected_peers().await;
         let connected_ips = extract_peer_ips(&peers);
-        block_consensus_heartbeat.sync_with_connected_peers(connected_ips).await;
+        block_consensus_heartbeat
+            .sync_with_connected_peers(connected_ips)
+            .await;
 
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
 
