@@ -433,6 +433,7 @@ async fn sync_mempool_from_peers(
 use tokio::time::timeout;
 
 /// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
+
 async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
     // Build HTTP client with timeout
     let client = match reqwest::Client::builder()
@@ -452,6 +453,7 @@ async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
         _ => false,
     }
 }
+
 
 #[tokio::main]
 
