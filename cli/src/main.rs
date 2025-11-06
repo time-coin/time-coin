@@ -433,8 +433,6 @@ async fn sync_mempool_from_peers(
 use tokio::time::timeout;
 
 /// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
-
-
 async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
     // Build HTTP client with timeout
     let client = match reqwest::Client::builder()
@@ -1044,7 +1042,7 @@ async fn main() {
     let available_for_mempool = (available_gb * 0.25 * 1_073_741_824.0) as u64;
     let estimated_capacity = (available_for_mempool / avg_tx_size_bytes).min(10_000_000);
 
-    println!("{}", format!("✓ Mempool initialized").green());
+    println!("{}", "✓ Mempool initialized".to_string().green());
     println!("   Available RAM: {:.2} GB", available_gb);
     println!(
         "   Mempool capacity: {} transactions (~{:.0} MB)",
@@ -1131,7 +1129,7 @@ async fn main() {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
                             let info = conn.peer_info().await;
-                            let peer_addr = info.address.clone();
+                            let peer_addr = info.address;
 
                             println!(
                                 "{}",

@@ -153,11 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n⚙️  Initializing TIME Coin node configuration");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-            let config_dir = if testnet {
-                PathBuf::from("/root/time-coin-node/config")
-            } else {
-                PathBuf::from("/root/time-coin-node/config")
-            };
+            let config_dir = PathBuf::from("/root/time-coin-node/config");
 
             let config_file = config_dir.join("testnet.toml");
 
@@ -212,7 +208,7 @@ data_dir = "/var/lib/time-coin"
             println!("\n📊 Node Status");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-            match client.get(&format!("{}/status", cli.api)).send().await {
+            match client.get(format!("{}/status", cli.api)).send().await {
                 Ok(response) => {
                     let status: Value = response.json().await?;
                     println!("Status:       Running");
@@ -233,7 +229,7 @@ data_dir = "/var/lib/time-coin"
 
         Commands::Info => {
             let response: Value = client
-                .get(&format!("{}/blockchain/info", cli.api))
+                .get(format!("{}/blockchain/info", cli.api))
                 .send()
                 .await?
                 .json()
@@ -263,7 +259,7 @@ data_dir = "/var/lib/time-coin"
 
         Commands::Peers => {
             let response: Value = client
-                .get(&format!("{}/peers", cli.api))
+                .get(format!("{}/peers", cli.api))
                 .send()
                 .await?
                 .json()

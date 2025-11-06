@@ -1,4 +1,3 @@
-use reqwest;
 use serde::Deserialize;
 use std::sync::Arc;
 use time_core::block::Block;
@@ -89,7 +88,7 @@ impl ChainSync {
         }
 
         // Check first transaction is coinbase
-        if block.transactions[0].inputs.len() > 0 {
+        if !block.transactions[0].inputs.is_empty() {
             println!("   ✗ First transaction is not coinbase");
             return false;
         }

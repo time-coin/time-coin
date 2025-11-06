@@ -20,7 +20,7 @@ impl MockBlockchain {
     fn add_utxo(&mut self, address: String, utxo: UTXO) {
         self.utxos
             .entry(address)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(utxo);
     }
 
@@ -121,7 +121,7 @@ fn main() {
             println!("  ✅ Transaction ACCEPTED by blockchain");
             // Update Alice's wallet with the UTXO
             for (idx, output) in tx1.outputs.iter().enumerate() {
-                if output.address.to_string() == alice.address_string() {
+                if output.address == alice.address_string() {
                     let utxo = UTXO {
                         tx_hash: tx1.hash(),
                         output_index: idx as u32,
@@ -152,7 +152,7 @@ fn main() {
             println!("  ✅ Transaction ACCEPTED by blockchain");
             // Update Bob's wallet
             for (idx, output) in tx2.outputs.iter().enumerate() {
-                if output.address.to_string() == bob.address_string() {
+                if output.address == bob.address_string() {
                     let utxo = UTXO {
                         tx_hash: tx2.hash(),
                         output_index: idx as u32,

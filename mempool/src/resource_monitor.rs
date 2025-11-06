@@ -8,6 +8,12 @@ pub struct ResourceMonitor {
     critical_threshold_percent: f64, // 90%
 }
 
+impl Default for ResourceMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceMonitor {
     pub fn new() -> Self {
         Self {
@@ -75,7 +81,7 @@ impl MemoryStatus {
                 // Only log periodically, not every time
             }
             MemoryLevel::Warning => {
-                println!("");
+                println!();
                 println!("⚠️  ═══════════════════════════════════════════════════════");
                 println!("⚠️  MEMORY WARNING");
                 println!("⚠️  ═══════════════════════════════════════════════════════");
@@ -88,16 +94,16 @@ impl MemoryStatus {
                     "   Mempool: {} transactions ({:.1} MB)",
                     mempool_count, mempool_size_mb
                 );
-                println!("");
+                println!();
                 println!("   ACTION: Memory usage is elevated");
                 println!("   - Mempool pruning may activate soon");
                 println!("   - Consider increasing server RAM");
                 println!("   - Monitor for spam attacks");
                 println!("⚠️  ═══════════════════════════════════════════════════════");
-                println!("");
+                println!();
             }
             MemoryLevel::Critical => {
-                println!("");
+                println!();
                 println!("🚨 ═══════════════════════════════════════════════════════");
                 println!("🚨 CRITICAL: MEMORY EXHAUSTION");
                 println!("🚨 ═══════════════════════════════════════════════════════");
@@ -110,19 +116,19 @@ impl MemoryStatus {
                     "   Mempool: {} transactions ({:.1} MB)",
                     mempool_count, mempool_size_mb
                 );
-                println!("");
+                println!();
                 println!("   🚨 EMERGENCY ACTIONS ACTIVE:");
                 println!("   ✓ Rejecting new transactions");
                 println!("   ✓ Aggressive mempool pruning");
                 println!("   ✓ Purging low-fee transactions");
-                println!("");
+                println!();
                 println!("   OPERATOR ACTION REQUIRED:");
                 println!("   1. Check for DoS attack (spam transactions)");
                 println!("   2. Increase server RAM immediately");
                 println!("   3. Review firewall and rate limits");
                 println!("   4. Consider restarting node to clear mempool");
                 println!("🚨 ═══════════════════════════════════════════════════════");
-                println!("");
+                println!();
             }
         }
     }

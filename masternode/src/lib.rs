@@ -192,7 +192,7 @@ impl MasternodeNetwork {
             .collect();
 
         // Sort deterministically by the string representation
-        active.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+        active.sort_by_key(|a| a.to_string());
 
         active.into_iter().take(self.quorum_size).collect()
     }
@@ -221,21 +221,11 @@ impl Default for MasternodeNetwork {
 }
 
 /// Counts of masternodes per tier
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MasternodeCounts {
     pub community: usize,
     pub verified: usize,
     pub professional: usize,
-}
-
-impl Default for MasternodeCounts {
-    fn default() -> Self {
-        Self {
-            community: 0,
-            verified: 0,
-            professional: 0,
-        }
-    }
 }
 
 // Optional status module
