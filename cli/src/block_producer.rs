@@ -400,7 +400,7 @@ impl BlockProducer {
                 println!("   ❌ Quorum failed ({} < {})", approved, required_votes);
             }
         } else {
-            println!("   ℹ️  Producer: {}", selected_producer.as_ref().unwrap_or(&String::from("unknown")));
+            println!("   ℹ️  Producer: {}", selected_producer.as_deref().unwrap_or("unknown"));
             println!("   ⏳ Waiting for proposal...");
 
             if let Some(proposal) = self.block_consensus.wait_for_proposal(block_num).await {
@@ -602,15 +602,15 @@ impl BlockProducer {
             hash,
         };
 
+        // Broadcast finalized block to peers before storing (best-effort)
+        let masternodes = self.consensus.get_masternodes().await;
+        self.broadcast_finalized_block(&block, &masternodes).await;
+
         let mut blockchain = self.blockchain.write().await;
-        match blockchain.add_block(block.clone()) {
+        match blockchain.add_block(block) {
             Ok(_) => {
                 println!("   ✅ Block {} finalized", block_num);
                 drop(blockchain);
-                
-                // Broadcast finalized block to peers
-                let masternodes = self.consensus.get_masternodes().await;
-                self.broadcast_finalized_block(&block, &masternodes).await;
                 
                 for tx in transactions {
                     self.mempool.remove_transaction(&tx.txid).await;

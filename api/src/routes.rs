@@ -600,7 +600,7 @@ async fn get_consensus_block(
             "success": true,
             "block": block
         }))),
-        None => Err(ApiError::TransactionNotFound(format!(
+        None => Err(ApiError::BlockNotFound(format!(
             "Block at height {} not found",
             height
         ))),
