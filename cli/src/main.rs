@@ -430,7 +430,6 @@ async fn sync_mempool_from_peers(
     Ok(total_added)
 }
 
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 /// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
