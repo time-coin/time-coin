@@ -279,7 +279,7 @@ impl ConsensusEngine {
 
                 if let Some(vote_list) = votes.get(block_hash) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
-                    let required = (total_nodes * 2 + 2) / 3; // Ceiling of 2/3
+                    let required = (total_nodes * 2).div_ceil(3); // Ceiling of 2/3
                     approvals >= required
                 } else {
                     false
@@ -314,7 +314,7 @@ impl ConsensusEngine {
             (0, 0)
         };
 
-        let required = (total_nodes * 2 + 2) / 3;
+        let required = (total_nodes * 2).div_ceil(3);
         let has_quorum = approvals >= required;
 
         (has_quorum, approvals, rejections, total_nodes)
@@ -452,6 +452,9 @@ pub const QUARANTINE_DURATION_SECS: i64 = 3600; // 1 hour
 pub mod tx_consensus {
     use super::*;
 
+    // Type alias for complex nested type
+    type TxSetVotesMap = Arc<RwLock<HashMap<u64, HashMap<String, Vec<TxSetVote>>>>>;
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct TransactionProposal {
         pub block_height: u64,
@@ -472,8 +475,14 @@ pub mod tx_consensus {
 
     pub struct TxConsensusManager {
         proposals: Arc<RwLock<HashMap<u64, TransactionProposal>>>,
-        votes: Arc<RwLock<HashMap<u64, HashMap<String, Vec<TxSetVote>>>>>,
+        votes: TxSetVotesMap,
         masternodes: Arc<RwLock<Vec<String>>>,
+    }
+
+    impl Default for TxConsensusManager {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl TxConsensusManager {
@@ -533,7 +542,7 @@ pub mod tx_consensus {
             if let Some(height_votes) = votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(merkle_root) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
-                    let required = (total_nodes * 2 + 2) / 3;
+                    let required = (total_nodes * 2).div_ceil(3);
                     let has_consensus = approvals >= required;
                     return (has_consensus, approvals, total_nodes);
                 }
@@ -590,6 +599,9 @@ pub mod tx_consensus {
 pub mod block_consensus {
     use super::*;
 
+    // Type alias for complex nested type
+    type BlockVotesMap = Arc<RwLock<HashMap<u64, HashMap<String, Vec<BlockVote>>>>>;
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct BlockProposal {
         pub block_height: u64,
@@ -611,9 +623,15 @@ pub mod block_consensus {
 
     pub struct BlockConsensusManager {
         proposals: Arc<RwLock<HashMap<u64, BlockProposal>>>,
-        votes: Arc<RwLock<HashMap<u64, HashMap<String, Vec<BlockVote>>>>>,
+        votes: BlockVotesMap,
         masternodes: Arc<RwLock<Vec<String>>>,
         health: Arc<RwLock<HashMap<String, MasternodeHealth>>>,
+    }
+
+    impl Default for BlockConsensusManager {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl BlockConsensusManager {
@@ -674,7 +692,7 @@ pub mod block_consensus {
             if let Some(height_votes) = votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(block_hash) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
-                    let required = (total_nodes * 2 + 2) / 3;
+                    let required = (total_nodes * 2).div_ceil(3);
                     let has_consensus = approvals >= required;
                     return (has_consensus, approvals, total_nodes);
                 }
@@ -875,12 +893,11 @@ pub mod block_consensus {
                 );
 
                 // Check for state transitions
-                if node_health.consecutive_misses >= MAX_CONSECUTIVE_MISSES {
-                    if node_health.status == NodeStatus::Active {
-                        self.transition_to_quarantined(address).await;
-                    } else if node_health.status == NodeStatus::Degraded {
-                        self.transition_to_quarantined(address).await;
-                    }
+                if node_health.consecutive_misses >= MAX_CONSECUTIVE_MISSES
+                    && (node_health.status == NodeStatus::Active
+                        || node_health.status == NodeStatus::Degraded)
+                {
+                    self.transition_to_quarantined(address).await;
                 }
             }
         }
@@ -894,7 +911,7 @@ pub mod block_consensus {
                     node_health.status = NodeStatus::Degraded;
                     node_health.status_changed_at = chrono::Utc::now().timestamp();
 
-                    println!("");
+                    println!();
                     println!("⚠️  ═══════════════════════════════════════════════════════");
                     println!("⚠️  MASTERNODE DEGRADED: {}", address);
                     println!("⚠️  ═══════════════════════════════════════════════════════");
@@ -906,7 +923,7 @@ pub mod block_consensus {
                     println!("   Action: Monitor network connection and server performance");
                     println!("   Impact: May be quarantined if performance doesn't improve");
                     println!("⚠️  ═══════════════════════════════════════════════════════");
-                    println!("");
+                    println!();
                 }
             }
         }
@@ -922,7 +939,7 @@ pub mod block_consensus {
                 let quarantine_until =
                     chrono::Utc::now() + chrono::Duration::seconds(QUARANTINE_DURATION_SECS);
 
-                println!("");
+                println!();
                 println!("🔒 ═══════════════════════════════════════════════════════");
                 println!("🔒 MASTERNODE QUARANTINED: {}", address);
                 println!("🔒 ═══════════════════════════════════════════════════════");
@@ -948,7 +965,7 @@ pub mod block_consensus {
                 println!("   ");
                 println!("   If issues persist, node will be downgraded to seed-only");
                 println!("🔒 ═══════════════════════════════════════════════════════");
-                println!("");
+                println!();
             }
         }
 
@@ -960,7 +977,7 @@ pub mod block_consensus {
                 node_health.status = NodeStatus::Downgraded;
                 node_health.status_changed_at = chrono::Utc::now().timestamp();
 
-                println!("");
+                println!();
                 println!("⬇️  ═══════════════════════════════════════════════════════");
                 println!("⬇️  MASTERNODE DOWNGRADED: {}", address);
                 println!("⬇️  ═══════════════════════════════════════════════════════");
@@ -983,7 +1000,7 @@ pub mod block_consensus {
                 println!("   ");
                 println!("   Contact: Check node logs and system resources");
                 println!("⬇️  ═══════════════════════════════════════════════════════");
-                println!("");
+                println!();
             }
         }
 
@@ -1119,7 +1136,7 @@ pub mod block_consensus {
                 return;
             }
 
-            println!("");
+            println!();
             println!("📊 ═══════════════════════════════════════════════════════");
             println!("📊 MASTERNODE HEALTH REPORT");
             println!("📊 ═══════════════════════════════════════════════════════");
@@ -1142,7 +1159,7 @@ pub mod block_consensus {
             }
 
             println!("📊 ═══════════════════════════════════════════════════════");
-            println!("");
+            println!();
         }
     }
 }

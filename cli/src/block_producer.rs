@@ -278,8 +278,7 @@ impl BlockProducer {
 
         println!(
             "
-{}",
-            "────────────────────────────────────────────────────────────────"
+────────────────────────────────────────────────────────────────"
         );
         println!(
             "{} {}",
@@ -292,7 +291,6 @@ impl BlockProducer {
             block_num.to_string().cyan().bold()
         );
         println!(
-            "{}",
             "────────────────────────────────────────────────────────────────"
         );
 
@@ -410,7 +408,7 @@ impl BlockProducer {
                 let blockchain = self.blockchain.read().await;
                 let is_valid = self.block_consensus.validate_proposal(
                     &proposal,
-                    &blockchain.chain_tip_hash(),
+                    blockchain.chain_tip_hash(),
                     blockchain.chain_tip_height(),
                 );
                 drop(blockchain);
@@ -832,7 +830,7 @@ impl BlockProducer {
                         timestamp: chrono::Utc::now().timestamp(),
                     };
 
-                    if let Ok(_) = self.block_consensus.vote_on_block(vote.clone()).await {
+                    if (self.block_consensus.vote_on_block(vote.clone()).await).is_ok() {
                         self.broadcast_block_vote(vote, masternodes).await;
                     }
                 }

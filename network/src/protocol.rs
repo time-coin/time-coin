@@ -13,7 +13,7 @@ pub const GIT_HASH: &str = env!("GIT_HASH");
 pub fn full_version() -> String {
     // Try to get current git hash at runtime
     let runtime_hash = std::process::Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output()
         .ok()
         .and_then(|output| {
@@ -242,7 +242,7 @@ pub fn is_version_outdated(peer_version: &str) -> bool {
 
     // Extract git hash from versions (format: "0.1.0-abc123")
     let current_hash = GIT_HASH;
-    let peer_hash = peer_version.split('-').last().unwrap_or("");
+    let peer_hash = peer_version.split('-').next_back().unwrap_or("");
 
     // Different git commits mean different versions
     current_hash != peer_hash && !peer_hash.is_empty()

@@ -268,9 +268,8 @@ async fn receive_snapshot(
 
     if computed_hash != req.state_hash {
         eprintln!(
-            "{} {} - received snapshot hash mismatch (reported={}, computed={})",
+            "{} Snapshot - received snapshot hash mismatch (reported={}, computed={})",
             "⚠".yellow(),
-            "Snapshot",
             req.state_hash,
             computed_hash
         );
@@ -601,7 +600,7 @@ async fn receive_tx_vote(
         tx_consensus
             .vote_on_tx_set(tx_vote.clone())
             .await
-            .map_err(|e| ApiError::Internal(e))?;
+            .map_err(ApiError::Internal)?;
 
         // Check if we now have consensus
         let (has_consensus, approvals, total) = tx_consensus
@@ -676,7 +675,7 @@ async fn receive_block_vote(
         block_consensus
             .vote_on_block(block_vote.clone())
             .await
-            .map_err(|e| ApiError::Internal(e))?;
+            .map_err(ApiError::Internal)?;
 
         let (has_consensus, approvals, total) = block_consensus
             .has_block_consensus(block_vote.block_height, &block_vote.block_hash)

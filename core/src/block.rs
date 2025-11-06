@@ -404,6 +404,72 @@ pub fn calculate_total_block_reward(
     treasury + masternodes + transaction_fees
 }
 
+/// Distribute masternode rewards to all active masternodes
+/// Returns a vector of TxOutput for the coinbase transaction
+pub fn distribute_masternode_rewards(
+    active_masternodes: &[(String, MasternodeTier)],
+    counts: &MasternodeCounts,
+) -> Vec<crate::transaction::TxOutput> {
+    let mut outputs = Vec::new();
+
+    // Calculate total pool
+    let total_pool = calculate_total_masternode_reward(counts);
+    let total_weight = counts.total_weight();
+
+    if total_weight == 0 || active_masternodes.is_empty() {
+        return outputs;
+    }
+
+    // Calculate reward per weight unit
+    let per_weight = total_pool / total_weight;
+
+    // Distribute to each masternode based on their tier weight
+    for (address, tier) in active_masternodes {
+        let reward = per_weight * tier.weight();
+        if reward > 0 {
+            outputs.push(crate::transaction::TxOutput::new(reward, address.clone()));
+        }
+    }
+
+    outputs
+}
+
+/// Create a complete coinbase transaction with all block rewards
+pub fn create_coinbase_transaction(
+    _block_number: u64,
+    treasury_address: &str,
+    active_masternodes: &[(String, MasternodeTier)],
+    counts: &MasternodeCounts,
+    transaction_fees: u64,
+) -> crate::transaction::Transaction {
+    let mut outputs = Vec::new();
+
+    // Treasury reward (always 5 TIME)
+    let treasury_reward = calculate_treasury_reward();
+    outputs.push(crate::transaction::TxOutput::new(
+        treasury_reward,
+        treasury_address.to_string(),
+    ));
+
+    // Masternode rewards
+    let masternode_outputs = distribute_masternode_rewards(active_masternodes, counts);
+    outputs.extend(masternode_outputs);
+
+    // Transaction fees go to block producer (if any)
+    if transaction_fees > 0 && !active_masternodes.is_empty() {
+        // Give fees to the first masternode (block producer)
+        if let Some((producer_address, _)) = active_masternodes.first() {
+            outputs.push(crate::transaction::TxOutput::new(
+                transaction_fees,
+                producer_address.clone(),
+            ));
+        }
+    }
+
+    // Create coinbase transaction
+    crate::transaction::Transaction::new(vec![], outputs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,8 +675,8 @@ mod tests {
         let per_weight = total_pool / total_weight;
 
         // Verify each tier gets correct reward
-        assert_eq!(outputs[0].amount, per_weight * 1); // Free
-        assert_eq!(outputs[1].amount, per_weight * 1); // Free
+        assert_eq!(outputs[0].amount, per_weight); // Free
+        assert_eq!(outputs[1].amount, per_weight); // Free
         assert_eq!(outputs[2].amount, per_weight * 10); // Bronze
         assert_eq!(outputs[3].amount, per_weight * 25); // Silver
         assert_eq!(outputs[4].amount, per_weight * 50); // Gold
@@ -687,7 +753,7 @@ mod tests {
         ];
 
         for (count, counts) in &scenarios {
-            let total = calculate_total_masternode_reward(&counts);
+            let total = calculate_total_masternode_reward(counts);
             println!("{} masternodes: {} TIME total", count, total / 100_000_000);
         }
 
@@ -700,70 +766,4 @@ mod tests {
         assert!(pool_100 < pool_10 * 10);
         assert!(pool_1000 < pool_100 * 10);
     }
-}
-
-/// Distribute masternode rewards to all active masternodes
-/// Returns a vector of TxOutput for the coinbase transaction
-pub fn distribute_masternode_rewards(
-    active_masternodes: &[(String, MasternodeTier)],
-    counts: &MasternodeCounts,
-) -> Vec<crate::transaction::TxOutput> {
-    let mut outputs = Vec::new();
-
-    // Calculate total pool
-    let total_pool = calculate_total_masternode_reward(counts);
-    let total_weight = counts.total_weight();
-
-    if total_weight == 0 || active_masternodes.is_empty() {
-        return outputs;
-    }
-
-    // Calculate reward per weight unit
-    let per_weight = total_pool / total_weight;
-
-    // Distribute to each masternode based on their tier weight
-    for (address, tier) in active_masternodes {
-        let reward = per_weight * tier.weight();
-        if reward > 0 {
-            outputs.push(crate::transaction::TxOutput::new(reward, address.clone()));
-        }
-    }
-
-    outputs
-}
-
-/// Create a complete coinbase transaction with all block rewards
-pub fn create_coinbase_transaction(
-    _block_number: u64,
-    treasury_address: &str,
-    active_masternodes: &[(String, MasternodeTier)],
-    counts: &MasternodeCounts,
-    transaction_fees: u64,
-) -> crate::transaction::Transaction {
-    let mut outputs = Vec::new();
-
-    // Treasury reward (always 5 TIME)
-    let treasury_reward = calculate_treasury_reward();
-    outputs.push(crate::transaction::TxOutput::new(
-        treasury_reward,
-        treasury_address.to_string(),
-    ));
-
-    // Masternode rewards
-    let masternode_outputs = distribute_masternode_rewards(active_masternodes, counts);
-    outputs.extend(masternode_outputs);
-
-    // Transaction fees go to block producer (if any)
-    if transaction_fees > 0 && !active_masternodes.is_empty() {
-        // Give fees to the first masternode (block producer)
-        if let Some((producer_address, _)) = active_masternodes.first() {
-            outputs.push(crate::transaction::TxOutput::new(
-                transaction_fees,
-                producer_address.clone(),
-            ));
-        }
-    }
-
-    // Create coinbase transaction
-    crate::transaction::Transaction::new(vec![], outputs)
 }

@@ -177,22 +177,22 @@ impl Mempool {
 
         // Hash transaction fields (excluding signatures)
         hasher.update(tx.txid.as_bytes());
-        hasher.update(&tx.version.to_le_bytes());
+        hasher.update(tx.version.to_le_bytes());
 
         for input in &tx.inputs {
             hasher.update(input.previous_output.txid.as_bytes());
-            hasher.update(&input.previous_output.vout.to_le_bytes());
+            hasher.update(input.previous_output.vout.to_le_bytes());
             hasher.update(&input.public_key);
-            hasher.update(&input.sequence.to_le_bytes());
+            hasher.update(input.sequence.to_le_bytes());
         }
 
         for output in &tx.outputs {
             hasher.update(output.address.as_bytes());
-            hasher.update(&output.amount.to_le_bytes());
+            hasher.update(output.amount.to_le_bytes());
         }
 
-        hasher.update(&tx.lock_time.to_le_bytes());
-        hasher.update(&tx.timestamp.to_le_bytes());
+        hasher.update(tx.lock_time.to_le_bytes());
+        hasher.update(tx.timestamp.to_le_bytes());
 
         hasher.finalize().to_vec()
     }
