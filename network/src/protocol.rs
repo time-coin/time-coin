@@ -57,7 +57,8 @@ impl HandshakeMessage {
     /// Create a new handshake message
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
         HandshakeMessage {
-            version: full_version(),
+            // Use the package VERSION (without git hash) for the handshake version to match tests
+            version: VERSION.to_string(),
             protocol_version: PROTOCOL_VERSION,
             network,
             listen_addr,
@@ -102,8 +103,9 @@ pub struct ProtocolVersion {
 
 impl ProtocolVersion {
     pub fn current() -> Self {
+        // Use the package VERSION rather than full_version() so tests and messages remain deterministic
         ProtocolVersion {
-            software_version: full_version(),
+            software_version: VERSION.to_string(),
             protocol_version: PROTOCOL_VERSION,
         }
     }

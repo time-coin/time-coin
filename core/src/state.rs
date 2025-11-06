@@ -460,7 +460,6 @@ pub struct ChainStats {
 mod tests {
     use super::*;
     use crate::transaction::TxOutput;
-    use std::fs;
 
     fn create_genesis_block() -> Block {
         let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];

@@ -30,8 +30,8 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/tx-vote", post(receive_tx_vote))
         .route("/consensus/block-proposal", post(receive_block_proposal))
         .route("/consensus/block-vote", post(receive_block_vote))
-        // Finalized block endpoints
-        .route("/consensus/block/:height", get(get_consensus_block))
+        // Consensus block retrieval / push endpoints (axum style)
+        .route("/consensus/block/{height}", get(get_consensus_block))
         .route("/consensus/finalized-block", post(receive_finalized_block))
 }
 
@@ -73,6 +73,26 @@ async fn get_block_by_height(
     State(state): State<ApiState>,
     Path(height): Path<u64>,
 ) -> ApiResult<Json<BlockResponse>> {
+    let blockchain = state.blockchain.read().await;
+
+    match blockchain.get_block_by_height(height) {
+        Some(block) => Ok(Json(BlockResponse {
+            block: block.clone(),
+        })),
+        None => Err(ApiError::TransactionNotFound(format!(
+            "Block {} not found",
+            height
+        ))),
+    }
+}
+
+// New: GET /consensus/block/{height} — same contract as /blockchain/block/{height},
+// but kept under consensus namespace for producer/non-producer fetches.
+async fn get_consensus_block(
+    State(state): State<ApiState>,
+    Path(height): Path<u64>,
+) -> ApiResult<Json<BlockResponse>> {
+    // Reuse the same logic as get_block_by_height
     let blockchain = state.blockchain.read().await;
 
     match blockchain.get_block_by_height(height) {
@@ -588,61 +608,18 @@ async fn receive_block_vote(
     })))
 }
 
-/// GET /consensus/block/:height - Fetch finalized block by height
-async fn get_consensus_block(
-    State(state): State<ApiState>,
-    Path(height): Path<u64>,
-) -> ApiResult<Json<serde_json::Value>> {
-    let blockchain = state.blockchain.read().await;
-    
-    match blockchain.get_block_by_height(height) {
-        Some(block) => Ok(Json(serde_json::json!({
-            "success": true,
-            "block": block
-        }))),
-        None => Err(ApiError::BlockNotFound(format!(
-            "Block at height {} not found",
-            height
-        ))),
-    }
-}
-
-/// POST /consensus/finalized-block - Receive pushed finalized block
+// --- New consensus finalized-block POST handler (axum style) ---
+// Accept a finalized block pushed by a producer and attempt to add it to the chain.
+// This is best-effort: returns an error if the block can't be added.
 async fn receive_finalized_block(
     State(state): State<ApiState>,
-    Json(payload): Json<serde_json::Value>,
+    Json(block): Json<time_core::block::Block>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    // Parse the block from the payload
-    let block_data = payload
-        .get("block")
-        .ok_or(ApiError::Internal("Missing block field".to_string()))?;
-    
-    let block: time_core::block::Block = serde_json::from_value(block_data.clone())
-        .map_err(|e| ApiError::Internal(format!("Invalid block format: {}", e)))?;
-    
-    println!(
-        "📦 Received finalized block #{} (hash: {}...)",
-        block.header.block_number,
-        &block.hash[..16]
-    );
-    
-    // Store the block (best-effort)
+    println!("📥 Received finalized block push for height {}", block.header.block_number);
+
     let mut blockchain = state.blockchain.write().await;
-    match blockchain.add_block(block.clone()) {
-        Ok(_) => {
-            println!("   ✅ Block #{} stored", block.header.block_number);
-            Ok(Json(serde_json::json!({
-                "success": true,
-                "message": "Block stored successfully"
-            })))
-        }
-        Err(e) => {
-            // Log but don't fail - this is best-effort
-            println!("   ⚠️  Failed to store block: {:?}", e);
-            Ok(Json(serde_json::json!({
-                "success": false,
-                "message": format!("Failed to store block: {:?}", e)
-            })))
-        }
+    match blockchain.add_block(block) {
+        Ok(_) => Ok(Json(serde_json::json!({"success": true}))),
+        Err(e) => Err(ApiError::Internal(format!("Failed to add pushed block: {:?}", e))),
     }
 }
