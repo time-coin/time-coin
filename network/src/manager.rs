@@ -6,8 +6,11 @@ use local_ip_address::local_ip;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tokio::task::JoinHandle;
+use tokio::time;
+use tracing::{debug, info, warn};
 
 #[derive(serde::Deserialize, Debug)]
 pub struct Snapshot {
@@ -23,17 +26,54 @@ pub struct PeerManager {
     listen_addr: SocketAddr,
     peers: Arc<RwLock<HashMap<SocketAddr, PeerInfo>>>,
     peer_exchange: Arc<RwLock<crate::peer_exchange::PeerExchange>>,
+
+    // last-seen timestamps for active peers (used by reaper)
+    last_seen: Arc<RwLock<HashMap<SocketAddr, Instant>>>,
+    // how long without an update before considering peer stale
+    stale_after: Duration,
+    // how often to run reaper
+    reaper_interval: Duration,
 }
 
 impl PeerManager {
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
-        PeerManager {
+        let manager = PeerManager {
             network,
             listen_addr,
             peers: Arc::new(RwLock::new(HashMap::new())),
             peer_exchange: Arc::new(RwLock::new(crate::peer_exchange::PeerExchange::new(
                 "/root/time-coin-node/data/peers.json".to_string(),
             ))),
+            last_seen: Arc::new(RwLock::new(HashMap::new())),
+            stale_after: Duration::from_secs(30),      // tune as needed
+            reaper_interval: Duration::from_secs(10),  // tune as needed
+        };
+
+        // start background reaper to remove stale peers
+        manager.spawn_reaper();
+
+        manager
+    }
+
+    /// Mark that we have recent evidence the peer is alive.
+    /// Call this when you receive a heartbeat/pong, upon successful connect, or
+    /// periodically while a connection's keep-alive is running.
+    pub async fn peer_seen(&self, addr: SocketAddr) {
+        let mut ls = self.last_seen.write().await;
+        ls.insert(addr, Instant::now());
+    }
+
+    /// Remove a connected peer and clear last_seen. Centralized removal + logging.
+    pub async fn remove_connected_peer(&self, addr: &SocketAddr) {
+        let mut peers = self.peers.write().await;
+        let removed = peers.remove(addr).is_some();
+
+        // clear last_seen entry
+        let mut ls = self.last_seen.write().await;
+        ls.remove(addr);
+
+        if removed {
+            info!(peer = %addr, connected_count = peers.len(), "Peer removed");
         }
     }
 
@@ -64,6 +104,9 @@ impl PeerManager {
                 // Insert into the active peers map
                 self.peers.write().await.insert(peer_addr, info.clone());
 
+                // mark last-seen immediately
+                self.peer_seen(peer_addr).await;
+
                 // Persist discovery / mark success in peer exchange
                 self.add_discovered_peer(
                     peer_addr.ip().to_string(),
@@ -74,14 +117,36 @@ impl PeerManager {
 
                 self.record_peer_success(&peer_addr.to_string()).await;
 
-                // Clone the Arc for the spawned task so cleanup always has access.
+                // Clone handles for the spawned cleanup / keep-alive watcher task.
                 let peers_clone = self.peers.clone();
+                let manager_clone = self.clone();
 
                 // Spawn a task to run the connection keep-alive and cleanup on exit.
                 tokio::spawn(async move {
-                    // Await the keep-alive loop. We don't assume its return type here
-                    // (it may be `()` or `Result<_, _>`), so assign into `_` to be generic.
-                    let _ = conn.keep_alive().await;
+                    // Run keep_alive in a separate task so we can periodically refresh last_seen
+                    let keep_alive_handle: JoinHandle<()> = tokio::spawn(async move {
+                        conn.keep_alive().await;
+                    });
+
+                    // While keep_alive is running, periodically mark peer as seen so reaper
+                    // doesn't remove it prematurely. This helps when keep_alive is successfully
+                    // pinging but the reaper would otherwise consider the peer stale.
+                    loop {
+                        // If keep_alive has finished, break out and do cleanup
+                        if keep_alive_handle.is_finished() {
+                            break;
+                        }
+
+                        // Refresh last-seen timestamp for this peer
+                        manager_clone.peer_seen(peer_addr).await;
+
+                        // Sleep a short interval before refreshing again
+                        time::sleep(Duration::from_secs(10)).await;
+                    }
+
+                    // Await the keep_alive task to ensure any internal errors are propagated/logged
+                    let _ = keep_alive_handle.await;
+
                     debug!(peer = %peer_addr, "peer keep_alive finished");
 
                     // Always attempt to remove the peer from active map when the connection finishes.
@@ -90,6 +155,10 @@ impl PeerManager {
                     } else {
                         debug!(peer = %peer_addr, "peer not present in active peers map at disconnect");
                     }
+
+                    // Ensure last_seen entry is cleared as well
+                    let mut ls = manager_clone.last_seen.write().await;
+                    ls.remove(&peer_addr);
                 });
 
                 Ok(())
@@ -143,6 +212,9 @@ impl PeerManager {
         }
 
         peers.insert(peer.address, peer.clone());
+
+        // mark last-seen on add
+        self.peer_seen(peer.address).await;
 
         self.add_discovered_peer(
             peer.address.ip().to_string(),
@@ -330,6 +402,45 @@ impl PeerManager {
             });
         }
     }
+
+    /// Spawn a background task that periodically removes stale peers and logs removals.
+    fn spawn_reaper(&self) {
+        let last_seen = self.last_seen.clone();
+        let peers = self.peers.clone();
+        let stale_after = self.stale_after;
+        let interval = self.reaper_interval;
+        let manager = self.clone();
+
+        tokio::spawn(async move {
+            let mut ticker = time::interval(interval);
+            loop {
+                ticker.tick().await;
+                let now = Instant::now();
+                let mut to_remove = Vec::new();
+
+                {
+                    let ls = last_seen.read().await;
+                    for (addr, seen) in ls.iter() {
+                        if now.duration_since(*seen) > stale_after {
+                            to_remove.push(*addr);
+                        }
+                    }
+                }
+
+                if !to_remove.is_empty() {
+                    for addr in to_remove {
+                        // Log the timeout and use the centralized removal function so logging
+                        // and cleanup are consistent.
+                        warn!(peer = %addr, "Peer down (heartbeat timeout)");
+                        manager.remove_connected_peer(&addr).await;
+                    }
+
+                    let count = peers.read().await.len();
+                    info!(connected_count = count, "Connected peers after purge");
+                }
+            }
+        });
+    }
 }
 
 // Implement Clone trait for PeerManager so `.clone()` is idiomatic.
@@ -340,6 +451,9 @@ impl Clone for PeerManager {
             listen_addr: self.listen_addr,
             peers: self.peers.clone(),
             peer_exchange: self.peer_exchange.clone(),
+            last_seen: self.last_seen.clone(),
+            stale_after: self.stale_after,
+            reaper_interval: self.reaper_interval,
         }
     }
 }
