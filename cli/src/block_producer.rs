@@ -340,10 +340,8 @@ impl BlockProducer {
         if am_i_leader {
             println!("{}", "   ðŸ‘‘ I am the block producer".green().bold());
 
-            
-    
-    let mut transactions = self.mempool.get_all_transactions().await;
-            // Deterministic ordering to avoid different producers creating different block hashes
+            let mut transactions = self.mempool.get_all_transactions().await;
+            // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
             println!("   📋 {} transactions", transactions.len());
   
@@ -403,8 +401,8 @@ impl BlockProducer {
                 println!("   âŒ Quorum failed ({} < {})", approved, required_votes);
             }
         } else {
-            println!("   â„¹ï¸  Producer: {}", selected_producer.as_deref().unwrap_or_default());
-            println!("   â³ Waiting for proposal...");
+            println!("   ℹ️  Producer: {}", selected_producer.as_deref().unwrap_or("unknown"));
+            println!("   ⏳ Waiting for proposal...");
 
             if let Some(proposal) = self.block_consensus.wait_for_proposal(block_num).await {
                 println!("   ðŸ“¨ Received from {}", proposal.proposer);
@@ -442,61 +440,25 @@ impl BlockProducer {
                     .await;
 
                 if approved >= required_votes {
-                                        println!("   ✅ Block approved - syncing...");
-
-                    // Try to actively fetch finalized block from producer (short retry loop).
-                    let mut got_block = false;
-                    if let Some(producer_addr) = selected_producer.clone() {
-                        let fetch_url = format!("http://{}:24101/consensus/block/{}", producer_addr, block_num);
-                        let client = reqwest::Client::new();
-                        for _ in 0..8 {
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                            if let Ok(resp) = client.get(&fetch_url).send().await {
-                                if resp.status().is_success() {
-                                    match resp.json::<serde_json::Value>().await {
-                                        Ok(json) => {
-                                            if let Some(block_json) = json.get("block") {
-                                                match serde_json::from_value::<time_core::block::Block>(block_json.clone()) {
-                                                    Ok(fetched_block) => {
-                                                        let merkle = fetched_block.calculate_merkle_root();
-                                                        let hash = fetched_block.calculate_hash();
-                                                        if merkle == fetched_block.header.merkle_root && hash == fetched_block.hash {
-                                                            let mut blockchain = self.blockchain.write().await;
-                                                            match blockchain.add_block(fetched_block.clone()) {
-                                                                Ok(_) => {
-                                                                    println!("   ✓ Synced finalized block #{} from {}", block_num, producer_addr);
-                                                                    got_block = true;
-                                                                    break;
-                                                                }
-                                                                Err(e) => {
-                                                                    println!("   ✗ Failed to apply fetched block: {:?}", e);
-                                                                    break;
-                                                                }
-                                                            }
-                                                        } else {
-                                                            println!("   ⚠️ Fetched block failed integrity checks");
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        println!("   ⚠️ Failed to parse fetched block: {:?}", e);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            println!("   ⚠️ Failed to parse response: {:?}", e);
-                                        }
-                                    }
+                    println!("   ✅ Block approved - fetching finalized block...");
+                    
+                    // Actively fetch the finalized block from producer
+                    if let Some(producer_id) = selected_producer {
+                        if let Some(block) = self.fetch_finalized_block(&producer_id, block_num, &proposal.merkle_root).await {
+                            // Apply the finalized block
+                            let mut blockchain = self.blockchain.write().await;
+                            match blockchain.add_block(block) {
+                                Ok(_) => {
+                                    println!("   ✅ Block {} applied from producer", block_num);
+                                }
+                                Err(e) => {
+                                    println!("   ⚠️  Failed to apply fetched block: {:?}", e);
+                                    println!("   ⏳ Falling back to catch-up...");
                                 }
                             }
+                        } else {
+                            println!("   ⚠️  Failed to fetch block, falling back to catch-up");
                         }
-                    } else {
-                        println!("   ⚠️ No producer address known to fetch finalized block");
-                    }
-
-                    if !got_block {
-                        println!("   ⚠️ Could not fetch finalized block from producer - falling back to catch-up");
-                        // fall back to existing behaviour
                     }
                 } else {
                     println!("   âŒ Block rejected");
@@ -517,6 +479,85 @@ impl BlockProducer {
             hasher.update(&tx.txid);
         }
         format!("{:x}", hasher.finalize())
+    }
+
+    /// Broadcast finalized block to peers (best-effort)
+    async fn broadcast_finalized_block(&self, block: &time_core::block::Block, masternodes: &[String]) {
+        let block_json = match serde_json::to_value(block) {
+            Ok(json) => json,
+            Err(e) => {
+                println!("   ⚠️  Failed to serialize block for broadcast: {:?}", e);
+                return;
+            }
+        };
+
+        let payload = serde_json::json!({
+            "block": block_json
+        });
+
+        for node in masternodes {
+            let url = format!("http://{}:24101/consensus/finalized-block", node);
+            let payload_clone = payload.clone();
+            
+            // Fire-and-forget, best-effort broadcast
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                if let Err(e) = client
+                    .post(&url)
+                    .json(&payload_clone)
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send()
+                    .await
+                {
+                    // Log warning but don't fail - best effort only
+                    eprintln!("   ⚠️  Failed to broadcast to {}: {:?}", url, e);
+                }
+            });
+        }
+    }
+
+    /// Attempt to fetch finalized block from producer with retries
+    async fn fetch_finalized_block(&self, producer: &str, height: u64, expected_merkle: &str) -> Option<time_core::block::Block> {
+        const MAX_ATTEMPTS: u32 = 8;
+        const RETRY_DELAY_MS: u64 = 500;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            let url = format!("http://{}:24101/consensus/block/{}", producer, height);
+            
+            match reqwest::Client::new()
+                .get(&url)
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    if let Ok(json) = response.json::<serde_json::Value>().await {
+                        if let Some(block_data) = json.get("block") {
+                            if let Ok(block) = serde_json::from_value::<time_core::block::Block>(block_data.clone()) {
+                                // Validate merkle root matches proposal
+                                if block.header.merkle_root == expected_merkle {
+                                    println!("   ✅ Fetched finalized block from {}", producer);
+                                    return Some(block);
+                                } else {
+                                    println!("   ⚠️  Merkle mismatch: expected {}, got {}", 
+                                        &expected_merkle[..16], &block.header.merkle_root[..16]);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if attempt < MAX_ATTEMPTS {
+                        println!("   ⏳ Fetch attempt {}/{} failed, retrying... ({:?})", attempt, MAX_ATTEMPTS, e);
+                        tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+                    } else {
+                        println!("   ⚠️  All fetch attempts failed: {:?}", e);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     async fn finalize_block_bft(
@@ -562,11 +603,16 @@ impl BlockProducer {
             hash,
         };
 
+        // Broadcast finalized block to peers before storing (best-effort)
+        let masternodes = self.consensus.get_masternodes().await;
+        self.broadcast_finalized_block(&block, &masternodes).await;
+
         let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("   âœ… Block {} finalized", block_num);
                 drop(blockchain);
+                
                 for tx in transactions {
                     self.mempool.remove_transaction(&tx.txid).await;
                 }

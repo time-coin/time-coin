@@ -21,6 +21,9 @@ pub enum ApiError {
     #[error("Transaction not found: {0}")]
     TransactionNotFound(String),
 
+    #[error("Block not found: {0}")]
+    BlockNotFound(String),
+
     #[error("Unauthorized: {0}")]
     Unauthorized(String),
     #[error("Invalid signature")]
@@ -46,6 +49,11 @@ impl IntoResponse for ApiError {
                 StatusCode::NOT_FOUND,
                 "transaction_not_found",
                 format!("Transaction {} not found", txid),
+            ),
+            ApiError::BlockNotFound(msg) => (
+                StatusCode::NOT_FOUND,
+                "block_not_found",
+                msg,
             ),
             ApiError::InvalidSignature => (
                 StatusCode::BAD_REQUEST,
