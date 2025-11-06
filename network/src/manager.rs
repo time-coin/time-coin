@@ -120,6 +120,33 @@ impl PeerManager {
 
                 self.record_peer_success(&peer_addr.to_string()).await;
 
+                // Request peer list for peer exchange via HTTP API (best effort, don't fail on error)
+                let manager_for_pex = self.clone();
+                let peer_addr_for_pex = peer_addr;
+                tokio::spawn(async move {
+                    match manager_for_pex.fetch_peers_from_api(&peer_addr_for_pex).await {
+                        Ok(peer_list) => {
+                            debug!(
+                                peer = %peer_addr_for_pex,
+                                count = peer_list.len(),
+                                "Received peer list from connected peer via API"
+                            );
+                            // Add discovered peers to our peer exchange
+                            for discovered_peer in peer_list {
+                                manager_for_pex.add_discovered_peer(
+                                    discovered_peer.address.ip().to_string(),
+                                    discovered_peer.address.port(),
+                                    discovered_peer.version.clone(),
+                                )
+                                .await;
+                            }
+                        }
+                        Err(e) => {
+                            debug!(peer = %peer_addr_for_pex, error = %e, "Failed to get peer list from API");
+                        }
+                    }
+                });
+
                 // Clone handles for the spawned cleanup / keep-alive watcher task.
                 let peers_clone = self.peers.clone();
                 let manager_clone = self.clone();
@@ -375,6 +402,38 @@ impl PeerManager {
         // number of remembered/persisted peers in peer_exchange
         let exchange = self.peer_exchange.read().await;
         exchange.peer_count()
+    }
+
+    /// Fetch peer list from a connected peer's HTTP API for peer exchange
+    async fn fetch_peers_from_api(&self, peer_addr: &SocketAddr) -> Result<Vec<PeerInfo>, String> {
+        let url = format!("http://{}:24101/peers", peer_addr.ip());
+        
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP request returned status: {}", response.status()));
+        }
+
+        #[derive(serde::Deserialize)]
+        struct PeersResponse {
+            peers: Vec<PeerInfo>,
+        }
+
+        let peers_response: PeersResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        Ok(peers_response.peers)
     }
 
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
