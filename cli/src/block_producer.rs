@@ -1,4 +1,4 @@
-﻿use chrono::{NaiveDate, TimeZone, Utc};
+use chrono::{NaiveDate, TimeZone, Utc};
 use owo_colors::OwoColorize;
 use serde::Deserialize;
 use std::sync::Arc;

@@ -26,11 +26,16 @@ pub enum ApiError {
 
     #[error("Unauthorized: {0}")]
     Unauthorized(String),
+
     #[error("Invalid signature")]
     InvalidSignature,
 
     #[error("Invalid private key")]
     InvalidPrivateKey,
+
+    /// Generic bad request (client error)
+    #[error("Bad request: {0}")]
+    BadRequest(String),
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -50,11 +55,7 @@ impl IntoResponse for ApiError {
                 "transaction_not_found",
                 format!("Transaction {} not found", txid),
             ),
-            ApiError::BlockNotFound(msg) => (
-                StatusCode::NOT_FOUND,
-                "block_not_found",
-                msg,
-            ),
+            ApiError::BlockNotFound(msg) => (StatusCode::NOT_FOUND, "block_not_found", msg),
             ApiError::InvalidSignature => (
                 StatusCode::BAD_REQUEST,
                 "invalid_signature",
@@ -66,6 +67,7 @@ impl IntoResponse for ApiError {
                 "Private key format is invalid".to_string(),
             ),
             ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized", msg),
+            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg),
             ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg),
         };
 
