@@ -5,9 +5,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use owo_colors::OwoColorize;
 use serde::Serialize;
 use std::collections::HashMap;
-use owo_colors::OwoColorize;
 
 /// Create routes (existing ones retained)
 pub fn create_routes() -> Router<ApiState> {
@@ -211,7 +211,7 @@ async fn get_genesis(State(_state): State<ApiState>) -> ApiResult<Json<serde_jso
 struct SnapshotResponse {
     height: u64,
     state_hash: String,
-    balances: HashMap<String, u64>,   // <- use HashMap here
+    balances: HashMap<String, u64>, // <- use HashMap here
     masternodes: Vec<String>,
     timestamp: i64,
 }
@@ -248,7 +248,7 @@ async fn get_snapshot(State(state): State<ApiState>) -> ApiResult<Json<SnapshotR
 struct SnapshotReceiveRequest {
     height: u64,
     state_hash: String,
-    balances: HashMap<String, u64>,   // <- use HashMap here
+    balances: HashMap<String, u64>, // <- use HashMap here
     masternodes: Vec<String>,
     timestamp: i64,
 }
@@ -298,17 +298,30 @@ async fn receive_snapshot(
     // Persist the received snapshot to disk for durability so it can be inspected / loaded later
     // Use an optional DATA_DIR env var (fallback to current dir)
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| ".".to_string());
-    let filename = format!("{}/snapshot_received_{}.json", data_dir, chrono::Utc::now().timestamp());
+    let filename = format!(
+        "{}/snapshot_received_{}.json",
+        data_dir,
+        chrono::Utc::now().timestamp()
+    );
     match serde_json::to_string_pretty(&req) {
         Ok(json) => {
             if let Err(e) = std::fs::write(&filename, json) {
-                eprintln!("{} Failed to persist snapshot to {}: {:?}", "⚠".yellow(), filename, e);
+                eprintln!(
+                    "{} Failed to persist snapshot to {}: {:?}",
+                    "⚠".yellow(),
+                    filename,
+                    e
+                );
             } else {
                 println!("{} Snapshot written to {}", "💾".green(), filename);
             }
         }
         Err(e) => {
-            eprintln!("{} Failed to serialize snapshot for disk: {:?}", "⚠".yellow(), e);
+            eprintln!(
+                "{} Failed to serialize snapshot for disk: {:?}",
+                "⚠".yellow(),
+                e
+            );
         }
     }
 

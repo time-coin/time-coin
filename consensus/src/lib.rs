@@ -1052,11 +1052,11 @@ pub mod block_consensus {
         pub async fn sync_with_connected_peers(&self, connected_peer_ips: Vec<String>) {
             let mut masternodes = self.masternodes.write().await;
             let mut health = self.health.write().await;
-            
+
             // Convert connected peers to a set for quick lookup
-            let connected_set: std::collections::HashSet<String> = 
+            let connected_set: std::collections::HashSet<String> =
                 std::collections::HashSet::from_iter(connected_peer_ips.iter().cloned());
-            
+
             // Mark nodes that are no longer connected as Offline
             for masternode in masternodes.iter() {
                 if !connected_set.contains(masternode) {
@@ -1073,11 +1073,11 @@ pub mod block_consensus {
                     }
                 }
             }
-            
+
             // Update masternode list to only include connected peers
             *masternodes = connected_peer_ips;
             masternodes.sort(); // Keep deterministic ordering
-            
+
             // Initialize or restore Active status for newly connected nodes
             for peer_ip in masternodes.iter() {
                 if let Some(node_health) = health.get_mut(peer_ip) {
