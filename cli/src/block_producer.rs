@@ -110,7 +110,7 @@ impl BlockProducer {
 
         let actual_height = self.load_block_height().await;
 
-        println!("ðŸ” Catch-up check:");
+        println!("🔍 Catch-up check:");
         println!("   Current height: {}", actual_height);
         println!("   Expected height: {}", expected_height);
 
@@ -119,15 +119,15 @@ impl BlockProducer {
         }
 
         let missing_blocks = expected_height - actual_height;
-        println!("âš ï¸  MISSED BLOCKS DETECTED");
+        println!("⚠️  MISSED BLOCKS DETECTED");
         println!("   Missing {} block(s)", missing_blocks);
 
         // CRITICAL: Check consensus mode FIRST - NEVER create blocks in BOOTSTRAP mode
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
-            println!("   âš ï¸  Cannot create catch-up blocks in BOOTSTRAP mode");
-            println!("   â„¹ï¸  Chain sync will download blocks from peers");
-            println!("   â³ Waiting for BFT mode (need 3+ masternodes)...");
+            println!("   ⚠️  Cannot create catch-up blocks in BOOTSTRAP mode");
+            println!("   ℹ️  Chain sync will download blocks from peers");
+            println!("   ▶️ Waiting for BFT mode (need 3+ masternodes)...");
             return;
         }
 
@@ -135,15 +135,15 @@ impl BlockProducer {
         let masternode_count = self.consensus.masternode_count().await;
         if masternode_count < 3 {
             println!(
-                "   âš ï¸  Cannot create catch-up blocks: Only {} masternodes",
+                "   ⚠️  Cannot create catch-up blocks: Only {} masternodes",
                 masternode_count
             );
-            println!("   â³ Need at least 3 masternodes for catch-up");
+            println!("   ▶️ Need at least 3 masternodes for catch-up");
             return;
         }
 
         // CRITICAL: Try to download from peers first
-        println!("   ðŸ“¡ Checking if peers have these blocks...");
+        println!("   🔍 Checking if peers have these blocks...");
 
         let peers = self.peer_manager.get_peer_ips().await;
         if !peers.is_empty() {
@@ -154,14 +154,14 @@ impl BlockProducer {
                     if let Ok(info) = response.json::<BlockchainInfo>().await {
                         if info.height >= expected_height {
                             println!("      Peer height: {}", info.height);
-                            println!("      âœ“ Peer has all blocks! Syncing from peer...");
+                            println!("      ✓ Peer has all blocks! Syncing from peer...");
 
                             // Download blocks from peer
                             let mut blockchain = self.blockchain.write().await;
                             let current_height = blockchain.chain_tip_height();
 
                             for height in (current_height + 1)..=expected_height {
-                                println!("      ðŸ“¥ Downloading block #{}...", height);
+                                println!("      🔽 Downloading block #{}...", height);
 
                                 match reqwest::get(format!(
                                     "http://{}:24101/blockchain/block/{}",
@@ -183,17 +183,17 @@ impl BlockProducer {
                                                                 .add_block(block.clone())
                                                             {
                                                                 Ok(_) => {
-                                                                    println!("         âœ“ Block #{} synced", height);
+                                                                    println!("         ✓ Block #{} synced", height);
                                                                 }
                                                                 Err(e) => {
-                                                                    println!("         âœ— Failed to add block #{}: {:?}", height, e);
-                                                                    println!("      âš  Sync failed, stopping");
+                                                                    println!("         ✗ Failed to add block #{}: {:?}", height, e);
+                                                                    println!("      ⚠️ Sync failed, stopping");
                                                                     return;
                                                                 }
                                                             }
                                                         }
                                                         Err(e) => {
-                                                            println!("         âœ— Failed to parse block: {:?}", e);
+                                                            println!("         ✗ Failed to parse block: {:?}", e);
                                                             return;
                                                         }
                                                     }
@@ -201,7 +201,7 @@ impl BlockProducer {
                                             }
                                             Err(e) => {
                                                 println!(
-                                                    "         âœ— Failed to parse response: {:?}",
+                                                    "         ✗ Failed to parse response: {:?}",
                                                     e
                                                 );
                                                 return;
@@ -209,34 +209,34 @@ impl BlockProducer {
                                         }
                                     }
                                     Err(e) => {
-                                        println!("         âœ— Failed to download block: {:?}", e);
+                                        println!("         ✗ Failed to download block: {:?}", e);
                                         return;
                                     }
                                 }
                             }
-                            println!("      âœ… Sync complete!");
+                            println!("      ✔ Sync complete!");
                             return;
                         }
                     }
                 }
             }
-            println!("      â„¹ No peers have the missing blocks yet");
+            println!("      ℹ️ No peers have the missing blocks yet");
         }
 
         // Wait for BFT consensus to stabilize
-        println!("   â³ Waiting for BFT consensus...");
+        println!("   ▶️ Waiting for BFT consensus...");
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Recheck consensus mode after wait
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
-            println!("   âš  BFT not yet active, aborting catch-up");
+            println!("   ⚠️ BFT not yet active, aborting catch-up");
             return;
         }
 
         // Determine which node should create catch-up blocks
         let masternodes = self.consensus.get_masternodes().await;
-        println!("   ðŸ” Masternode list: {:?}", masternodes);
+        println!("   🔍 Masternode list: {:?}", masternodes);
 
         // Create catch-up blocks
         println!(
@@ -252,12 +252,12 @@ impl BlockProducer {
                 .produce_catchup_block_with_bft_consensus(block_num, timestamp, &masternodes)
                 .await;
             if !success {
-                println!("   âœ— Failed to create block {}", block_num);
+                println!("   ✗ Failed to create block {}", block_num);
                 break;
             }
         }
 
-        println!("   âœ… Catch-up complete!");
+        println!("   ✔ Catch-up complete!");
     }
 
     fn select_block_producer(&self, masternodes: &[String], block_height: u64) -> Option<String> {
@@ -279,11 +279,11 @@ impl BlockProducer {
         println!(
             "
 {}",
-            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”".cyan().bold()
+            "────────────────────────────────────────────────────────────────"
         );
         println!(
             "{} {}",
-            "â° BLOCK PRODUCTION TIME".cyan().bold(),
+            "⨯ BLOCK PRODUCTION TIME".cyan().bold(),
             now.format("%Y-%m-%d %H:%M:%S UTC")
         );
         println!(
@@ -293,12 +293,12 @@ impl BlockProducer {
         );
         println!(
             "{}",
-            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”".cyan().bold()
+            "────────────────────────────────────────────────────────────────"
         );
 
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
-            println!("{}", "âš ï¸  Not in BFT mode".yellow());
+            println!("{}", "⚠️  Not in BFT mode".yellow());
             return;
         }
 
@@ -320,7 +320,7 @@ impl BlockProducer {
 
         if masternodes.len() < all_masternodes.len() {
             println!(
-                "   âš ï¸  {} masternode(s) excluded from consensus",
+                "   ⚠️  {} masternode(s) excluded from consensus",
                 all_masternodes.len() - masternodes.len()
             );
         }
@@ -338,7 +338,7 @@ impl BlockProducer {
             .unwrap_or(false);
 
         if am_i_leader {
-            println!("{}", "   ðŸ‘‘ I am the block producer".green().bold());
+            println!("{}", "   🟢 I am the block producer".green().bold());
 
             let mut transactions = self.mempool.get_all_transactions().await;
             // Sort transactions deterministically by txid to ensure same merkle root
@@ -368,9 +368,9 @@ impl BlockProducer {
                 .broadcast_block_proposal(proposal_json)
                 .await;
 
-            println!("   ðŸ“¡ Proposal broadcast");
+            println!("   📡 Proposal broadcast");
             println!(
-                "   â³ Collecting votes (need {}/{})...",
+                "   ▶️ Collecting votes (need {}/{})...",
                 required_votes,
                 masternodes.len()
             );
@@ -391,21 +391,21 @@ impl BlockProducer {
                 }
             }
 
-            println!("   ðŸ“Š Votes: {}/{} approved", approved, total);
+            println!("   🗳️ Votes: {}/{} approved", approved, total);
 
             if approved >= required_votes {
-                println!("   âœ… Quorum reached! Finalizing...");
+                println!("   ✔ Quorum reached! Finalizing...");
                 self.finalize_block_bft(&transactions, &previous_hash, &merkle_root, block_num)
                     .await;
             } else {
-                println!("   âŒ Quorum failed ({} < {})", approved, required_votes);
+                println!("   ✗ Quorum failed ({} < {})", approved, required_votes);
             }
         } else {
             println!("   ℹ️  Producer: {}", selected_producer.as_deref().unwrap_or("unknown"));
             println!("   ⏳ Waiting for proposal...");
 
             if let Some(proposal) = self.block_consensus.wait_for_proposal(block_num).await {
-                println!("   ðŸ“¨ Received from {}", proposal.proposer);
+                println!("   📨 Received from {}", proposal.proposer);
 
                 let blockchain = self.blockchain.read().await;
                 let is_valid = self.block_consensus.validate_proposal(
@@ -430,7 +430,7 @@ impl BlockProducer {
 
                 println!(
                     "   {} Voted {}",
-                    if is_valid { "âœ…" } else { "âŒ" },
+                    if is_valid { "✓" } else { "✗" },
                     if is_valid { "APPROVE" } else { "REJECT" }
                 );
 
@@ -461,10 +461,10 @@ impl BlockProducer {
                         }
                     }
                 } else {
-                    println!("   âŒ Block rejected");
+                    println!("   ✗ Block rejected");
                 }
             } else {
-                println!("   âš ï¸  Timeout");
+                println!("   ⚠️  Timeout");
             }
         }
     }
@@ -610,7 +610,7 @@ impl BlockProducer {
         let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
-                println!("   âœ… Block {} finalized", block_num);
+                println!("   ✔ Block {} finalized", block_num);
                 drop(blockchain);
                 
                 for tx in transactions {
@@ -626,7 +626,7 @@ impl BlockProducer {
                 self.broadcast_finalized_block(&block, &active_masternodes).await;
             }
             Err(e) => {
-                println!("   âŒ Failed: {:?}", e);
+                println!("   ✗ Failed: {:?}", e);
             }
         }
     }
@@ -664,6 +664,7 @@ impl BlockProducer {
             Vec::new()
         };
 
+        // --- FIX: derive participating_masternodes from voters ---
         let active_masternodes = self.consensus.get_masternodes_with_wallets().await;
         let participating_masternodes: Vec<_> = active_masternodes
             .into_iter()
@@ -671,6 +672,7 @@ impl BlockProducer {
             .collect();
 
         if !participating_masternodes.is_empty() {
+            println!("      💡 Rewarding {} participating masternodes", participating_masternodes.len());
             let tiers = [
                 MasternodeTier::Free,
                 MasternodeTier::Bronze,
@@ -732,7 +734,7 @@ impl BlockProducer {
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
 
-        println!("   ðŸ“¦ Creating catch-up block #{}...", block_num);
+        println!("   🔧 Creating catch-up block #{}...", block_num);
         println!(
             "      Timestamp: {}",
             timestamp.format("%Y-%m-%d %H:%M:%S UTC")
@@ -741,11 +743,11 @@ impl BlockProducer {
 
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
-                println!("      âœ“ Block #{} created and stored", block_num);
+                println!("      ✔ Block #{} created and stored", block_num);
                 true
             }
             Err(e) => {
-                println!("      âœ— Failed to create block {}: {:?}", block_num, e);
+                println!("      ✗ Failed to create block {}: {:?}", block_num, e);
                 false
             }
         }
@@ -769,14 +771,14 @@ impl BlockProducer {
         };
 
         println!(
-            "   ðŸ“¦ Block #{} - Producer: {:?}",
+            "   🔧 Block #{} - Producer: {:?}",
             block_num, selected_producer
         );
 
         // Step 1: If I'm the producer, create and broadcast proposal
         if let Some(ref producer) = selected_producer {
             if producer == &my_id {
-                println!("      ðŸ”¨ I'm the producer - creating block proposal...");
+                println!("      📝 I'm the producer - creating block proposal...");
 
                 // Create the block (without adding to chain yet)
                 let block = self
@@ -813,7 +815,7 @@ impl BlockProducer {
         }
 
         // Step 2: Wait for proposal and vote (all nodes including producer)
-        println!("      â³ Waiting for block proposal and consensus...");
+        println!("      ▶️ Waiting for block proposal and consensus...");
 
         for attempt in 0..30 {
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -843,7 +845,7 @@ impl BlockProducer {
 
                 if has_consensus {
                     println!(
-                        "      âœ… Consensus reached! ({}/{} votes)",
+                        "      ✔ Consensus reached! ({}/{} votes)",
                         approvals, total
                     );
 
@@ -859,15 +861,14 @@ impl BlockProducer {
                         .await;
                 } else if attempt % 5 == 0 {
                     println!(
-                        "      â³ Waiting for consensus: {}/{} votes",
-                        approvals, total
+                        "      ▶️ Waiting for consensus..."
                     );
                 }
             }
         }
 
         println!(
-            "      âš ï¸  Timeout - no consensus reached for block {}",
+            "      ⚠️  Timeout - no consensus reached for block {}",
             block_num
         );
         false
@@ -948,18 +949,9 @@ impl BlockProducer {
             let _ = reqwest::Client::new().post(&url).json(&vote).send().await;
         }
     }
-    async fn broadcast_finalized_block(
-        &self,
-        block: &time_core::block::Block,
-        masternodes: &[String],
-    ) {
-        // Best-effort push of finalized block to peers so they can immediately apply it.
-        for node in masternodes {
-            let url = format!("http://{}:24101/consensus/finalized-block", node);
-            let _ = reqwest::Client::new().post(&url).json(block).send().await;
-        }
-    }
-async fn finalize_catchup_block_with_rewards(
+
+    // --- finalize_catchup_block_with_rewards kept inside impl ---
+    async fn finalize_catchup_block_with_rewards(
         &self,
         block_num: u64,
         timestamp: chrono::DateTime<Utc>,
@@ -981,7 +973,7 @@ async fn finalize_catchup_block_with_rewards(
 
         // Get wallet addresses by querying each voter's API
         let mut voter_wallets: Vec<(String, String)> = Vec::new();
-        println!("      ðŸ› DEBUG: voters = {:?}", voters);
+        println!("      💡 DEBUG: voters = {:?}", voters);
 
         for voter in voters {
             let url = format!("http://{}:24101/wallet/address", voter);
@@ -993,14 +985,13 @@ async fn finalize_catchup_block_with_rewards(
             {
                 if let Ok(wallet_info) = response.json::<serde_json::Value>().await {
                     if let Some(address) = wallet_info.get("address").and_then(|a| a.as_str()) {
-                        println!("      ðŸ› DEBUG: {} wallet = {}", voter, address);
+                        println!("      💡 DEBUG: {} wallet = {}", voter, address);
                         voter_wallets.push((voter.clone(), address.to_string()));
                     }
                 }
             }
         }
-        println!("      ðŸ› DEBUG: voter_wallets = {:?}", voter_wallets);
-        println!("      ðŸ› DEBUG: voter_wallets = {:?}", voter_wallets);
+        println!("      💡 DEBUG: voter_wallets = {:?}", voter_wallets);
 
         // Build outputs with treasury + voter rewards
         let mut outputs = vec![TxOutput {
@@ -1009,7 +1000,7 @@ async fn finalize_catchup_block_with_rewards(
         }];
 
         if !voter_wallets.is_empty() {
-            println!("      ðŸ’° Rewarding {} voters", voter_wallets.len());
+            println!("      🔌 Rewarding {} voters", voter_wallets.len());
 
             let tiers = [
                 MasternodeTier::Free,
@@ -1065,17 +1056,16 @@ async fn finalize_catchup_block_with_rewards(
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
 
-        println!("      ðŸ“¦ Finalizing block #{}...", block_num);
+        println!("      🔧 Finalizing block #{}...", block_num);
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
-                println!("      âœ“ Block #{} finalized and stored", block_num);
+                println!("      ✔ Block #{} finalized and stored", block_num);
                 true
             }
             Err(e) => {
-                println!("      âœ— Failed to finalize block: {:?}", e);
+                println!("      ✗ Failed to finalize block: {:?}", e);
                 false
             }
         }
     }
-}
-
+} 
