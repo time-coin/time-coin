@@ -424,8 +424,16 @@ impl PeerManager {
         }
 
         #[derive(serde::Deserialize)]
+        struct ApiPeerInfo {
+            address: String,
+            version: String,
+            #[allow(dead_code)]
+            connected: bool,
+        }
+
+        #[derive(serde::Deserialize)]
         struct PeersResponse {
-            peers: Vec<PeerInfo>,
+            peers: Vec<ApiPeerInfo>,
         }
 
         let peers_response: PeersResponse = response
@@ -433,7 +441,18 @@ impl PeerManager {
             .await
             .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-        Ok(peers_response.peers)
+        // Convert API peer info to discovery::PeerInfo
+        let mut peer_infos = Vec::new();
+        for api_peer in peers_response.peers {
+            if let Ok(addr) = api_peer.address.parse::<SocketAddr>() {
+                let peer_info = PeerInfo::with_version(addr, self.network.clone(), api_peer.version);
+                peer_infos.push(peer_info);
+            } else {
+                debug!(address = %api_peer.address, "Failed to parse peer address from API");
+            }
+        }
+
+        Ok(peer_infos)
     }
 
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
@@ -545,22 +564,30 @@ impl PeerManager {
                     // Attempt to reconnect to each disconnected peer
                     for pex_peer in disconnected_peers {
                         // Convert peer_exchange::PeerInfo to discovery::PeerInfo
-                        if let Ok(addr) = pex_peer.full_address().parse() {
-                            let peer_info = PeerInfo::new(addr, manager.network.clone());
-                            
-                            let mgr = manager.clone();
-                            let peer_addr = peer_info.address;
-                            tokio::spawn(async move {
-                                if let Err(e) = mgr.connect_to_peer(peer_info).await {
-                                    debug!(
-                                        peer = %peer_addr,
-                                        error = %e,
-                                        "Reconnection attempt failed"
-                                    );
-                                } else {
-                                    info!(peer = %peer_addr, "Successfully reconnected to peer");
-                                }
-                            });
+                        match pex_peer.full_address().parse() {
+                            Ok(addr) => {
+                                let peer_info = PeerInfo::new(addr, manager.network.clone());
+                                
+                                let mgr = manager.clone();
+                                let peer_addr = peer_info.address;
+                                tokio::spawn(async move {
+                                    if let Err(e) = mgr.connect_to_peer(peer_info).await {
+                                        debug!(
+                                            peer = %peer_addr,
+                                            error = %e,
+                                            "Reconnection attempt failed"
+                                        );
+                                    } else {
+                                        info!(peer = %peer_addr, "Successfully reconnected to peer");
+                                    }
+                                });
+                            }
+                            Err(_) => {
+                                debug!(
+                                    address = %pex_peer.full_address(),
+                                    "Failed to parse peer address during reconnection"
+                                );
+                            }
                         }
                     }
                 }
