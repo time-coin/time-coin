@@ -1316,6 +1316,13 @@ async fn main() {
         }
     });
 
+    // Helper function to extract peer IPs from PeerInfo list
+    fn extract_peer_ips(peers: &[time_network::PeerInfo]) -> Vec<String> {
+        peers.iter()
+            .map(|peer| peer.address.ip().to_string())
+            .collect()
+    }
+
     // Masternode synchronization task
     let peer_mgr_sync = peer_manager.clone();
     let consensus_sync = consensus.clone();
@@ -1328,18 +1335,23 @@ async fn main() {
         loop {
             interval.tick().await;
             let peers = peer_mgr_sync.get_connected_peers().await;
+            
+            // Get connected peer IPs using helper
+            let connected_ips = extract_peer_ips(&peers);
+            
+            // Sync block consensus manager with connected peers
+            block_consensus_sync.sync_with_connected_peers(connected_ips.clone()).await;
+            
+            // Also update the main consensus and tx consensus
             for peer in peers {
                 consensus_sync
                     .add_masternode(peer.address.ip().to_string())
                     .await;
-                let updated_masternodes = consensus_sync.get_masternodes().await;
-                tx_consensus_sync
-                    .set_masternodes(updated_masternodes.clone())
-                    .await;
-                block_consensus_sync
-                    .set_masternodes(updated_masternodes)
-                    .await;
             }
+            let updated_masternodes = consensus_sync.get_masternodes().await;
+            tx_consensus_sync
+                .set_masternodes(updated_masternodes.clone())
+                .await;
         }
     });
 
@@ -1347,10 +1359,16 @@ async fn main() {
     let mut counter = 0;
     let consensus_heartbeat = consensus.clone();
     let block_consensus_heartbeat = block_consensus.clone();
+    let peer_mgr_heartbeat = peer_manager.clone();
 
     loop {
         time::sleep(Duration::from_secs(60)).await;
         counter += 1;
+
+        // Sync with connected peers before getting the count
+        let peers = peer_mgr_heartbeat.get_connected_peers().await;
+        let connected_ips = extract_peer_ips(&peers);
+        block_consensus_heartbeat.sync_with_connected_peers(connected_ips).await;
 
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
 
