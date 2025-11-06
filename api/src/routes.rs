@@ -30,6 +30,9 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/tx-vote", post(receive_tx_vote))
         .route("/consensus/block-proposal", post(receive_block_proposal))
         .route("/consensus/block-vote", post(receive_block_vote))
+        // Consensus block retrieval / push endpoints (axum style)
+        .route("/consensus/block/{height}", get(get_consensus_block))
+        .route("/consensus/finalized-block", post(receive_finalized_block))
 }
 
 async fn root() -> &'static str {
@@ -70,6 +73,26 @@ async fn get_block_by_height(
     State(state): State<ApiState>,
     Path(height): Path<u64>,
 ) -> ApiResult<Json<BlockResponse>> {
+    let blockchain = state.blockchain.read().await;
+
+    match blockchain.get_block_by_height(height) {
+        Some(block) => Ok(Json(BlockResponse {
+            block: block.clone(),
+        })),
+        None => Err(ApiError::TransactionNotFound(format!(
+            "Block {} not found",
+            height
+        ))),
+    }
+}
+
+// New: GET /consensus/block/{height} — same contract as /blockchain/block/{height},
+// but kept under consensus namespace for producer/non-producer fetches.
+async fn get_consensus_block(
+    State(state): State<ApiState>,
+    Path(height): Path<u64>,
+) -> ApiResult<Json<BlockResponse>> {
+    // Reuse the same logic as get_block_by_height
     let blockchain = state.blockchain.read().await;
 
     match blockchain.get_block_by_height(height) {
@@ -585,70 +608,18 @@ async fn receive_block_vote(
     })))
 }
 
+// --- New consensus finalized-block POST handler (axum style) ---
+// Accept a finalized block pushed by a producer and attempt to add it to the chain.
+// This is best-effort: returns an error if the block can't be added.
+async fn receive_finalized_block(
+    State(state): State<ApiState>,
+    Json(block): Json<time_core::block::Block>,
+) -> ApiResult<Json<serde_json::Value>> {
+    println!("📥 Received finalized block push for height {}", block.header.block_number);
 
-// --- BEGIN: final-block endpoints injected by automated patch ---
-// GET /consensus/block/:height - return finalized block by height
-// POST /consensus/finalized-block - accept a pushed finalized block
-use time_core::block::Block as CoreBlock;
-
-async fn handle_get_consensus_block(state: StateShared, height: u64) -> Result<impl warp::Reply, warp::Rejection> {
-    println!("📥 Finalized block request for height {}", height);
-    if let Some(blockchain) = state.blockchain.as_ref() {
-        let bc = blockchain.read().await;
-        // Adapt this call to your Blockchain API method that returns Option<Block>
-        match bc.get_block_by_height(height) {
-            Some(block) => {
-                return Ok(warp::reply::json(&serde_json::json!({
-                    "success": true,
-                    "block": block
-                })));
-            }
-            None => {
-                return Ok(warp::reply::with_status(
-                    warp::reply::json(&serde_json::json!({"success": false, "error": "not found"})),
-                    warp::http::StatusCode::NOT_FOUND,
-                ));
-            }
-        }
-    }
-    Ok(warp::reply::with_status(
-        warp::reply::json(&serde_json::json!({"success": false, "error": "blockchain not available"})),
-        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-    ))
-}
-
-async fn handle_post_finalized_block(state: StateShared, block_json: serde_json::Value) -> Result<impl warp::Reply, warp::Rejection> {
-    println!("📥 Received finalized block push");
-    match serde_json::from_value::<CoreBlock>(block_json.clone()) {
-        Ok(block) => {
-            if let Some(blockchain) = state.blockchain.as_ref() {
-                let mut bc = blockchain.write().await;
-                match bc.add_block(block) {
-                    Ok(_) => {
-                        println!("   ✓ Finalized block applied via push");
-                        return Ok(warp::reply::json(&serde_json::json!({"success": true})));
-                    }
-                    Err(e) => {
-                        println!("   ✗ Failed to add pushed block: {:?}", e);
-                        return Ok(warp::reply::with_status(
-                            warp::reply::json(&serde_json::json!({"success": false, "error": format!("{:?}", e)})),
-                            warp::http::StatusCode::BAD_REQUEST,
-                        ));
-                    }
-                }
-            }
-            Ok(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({"success": false, "error": "blockchain not available"})),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-        }
-        Err(e) => {
-            println!("   ✗ Invalid block JSON: {:?}", e);
-            Ok(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({"success": false, "error": format!("Invalid block JSON: {}", e)})),
-                warp::http::StatusCode::BAD_REQUEST,
-            ))
-        }
+    let mut blockchain = state.blockchain.write().await;
+    match blockchain.add_block(block) {
+        Ok(_) => Ok(Json(serde_json::json!({"success": true}))),
+        Err(e) => Err(ApiError::Internal(format!("Failed to add pushed block: {:?}", e))),
     }
 }
-// --- END: final-block endpoints injected by automated patch ---
