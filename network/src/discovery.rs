@@ -240,7 +240,8 @@ impl PeerDiscovery {
         println!("📡 Fetching peers from time-coin.io...");
         match self.http_discovery.fetch_peers().await {
             Ok(peers) => {
-                println!("  ✓ Found {} peers via HTTP", peers.len());
+                let http_count = peers.len();
+                println!("  ✓ Found {} peers via HTTP (including seed nodes)", http_count);
                 all_peers.extend(peers);
             }
             Err(e) => {
@@ -263,12 +264,16 @@ impl PeerDiscovery {
         }
 
         // Deduplicate peers by address only
+        let total_before = all_peers.len();
         let mut seen_addresses = std::collections::HashSet::new();
         let unique_peers: Vec<PeerInfo> = all_peers
             .into_iter()
             .filter(|peer| seen_addresses.insert(peer.address))
             .collect();
 
+        if total_before != unique_peers.len() {
+            println!("  ✓ Deduplicated to {} unique peers", unique_peers.len());
+        }
         println!("✓ Total unique peers discovered: {}", unique_peers.len());
 
         // Store in known peers
@@ -395,5 +400,26 @@ mod tests {
                 println!("Failed to fetch peers: {}", e);
             }
         }
+    }
+
+    #[test]
+    fn test_peer_deduplication() {
+        // Test that deduplication works correctly
+        let peer1 = PeerInfo::new("192.168.1.1:8333".parse().unwrap(), NetworkType::Mainnet);
+        let peer2 = PeerInfo::new("192.168.1.2:8333".parse().unwrap(), NetworkType::Mainnet);
+        let peer3 = PeerInfo::new("192.168.1.1:8333".parse().unwrap(), NetworkType::Mainnet); // Duplicate of peer1
+
+        let peers = vec![peer1.clone(), peer2.clone(), peer3.clone()];
+        
+        // Simulate deduplication logic from bootstrap()
+        let mut seen_addresses = std::collections::HashSet::new();
+        let unique_peers: Vec<PeerInfo> = peers
+            .into_iter()
+            .filter(|peer| seen_addresses.insert(peer.address))
+            .collect();
+        
+        assert_eq!(unique_peers.len(), 2, "Should have 2 unique peers after deduplication");
+        assert!(unique_peers.iter().any(|p| p.address == peer1.address));
+        assert!(unique_peers.iter().any(|p| p.address == peer2.address));
     }
 }
