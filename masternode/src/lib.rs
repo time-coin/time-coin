@@ -309,8 +309,9 @@ mod tests {
         )
         .unwrap();
 
+        // Use a different public key for node2 so it produces a different Address
         let node2 = Masternode::new(
-            Address::from_public_key(&[0u8; 32], wallet::NetworkType::Mainnet).unwrap(),
+            Address::from_public_key(&[1u8; 32], wallet::NetworkType::Mainnet).unwrap(),
             "tx2".to_string(),
             100_000 * COIN,
         )
