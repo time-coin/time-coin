@@ -241,7 +241,10 @@ impl PeerDiscovery {
         match self.http_discovery.fetch_peers().await {
             Ok(peers) => {
                 let http_count = peers.len();
-                println!("  ✓ Found {} peers via HTTP (including seed nodes)", http_count);
+                println!(
+                    "  ✓ Found {} peers via HTTP (including seed nodes)",
+                    http_count
+                );
                 all_peers.extend(peers);
             }
             Err(e) => {
@@ -410,15 +413,19 @@ mod tests {
         let peer3 = PeerInfo::new("192.168.1.1:8333".parse().unwrap(), NetworkType::Mainnet); // Duplicate of peer1
 
         let peers = vec![peer1.clone(), peer2.clone(), peer3.clone()];
-        
+
         // Simulate deduplication logic from bootstrap()
         let mut seen_addresses = std::collections::HashSet::new();
         let unique_peers: Vec<PeerInfo> = peers
             .into_iter()
             .filter(|peer| seen_addresses.insert(peer.address))
             .collect();
-        
-        assert_eq!(unique_peers.len(), 2, "Should have 2 unique peers after deduplication");
+
+        assert_eq!(
+            unique_peers.len(),
+            2,
+            "Should have 2 unique peers after deduplication"
+        );
         assert!(unique_peers.iter().any(|p| p.address == peer1.address));
         assert!(unique_peers.iter().any(|p| p.address == peer2.address));
     }
