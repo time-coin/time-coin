@@ -109,7 +109,7 @@ impl Mempool {
 
         println!(
             "📝 Added transaction {} to mempool (priority: {})",
-            &tx.txid[..16],
+            &tx.txid[..std::cmp::min(16, tx.txid.len())],
             priority
         );
 
