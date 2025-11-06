@@ -340,8 +340,13 @@ impl BlockProducer {
         if am_i_leader {
             println!("{}", "   ðŸ‘‘ I am the block producer".green().bold());
 
-            let mut transactions = self.mempool.get_all_transactions().await;\n            // Deterministic ordering to avoid different producers creating different block hashes\n            transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
-            println!("   ðŸ“‹ {} transactions", transactions.len());
+            
+    
+    let mut transactions = self.mempool.get_all_transactions().await;
+            // Deterministic ordering to avoid different producers creating different block hashes
+            transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
+            println!("   📋 {} transactions", transactions.len());
+  
 
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
@@ -398,7 +403,7 @@ impl BlockProducer {
                 println!("   âŒ Quorum failed ({} < {})", approved, required_votes);
             }
         } else {
-            println!("   â„¹ï¸  Producer: {}", selected_producer.unwrap_or_default());
+            println!("   â„¹ï¸  Producer: {}", selected_producer.as_deref().unwrap_or_default());
             println!("   â³ Waiting for proposal...");
 
             if let Some(proposal) = self.block_consensus.wait_for_proposal(block_num).await {
@@ -558,7 +563,7 @@ impl BlockProducer {
         };
 
         let mut blockchain = self.blockchain.write().await;
-        match blockchain.add_block(block) {
+        match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("   âœ… Block {} finalized", block_num);
                 drop(blockchain);
@@ -688,7 +693,7 @@ impl BlockProducer {
         );
         println!("      Block Hash: {}...", &block.hash[..16]);
 
-        match blockchain.add_block(block) {
+        match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      âœ“ Block #{} created and stored", block_num);
                 true
@@ -1015,7 +1020,7 @@ async fn finalize_catchup_block_with_rewards(
         block.hash = block.calculate_hash();
 
         println!("      ðŸ“¦ Finalizing block #{}...", block_num);
-        match blockchain.add_block(block) {
+        match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      âœ“ Block #{} finalized and stored", block_num);
                 true
