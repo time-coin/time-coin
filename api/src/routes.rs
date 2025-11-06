@@ -584,3 +584,71 @@ async fn receive_block_vote(
         "success": true
     })))
 }
+
+
+// --- BEGIN: final-block endpoints injected by automated patch ---
+// GET /consensus/block/:height - return finalized block by height
+// POST /consensus/finalized-block - accept a pushed finalized block
+use time_core::block::Block as CoreBlock;
+
+async fn handle_get_consensus_block(state: StateShared, height: u64) -> Result<impl warp::Reply, warp::Rejection> {
+    println!("📥 Finalized block request for height {}", height);
+    if let Some(blockchain) = state.blockchain.as_ref() {
+        let bc = blockchain.read().await;
+        // Adapt this call to your Blockchain API method that returns Option<Block>
+        match bc.get_block_by_height(height) {
+            Some(block) => {
+                return Ok(warp::reply::json(&serde_json::json!({
+                    "success": true,
+                    "block": block
+                })));
+            }
+            None => {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&serde_json::json!({"success": false, "error": "not found"})),
+                    warp::http::StatusCode::NOT_FOUND,
+                ));
+            }
+        }
+    }
+    Ok(warp::reply::with_status(
+        warp::reply::json(&serde_json::json!({"success": false, "error": "blockchain not available"})),
+        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+    ))
+}
+
+async fn handle_post_finalized_block(state: StateShared, block_json: serde_json::Value) -> Result<impl warp::Reply, warp::Rejection> {
+    println!("📥 Received finalized block push");
+    match serde_json::from_value::<CoreBlock>(block_json.clone()) {
+        Ok(block) => {
+            if let Some(blockchain) = state.blockchain.as_ref() {
+                let mut bc = blockchain.write().await;
+                match bc.add_block(block) {
+                    Ok(_) => {
+                        println!("   ✓ Finalized block applied via push");
+                        return Ok(warp::reply::json(&serde_json::json!({"success": true})));
+                    }
+                    Err(e) => {
+                        println!("   ✗ Failed to add pushed block: {:?}", e);
+                        return Ok(warp::reply::with_status(
+                            warp::reply::json(&serde_json::json!({"success": false, "error": format!("{:?}", e)})),
+                            warp::http::StatusCode::BAD_REQUEST,
+                        ));
+                    }
+                }
+            }
+            Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({"success": false, "error": "blockchain not available"})),
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+        Err(e) => {
+            println!("   ✗ Invalid block JSON: {:?}", e);
+            Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({"success": false, "error": format!("Invalid block JSON: {}", e)})),
+                warp::http::StatusCode::BAD_REQUEST,
+            ))
+        }
+    }
+}
+// --- END: final-block endpoints injected by automated patch ---
