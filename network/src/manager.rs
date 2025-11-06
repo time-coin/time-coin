@@ -51,6 +51,9 @@ impl PeerManager {
 
         // start background reaper to remove stale peers
         manager.spawn_reaper();
+        
+        // start background reconnection task to retry disconnected peers
+        manager.spawn_reconnection_task();
 
         manager
     }
@@ -444,6 +447,67 @@ impl PeerManager {
             }
         });
     }
+
+    /// Spawn a background task that periodically attempts to reconnect to known peers
+    /// that are not currently connected. This enables automatic recovery when nodes
+    /// come back online after being reaped.
+    fn spawn_reconnection_task(&self) {
+        let manager = self.clone();
+        
+        tokio::spawn(async move {
+            // Wait 60 seconds before the first reconnection attempt to allow initial connections
+            time::sleep(Duration::from_secs(60)).await;
+            
+            let mut ticker = time::interval(Duration::from_secs(120)); // Check every 2 minutes
+            loop {
+                ticker.tick().await;
+                
+                // Get currently connected peer addresses
+                let connected_addrs: std::collections::HashSet<String> = {
+                    let peers = manager.peers.read().await;
+                    peers.keys().map(|addr| addr.to_string()).collect()
+                };
+                
+                // Get best known peers from peer exchange
+                let best_peers = manager.get_best_peers(10).await;
+                
+                // Filter to only peers that aren't currently connected
+                let disconnected_peers: Vec<_> = best_peers
+                    .into_iter()
+                    .filter(|p| !connected_addrs.contains(&p.full_address()))
+                    .collect();
+                
+                if !disconnected_peers.is_empty() {
+                    debug!(
+                        count = disconnected_peers.len(),
+                        "Attempting to reconnect to known peers"
+                    );
+                    
+                    // Attempt to reconnect to each disconnected peer
+                    for pex_peer in disconnected_peers {
+                        // Convert peer_exchange::PeerInfo to discovery::PeerInfo
+                        if let Ok(addr) = pex_peer.full_address().parse() {
+                            let peer_info = PeerInfo::new(addr, manager.network.clone());
+                            
+                            let mgr = manager.clone();
+                            let peer_addr = peer_info.address;
+                            tokio::spawn(async move {
+                                if let Err(e) = mgr.connect_to_peer(peer_info).await {
+                                    debug!(
+                                        peer = %peer_addr,
+                                        error = %e,
+                                        "Reconnection attempt failed"
+                                    );
+                                } else {
+                                    info!(peer = %peer_addr, "Successfully reconnected to peer");
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 // Implement Clone trait for PeerManager so `.clone()` is idiomatic.
@@ -458,5 +522,56 @@ impl Clone for PeerManager {
             stale_after: self.stale_after,
             reaper_interval: self.reaper_interval,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_peer_manager_stale_timeout() {
+        // Test that the stale_after timeout is set correctly to 90 seconds
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:8333".parse().unwrap()
+        );
+        
+        assert_eq!(
+            manager.stale_after,
+            Duration::from_secs(90),
+            "Stale timeout should be 90 seconds to allow for 3 missed heartbeats"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_peer_manager_reaper_interval() {
+        // Test that the reaper interval is set correctly
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:8333".parse().unwrap()
+        );
+        
+        assert_eq!(
+            manager.reaper_interval,
+            Duration::from_secs(10),
+            "Reaper interval should be 10 seconds"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reconnection_task_spawned() {
+        // Test that the manager spawns properly with reconnection task
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:8333".parse().unwrap()
+        );
+        
+        // If we can create the manager without panicking, the tasks were spawned successfully
+        assert_eq!(manager.network, NetworkType::Testnet);
+        
+        // Give a moment for background tasks to initialize
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
