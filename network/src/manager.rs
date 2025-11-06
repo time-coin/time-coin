@@ -45,7 +45,7 @@ impl PeerManager {
                 "/root/time-coin-node/data/peers.json".to_string(),
             ))),
             last_seen: Arc::new(RwLock::new(HashMap::new())),
-            stale_after: Duration::from_secs(30), // tune as needed
+            stale_after: Duration::from_secs(90), // tune as needed
             reaper_interval: Duration::from_secs(10), // tune as needed
         };
 
@@ -175,8 +175,11 @@ impl PeerManager {
     pub async fn connect_to_peers(&self, peer_list: Vec<PeerInfo>) {
         for peer in peer_list {
             let mgr = self.clone();
+            let peer_addr = peer.address;
             tokio::spawn(async move {
-                let _ = mgr.connect_to_peer(peer).await;
+                if let Err(e) = mgr.connect_to_peer(peer).await {
+                    warn!(peer = %peer_addr, error = %e, "Failed to connect to peer");
+                }
             });
         }
     }
