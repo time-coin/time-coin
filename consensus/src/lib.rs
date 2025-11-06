@@ -1038,7 +1038,7 @@ pub mod block_consensus {
             
             // Convert connected peers to a set for quick lookup
             let connected_set: std::collections::HashSet<String> = 
-                connected_peer_ips.iter().cloned().collect();
+                std::collections::HashSet::from_iter(connected_peer_ips.iter().cloned());
             
             // Mark nodes that are no longer connected as Offline
             for masternode in masternodes.iter() {
