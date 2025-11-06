@@ -30,6 +30,9 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/tx-vote", post(receive_tx_vote))
         .route("/consensus/block-proposal", post(receive_block_proposal))
         .route("/consensus/block-vote", post(receive_block_vote))
+        // Finalized block endpoints
+        .route("/consensus/block/:height", get(get_consensus_block))
+        .route("/consensus/finalized-block", post(receive_finalized_block))
 }
 
 async fn root() -> &'static str {
@@ -585,70 +588,61 @@ async fn receive_block_vote(
     })))
 }
 
-
-// --- BEGIN: final-block endpoints injected by automated patch ---
-// GET /consensus/block/:height - return finalized block by height
-// POST /consensus/finalized-block - accept a pushed finalized block
-use time_core::block::Block as CoreBlock;
-
-async fn handle_get_consensus_block(state: StateShared, height: u64) -> Result<impl warp::Reply, warp::Rejection> {
-    println!("📥 Finalized block request for height {}", height);
-    if let Some(blockchain) = state.blockchain.as_ref() {
-        let bc = blockchain.read().await;
-        // Adapt this call to your Blockchain API method that returns Option<Block>
-        match bc.get_block_by_height(height) {
-            Some(block) => {
-                return Ok(warp::reply::json(&serde_json::json!({
-                    "success": true,
-                    "block": block
-                })));
-            }
-            None => {
-                return Ok(warp::reply::with_status(
-                    warp::reply::json(&serde_json::json!({"success": false, "error": "not found"})),
-                    warp::http::StatusCode::NOT_FOUND,
-                ));
-            }
-        }
+/// GET /consensus/block/:height - Fetch finalized block by height
+async fn get_consensus_block(
+    State(state): State<ApiState>,
+    Path(height): Path<u64>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let blockchain = state.blockchain.read().await;
+    
+    match blockchain.get_block_by_height(height) {
+        Some(block) => Ok(Json(serde_json::json!({
+            "success": true,
+            "block": block
+        }))),
+        None => Err(ApiError::BlockNotFound(format!(
+            "Block at height {} not found",
+            height
+        ))),
     }
-    Ok(warp::reply::with_status(
-        warp::reply::json(&serde_json::json!({"success": false, "error": "blockchain not available"})),
-        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-    ))
 }
 
-async fn handle_post_finalized_block(state: StateShared, block_json: serde_json::Value) -> Result<impl warp::Reply, warp::Rejection> {
-    println!("📥 Received finalized block push");
-    match serde_json::from_value::<CoreBlock>(block_json.clone()) {
-        Ok(block) => {
-            if let Some(blockchain) = state.blockchain.as_ref() {
-                let mut bc = blockchain.write().await;
-                match bc.add_block(block) {
-                    Ok(_) => {
-                        println!("   ✓ Finalized block applied via push");
-                        return Ok(warp::reply::json(&serde_json::json!({"success": true})));
-                    }
-                    Err(e) => {
-                        println!("   ✗ Failed to add pushed block: {:?}", e);
-                        return Ok(warp::reply::with_status(
-                            warp::reply::json(&serde_json::json!({"success": false, "error": format!("{:?}", e)})),
-                            warp::http::StatusCode::BAD_REQUEST,
-                        ));
-                    }
-                }
-            }
-            Ok(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({"success": false, "error": "blockchain not available"})),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ))
+/// POST /consensus/finalized-block - Receive pushed finalized block
+async fn receive_finalized_block(
+    State(state): State<ApiState>,
+    Json(payload): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // Parse the block from the payload
+    let block_data = payload
+        .get("block")
+        .ok_or(ApiError::Internal("Missing block field".to_string()))?;
+    
+    let block: time_core::block::Block = serde_json::from_value(block_data.clone())
+        .map_err(|e| ApiError::Internal(format!("Invalid block format: {}", e)))?;
+    
+    println!(
+        "📦 Received finalized block #{} (hash: {}...)",
+        block.header.block_number,
+        &block.hash[..16]
+    );
+    
+    // Store the block (best-effort)
+    let mut blockchain = state.blockchain.write().await;
+    match blockchain.add_block(block.clone()) {
+        Ok(_) => {
+            println!("   ✅ Block #{} stored", block.header.block_number);
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "Block stored successfully"
+            })))
         }
         Err(e) => {
-            println!("   ✗ Invalid block JSON: {:?}", e);
-            Ok(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({"success": false, "error": format!("Invalid block JSON: {}", e)})),
-                warp::http::StatusCode::BAD_REQUEST,
-            ))
+            // Log but don't fail - this is best-effort
+            println!("   ⚠️  Failed to store block: {:?}", e);
+            Ok(Json(serde_json::json!({
+                "success": false,
+                "message": format!("Failed to store block: {:?}", e)
+            })))
         }
     }
 }
-// --- END: final-block endpoints injected by automated patch ---
