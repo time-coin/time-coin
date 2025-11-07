@@ -319,7 +319,7 @@ fn fetch_mempool(client: &Client) -> Option<MempoolStatus> {
 }
 
 fn fetch_wallet_balance(client: &Client, address: &str) -> Option<WalletBalance> {
-    client.get(&format!("http://localhost:24101/balance/{}", address))
+    client.get(format!("http://localhost:24101/balance/{}", address))
         .send()
         .ok()?
         .json()
