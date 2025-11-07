@@ -626,6 +626,7 @@ pub mod block_consensus {
         votes: BlockVotesMap,
         masternodes: Arc<RwLock<Vec<String>>>,
         health: Arc<RwLock<HashMap<String, MasternodeHealth>>>,
+        peer_versions: Arc<RwLock<HashMap<String, String>>>,
     }
 
     impl Default for BlockConsensusManager {
@@ -641,6 +642,7 @@ pub mod block_consensus {
                 votes: Arc::new(RwLock::new(HashMap::new())),
                 masternodes: Arc::new(RwLock::new(Vec::new())),
                 health: Arc::new(RwLock::new(HashMap::new())),
+                peer_versions: Arc::new(RwLock::new(HashMap::new())),
             }
         }
 
@@ -1160,6 +1162,78 @@ pub mod block_consensus {
 
             println!("📊 ═══════════════════════════════════════════════════════");
             println!();
+        }
+
+        /// Register peer version when they connect
+        pub async fn register_peer_version(&self, peer_ip: String, version: String) {
+            let mut versions = self.peer_versions.write().await;
+            versions.insert(peer_ip, version);
+        }
+
+        /// Get masternodes matching a specific version
+        pub async fn get_masternodes_by_version(&self, target_version: &str) -> Vec<String> {
+            let masternodes = self.masternodes.read().await;
+            let versions = self.peer_versions.read().await;
+            
+            masternodes
+                .iter()
+                .filter(|node| {
+                    versions
+                        .get(*node)
+                        .map(|v| v == target_version)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect()
+        }
+
+        /// Check consensus with optional version filtering
+        pub async fn has_block_consensus_with_version_filter(
+            &self,
+            block_height: u64,
+            block_hash: &str,
+            version_filter: Option<&str>,
+        ) -> (bool, usize, usize) {
+            let all_masternodes = self.masternodes.read().await;
+            
+            let eligible_nodes = if let Some(version) = version_filter {
+                let versions = self.peer_versions.read().await;
+                all_masternodes
+                    .iter()
+                    .filter(|node| {
+                        versions
+                            .get(*node)
+                            .map(|v| v == version)
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                all_masternodes.clone()
+            };
+            
+            let total_nodes = eligible_nodes.len();
+            drop(all_masternodes);
+
+            if total_nodes < 3 {
+                return (true, 0, total_nodes);
+            }
+
+            let votes = self.votes.read().await;
+            if let Some(height_votes) = votes.get(&block_height) {
+                if let Some(vote_list) = height_votes.get(block_hash) {
+                    let approvals = vote_list
+                        .iter()
+                        .filter(|v| v.approve && eligible_nodes.contains(&v.voter))
+                        .count();
+                    
+                    let required = (total_nodes * 2).div_ceil(3);
+                    let has_consensus = approvals >= required;
+                    return (has_consensus, approvals, total_nodes);
+                }
+            }
+
+            (false, 0, total_nodes)
         }
     }
 }

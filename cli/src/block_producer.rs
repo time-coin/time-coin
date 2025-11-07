@@ -921,7 +921,7 @@ impl BlockProducer {
                     }
                 }
 
-                // Check for consensus
+                // PHASE 1: Try consensus with all masternodes
                 let (has_consensus, approvals, total) = self
                     .block_consensus
                     .has_block_consensus(block_num, &proposal.block_hash)
@@ -930,17 +930,62 @@ impl BlockProducer {
                 if has_consensus {
                     println!("      ✔ Consensus reached! ({}/{} votes)", approvals, total);
 
-                    // Get list of voters for rewards
                     let voters = self
                         .block_consensus
                         .get_voters(block_num, &proposal.block_hash)
                         .await;
 
-                    // Finalize the block with rewards to voters
                     return self
                         .finalize_catchup_block_with_rewards(block_num, timestamp, &voters)
                         .await;
-                } else if attempt % 5 == 0 {
+                }
+
+                // PHASE 2: After 15 attempts, try version-filtered consensus
+                if attempt >= 15 {
+                    let my_version = time_network::protocol::full_version();
+                    let (has_version_consensus, version_approvals, version_total) = self
+                        .block_consensus
+                        .has_block_consensus_with_version_filter(
+                            block_num,
+                            &proposal.block_hash,
+                            Some(&my_version),
+                        )
+                        .await;
+
+                    if has_version_consensus && version_total >= 3 {
+                        println!(
+                            "      ✔ Version-filtered consensus reached! ({}/{} votes from v{})",
+                            version_approvals, version_total, my_version
+                        );
+                        println!("      ℹ️  Excluded {} nodes with incompatible versions", 
+                            total - version_total);
+
+                        let voters = self
+                            .block_consensus
+                            .get_voters(block_num, &proposal.block_hash)
+                            .await;
+
+                        let matching_version_nodes = self
+                            .block_consensus
+                            .get_masternodes_by_version(&my_version)
+                            .await;
+                        
+                        let version_filtered_voters: Vec<String> = voters
+                            .into_iter()
+                            .filter(|v| matching_version_nodes.contains(v))
+                            .collect();
+
+                        return self
+                            .finalize_catchup_block_with_rewards(
+                                block_num,
+                                timestamp,
+                                &version_filtered_voters,
+                            )
+                            .await;
+                    }
+                }
+
+                if attempt % 5 == 0 {
                     println!("      ▶️ Waiting for consensus...");
                 }
             }
