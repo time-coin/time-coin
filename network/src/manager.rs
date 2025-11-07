@@ -409,25 +409,20 @@ impl PeerManager {
     }
 
     /// Fetch peer list from a connected peer's HTTP API for peer exchange
-    async fn fetch_peers_from_api(&self, peer_addr: &SocketAddr) -> Result<Vec<PeerInfo>, String> {
+    async fn fetch_peers_from_api(
+        &self,
+        peer_addr: &SocketAddr,
+    ) -> Result<Vec<PeerInfo>, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("http://{}:24101/peers", peer_addr.ip());
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+            .build()?;
 
-        let response = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = client.get(&url).send().await?;
 
         if !response.status().is_success() {
-            return Err(format!(
-                "HTTP request returned status: {}",
-                response.status()
-            ));
+            return Err(format!("HTTP request returned status: {}", response.status()).into());
         }
 
         #[derive(serde::Deserialize)]
@@ -443,10 +438,7 @@ impl PeerManager {
             peers: Vec<ApiPeerInfo>,
         }
 
-        let peers_response: PeersResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        let peers_response: PeersResponse = response.json().await?;
 
         // Convert API peer info to discovery::PeerInfo
         let mut peer_infos = Vec::new();
