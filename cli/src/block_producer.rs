@@ -930,12 +930,18 @@ impl BlockProducer {
         block_num: u64,
         timestamp: chrono::DateTime<Utc>,
     ) -> time_core::block::Block {
-        use time_core::block::{Block, BlockHeader};
-        use time_core::transaction::{Transaction, TxOutput};
+        use time_core::block::{Block, BlockHeader, create_coinbase_transaction};
 
         let blockchain = self.blockchain.read().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
-        let _masternode_counts = blockchain.masternode_counts().clone();
+        let masternode_counts = blockchain.masternode_counts().clone();
+        
+        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+            .get_active_masternodes()
+            .iter()
+            .map(|mn| (mn.wallet_address.clone(), mn.tier))
+            .collect();
+        
         drop(blockchain);
 
         let my_id = if let Ok(ip) = local_ip_address::local_ip() {
@@ -944,18 +950,13 @@ impl BlockProducer {
             "unknown".to_string()
         };
 
-        // Create coinbase with treasury reward only (no MN rewards yet)
-        let coinbase_tx = Transaction {
-            txid: format!("coinbase_{}", block_num),
-            version: 1,
-            inputs: vec![],
-            outputs: vec![TxOutput {
-                amount: time_core::block::calculate_treasury_reward(),
-                address: "TIME1treasury00000000000000000000000000".to_string(),
-            }],
-            lock_time: 0,
-            timestamp: timestamp.timestamp(),
-        };
+        let coinbase_tx = create_coinbase_transaction(
+            block_num,
+            "TIME1treasury00000000000000000000000000",
+            &active_masternodes,
+            &masternode_counts,
+            0,
+        );
 
         let mut block = Block {
             hash: String::new(),
@@ -972,6 +973,7 @@ impl BlockProducer {
 
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
+        println!("      💰 Proposal includes rewards for {} masternodes", active_masternodes.len());
         block
     }
 
