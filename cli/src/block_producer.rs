@@ -338,13 +338,41 @@ impl BlockProducer {
             let mut transactions = self.mempool.get_all_transactions().await;
             // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
-            println!("   📋 {} transactions", transactions.len());
+            println!("   📋 {} mempool transactions", transactions.len());
 
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
+            let masternode_counts = blockchain.masternode_counts().clone();
+            
+            // Get active masternodes with their wallet addresses and tiers
+            let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+                .get_active_masternodes()
+                .iter()
+                .map(|mn| (mn.wallet_address.clone(), mn.tier))
+                .collect();
+            
             drop(blockchain);
 
-            let merkle_root = self.calc_merkle(&transactions);
+            // Calculate total transaction fees (currently 0 as we don't have UTXO validation yet)
+            let total_fees: u64 = 0;
+
+            // Create coinbase transaction with all rewards
+            let coinbase_tx = time_core::block::create_coinbase_transaction(
+                block_num,
+                "TIME1treasury00000000000000000000000000",
+                &active_masternodes,
+                &masternode_counts,
+                total_fees,
+            );
+
+            // Prepend coinbase to transactions list
+            let mut all_transactions = vec![coinbase_tx];
+            all_transactions.extend(transactions);
+            
+            println!("   📋 {} total transactions (1 coinbase + {} mempool)", 
+                     all_transactions.len(), all_transactions.len() - 1);
+
+            let merkle_root = self.calc_merkle(&all_transactions);
 
             let proposal = time_consensus::block_consensus::BlockProposal {
                 block_height: block_num,
@@ -389,7 +417,7 @@ impl BlockProducer {
 
             if approved >= required_votes {
                 println!("   ✔ Quorum reached! Finalizing...");
-                self.finalize_block_bft(&transactions, &previous_hash, &merkle_root, block_num)
+                self.finalize_block_bft(&all_transactions, &previous_hash, &merkle_root, block_num)
                     .await;
             } else {
                 println!("   ✗ Quorum failed ({} < {})", approved, required_votes);
