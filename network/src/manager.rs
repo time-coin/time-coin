@@ -424,7 +424,7 @@ impl PeerManager {
             return Err(format!(
                 "HTTP request returned status: {}",
                 response.status()
-            ));
+            ).into());
         }
 
         #[derive(serde::Deserialize)]
