@@ -7,13 +7,16 @@ pub mod sync;
 
 pub use connection::PeerConnection;
 pub use connection::PeerListener;
-pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
+pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, SeedNodes};
 pub use manager::PeerManager;
 pub use manager::Snapshot;
 pub use protocol::{HandshakeMessage, ProtocolVersion, PROTOCOL_VERSION, VERSION};
 pub use protocol::{NetworkMessage, TransactionMessage, TransactionValidation};
 
 pub mod peer_exchange;
+
+// Re-export PeerInfo from discovery
+pub use discovery::PeerInfo;
 
 /// Transaction broadcasting functionality
 pub mod tx_broadcast {

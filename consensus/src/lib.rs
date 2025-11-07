@@ -621,12 +621,20 @@ pub mod block_consensus {
         pub timestamp: i64,
     }
 
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PeerBuildInfo {
+        pub version: String,
+        pub build_timestamp: String,
+        pub commit_count: u64,
+    }
+
     pub struct BlockConsensusManager {
         proposals: Arc<RwLock<HashMap<u64, BlockProposal>>>,
         votes: BlockVotesMap,
         masternodes: Arc<RwLock<Vec<String>>>,
         health: Arc<RwLock<HashMap<String, MasternodeHealth>>>,
         peer_versions: Arc<RwLock<HashMap<String, String>>>,
+        peer_build_info: Arc<RwLock<HashMap<String, PeerBuildInfo>>>,
     }
 
     impl Default for BlockConsensusManager {
@@ -643,6 +651,7 @@ pub mod block_consensus {
                 masternodes: Arc::new(RwLock::new(Vec::new())),
                 health: Arc::new(RwLock::new(HashMap::new())),
                 peer_versions: Arc::new(RwLock::new(HashMap::new())),
+                peer_build_info: Arc::new(RwLock::new(HashMap::new())),
             }
         }
 
@@ -701,6 +710,246 @@ pub mod block_consensus {
             }
 
             (false, 0, total_nodes)
+        }
+
+        /// Register peer version WITH build info when they connect
+        pub async fn register_peer_version_with_build_info(
+            &self,
+            peer_ip: String,
+            version: String,
+            build_timestamp: String,
+            commit_count: u64,
+        ) {
+            let mut versions = self.peer_versions.write().await;
+            let mut build_info = self.peer_build_info.write().await;
+            
+            versions.insert(peer_ip.clone(), version.clone());
+            build_info.insert(
+                peer_ip,
+                PeerBuildInfo {
+                    version,
+                    build_timestamp,
+                    commit_count,
+                },
+            );
+        }
+
+        /// Get the latest version among active nodes using comprehensive comparison
+        async fn get_latest_version_among_active(&self, active_nodes: &[String]) -> Option<String> {
+            use chrono::NaiveDateTime;
+            
+            let build_info = self.peer_build_info.read().await;
+            
+            if active_nodes.is_empty() {
+                return None;
+            }
+            
+            // Collect build info for active nodes
+            let mut node_builds: Vec<(String, PeerBuildInfo)> = active_nodes
+                .iter()
+                .filter_map(|node| {
+                    build_info.get(node).map(|info| (node.clone(), info.clone()))
+                })
+                .collect();
+            
+            if node_builds.is_empty() {
+                return None;
+            }
+            
+            // Sort by commit count (highest first), then by timestamp
+            node_builds.sort_by(|a, b| {
+                // First compare commit counts
+                match b.1.commit_count.cmp(&a.1.commit_count) {
+                    std::cmp::Ordering::Equal => {
+                        // If equal, compare timestamps
+                        let format = "%Y-%m-%d %H:%M:%S";
+                        let a_time = NaiveDateTime::parse_from_str(&a.1.build_timestamp, format).ok();
+                        let b_time = NaiveDateTime::parse_from_str(&b.1.build_timestamp, format).ok();
+                        b_time.cmp(&a_time)
+                    }
+                    other => other,
+                }
+            });
+            
+            // Return the latest version
+            node_builds.first().map(|(_, info)| info.version.clone())
+        }
+
+        /// Three-round BFT consensus with progressive fallback
+        /// Round 1: All active nodes
+        /// Round 2: Latest-version active nodes only (encourages upgrades)
+        /// Round 3: Emergency - force block creation
+        /// Returns: (has_consensus, approvals, total_nodes, round_used)
+        pub async fn has_block_consensus_with_progressive_fallback(
+            &self,
+            block_height: u64,
+            block_hash: &str,
+        ) -> (bool, usize, usize, u8) {
+            let all_masternodes = self.masternodes.read().await.clone();
+            
+            if all_masternodes.is_empty() {
+                // No nodes registered - emergency
+                println!("   🚨 EMERGENCY: No masternodes registered - forcing block");
+                return (true, 0, 0, 3);
+            }
+
+            // Get vote information
+            let votes = self.votes.read().await;
+            let vote_list = if let Some(height_votes) = votes.get(&block_height) {
+                height_votes.get(block_hash).cloned()
+            } else {
+                None
+            };
+            drop(votes);
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROUND 1: Try consensus with ALL ACTIVE masternodes
+            // ═══════════════════════════════════════════════════════════════
+            let active_nodes = self.get_active_masternodes(&all_masternodes).await;
+            let active_count = active_nodes.len();
+
+            if active_count >= 3 {
+                let active_approvals = vote_list
+                    .as_ref()
+                    .map(|list| {
+                        list.iter()
+                            .filter(|v| v.approve && active_nodes.contains(&v.voter))
+                            .count()
+                    })
+                    .unwrap_or(0);
+
+                let required_active = (active_count * 2).div_ceil(3);
+
+                if active_approvals >= required_active {
+                    println!(
+                        "   ✅ Round 1: BFT consensus achieved with active nodes ({}/{} votes, needed {})",
+                        active_approvals, active_count, required_active
+                    );
+                    return (true, active_approvals, active_count, 1);
+                }
+
+                println!(
+                    "   ⚠️  Round 1: BFT not reached with active nodes ({}/{} votes, needed {})",
+                    active_approvals, active_count, required_active
+                );
+            } else {
+                println!(
+                    "   ⚠️  Round 1: Not enough active nodes ({} < 3)",
+                    active_count
+                );
+            }
+
+            println!("   🔄 Round 2: Falling back to latest-version active nodes only...");
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROUND 2: Try consensus with LATEST-VERSION ACTIVE nodes only
+            // ═══════════════════════════════════════════════════════════════
+            
+            // Find the latest version among all active nodes
+            let latest_version = self.get_latest_version_among_active(&active_nodes).await;
+            
+            if let Some(ref version) = latest_version {
+                println!("   📌 Latest version detected: {}", version);
+                
+                // Get nodes running the latest version
+                let latest_version_nodes = self.get_masternodes_by_version(version).await;
+                
+                // Filter for both active AND latest version
+                let latest_version_active: Vec<String> = active_nodes
+                    .iter()
+                    .filter(|node| latest_version_nodes.contains(node))
+                    .cloned()
+                    .collect();
+                
+                let latest_version_count = latest_version_active.len();
+
+                if latest_version_count >= 3 {
+                    let latest_version_approvals = vote_list
+                        .as_ref()
+                        .map(|list| {
+                            list.iter()
+                                .filter(|v| v.approve && latest_version_active.contains(&v.voter))
+                                .count()
+                        })
+                        .unwrap_or(0);
+
+                    let required_latest_version = (latest_version_count * 2).div_ceil(3);
+
+                    if latest_version_approvals >= required_latest_version {
+                        println!(
+                            "   ✅ Round 2: BFT consensus with latest-version nodes ({}/{} votes, needed {})",
+                            latest_version_approvals, latest_version_count, required_latest_version
+                        );
+                        println!("   📊 Using only nodes running latest version: {}", version);
+                        
+                        // Warn outdated nodes
+                        let outdated_count = active_count - latest_version_count;
+                        if outdated_count > 0 {
+                            println!("   ⚠️  {} active node(s) running older versions excluded", outdated_count);
+                            println!("   💡 Outdated nodes should update to version {}", version);
+                        }
+                        
+                        return (true, latest_version_approvals, latest_version_count, 2);
+                    }
+
+                    println!(
+                        "   ⚠️  Round 2: BFT not reached with latest-version nodes ({}/{} votes, needed {})",
+                        latest_version_approvals, latest_version_count, required_latest_version
+                    );
+                } else {
+                    println!(
+                        "   ⚠️  Round 2: Not enough latest-version active nodes ({} < 3)",
+                        latest_version_count
+                    );
+                }
+            } else {
+                println!("   ⚠️  Round 2: Could not determine latest version from active nodes");
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROUND 3: EMERGENCY - Force block creation to prevent chain halt
+            // ═══════════════════════════════════════════════════════════════
+            println!();
+            println!("   🚨 ════════════════════════════════════════════════════════");
+            println!("   🚨 ROUND 3: EMERGENCY CONSENSUS ACTIVATED");
+            println!("   🚨 ════════════════════════════════════════════════════════");
+            println!("   📋 Reason: Unable to reach 2/3+ consensus in Rounds 1 & 2");
+            println!("   ⚠️  Status: FORCING block creation to prevent chain halt");
+            println!("   📊 Network Health:");
+            println!("       - Total masternodes: {}", all_masternodes.len());
+            println!("       - Active nodes: {}", active_count);
+            
+            if let Some(version) = latest_version {
+                let latest_count = self.get_masternodes_by_version(&version).await.len();
+                println!("       - Latest-version active: {}", latest_count);
+                println!("       - Latest version: {}", version);
+            }
+            
+            if let Some(list) = vote_list.as_ref() {
+                let total_approvals = list.iter().filter(|v| v.approve).count();
+                println!("       - Total approvals received: {}", total_approvals);
+            }
+            
+            println!();
+            println!("   ⚠️  OPERATOR WARNING:");
+            println!("   - Emergency consensus should be RARE");
+            println!("   - Check network connectivity between nodes");
+            println!("   - Verify all nodes are running and responsive");
+            println!("   - Consider restarting lagging nodes");
+            println!("   - Review masternode health status");
+            println!("   - Ensure nodes are updated to latest version");
+            println!();
+            println!("   ✅ Block will be created to maintain chain continuity");
+            println!("   🚨 ════════════════════════════════════════════════════════");
+            println!();
+
+            // Return true to force block creation, with any approvals we got
+            let emergency_approvals = vote_list
+                .as_ref()
+                .map(|list| list.iter().filter(|v| v.approve).count())
+                .unwrap_or(0);
+
+            (true, emergency_approvals, all_masternodes.len(), 3)
         }
 
         pub async fn get_agreed_block(&self, block_height: u64) -> Option<BlockProposal> {
@@ -1164,7 +1413,7 @@ pub mod block_consensus {
             println!();
         }
 
-        /// Register peer version when they connect
+        /// Register peer version when they connect (legacy method, kept for compatibility)
         pub async fn register_peer_version(&self, peer_ip: String, version: String) {
             let mut versions = self.peer_versions.write().await;
             versions.insert(peer_ip, version);

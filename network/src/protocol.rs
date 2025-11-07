@@ -107,6 +107,10 @@ pub struct HandshakeMessage {
     /// Build timestamp (e.g., "2025-11-07 15:09:21")
     #[serde(default)]
     pub build_timestamp: Option<String>,
+    
+    /// Git commit count
+    #[serde(default)]
+    pub commit_count: Option<String>,
 
     /// Protocol version for compatibility
     pub protocol_version: u32,
@@ -136,6 +140,7 @@ impl HandshakeMessage {
         HandshakeMessage {
             version: version_for_handshake(),
             build_timestamp: Some(BUILD_TIMESTAMP.to_string()),
+            commit_count: Some(GIT_COMMIT_COUNT.to_string()),
             protocol_version: PROTOCOL_VERSION,
             network,
             listen_addr,
@@ -256,6 +261,93 @@ pub fn version_mismatch_message_detailed(
 /// Get a user-friendly version mismatch message (backward compatible)
 pub fn version_mismatch_message(peer_addr: &str, peer_version: &str) -> String {
     version_mismatch_message_detailed(peer_addr, peer_version, None)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VERSION COMPARISON AND UPDATE DETECTION
+// ═══════════════════════════════════════════════════════════════
+
+/// Compare two build timestamps and return true if remote is newer
+pub fn is_remote_version_newer(local_timestamp: &str, remote_timestamp: &str) -> bool {
+    use chrono::NaiveDateTime;
+    
+    let format = "%Y-%m-%d %H:%M:%S";
+    
+    let local_dt = NaiveDateTime::parse_from_str(local_timestamp, format).ok();
+    let remote_dt = NaiveDateTime::parse_from_str(remote_timestamp, format).ok();
+    
+    match (local_dt, remote_dt) {
+        (Some(local), Some(remote)) => remote > local,
+        _ => false,
+    }
+}
+
+/// Compare two git commit counts and return true if remote is newer
+pub fn is_remote_commit_newer(local_count: &str, remote_count: &str) -> bool {
+    let local: u64 = local_count.parse().unwrap_or(0);
+    let remote: u64 = remote_count.parse().unwrap_or(0);
+    remote > local
+}
+
+/// Get a detailed version comparison message
+pub fn version_update_warning(
+    peer_addr: &str,
+    peer_version: &str,
+    peer_build: &str,
+    peer_commit_count: &str,
+) -> String {
+    format!(
+        "\n\
+        ╔══════════════════════════════════════════════════════════════╗\n\
+        ║  ⚠️  UPDATE AVAILABLE - NEWER VERSION DETECTED              ║\n\
+        ╚══════════════════════════════════════════════════════════════╝\n\
+        \n\
+        Peer {} is running a NEWER version:\n\
+        \n\
+        Peer Version:  {} (commit #{})\n\
+        Peer Built:    {} UTC\n\
+        \n\
+        Your Version:  {} (commit #{})\n\
+        Your Built:    {} UTC\n\
+        \n\
+        ⚠️  RECOMMENDED ACTION:\n\
+        1. Update your node to the latest version\n\
+        2. Run: git pull && cargo build --release\n\
+        3. Restart your node service\n\
+        \n\
+        Running outdated software may cause:\n\
+        - Consensus incompatibilities\n\
+        - Missing important bug fixes\n\
+        - Reduced network participation\n\
+        ╚══════════════════════════════════════════════════════════════╝\n",
+        peer_addr,
+        peer_version,
+        peer_commit_count,
+        peer_build,
+        full_version(),
+        GIT_COMMIT_COUNT,
+        BUILD_TIMESTAMP
+    )
+}
+
+/// Check if we should warn about version mismatch (only warn for newer versions)
+pub fn should_warn_version_update(
+    peer_build: Option<&str>,
+    peer_commit_count: Option<&str>,
+) -> bool {
+    if let Some(peer_build_time) = peer_build {
+        if is_remote_version_newer(BUILD_TIMESTAMP, peer_build_time) {
+            return true;
+        }
+    }
+    
+    if let Some(peer_commits) = peer_commit_count {
+        if is_remote_commit_newer(GIT_COMMIT_COUNT, peer_commits) {
+            return true;
+        }
+    }
+    
+    false
 }
 
 #[cfg(test)]

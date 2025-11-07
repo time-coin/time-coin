@@ -1218,17 +1218,48 @@ async fn main() {
                             let info = conn.peer_info().await;
                             let peer_addr = info.address;
 
+                            // Register peer version WITH build info for Round 2 filtering
+                            if let (Some(build_time), Some(commits)) = (
+                                &info.build_timestamp,
+                                &info.commit_count
+                            ) {
+                                let commit_num = commits.parse::<u64>().unwrap_or(0);
+                                block_consensus_clone
+                                    .register_peer_version_with_build_info(
+                                        peer_addr.ip().to_string(),
+                                        info.version.clone(),
+                                        build_time.clone(),
+                                        commit_num
+                                    )
+                                    .await;
+                            }
+
+                            // Check for version updates
+                            if time_network::protocol::should_warn_version_update(
+                                info.build_timestamp.as_deref(),
+                                info.commit_count.as_deref(),
+                            ) {
+                                let warning = time_network::protocol::version_update_warning(
+                                    &peer_addr.ip().to_string(),
+                                    &info.version,
+                                    info.build_timestamp.as_deref().unwrap_or("unknown"),
+                                    info.commit_count.as_deref().unwrap_or("0"),
+                                );
+                                eprintln!("{}", warning);
+                            }
+
                             println!(
                                 "{}",
                                 format!(
-                                    "✓ Connected to {} (v{})",
+                                    "✓ Connected to {} (v{}, built: {})",
                                     peer_addr.ip().to_string().bright_blue(),
-                                    info.version.bright_black()
+                                    info.version.bright_black(),
+                                    info.build_timestamp.as_deref().unwrap_or("unknown").bright_black()
                                 )
                                 .green()
                             );
 
-                            peer_manager_clone.add_connected_peer(info).await;
+                            peer_manager_clone.add_connected_peer(info.clone()).await;
 
                             // Update transaction broadcaster with current peer list
                             let current_peers = peer_manager_clone.get_peer_ips().await;
@@ -1238,6 +1269,14 @@ async fn main() {
                             consensus_clone
                                 .add_masternode(peer_addr.ip().to_string())
                                 .await;
+                            
+                            // Register wallet address if provided
+                            if let Some(wallet_addr) = &info.wallet_address {
+                                consensus_clone
+                                    .register_wallet(peer_addr.ip().to_string(), wallet_addr.clone())
+                                    .await;
+                            }
+                            
                             let updated_masternodes = consensus_clone.get_masternodes().await;
                             tx_consensus_clone
                                 .set_masternodes(updated_masternodes.clone())
@@ -1402,107 +1441,128 @@ async fn main() {
     });
 
     // Helper function to extract peer IPs from PeerInfo list
-    fn extract_peer_ips(peers: &[time_network::PeerInfo]) -> Vec<String> {
-        peers
-            .iter()
-            .map(|peer| peer.address.ip().to_string())
-            .collect()
-    }
+fn extract_peer_ips(peers: &[time_network::PeerInfo]) -> Vec<String> {
+    peers
+        .iter()
+        .map(|peer| peer.address.ip().to_string())
+        .collect()
+}
 
-    // Masternode synchronization task
-    let peer_mgr_sync = peer_manager.clone();
-    let consensus_sync = consensus.clone();
-    let tx_consensus_sync = tx_consensus.clone();
-    let block_consensus_sync = block_consensus.clone();
-    tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(30));
-        interval.tick().await;
-
-        loop {
-            interval.tick().await;
-            let peers = peer_mgr_sync.get_connected_peers().await;
-
-            // Get connected peer IPs using helper
-            let connected_ips = extract_peer_ips(&peers);
-
-            // Sync block consensus manager with connected peers
-            block_consensus_sync
-                .sync_with_connected_peers(connected_ips.clone())
-                .await;
-
-            // Also update the main consensus and tx consensus
-            for peer in &peers {
-                consensus_sync
-                    .add_masternode(peer.address.ip().to_string())
-                    .await;
-            }
-            let updated_masternodes = consensus_sync.get_masternodes().await;
-            tx_consensus_sync
-                .set_masternodes(updated_masternodes.clone())
-                .await;
-        }
-    });
-
-    // Main heartbeat loop with detailed status
-    let mut counter = 0;
-    let consensus_heartbeat = consensus.clone();
-    let block_consensus_heartbeat = block_consensus.clone();
-    let peer_mgr_heartbeat = peer_manager.clone();
+// Masternode synchronization task (KEEP THIS!)
+let peer_mgr_sync = peer_manager.clone();
+let consensus_sync = consensus.clone();
+let tx_consensus_sync = tx_consensus.clone();
+let block_consensus_sync = block_consensus.clone();
+tokio::spawn(async move {
+    let mut interval = time::interval(Duration::from_secs(30));
+    interval.tick().await;
 
     loop {
-        time::sleep(Duration::from_secs(60)).await;
-        counter += 1;
+        interval.tick().await;
+        let peers = peer_mgr_sync.get_connected_peers().await;
 
-        // Sync with connected peers before getting the count
-        let peers = peer_mgr_heartbeat.get_connected_peers().await;
+        // Get connected peer IPs using helper
         let connected_ips = extract_peer_ips(&peers);
-        block_consensus_heartbeat
-            .sync_with_connected_peers(connected_ips)
+
+        // Sync block consensus manager with connected peers
+        block_consensus_sync
+            .sync_with_connected_peers(connected_ips.clone())
             .await;
 
-        let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
+        // Also update the main consensus and tx consensus
+        for peer in &peers {
+            consensus_sync
+                .add_masternode(peer.address.ip().to_string())
+                .await;
+        }
+        let updated_masternodes = consensus_sync.get_masternodes().await;
+        tx_consensus_sync
+            .set_masternodes(updated_masternodes.clone())
+            .await;
+    }
+});
 
-        let total_nodes = block_consensus_heartbeat.active_masternode_count().await;
-        let mode = consensus_heartbeat.consensus_mode().await;
-        let consensus_mode = match mode {
-            time_consensus::ConsensusMode::Development => "DEV",
-            time_consensus::ConsensusMode::BootstrapNoQuorum => "BOOTSTRAP",
-            time_consensus::ConsensusMode::BFT => "BFT",
-        };
+// Main heartbeat loop with detailed status (REPLACE WITH NEW VERSION)
+let mut counter = 0;
+let consensus_heartbeat = consensus.clone();
+let block_consensus_heartbeat = block_consensus.clone();
+let peer_mgr_heartbeat = peer_manager.clone();
 
-        // Detailed heartbeat output
-        if is_testnet {
-            println!(
-                "[{}] {} #{} | {} nodes | {} mode | {}",
-                timestamp,
-                "Heartbeat".bright_black(),
-                counter,
-                total_nodes.to_string().yellow(),
-                consensus_mode.yellow(),
-                "[TESTNET]".yellow()
-            );
-        } else if is_dev_mode {
-            println!(
-                "[{}] {} #{} | {} nodes | {}",
-                timestamp,
-                "Heartbeat".bright_black(),
-                counter,
-                total_nodes.to_string().yellow(),
-                "(dev mode)".yellow()
-            );
-        } else {
-            println!(
-                "[{}] {} #{} | {} nodes | {} mode",
-                timestamp,
-                "Heartbeat".bright_black(),
-                counter,
-                total_nodes.to_string().yellow(),
-                consensus_mode.yellow()
-            );
+loop {
+    time::sleep(Duration::from_secs(60)).await;
+    counter += 1;
+
+    // Sync with connected peers before getting the count
+    let peers = peer_mgr_heartbeat.get_connected_peers().await;
+    let connected_ips = extract_peer_ips(&peers);
+    block_consensus_heartbeat
+        .sync_with_connected_peers(connected_ips)
+        .await;
+
+    let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
+
+    let total_nodes = block_consensus_heartbeat.active_masternode_count().await;
+    let mode = consensus_heartbeat.consensus_mode().await;
+    let consensus_mode = match mode {
+        time_consensus::ConsensusMode::Development => "DEV",
+        time_consensus::ConsensusMode::BootstrapNoQuorum => "BOOTSTRAP",
+        time_consensus::ConsensusMode::BFT => "BFT",
+    };
+
+    // Detailed heartbeat output
+    if is_testnet {
+        println!(
+            "[{}] {} #{} | {} nodes | {} mode | {}",
+            timestamp,
+            "Heartbeat".bright_black(),
+            counter,
+            total_nodes.to_string().yellow(),
+            consensus_mode.yellow(),
+            "[TESTNET]".yellow()
+        );
+    } else if is_dev_mode {
+        println!(
+            "[{}] {} #{} | {} nodes | {}",
+            timestamp,
+            "Heartbeat".bright_black(),
+            counter,
+            total_nodes.to_string().yellow(),
+            "(dev mode)".yellow()
+        );
+    } else {
+        println!(
+            "[{}] {} #{} | {} nodes | {} mode",
+            timestamp,
+            "Heartbeat".bright_black(),
+            counter,
+            total_nodes.to_string().yellow(),
+            consensus_mode.yellow()
+        );
+    }
+
+    // Check for version updates every 10 minutes (every 10 heartbeats)
+    if counter % 10 == 0 {
+        for peer in peers.iter() {
+            if time_network::protocol::should_warn_version_update(
+                peer.build_timestamp.as_deref(),
+                peer.commit_count.as_deref(),
+            ) {
+                eprintln!(
+                    "\n⚠️  UPDATE REMINDER: Peer {} is running newer version {} (built: {})",
+                    peer.address.ip(),
+                    peer.version,
+                    peer.build_timestamp.as_deref().unwrap_or("unknown")
+                );
+                eprintln!("   Your version: {} (built: {})", 
+                         time_network::protocol::full_version(),
+                         time_network::protocol::BUILD_TIMESTAMP);
+                eprintln!("   Please update your node!\n");
+                break; // Only warn once per check cycle
+            }
         }
     }
 }
-
+}
 fn load_or_create_wallet(data_dir: &str) -> Result<Wallet, Box<dyn std::error::Error>> {
     // Ensure wallet directory exists
     let wallet_dir = format!("{}/wallets", data_dir);

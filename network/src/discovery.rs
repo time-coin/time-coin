@@ -18,26 +18,41 @@ pub struct PeerInfo {
     pub last_seen: u64,
     pub version: String,
     pub network: NetworkType,
+    
+    #[serde(default)]
+    pub build_timestamp: Option<String>,
+    
+    #[serde(default)]
+    pub commit_count: Option<String>,
+    
+    #[serde(default)]
+    pub wallet_address: Option<String>,
 }
 
 impl PeerInfo {
     /// Create a new peer with unknown version
     pub fn new(address: SocketAddr, network: NetworkType) -> Self {
         PeerInfo {
-            address,
+            address,  // <-- use 'address' not 'addr'
             last_seen: current_timestamp(),
             version: "unknown".to_string(),
-            network,
+            network,  // <-- use 'network' not 'self.network'
+            build_timestamp: None,
+            commit_count: None,
+            wallet_address: None,
         }
     }
 
     /// Create a new peer with known version
     pub fn with_version(address: SocketAddr, network: NetworkType, version: String) -> Self {
         PeerInfo {
-            address,
+            address,  // <-- use 'address' not 'peer_addr'
             last_seen: current_timestamp(),
-            version,
-            network,
+            version,  // <-- use 'version' not 'peer.version'
+            network,  // <-- use 'network' not 'self.network'
+            build_timestamp: None,  // <-- These should be None for this constructor
+            commit_count: None,
+            wallet_address: None,
         }
     }
 
