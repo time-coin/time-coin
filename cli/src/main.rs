@@ -394,7 +394,14 @@ async fn sync_mempool_from_peers(
     let mut failed_peers = Vec::new();
 
     for peer_ip in &peers {
-        let url = format!("http://{}:24101/mempool/all", peer_ip);
+        // Extract just the IP address (remove port if present)
+        let ip_only = if peer_ip.contains(':') {
+            peer_ip.split(':').next().unwrap_or(peer_ip)
+        } else {
+            peer_ip.as_str()
+        };
+        
+        let url = format!("http://{}:24101/mempool/all", ip_only);
         
         // Retry logic with exponential backoff
         let mut retry_count = 0;
@@ -402,7 +409,7 @@ async fn sync_mempool_from_peers(
         let mut success = false;
 
         while retry_count < max_retries && !success {
-            println!("   Requesting mempool from {}:24100...", peer_ip);
+            println!("   Requesting mempool from {}:24101...", ip_only);
             
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(5),
@@ -426,7 +433,7 @@ async fn sync_mempool_from_peers(
                             success = true;
                         }
                         Err(e) => {
-                            eprintln!("   ✗ Failed to parse response from {}: {}", peer_ip, e);
+                            eprintln!("   ✗ Failed to parse response from {}: {}", ip_only, e);
                             failed_peers.push((peer_ip.clone(), format!("parse error: {}", e)));
                         }
                     }
@@ -442,7 +449,7 @@ async fn sync_mempool_from_peers(
                     }
                 }
                 Err(_) => {
-                    eprintln!("   ✗ Request timeout for {}", peer_ip);
+                    eprintln!("   ✗ Request timeout for {}", ip_only);
                     failed_peers.push((peer_ip.clone(), "timeout".to_string()));
                 }
             }
