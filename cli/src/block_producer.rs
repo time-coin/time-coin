@@ -250,11 +250,31 @@ impl BlockProducer {
             let timestamp_date = genesis_date + chrono::Duration::days(block_num as i64);
             let timestamp = Utc.from_utc_datetime(&timestamp_date.and_hms_opt(0, 0, 0).unwrap());
 
-            let success = self
-                .produce_catchup_block_with_bft_consensus(block_num, timestamp, &masternodes)
-                .await;
+            // Retry up to 5 times with increasing delays
+            let mut success = false;
+            for retry_attempt in 0..5 {
+                if retry_attempt > 0 {
+                    let delay_secs = 15 + (retry_attempt * 5);
+                    println!("   🔄 Retry attempt {}/5 for block {} (waiting {}s)...", 
+                             retry_attempt + 1, block_num, delay_secs);
+                    tokio::time::sleep(Duration::from_secs(delay_secs as u64)).await;
+                }
+                
+                success = self
+                    .produce_catchup_block_with_bft_consensus(block_num, timestamp, &masternodes)
+                    .await;
+                    
+                if success {
+                    println!("   ✅ Block {} created successfully!", block_num);
+                    break;
+                } else if retry_attempt < 4 {
+                    println!("   ⚠️  Attempt {}/5 failed, will retry...", retry_attempt + 1);
+                }
+            }
+            
             if !success {
-                println!("   ✗ Failed to create block {}", block_num);
+                println!("   ❌ Failed to create block {} after 5 attempts", block_num);
+                println!("   ℹ️  Ensure all nodes are running same version");
                 break;
             }
         }
