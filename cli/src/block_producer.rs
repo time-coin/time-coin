@@ -343,11 +343,13 @@ impl BlockProducer {
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
             println!("   📋 {} mempool transactions", transactions.len());
 
+            // Get blockchain state atomically (all data retrieved while holding read lock)
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
             let masternode_counts = blockchain.masternode_counts().clone();
             
             // Get active masternodes with their wallet addresses and tiers
+            // Note: masternode_counts and active_masternodes represent the same state
             let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
                 .get_active_masternodes()
                 .iter()
@@ -370,10 +372,11 @@ impl BlockProducer {
 
             // Prepend coinbase to transactions list
             let mut all_transactions = vec![coinbase_tx];
+            let mempool_count = transactions.len();
             all_transactions.extend(transactions);
             
             println!("   📋 {} total transactions (1 coinbase + {} mempool)", 
-                     all_transactions.len(), all_transactions.len() - 1);
+                     all_transactions.len(), mempool_count);
 
             let merkle_root = self.calc_merkle(&all_transactions);
 
