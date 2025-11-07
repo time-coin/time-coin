@@ -4,6 +4,7 @@ use crate::protocol::HandshakeMessage;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::Arc as StdArc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -30,6 +31,9 @@ impl PeerConnection {
         peer: Arc<Mutex<PeerInfo>>,
         network: NetworkType,
         our_listen_addr: SocketAddr,
+        // Add optional blockchain state for registration
+        blockchain: Option<StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
+        consensus: Option<StdArc<time_consensus::ConsensusEngine>>,
     ) -> Result<Self, String> {
         let peer_addr = peer.lock().await.address;
         let mut stream = TcpStream::connect(peer_addr)
@@ -44,6 +48,18 @@ impl PeerConnection {
         peer.lock()
             .await
             .update_version(their_handshake.version.clone());
+
+        // Auto-register masternode if wallet address provided
+        if let Some(wallet_addr) = &their_handshake.wallet_address {
+            if let (Some(blockchain), Some(consensus)) = (&blockchain, &consensus) {
+                Self::auto_register_masternode(
+                    peer_addr.ip().to_string(),
+                    wallet_addr.clone(),
+                    blockchain.clone(),
+                    consensus.clone(),
+                ).await;
+            }
+        }
 
         // Check version and warn if outdated
         if crate::protocol::is_version_outdated(&their_handshake.version) {
@@ -60,6 +76,40 @@ impl PeerConnection {
             stream,
             peer_info: peer,
         })
+    }
+
+    /// Auto-register a masternode when peer connects
+    async fn auto_register_masternode(
+        node_ip: String,
+        wallet_address: String,
+        blockchain: StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
+        consensus: StdArc<time_consensus::ConsensusEngine>,
+    ) {
+        use time_core::MasternodeTier;
+
+        println!("🔐 Auto-registering masternode: {} -> {}", node_ip, wallet_address);
+
+        // Register in blockchain state
+        let mut chain = blockchain.write().await;
+        match chain.register_masternode(
+            node_ip.clone(),
+            MasternodeTier::Free,  // Default to Free tier
+            "peer_connection".to_string(),
+            wallet_address.clone(),
+        ) {
+            Ok(_) => {
+                drop(chain);
+                
+                // Also register in consensus
+                consensus.add_masternode(node_ip.clone()).await;
+                consensus.register_wallet(node_ip.clone(), wallet_address.clone()).await;
+                
+                println!("✅ Masternode auto-registered: {} -> {}", node_ip, wallet_address);
+            }
+            Err(e) => {
+                println!("⚠️  Auto-registration skipped for {}: {:?}", node_ip, e);
+            }
+        }
     }
 
     async fn send_handshake(stream: &mut TcpStream, h: &HandshakeMessage) -> Result<(), String> {

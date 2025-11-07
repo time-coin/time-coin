@@ -26,12 +26,8 @@ pub struct PeerManager {
     listen_addr: SocketAddr,
     peers: Arc<RwLock<HashMap<SocketAddr, PeerInfo>>>,
     peer_exchange: Arc<RwLock<crate::peer_exchange::PeerExchange>>,
-
-    // last-seen timestamps for active peers (used by reaper)
     last_seen: Arc<RwLock<HashMap<SocketAddr, Instant>>>,
-    // how long without an update before considering peer stale
     stale_after: Duration,
-    // how often to run reaper
     reaper_interval: Duration,
 }
 
@@ -45,16 +41,12 @@ impl PeerManager {
                 "/root/time-coin-node/data/peers.json".to_string(),
             ))),
             last_seen: Arc::new(RwLock::new(HashMap::new())),
-            stale_after: Duration::from_secs(90), // tune as needed
-            reaper_interval: Duration::from_secs(10), // tune as needed
+            stale_after: Duration::from_secs(90),
+            reaper_interval: Duration::from_secs(10),
         };
 
-        // start background reaper to remove stale peers
         manager.spawn_reaper();
-        
-        // start background reconnection task to retry disconnected peers
         manager.spawn_reconnection_task();
-
         manager
     }
 
@@ -96,8 +88,14 @@ impl PeerManager {
         let peer_addr = peer.address;
         let peer_arc = Arc::new(tokio::sync::Mutex::new(peer.clone()));
 
-        match PeerConnection::connect(peer_arc.clone(), self.network.clone(), self.listen_addr)
-            .await
+        match PeerConnection::connect(
+            peer_arc.clone(),
+            self.network.clone(),
+            self.listen_addr,
+            None,  // No blockchain for outgoing connections
+            None,  // No consensus for outgoing connections
+        )
+        .await
         {
             Ok(conn) => {
                 // On successful connect, get peer info and record

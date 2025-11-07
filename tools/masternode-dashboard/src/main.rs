@@ -84,13 +84,13 @@ fn run_dashboard(client: &Client, running: Arc<AtomicBool>) -> Result<(), Box<dy
         }
         
         // Fetch data
-        let blockchain_info = fetch_blockchain_info(&client);
-        let peers = fetch_peers(&client);
-        let mempool = fetch_mempool(&client);
+        let blockchain_info = fetch_blockchain_info(client);
+        let peers = fetch_peers(client);
+        let mempool = fetch_mempool(client);
         
         // Ping peers and sort by fastest
         let peers_with_ping = if let Some(ref peer_data) = peers {
-            ping_and_sort_peers(&client, &peer_data.peers)
+            ping_and_sort_peers(client, &peer_data.peers)
         } else {
             Vec::new()
         };

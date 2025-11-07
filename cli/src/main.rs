@@ -337,7 +337,6 @@ async fn get_local_height(blockchain: &Arc<RwLock<BlockchainState>>) -> u64 {
 }
 
 /// Query network for current height
-/// Query network for current height
 async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
     let peers = peer_manager.get_peer_ips().await;
 
@@ -368,7 +367,7 @@ async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
             }
         }
     }
-
+    
     if successful_queries > 0 {
         Some(max_height)
     } else {
@@ -459,8 +458,6 @@ async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
 }
 
 #[tokio::main]
-
-/// Sync mempool from connected peers
 async fn main() {
     let cli = Cli::parse();
 
@@ -686,7 +683,7 @@ async fn main() {
 
     let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
     let listen_addr = "0.0.0.0:24100".parse().unwrap();
-    let peer_manager = std::sync::Arc::new(PeerManager::new(network_type.clone(), listen_addr));
+    let peer_manager = Arc::new(PeerManager::new(network_type.clone(), listen_addr));
 
     println!("\n{}", "⏳ Starting peer discovery...".yellow());
 
@@ -1111,6 +1108,7 @@ async fn main() {
             peer_manager.clone(),
             admin_token,
             blockchain.clone(),
+            consensus.clone(), 
         )
         .with_mempool(mempool.clone())
         .with_tx_consensus(tx_consensus.clone())
@@ -1120,14 +1118,15 @@ async fn main() {
         // Start Peer Listener for incoming connections
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
 
-        match PeerListener::bind(peer_listener_addr, network_type).await {
+        match PeerListener::bind(peer_listener_addr, network_type.clone()).await {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
-                let tx_broadcaster_clone = tx_broadcaster.clone();
+                let _blockchain_clone = blockchain.clone();
                 let consensus_clone = consensus.clone();
+                let tx_broadcaster_clone = tx_broadcaster.clone();
                 let tx_consensus_clone = tx_consensus.clone();
                 let block_consensus_clone = block_consensus.clone();
-
+                
                 tokio::spawn(async move {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
@@ -1347,7 +1346,7 @@ async fn main() {
                 .await;
 
             // Also update the main consensus and tx consensus
-            for peer in peers {
+            for peer in &peers {
                 consensus_sync
                     .add_masternode(peer.address.ip().to_string())
                     .await;
@@ -1418,6 +1417,7 @@ async fn main() {
         }
     }
 }
+
 fn load_or_create_wallet(data_dir: &str) -> Result<Wallet, Box<dyn std::error::Error>> {
     // Ensure wallet directory exists
     let wallet_dir = format!("{}/wallets", data_dir);

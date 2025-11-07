@@ -163,6 +163,10 @@ impl BlockchainState {
 
         Ok(state)
     }
+    /// Get all registered masternodes
+    pub fn get_all_masternodes(&self) -> Vec<&MasternodeInfo> {
+        self.masternodes.values().collect()
+    }
 
     /// Get current chain tip height
     pub fn chain_tip_height(&self) -> u64 {

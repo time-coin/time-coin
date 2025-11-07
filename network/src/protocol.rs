@@ -32,6 +32,7 @@ pub fn full_version() -> String {
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Handshake message sent when connecting to peers
+// Update the HandshakeMessage struct to include wallet_address
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandshakeMessage {
     /// Software version (e.g., "1.0.0")
@@ -51,19 +52,26 @@ pub struct HandshakeMessage {
 
     /// Node capabilities (future use)
     pub capabilities: Vec<String>,
+
+    /// Wallet address for masternode rewards (NEW!)
+    #[serde(default)]
+    pub wallet_address: Option<String>,
 }
 
 impl HandshakeMessage {
-    /// Create a new handshake message
+    /// Create a new handshake message with optional wallet
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
+        // Try to load wallet address from environment or config
+        let wallet_address = std::env::var("MASTERNODE_WALLET").ok();
+        
         HandshakeMessage {
-            // Use the package VERSION (without git hash) for the handshake version to match tests
             version: VERSION.to_string(),
             protocol_version: PROTOCOL_VERSION,
             network,
             listen_addr,
             timestamp: current_timestamp(),
             capabilities: vec!["masternode".to_string(), "sync".to_string()],
+            wallet_address,
         }
     }
 

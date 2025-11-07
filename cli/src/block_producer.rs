@@ -967,13 +967,14 @@ impl BlockProducer {
     }
 
     // --- finalize_catchup_block_with_rewards kept inside impl ---
+
     async fn finalize_catchup_block_with_rewards(
         &self,
         block_num: u64,
         timestamp: chrono::DateTime<Utc>,
         voters: &[String],
     ) -> bool {
-        use time_core::block::{calculate_tier_reward, calculate_treasury_reward};
+        use time_core::block::{calculate_treasury_reward, distribute_masternode_rewards};
         use time_core::block::{Block, BlockHeader};
         use time_core::transaction::{Transaction, TxOutput};
 
@@ -987,64 +988,44 @@ impl BlockProducer {
             "unknown".to_string()
         };
 
-        // Get wallet addresses by querying each voter's API
-        let mut voter_wallets: Vec<(String, String)> = Vec::new();
-        println!("      💡 DEBUG: voters = {:?}", voters);
-
-        for voter in voters {
-            let url = format!("http://{}:24101/wallet/address", voter);
-            if let Ok(response) = reqwest::Client::new()
-                .get(&url)
-                .timeout(std::time::Duration::from_secs(2))
-                .send()
-                .await
-            {
-                if let Ok(wallet_info) = response.json::<serde_json::Value>().await {
-                    if let Some(address) = wallet_info.get("address").and_then(|a| a.as_str()) {
-                        println!("      💡 DEBUG: {} wallet = {}", voter, address);
-                        voter_wallets.push((voter.clone(), address.to_string()));
-                    }
-                }
-            }
-        }
-        println!("      💡 DEBUG: voter_wallets = {:?}", voter_wallets);
-
-        // Build outputs with treasury + voter rewards
+        // Build outputs with treasury
         let mut outputs = vec![TxOutput {
             amount: calculate_treasury_reward(),
             address: "TIME1treasury00000000000000000000000000".to_string(),
         }];
 
-        if !voter_wallets.is_empty() {
-            println!("      🔌 Rewarding {} voters", voter_wallets.len());
-
-            let tiers = [
-                MasternodeTier::Free,
-                MasternodeTier::Bronze,
-                MasternodeTier::Silver,
-                MasternodeTier::Gold,
-            ];
-            for tier in tiers {
-                let tier_reward = calculate_tier_reward(tier, &masternode_counts);
-                if tier_reward > 0 {
-                    let tier_nodes: Vec<_> = voter_wallets
-                        .iter()
-                        .filter(|(node_id, _)| {
-                            node_id.starts_with(&format!("{:?}", tier).to_lowercase())
-                        })
-                        .collect();
-
-                    if !tier_nodes.is_empty() {
-                        let reward_per_node = tier_reward / tier_nodes.len() as u64;
-                        for (_, wallet_addr) in tier_nodes {
-                            outputs.push(TxOutput {
-                                amount: reward_per_node,
-                                address: wallet_addr.clone(),
-                            });
-                        }
-                    }
+        // Get registered masternodes with their wallet addresses from blockchain
+        let registered_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+            .get_all_masternodes()
+            .iter()
+            .filter_map(|mn| {
+                if mn.is_active {
+                    Some((mn.wallet_address.clone(), mn.tier))
+                } else {
+                    None
                 }
-            }
+            })
+            .collect();
+
+        println!("      💡 DEBUG: registered masternodes = {}", registered_masternodes.len());
+        println!("      💡 DEBUG: voters = {:?}", voters);
+
+        // If we have registered masternodes, distribute rewards
+        if !registered_masternodes.is_empty() {
+            println!("      💰 Distributing rewards to {} registered masternodes", registered_masternodes.len());
+            
+            // Use the built-in distribution function
+            let masternode_outputs = distribute_masternode_rewards(
+                &registered_masternodes,
+                &masternode_counts
+            );
+            
+            outputs.extend(masternode_outputs);
+            
+            println!("      ✓ Added {} masternode reward outputs", registered_masternodes.len());
+        } else {
+            println!("      ⚠️  No registered masternodes - treasury reward only");
+            println!("      💡 To receive rewards, masternodes must be registered in blockchain state");
         }
 
         let coinbase_tx = Transaction {

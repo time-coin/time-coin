@@ -7,6 +7,7 @@ authors.workspace = true
 
 [dependencies]
 time-core = { path = "../core" }
+time-consensus = { path = "../consensus" }
 time-mempool = { path = "../mempool" }
 serde.workspace = true
 serde_json.workspace = true

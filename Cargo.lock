@@ -2391,6 +2391,7 @@ dependencies = [
  "reqwest 0.12.24",
  "serde",
  "serde_json",
+ "time-consensus",
  "time-core",
  "time-mempool",
  "tokio",
@@ -2716,6 +2717,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bs58",
+ "chrono",
  "ed25519-dalek",
  "hex",
  "rand 0.8.5",
@@ -2724,6 +2726,8 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
+ "time-core",
+ "time-mempool",
  "tokio",
 ]
 
