@@ -8,10 +8,21 @@ use std::net::SocketAddr;
 
 /// Current TIME Coin version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const GIT_HASH: &str = env!("GIT_HASH");
 
+/// Git information (set at build time)
+pub const GIT_HASH: &str = env!("GIT_HASH");
+pub const GIT_BRANCH: &str = env!("GIT_BRANCH");
+pub const GIT_COMMIT_DATE: &str = env!("GIT_COMMIT_DATE");
+pub const GIT_COMMIT_COUNT: &str = env!("GIT_COMMIT_COUNT");
+pub const GIT_AUTHOR: &str = env!("GIT_AUTHOR");
+
+/// Build information (set at build time)
+pub const BUILD_TIMESTAMP: &str = env!("BUILD_TIMESTAMP");
+pub const GIT_MESSAGE: &str = env!("GIT_MESSAGE");
+
+/// Get full version with git hash
 pub fn full_version() -> String {
-    // Try to get current git hash at runtime
+    // Try to get current git hash at runtime for freshness
     let runtime_hash = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
@@ -28,15 +39,79 @@ pub fn full_version() -> String {
     format!("{}-{}", VERSION, hash)
 }
 
+/// Get version with complete build information
+pub fn version_with_build_info() -> String {
+    format!(
+        "v{} | Branch: {} | Built: {} UTC | Commits: {}",
+        full_version(),
+        GIT_BRANCH,
+        BUILD_TIMESTAMP,
+        GIT_COMMIT_COUNT
+    )
+}
+
+/// Get detailed build information
+pub fn build_info_detailed() -> String {
+    format!(
+        "Version:        {}\n\
+         Build Date:    {} UTC\n\
+         Git Branch:    {}\n\
+         Git Commit:    {} (#{})\n\
+         Commit Date:   {}\n\
+         Author:        {}\n\
+         Message:       {}",
+        full_version(),
+        BUILD_TIMESTAMP,
+        GIT_BRANCH,
+        GIT_HASH,
+        GIT_COMMIT_COUNT,
+        GIT_COMMIT_DATE,
+        GIT_AUTHOR,
+        GIT_MESSAGE
+    )
+}
+
+/// Get version for API/handshake (without build time for deterministic responses)
+pub fn version_for_handshake() -> String {
+    full_version()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildInfo {
+    pub version: String,
+    pub git_hash: String,
+    pub git_branch: String,
+    pub build_timestamp: String,
+    pub git_commit_count: u64,
+    pub git_author: String,
+}
+
+impl BuildInfo {
+    /// Create build info from compile-time constants
+    pub fn current() -> Self {
+        BuildInfo {
+            version: full_version(),
+            git_hash: GIT_HASH.to_string(),
+            git_branch: GIT_BRANCH.to_string(),
+            build_timestamp: BUILD_TIMESTAMP.to_string(),
+            git_commit_count: GIT_COMMIT_COUNT.parse().unwrap_or(0),
+            git_author: GIT_AUTHOR.to_string(),
+        }
+    }
+}
+
 /// Protocol version for compatibility checking
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Handshake message sent when connecting to peers
-// Update the HandshakeMessage struct to include wallet_address
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandshakeMessage {
-    /// Software version (e.g., "1.0.0")
+    /// Software version (e.g., "0.1.0-9569fe2")
     pub version: String,
+
+    /// Build timestamp (e.g., "2025-11-07 15:09:21")
+    #[serde(default)]
+    pub build_timestamp: Option<String>,
 
     /// Protocol version for compatibility
     pub protocol_version: u32,
@@ -53,7 +128,7 @@ pub struct HandshakeMessage {
     /// Node capabilities (future use)
     pub capabilities: Vec<String>,
 
-    /// Wallet address for masternode rewards (NEW!)
+    /// Wallet address for masternode rewards
     #[serde(default)]
     pub wallet_address: Option<String>,
 }
@@ -61,11 +136,11 @@ pub struct HandshakeMessage {
 impl HandshakeMessage {
     /// Create a new handshake message with optional wallet
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
-        // Try to load wallet address from environment or config
         let wallet_address = std::env::var("MASTERNODE_WALLET").ok();
         
         HandshakeMessage {
-            version: VERSION.to_string(),
+            version: version_for_handshake(),
+            build_timestamp: Some(BUILD_TIMESTAMP.to_string()),
             protocol_version: PROTOCOL_VERSION,
             network,
             listen_addr,
@@ -77,7 +152,6 @@ impl HandshakeMessage {
 
     /// Validate handshake from peer
     pub fn validate(&self, expected_network: &NetworkType) -> Result<(), String> {
-        // Check network compatibility
         if &self.network != expected_network {
             return Err(format!(
                 "Network mismatch: expected {:?}, got {:?}",
@@ -85,7 +159,6 @@ impl HandshakeMessage {
             ));
         }
 
-        // Check protocol version compatibility
         if self.protocol_version != PROTOCOL_VERSION {
             return Err(format!(
                 "Protocol version mismatch: expected {}, got {}",
@@ -106,14 +179,15 @@ impl HandshakeMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolVersion {
     pub software_version: String,
+    pub build_timestamp: Option<String>,
     pub protocol_version: u32,
 }
 
 impl ProtocolVersion {
     pub fn current() -> Self {
-        // Use the package VERSION rather than full_version() so tests and messages remain deterministic
         ProtocolVersion {
             software_version: VERSION.to_string(),
+            build_timestamp: Some(BUILD_TIMESTAMP.to_string()),
             protocol_version: PROTOCOL_VERSION,
         }
     }
@@ -127,6 +201,68 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
+/// Check if a peer version is outdated
+/// Takes peer_version and returns true if versions differ
+pub fn is_version_outdated(peer_version: &str) -> bool {
+    is_version_outdated_with_build(peer_version, None)
+}
+
+/// Check if a peer version is outdated with optional build timestamp
+pub fn is_version_outdated_with_build(peer_version: &str, peer_build: Option<&str>) -> bool {
+    if peer_version == "unknown" {
+        return false;
+    }
+
+    let current_hash = GIT_HASH;
+    let peer_hash = peer_version.split('-').next_back().unwrap_or("");
+
+    // Different git commits mean different versions
+    if current_hash != peer_hash && !peer_hash.is_empty() {
+        return true;
+    }
+
+    // Same commit - check build time if available
+    if let Some(_peer_build_str) = peer_build {
+        // Same commit and similar build times = not outdated
+        // Different build times from same commit = may indicate different builds
+        // For now, same commit = compatible
+        return false;
+    }
+
+    false
+}
+
+/// Get a detailed version mismatch message
+pub fn version_mismatch_message_detailed(
+    peer_addr: &str,
+    peer_version: &str,
+    peer_build: Option<&str>,
+) -> String {
+    match peer_build {
+        Some(build_str) => format!(
+            "⚠️  Peer {} is running v{} (built: {}). \
+             You are running {} (built: {}). \
+             Please ensure versions match!",
+            peer_addr,
+            peer_version,
+            build_str,
+            full_version(),
+            BUILD_TIMESTAMP
+        ),
+        None => format!(
+            "⚠️  Peer {} is running version {} (current: {}). Please update!",
+            peer_addr,
+            peer_version,
+            full_version()
+        ),
+    }
+}
+
+/// Get a user-friendly version mismatch message (backward compatible)
+pub fn version_mismatch_message(peer_addr: &str, peer_version: &str) -> String {
+    version_mismatch_message_detailed(peer_addr, peer_version, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,9 +272,10 @@ mod tests {
         let addr = "127.0.0.1:24100".parse().unwrap();
         let handshake = HandshakeMessage::new(NetworkType::Testnet, addr);
 
-        assert_eq!(handshake.version, VERSION);
+        assert_eq!(handshake.version, full_version());
         assert_eq!(handshake.protocol_version, PROTOCOL_VERSION);
         assert_eq!(handshake.network, NetworkType::Testnet);
+        assert!(handshake.build_timestamp.is_some());
     }
 
     #[test]
@@ -155,6 +292,43 @@ mod tests {
         let version = ProtocolVersion::current();
         assert_eq!(version.software_version, VERSION);
         assert_eq!(version.protocol_version, PROTOCOL_VERSION);
+        assert!(version.build_timestamp.is_some());
+    }
+
+    #[test]
+    fn test_build_info() {
+        let info = BuildInfo::current();
+        assert!(!info.version.is_empty());
+        assert_eq!(info.git_branch, GIT_BRANCH);
+    }
+
+    #[test]
+    fn test_version_outdated_same_hash() {
+        // If hashes are the same, not outdated
+        assert!(!is_version_outdated(&format!("0.1.0-{}", GIT_HASH)));
+    }
+
+    #[test]
+    fn test_version_outdated_different_hash() {
+        // If hashes are different, is outdated
+        assert!(is_version_outdated("0.1.0-abc1234"));
+    }
+
+    #[test]
+    fn test_version_outdated_with_build() {
+        // Same hash with different build times = not outdated
+        let result = is_version_outdated_with_build(
+            &format!("0.1.0-{}", GIT_HASH),
+            Some("2025-11-07 14:00:00"),
+        );
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_version_mismatch_message() {
+        let msg = version_mismatch_message("127.0.0.1", "0.1.0-abc1234");
+        assert!(msg.contains("Peer 127.0.0.1"));
+        assert!(msg.contains("0.1.0-abc1234"));
     }
 }
 
@@ -200,6 +374,7 @@ pub enum NetworkMessage {
     GetBlocks { start_height: u64, end_height: u64 },
     BlocksData(Vec<BlockData>),
 }
+
 impl NetworkMessage {
     pub fn serialize(&self) -> Result<Vec<u8>, String> {
         serde_json::to_vec(self).map_err(|e| e.to_string())
@@ -239,29 +414,4 @@ pub struct Ping {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Pong {
     pub timestamp: i64,
-}
-
-/// Check if a peer version is outdated
-/// Check if a peer version is outdated compared to ours
-pub fn is_version_outdated(peer_version: &str) -> bool {
-    if peer_version == "unknown" {
-        return false; // Don't warn about unknown versions
-    }
-
-    // Extract git hash from versions (format: "0.1.0-abc123")
-    let current_hash = GIT_HASH;
-    let peer_hash = peer_version.split('-').next_back().unwrap_or("");
-
-    // Different git commits mean different versions
-    current_hash != peer_hash && !peer_hash.is_empty()
-}
-
-/// Get a user-friendly version mismatch message
-pub fn version_mismatch_message(peer_addr: &str, peer_version: &str) -> String {
-    format!(
-        "⚠️  Peer {} is running version {} (current: {}). Please update!",
-        peer_addr,
-        peer_version,
-        full_version()
-    )
 }

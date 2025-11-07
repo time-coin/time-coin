@@ -56,9 +56,9 @@ fn main() {
     );
     println!("cargo:rustc-env=GIT_AUTHOR={}", git_author);
 
-    // Rebuild if git files change
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/index");
+    // Rebuild if git files change (../ because we're in network/ subdirectory)
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-changed=../.git/index");
 
     // Also rerun on Cargo.toml changes
     println!("cargo:rerun-if-changed=Cargo.toml");

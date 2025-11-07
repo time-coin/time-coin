@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::{io::{self, Write}, thread, time::{Duration, Instant}, sync::Arc, sync::atomic::{AtomicBool, Ordering}};
+use std::{io::{self, Write}, thread, time::{Duration, Instant}, sync::Arc, sync::atomic::{AtomicBool, Ordering}, path::PathBuf, fs};
 use chrono::Utc;
 use crossterm::{
     execute,
@@ -31,6 +31,31 @@ struct MempoolStatus {
     size: usize,
 }
 
+#[derive(Debug, Deserialize)]
+struct WalletBalance {
+    address: String,
+    balance: u64,
+    #[serde(default)]
+    balance_time: Option<String>,
+    #[serde(default)]
+    pending: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct WalletData {
+    address: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    node: Option<NodeConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeConfig {
+    data_dir: Option<String>,
+}
+
 struct PeerWithPing {
     address: String,
     ping_ms: u64,
@@ -56,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     ctrlc::set_handler(move || {
         r.store(false, Ordering::SeqCst);
-    })?;
+    }).expect("Error setting Ctrl-C handler");
     
     // Enter alternate screen buffer and hide cursor
     execute!(io::stdout(), EnterAlternateScreen, Hide)?;
@@ -71,8 +96,160 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     result
 }
 
+fn expand_path(path: &str) -> String {
+    // Try Windows environment variables first
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        if path.contains("%USERPROFILE%") {
+            return path.replace("%USERPROFILE%", &userprofile);
+        }
+        if path.contains("$USERPROFILE") {
+            return path.replace("$USERPROFILE", &userprofile);
+        }
+    }
+    
+    // Try Unix/Linux HOME variable
+    if let Ok(home) = std::env::var("HOME") {
+        if path.contains("$HOME") {
+            return path.replace("$HOME", &home);
+        }
+        if path.starts_with("~") {
+            return path.replacen("~", &home, 1);
+        }
+    }
+    
+    // Windows USERNAME for path construction
+    if let Ok(username) = std::env::var("USERNAME") {
+        if path.contains("$USERNAME") {
+            return path.replace("$USERNAME", &username);
+        }
+    }
+    
+    // Unix/Linux USER for path construction
+    if let Ok(user) = std::env::var("USER") {
+        if path.contains("$USER") {
+            return path.replace("$USER", &user);
+        }
+    }
+    
+    path.to_string()
+}
+
+fn load_wallet_address() -> Option<String> {
+    // Method 1: Check environment variable first
+    if let Ok(addr) = std::env::var("WALLET_ADDRESS") {
+        return Some(addr);
+    }
+    
+    // Method 2: Build platform-specific wallet paths
+    let mut wallet_paths = Vec::new();
+    
+    // Windows paths
+    if cfg!(target_os = "windows") {
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            wallet_paths.push(PathBuf::from(format!("{}\\time-coin-node\\data\\wallets\\node.json", userprofile)));
+        }
+        if let Ok(username) = std::env::var("USERNAME") {
+            wallet_paths.push(PathBuf::from(format!("C:\\Users\\{}\\time-coin-node\\data\\wallets\\node.json", username)));
+        }
+        wallet_paths.push(PathBuf::from("C:\\var\\lib\\time-coin\\wallets\\node.json"));
+        wallet_paths.push(PathBuf::from("C:\\time-coin-node\\data\\wallets\\node.json"));
+        
+        // Add current directory relative paths
+        if let Ok(current_dir) = std::env::current_dir() {
+            wallet_paths.push(current_dir.join("data\\wallets\\node.json"));
+            wallet_paths.push(current_dir.join("..\\..\\data\\wallets\\node.json"));
+        }
+    }
+    
+    // Linux/Unix paths
+    if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
+        wallet_paths.push(PathBuf::from("/var/lib/time-coin/wallets/node.json"));
+        wallet_paths.push(PathBuf::from("/root/time-coin-node/data/wallets/node.json"));
+        
+        if let Ok(home) = std::env::var("HOME") {
+            wallet_paths.push(PathBuf::from(format!("{}/time-coin-node/data/wallets/node.json", home)));
+            wallet_paths.push(PathBuf::from(format!("{}/.time-coin/wallets/node.json", home)));
+        }
+        
+        if let Ok(user) = std::env::var("USER") {
+            wallet_paths.push(PathBuf::from(format!("/home/{}/time-coin-node/data/wallets/node.json", user)));
+        }
+        
+        // Add current directory relative paths
+        if let Ok(current_dir) = std::env::current_dir() {
+            wallet_paths.push(current_dir.join("data/wallets/node.json"));
+            wallet_paths.push(current_dir.join("../../data/wallets/node.json"));
+        }
+    }
+    
+    // Try each wallet path
+    for wallet_path in &wallet_paths {
+        if let Ok(contents) = fs::read_to_string(wallet_path) {
+            if let Ok(wallet) = serde_json::from_str::<WalletData>(&contents) {
+                return Some(wallet.address);
+            }
+        }
+    }
+    
+    // Method 3: Try to find it via config file
+    let mut config_paths = Vec::new();
+    
+    // Windows config paths
+    if cfg!(target_os = "windows") {
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            config_paths.push(PathBuf::from(format!("{}\\time-coin-node\\config\\testnet.toml", userprofile)));
+        }
+        config_paths.push(PathBuf::from("C:\\time-coin-node\\config\\testnet.toml"));
+    }
+    
+    // Linux config paths
+    if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
+        config_paths.push(PathBuf::from("/root/time-coin-node/config/testnet.toml"));
+        
+        if let Ok(home) = std::env::var("HOME") {
+            config_paths.push(PathBuf::from(format!("{}/time-coin-node/config/testnet.toml", home)));
+        }
+    }
+    
+    for config_path in config_paths {
+        if let Ok(contents) = fs::read_to_string(&config_path) {
+            if let Ok(config) = toml::from_str::<Config>(&contents) {
+                if let Some(node) = config.node {
+                    if let Some(data_dir) = node.data_dir {
+                        let expanded = expand_path(&data_dir);
+                        
+                        // Try both Unix and Windows path separators
+                        let wallet_paths = vec![
+                            PathBuf::from(format!("{}/wallets/node.json", expanded)),
+                            PathBuf::from(format!("{}\\wallets\\node.json", expanded)),
+                        ];
+                        
+                        for wallet_path in wallet_paths {
+                            if let Ok(contents) = fs::read_to_string(&wallet_path) {
+                                if let Ok(wallet) = serde_json::from_str::<WalletData>(&contents) {
+                                    return Some(wallet.address);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    None
+}
+
 fn run_dashboard(client: &Client, running: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Error>> {
     let mut first_run = true;
+    
+    // Try to load the masternode's wallet address
+    let masternode_address = load_wallet_address();
+    
+    if let Some(ref addr) = masternode_address {
+        println!("Found masternode wallet: {}", addr);
+        thread::sleep(Duration::from_secs(2)); // Show the message briefly
+    }
     
     while running.load(Ordering::SeqCst) {
         // Clear screen only on first run, then just move cursor
@@ -87,6 +264,11 @@ fn run_dashboard(client: &Client, running: Arc<AtomicBool>) -> Result<(), Box<dy
         let blockchain_info = fetch_blockchain_info(client);
         let peers = fetch_peers(client);
         let mempool = fetch_mempool(client);
+        let wallet = if let Some(ref addr) = masternode_address {
+            fetch_wallet_balance(client, addr)
+        } else {
+            None
+        };
         
         // Ping peers and sort by fastest
         let peers_with_ping = if let Some(ref peer_data) = peers {
@@ -96,7 +278,7 @@ fn run_dashboard(client: &Client, running: Arc<AtomicBool>) -> Result<(), Box<dy
         };
         
         // Display dashboard (each line clears itself)
-        display_dashboard(&blockchain_info, &peers, &peers_with_ping, &mempool);
+        display_dashboard(&blockchain_info, &peers, &peers_with_ping, &mempool, &wallet, &masternode_address);
         
         io::stdout().flush()?;
         
@@ -130,6 +312,14 @@ fn fetch_peers(client: &Client) -> Option<PeersResponse> {
 
 fn fetch_mempool(client: &Client) -> Option<MempoolStatus> {
     client.get("http://localhost:24101/mempool/status")
+        .send()
+        .ok()?
+        .json()
+        .ok()
+}
+
+fn fetch_wallet_balance(client: &Client, address: &str) -> Option<WalletBalance> {
+    client.get(&format!("http://localhost:24101/balance/{}", address))
         .send()
         .ok()?
         .json()
@@ -178,10 +368,40 @@ fn display_dashboard(
     peers: &Option<PeersResponse>,
     peers_with_ping: &[PeerWithPing],
     mempool: &Option<MempoolStatus>,
+    wallet: &Option<WalletBalance>,
+    masternode_address: &Option<String>,
 ) {
     println_clear!("{}{}╔═════════════════════════════════════════════════════╗{}", BOLD, CYAN, RESET);
     println_clear!("{}{}║    TIME COIN MASTERNODE DASHBOARD [TESTNET]         ║{}", BOLD, CYAN, RESET);
     println_clear!("{}{}╚═════════════════════════════════════════════════════╝{}\n", BOLD, CYAN, RESET);
+    
+    // Wallet Balance (automatically detected)
+    println_clear!("{}💰 Wallet Balance:{}", BOLD, RESET);
+    if let Some(wallet_info) = wallet {
+        println_clear!("   Address: {}...{}", 
+            &wallet_info.address[..12], 
+            &wallet_info.address[wallet_info.address.len()-8..]
+        );
+        
+        // Calculate balance_time if not provided by API
+        let balance_display = if let Some(ref balance_time) = wallet_info.balance_time {
+            balance_time.clone()
+        } else {
+            format!("{:.8} TIME", wallet_info.balance as f64 / 100_000_000.0)
+        };
+        
+        println_clear!("   Balance: {}{}{}", GREEN, balance_display, RESET);
+        
+        if wallet_info.pending > 0 {
+            let pending_time = wallet_info.pending as f64 / 100_000_000.0;
+            println_clear!("   Pending: {}{:.8} TIME{}", YELLOW, pending_time, RESET);
+        }
+    } else if masternode_address.is_some() {
+        println_clear!("   {}⚠️  Unable to fetch wallet balance{}", YELLOW, RESET);
+    } else {
+        println_clear!("   {}⚠️  Wallet not found{}", YELLOW, RESET);
+    }
+    println_clear!();
     
     // Blockchain Status
     println_clear!("{}📊 Blockchain Status:{}", BOLD, RESET);

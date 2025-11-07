@@ -377,56 +377,90 @@ async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
 
 /// Sync mempool from connected peers
 async fn sync_mempool_from_peers(
-    peer_manager: &Arc<PeerManager>,
+    peer_manager: &Arc<time_network::PeerManager>,
     mempool: &Arc<time_mempool::Mempool>,
-) -> Result<usize, Box<dyn std::error::Error>> {
+) -> Result<u32, Box<dyn std::error::Error>> {
     let peers = peer_manager.get_peer_ips().await;
-
+    
     if peers.is_empty() {
+        println!("   ℹ️  No peers available for mempool sync");
         return Ok(0);
     }
 
-    println!("\n{}", "📥 Syncing mempool from network...".cyan());
+    println!("📥 Syncing mempool from network...");
+    
+    let mut total_transactions = 0;
+    let mut successful_peers = 0;
+    let mut failed_peers = Vec::new();
 
-    let mut total_added = 0;
+    for peer_ip in &peers {
+        let url = format!("http://{}:24101/mempool/all", peer_ip);
+        
+        // Retry logic with exponential backoff
+        let mut retry_count = 0;
+        let max_retries = 3;
+        let mut success = false;
 
-    for peer in peers.iter().take(3) {
-        println!("   Requesting mempool from {}...", peer.bright_black());
-
-        match peer_manager.request_mempool(peer).await {
-            Ok(transactions) => {
-                println!(
-                    "   ✓ Received {} transactions",
-                    transactions.len().to_string().yellow()
-                );
-
-                for tx in transactions {
-                    match mempool.add_transaction(tx).await {
-                        Ok(_) => {
-                            total_added += 1;
+        while retry_count < max_retries && !success {
+            println!("   Requesting mempool from {}:24100...", peer_ip);
+            
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                reqwest::Client::new().get(&url).send(),
+            )
+            .await
+            {
+                Ok(Ok(response)) => {
+                    match response.json::<Vec<time_core::transaction::Transaction>>().await {
+                        Ok(transactions) => {
+                            let tx_count = transactions.len();
+                            println!("   ✓ Received {} transactions", tx_count);
+                            
+                            // Iterate over references to avoid moving the vector
+                            for tx in &transactions {
+                                let _ = mempool.add_transaction(tx.clone()).await;
+                            }
+                            
+                            total_transactions += tx_count as u32;
+                            successful_peers += 1;
+                            success = true;
                         }
-                        Err(_) => {
-                            // Already in mempool or invalid, skip silently
+                        Err(e) => {
+                            eprintln!("   ✗ Failed to parse response from {}: {}", peer_ip, e);
+                            failed_peers.push((peer_ip.clone(), format!("parse error: {}", e)));
                         }
                     }
                 }
+                Ok(Err(e)) => {
+                    if retry_count < max_retries - 1 {
+                        let wait_secs = 2_u64.pow(retry_count);
+                        println!("   ⏳ Retry {}/{} in {}s: {}", 
+                                 retry_count + 1, max_retries, wait_secs, e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(wait_secs)).await;
+                    } else {
+                        failed_peers.push((peer_ip.clone(), format!("request failed: {}", e)));
+                    }
+                }
+                Err(_) => {
+                    eprintln!("   ✗ Request timeout for {}", peer_ip);
+                    failed_peers.push((peer_ip.clone(), "timeout".to_string()));
+                }
             }
-            Err(e) => {
-                println!("   ✗ Failed: {}", e.to_string().bright_black());
-            }
+            retry_count += 1;
         }
     }
 
-    if total_added > 0 {
-        println!(
-            "{}",
-            format!("✓ Added {} new transactions from network", total_added).green()
-        );
-    } else {
-        println!("{}", "✓ Mempool is up to date".green());
+    println!("✓ Mempool is up to date");
+    
+    if !failed_peers.is_empty() {
+        println!("   ⚠️  {} peer(s) failed to sync:", failed_peers.len());
+        for (peer, reason) in failed_peers {
+            println!("      - {}: {}", peer, reason);
+        }
     }
-
-    Ok(total_added)
+    
+    println!("   📊 Synced with {}/{} peers", successful_peers, peers.len());
+    Ok(total_transactions)
 }
 
 use tokio::time::timeout;
@@ -462,7 +496,10 @@ async fn main() {
     let cli = Cli::parse();
 
     if cli.version {
-        println!("time-node 0.1.0");
+        println!("time-node {}", time_network::protocol::full_version());
+        println!("Built: {} by {}", 
+                 time_network::protocol::BUILD_TIMESTAMP,
+                 time_network::protocol::GIT_AUTHOR);
         return;
     }
 
@@ -487,65 +524,96 @@ async fn main() {
 
     let is_testnet = network_name == "TESTNET";
 
-    // Banner with network indicator
+    // Banner with network indicator and build information
     if is_testnet {
         println!(
             "{}",
-            "╔══════════════════════════════════════╗".yellow().bold()
+            "╔════════════════════════════════════════════════════════════╗".yellow().bold()
         );
+        
         let version_str = time_network::protocol::full_version();
-        let total_width: usize = 38; // Inner width of banner
-        let prefix = "TIME Coin Node ";
-        let content = format!("{}{}", prefix, version_str);
-        let padding = total_width.saturating_sub(content.len());
+        let build_info = format!(
+            "{} | {} | Built: {}",
+            version_str,
+            time_network::protocol::GIT_BRANCH,
+            time_network::protocol::BUILD_TIMESTAMP
+        );
+        
+        let total_width: usize = 62; // Inner width of banner
+        let padding = total_width.saturating_sub(build_info.len());
         let left_pad = padding / 2;
         let right_pad = padding - left_pad;
+        
         println!(
             "{}",
             format!(
                 "║{:width$}{}{}║",
                 "",
-                content,
+                build_info,
                 " ".repeat(right_pad),
                 width = left_pad
             )
             .yellow()
             .bold()
         );
+        
         println!(
             "{}",
-            "║              [TESTNET]               ║".yellow().bold()
+            "║              [TESTNET]                                  ║".yellow().bold()
         );
         println!(
             "{}",
-            "╚══════════════════════════════════════╝".yellow().bold()
+            "╚════════════════════════════════════════════════════════════╝".yellow().bold()
         );
     } else {
         println!(
             "{}",
-            "╔══════════════════════════════════════╗".cyan().bold()
+            "╔════════════════════════════════════════════════════════════╗".cyan().bold()
         );
+        
+        let version_str = time_network::protocol::full_version();
+        let build_info = format!(
+            "TIME Coin Node {} | {}",
+            version_str,
+            time_network::protocol::BUILD_TIMESTAMP
+        );
+        
+        let total_width: usize = 62;
+        let padding = total_width.saturating_sub(build_info.len());
+        let left_pad = padding / 2;
+        let right_pad = padding - left_pad;
+        
         println!(
             "{}",
             format!(
-                "║   TIME Coin Node v{:<20} ║",
-                time_network::protocol::full_version()
+                "║{:width$}{}{}║",
+                "",
+                build_info,
+                " ".repeat(right_pad),
+                width = left_pad
             )
             .cyan()
             .bold()
         );
+        
         println!(
             "{}",
-            "╚══════════════════════════════════════╝".cyan().bold()
+            "║              [MAINNET]                                  ║".cyan().bold()
+        );
+        println!(
+            "{}",
+            "╚════════════════════════════════════════════════════════════╝".cyan().bold()
         );
     }
 
     println!("Config file: {:?}", config_path);
     println!("Network: {}", network_name.yellow().bold());
-    println!(
-        "Version: {}",
-        time_network::protocol::full_version().bright_black()
-    );
+    println!("Version: {}", time_network::protocol::full_version().bright_black());
+    println!("Built: {} UTC", time_network::protocol::BUILD_TIMESTAMP.bright_black());
+    println!("Branch: {} (commit #{})", 
+             time_network::protocol::GIT_BRANCH.bright_black(),
+             time_network::protocol::GIT_COMMIT_COUNT.bright_black());
+    println!("Author: {}", time_network::protocol::GIT_AUTHOR.bright_black());
     println!();
 
     let is_dev_mode = cli.dev
@@ -918,18 +986,30 @@ async fn main() {
     // Initialize Consensus Engine
     let consensus = Arc::new(ConsensusEngine::new(is_dev_mode));
 
-    // Determine node ID with smart public/private detection
     let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
         if let Ok(ip) = local_ip_address::local_ip() {
             let ip_str = ip.to_string();
-            let is_private = ip_str.starts_with("10.") || ip_str.starts_with("192.168.") || ip_str.starts_with("127.");
-            if !is_private { println!("✓ Using public IP: {}", ip_str); }
-            else { eprintln!("⚠️  Private IP detected: {}. Set NODE_PUBLIC_IP!", ip_str); }
+            // Check if it's a private IP address
+            let is_private = ip_str.starts_with("10.")
+                || ip_str.starts_with("192.168.")
+                || ip_str.starts_with("172.16.")
+                || ip_str.starts_with("127.");
+            
+            if !is_private {
+                println!("✓ Using public IP: {}", ip_str);
+            } else {
+                eprintln!("⚠️  WARNING: NODE_PUBLIC_IP not set!");
+                eprintln!("⚠️  Using private/local IP: {} (this may cause issues)", ip_str);
+                eprintln!("⚠️  Set NODE_PUBLIC_IP environment variable in systemd service");
+            }
             ip_str
         } else {
+            eprintln!("⚠️  CRITICAL: Cannot determine local IP address!");
+            eprintln!("⚠️  Please set NODE_PUBLIC_IP environment variable");
             "unknown".to_string()
         }
     });
+    
     println!("Node ID: {}", node_id);
     consensus.add_masternode(node_id.clone()).await;
 
