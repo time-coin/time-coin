@@ -49,27 +49,19 @@ fn main() {
     );
     println!("cargo:rustc-env=GIT_COMMIT_COUNT={}", commit_count);
 
-    // Get username/author from git config
-    let git_author = get_git_output(
-        vec!["config", "user.name"],
-        "unknown",
-    );
-    println!("cargo:rustc-env=GIT_AUTHOR={}", git_author);
-
-    // Rebuild if git files change
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/index");
+    // Rebuild if git files change (../ because we're in network/ subdirectory)
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-changed=../.git/index");
 
     // Also rerun on Cargo.toml changes
     println!("cargo:rerun-if-changed=Cargo.toml");
 
     // Print summary to build output
     println!(
-        "cargo:warning=TIME Coin Build Info: {} | Branch: {} | Commit: {} | Author: {}",
+        "cargo:warning=TIME Coin Build Info: {} | Branch: {} | Commit: {}",
         timestamp,
         git_branch,
-        git_hash,
-        git_author
+        git_hash
     );
 }
 

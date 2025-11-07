@@ -497,9 +497,7 @@ async fn main() {
 
     if cli.version {
         println!("time-node {}", time_network::protocol::full_version());
-        println!("Built: {} by {}", 
-                 time_network::protocol::BUILD_TIMESTAMP,
-                 time_network::protocol::GIT_AUTHOR);
+        println!("Built: {}", time_network::protocol::BUILD_TIMESTAMP);
         return;
     }
 
@@ -613,7 +611,6 @@ async fn main() {
     println!("Branch: {} (commit #{})", 
              time_network::protocol::GIT_BRANCH.bright_black(),
              time_network::protocol::GIT_COMMIT_COUNT.bright_black());
-    println!("Author: {}", time_network::protocol::GIT_AUTHOR.bright_black());
     println!();
 
     let is_dev_mode = cli.dev

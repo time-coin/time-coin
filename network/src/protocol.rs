@@ -14,7 +14,6 @@ pub const GIT_HASH: &str = env!("GIT_HASH");
 pub const GIT_BRANCH: &str = env!("GIT_BRANCH");
 pub const GIT_COMMIT_DATE: &str = env!("GIT_COMMIT_DATE");
 pub const GIT_COMMIT_COUNT: &str = env!("GIT_COMMIT_COUNT");
-pub const GIT_AUTHOR: &str = env!("GIT_AUTHOR");
 
 /// Build information (set at build time)
 pub const BUILD_TIMESTAMP: &str = env!("BUILD_TIMESTAMP");
@@ -58,7 +57,6 @@ pub fn build_info_detailed() -> String {
          Git Branch:    {}\n\
          Git Commit:    {} (#{})\n\
          Commit Date:   {}\n\
-         Author:        {}\n\
          Message:       {}",
         full_version(),
         BUILD_TIMESTAMP,
@@ -66,7 +64,6 @@ pub fn build_info_detailed() -> String {
         GIT_HASH,
         GIT_COMMIT_COUNT,
         GIT_COMMIT_DATE,
-        GIT_AUTHOR,
         GIT_MESSAGE
     )
 }
@@ -83,7 +80,6 @@ pub struct BuildInfo {
     pub git_branch: String,
     pub build_timestamp: String,
     pub git_commit_count: u64,
-    pub git_author: String,
 }
 
 impl BuildInfo {
@@ -95,7 +91,6 @@ impl BuildInfo {
             git_branch: GIT_BRANCH.to_string(),
             build_timestamp: BUILD_TIMESTAMP.to_string(),
             git_commit_count: GIT_COMMIT_COUNT.parse().unwrap_or(0),
-            git_author: GIT_AUTHOR.to_string(),
         }
     }
 }
