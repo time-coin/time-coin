@@ -47,7 +47,6 @@ impl PeerManager {
 
         manager.spawn_reaper();
         manager.spawn_reconnection_task();
-        manager.spawn_reconnection_task();
         manager
     }
 
