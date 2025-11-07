@@ -918,11 +918,15 @@ async fn main() {
     // Initialize Consensus Engine
     let consensus = Arc::new(ConsensusEngine::new(is_dev_mode));
 
-    let node_id = if let Ok(ip) = local_ip_address::local_ip() {
-        ip.to_string()
-    } else {
-        "unknown".to_string()
-    };
+    let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+        if let Ok(ip) = local_ip_address::local_ip() {
+            eprintln!("⚠️  WARNING: NODE_PUBLIC_IP not set!");
+            eprintln!("⚠️  Using local IP: {} (this may cause issues)", ip);
+            ip.to_string()
+        } else {
+            "unknown".to_string()
+        }
+    });
     consensus.add_masternode(node_id.clone()).await;
 
     // Load or create wallet

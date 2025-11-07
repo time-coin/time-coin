@@ -324,11 +324,13 @@ impl BlockProducer {
         }
 
         let selected_producer = self.select_block_producer(&masternodes, block_num);
-        let my_id = if let Ok(ip) = local_ip_address::local_ip() {
-            ip.to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+            if let Ok(ip) = local_ip_address::local_ip() {
+                ip.to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
 
         let am_i_leader = selected_producer
             .as_ref()
@@ -621,11 +623,13 @@ impl BlockProducer {
         use sha2::{Digest, Sha256};
         use time_core::{Block, BlockHeader};
 
-        let my_id = if let Ok(ip) = local_ip_address::local_ip() {
-            ip.to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+            if let Ok(ip) = local_ip_address::local_ip() {
+                ip.to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
 
         let header = BlockHeader {
             block_number: block_num,
@@ -767,11 +771,13 @@ impl BlockProducer {
             timestamp: timestamp.timestamp(),
         };
 
-        let my_id = if let Ok(ip) = local_ip_address::local_ip() {
-            ip.to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+            if let Ok(ip) = local_ip_address::local_ip() {
+                ip.to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
 
         let mut block = Block {
             hash: String::new(),
@@ -820,11 +826,13 @@ impl BlockProducer {
         // Determine producer for THIS specific block
         let selected_producer = self.select_block_producer(masternodes, block_num);
 
-        let my_id = if let Ok(ip) = local_ip_address::local_ip() {
-            ip.to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+            if let Ok(ip) = local_ip_address::local_ip() {
+                ip.to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
 
         println!(
             "   🔧 Block #{} - Producer: {:?}",
@@ -944,11 +952,13 @@ impl BlockProducer {
         
         drop(blockchain);
 
-        let my_id = if let Ok(ip) = local_ip_address::local_ip() {
-            ip.to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+            if let Ok(ip) = local_ip_address::local_ip() {
+                ip.to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
 
         let coinbase_tx = create_coinbase_transaction(
             block_num,
@@ -1019,11 +1029,13 @@ impl BlockProducer {
         let previous_hash = blockchain.chain_tip_hash().to_string();
         let masternode_counts = blockchain.masternode_counts().clone();
 
-        let my_id = if let Ok(ip) = local_ip_address::local_ip() {
-            ip.to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+            if let Ok(ip) = local_ip_address::local_ip() {
+                ip.to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
 
         // Build outputs with treasury
         let mut outputs = vec![TxOutput {
