@@ -422,7 +422,10 @@ impl PeerManager {
         let response = client.get(&url).send().await?;
 
         if !response.status().is_success() {
-            return Err(format!("HTTP request returned status: {}", response.status()).into());
+            return Err(format!(
+                "HTTP request returned status: {}",
+                response.status()
+            ));
         }
 
         #[derive(serde::Deserialize)]
@@ -441,14 +444,27 @@ impl PeerManager {
         let peers_response: PeersResponse = response.json().await?;
 
         // Convert API peer info to discovery::PeerInfo
+        // Expected API address formats:
+        // - Full socket address: "192.168.1.1:24100" or "[::1]:24100"
+        // - IP address only: "192.168.1.1" or "::1" (will append default port 24100)
         let mut peer_infos = Vec::new();
         for api_peer in peers_response.peers {
-            if let Ok(addr) = api_peer.address.parse::<SocketAddr>() {
-                let peer_info =
-                    PeerInfo::with_version(addr, self.network.clone(), api_peer.version);
-                peer_infos.push(peer_info);
-            } else {
-                debug!(address = %api_peer.address, "Failed to parse peer address from API");
+            // Try to parse address directly as SocketAddr
+            let parsed = api_peer.address.parse::<SocketAddr>().or_else(|_| {
+                // If parsing fails, try appending default peer port (24100) and parse again
+                let with_port = format!("{}:24100", api_peer.address);
+                with_port.parse::<SocketAddr>()
+            });
+
+            match parsed {
+                Ok(addr) => {
+                    let peer_info =
+                        PeerInfo::with_version(addr, self.network.clone(), api_peer.version);
+                    peer_infos.push(peer_info);
+                }
+                Err(e) => {
+                    debug!(address = %api_peer.address, error = %e, "Failed to parse peer address from API; skipping entry");
+                }
             }
         }
 
