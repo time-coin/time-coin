@@ -58,7 +58,7 @@ fn main() {
 
     // Print summary to build output
     println!(
-        "cargo:warning=TIME Coin Build Info: {} | Branch: {} | Commit: {}",
+        "cargo:info=TIME Coin Build Info: {} | Branch: {} | Commit: {}",
         timestamp,
         git_branch,
         git_hash
