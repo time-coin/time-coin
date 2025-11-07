@@ -11,6 +11,9 @@ use time_core::MasternodeTier;
 use time_network::PeerManager;
 use tokio::sync::RwLock;
 
+/// Treasury address for block rewards
+const TREASURY_ADDRESS: &str = "TIME1treasury00000000000000000000000000";
+
 #[derive(Deserialize)]
 struct BlockchainInfo {
     height: u64,
@@ -359,7 +362,7 @@ impl BlockProducer {
             // Create coinbase transaction with all rewards
             let coinbase_tx = time_core::block::create_coinbase_transaction(
                 block_num,
-                "TIME1treasury00000000000000000000000000",
+                TREASURY_ADDRESS,
                 &active_masternodes,
                 &masternode_counts,
                 total_fees,
@@ -658,7 +661,8 @@ impl BlockProducer {
                 println!("   ✔ Block {} finalized", block_num);
                 drop(blockchain);
 
-                for tx in transactions {
+                // Remove transactions from mempool (skip first transaction as it's coinbase)
+                for tx in transactions.iter().skip(1) {
                     self.mempool.remove_transaction(&tx.txid).await;
                 }
 
