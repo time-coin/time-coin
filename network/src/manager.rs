@@ -47,6 +47,7 @@ impl PeerManager {
 
         manager.spawn_reaper();
         manager.spawn_reconnection_task();
+        manager.spawn_reconnection_task();
         manager
     }
 
@@ -122,7 +123,10 @@ impl PeerManager {
                 let manager_for_pex = self.clone();
                 let peer_addr_for_pex = peer_addr;
                 tokio::spawn(async move {
-                    match manager_for_pex.fetch_peers_from_api(&peer_addr_for_pex).await {
+                    match manager_for_pex
+                        .fetch_peers_from_api(&peer_addr_for_pex)
+                        .await
+                    {
                         Ok(peer_list) => {
                             debug!(
                                 peer = %peer_addr_for_pex,
@@ -131,12 +135,13 @@ impl PeerManager {
                             );
                             // Add discovered peers to our peer exchange
                             for discovered_peer in peer_list {
-                                manager_for_pex.add_discovered_peer(
-                                    discovered_peer.address.ip().to_string(),
-                                    discovered_peer.address.port(),
-                                    discovered_peer.version.clone(),
-                                )
-                                .await;
+                                manager_for_pex
+                                    .add_discovered_peer(
+                                        discovered_peer.address.ip().to_string(),
+                                        discovered_peer.address.port(),
+                                        discovered_peer.version.clone(),
+                                    )
+                                    .await;
                             }
                         }
                         Err(e) => {
@@ -403,22 +408,23 @@ impl PeerManager {
     }
 
     /// Fetch peer list from a connected peer's HTTP API for peer exchange
-    async fn fetch_peers_from_api(&self, peer_addr: &SocketAddr) -> Result<Vec<PeerInfo>, String> {
+    async fn fetch_peers_from_api(
+        &self,
+        peer_addr: &SocketAddr,
+    ) -> Result<Vec<PeerInfo>, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("http://{}:24101/peers", peer_addr.ip());
-        
+
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+            .build()?;
 
-        let response = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = client.get(&url).send().await?;
 
         if !response.status().is_success() {
-            return Err(format!("HTTP request returned status: {}", response.status()));
+            return Err(format!(
+                "HTTP request returned status: {}",
+                response.status()
+            ));
         }
 
         #[derive(serde::Deserialize)]
@@ -434,19 +440,30 @@ impl PeerManager {
             peers: Vec<ApiPeerInfo>,
         }
 
-        let peers_response: PeersResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        let peers_response: PeersResponse = response.json().await?;
 
         // Convert API peer info to discovery::PeerInfo
+        // Expected API address formats:
+        // - Full socket address: "192.168.1.1:24100" or "[::1]:24100"
+        // - IP address only: "192.168.1.1" or "::1" (will append default port 24100)
         let mut peer_infos = Vec::new();
         for api_peer in peers_response.peers {
-            if let Ok(addr) = api_peer.address.parse::<SocketAddr>() {
-                let peer_info = PeerInfo::with_version(addr, self.network.clone(), api_peer.version);
-                peer_infos.push(peer_info);
-            } else {
-                debug!(address = %api_peer.address, "Failed to parse peer address from API");
+            // Try to parse address directly as SocketAddr
+            let parsed = api_peer.address.parse::<SocketAddr>().or_else(|_| {
+                // If parsing fails, try appending default peer port (24100) and parse again
+                let with_port = format!("{}:24100", api_peer.address);
+                with_port.parse::<SocketAddr>()
+            });
+
+            match parsed {
+                Ok(addr) => {
+                    let peer_info =
+                        PeerInfo::with_version(addr, self.network.clone(), api_peer.version);
+                    peer_infos.push(peer_info);
+                }
+                Err(e) => {
+                    debug!(address = %api_peer.address, error = %e, "Failed to parse peer address from API; skipping entry");
+                }
             }
         }
 
@@ -529,43 +546,43 @@ impl PeerManager {
     /// come back online after being reaped.
     fn spawn_reconnection_task(&self) {
         let manager = self.clone();
-        
+
         tokio::spawn(async move {
             // Wait 60 seconds before the first reconnection attempt to allow initial connections
             time::sleep(Duration::from_secs(60)).await;
-            
+
             let mut ticker = time::interval(Duration::from_secs(120)); // Check every 2 minutes
             loop {
                 ticker.tick().await;
-                
+
                 // Get currently connected peer addresses
                 let connected_addrs: std::collections::HashSet<String> = {
                     let peers = manager.peers.read().await;
                     peers.keys().map(|addr| addr.to_string()).collect()
                 };
-                
+
                 // Get best known peers from peer exchange
                 let best_peers = manager.get_best_peers(10).await;
-                
+
                 // Filter to only peers that aren't currently connected
                 let disconnected_peers: Vec<_> = best_peers
                     .into_iter()
                     .filter(|p| !connected_addrs.contains(&p.full_address()))
                     .collect();
-                
+
                 if !disconnected_peers.is_empty() {
                     debug!(
                         count = disconnected_peers.len(),
                         "Attempting to reconnect to known peers"
                     );
-                    
+
                     // Attempt to reconnect to each disconnected peer
                     for pex_peer in disconnected_peers {
                         // Convert peer_exchange::PeerInfo to discovery::PeerInfo
                         match pex_peer.full_address().parse() {
                             Ok(addr) => {
                                 let peer_info = PeerInfo::new(addr, manager.network.clone());
-                                
+
                                 let mgr = manager.clone();
                                 let peer_addr = peer_info.address;
                                 tokio::spawn(async move {
@@ -617,11 +634,8 @@ mod tests {
     #[tokio::test]
     async fn test_peer_manager_stale_timeout() {
         // Test that the stale_after timeout is set correctly to 90 seconds
-        let manager = PeerManager::new(
-            NetworkType::Testnet,
-            "127.0.0.1:8333".parse().unwrap()
-        );
-        
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:8333".parse().unwrap());
+
         assert_eq!(
             manager.stale_after,
             Duration::from_secs(90),
@@ -632,11 +646,8 @@ mod tests {
     #[tokio::test]
     async fn test_peer_manager_reaper_interval() {
         // Test that the reaper interval is set correctly
-        let manager = PeerManager::new(
-            NetworkType::Testnet,
-            "127.0.0.1:8333".parse().unwrap()
-        );
-        
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:8333".parse().unwrap());
+
         assert_eq!(
             manager.reaper_interval,
             Duration::from_secs(10),
@@ -647,14 +658,11 @@ mod tests {
     #[tokio::test]
     async fn test_reconnection_task_spawned() {
         // Test that the manager spawns properly with reconnection task
-        let manager = PeerManager::new(
-            NetworkType::Testnet,
-            "127.0.0.1:8333".parse().unwrap()
-        );
-        
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:8333".parse().unwrap());
+
         // If we can create the manager without panicking, the tasks were spawned successfully
         assert_eq!(manager.network, NetworkType::Testnet);
-        
+
         // Give a moment for background tasks to initialize
         tokio::time::sleep(Duration::from_millis(100)).await;
     }

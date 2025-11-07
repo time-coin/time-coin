@@ -2287,6 +2287,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "crossterm",
  "ed25519-dalek",
  "hex",
  "local-ip-address",

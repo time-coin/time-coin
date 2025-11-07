@@ -12,6 +12,10 @@ path = "src/main.rs"
 name = "time-cli"
 path = "src/bin/time-cli.rs"
 
+[[bin]]
+name = "time-dashboard"
+path = "src/bin/time-dashboard.rs"
+
 [dependencies]
 local-ip-address = "0.5"
 time-network = { version = "0.1.0", path = "../network" }
@@ -34,3 +38,4 @@ time-consensus = { version = "0.1.0", path = "../consensus" }
 time-mempool = { version = "0.1.0", path = "../mempool" }
 wallet = { version = "0.1.0", path = "../wallet" }
 sysinfo = "0.29"
+crossterm = "0.27"
