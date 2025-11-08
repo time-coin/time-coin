@@ -1,6 +1,6 @@
 # TIME Coin ⏰
 
-[![CI](https://github.com/time-coin/time-coin/workflows/CI/badge.svg)](https://github.com/time-coin/time-coin/actions/workflows/ci.yml)
+[![CI](https://github.com/time-coin/time-coin/actions/workflows/ci.yml/badge.svg)](https://github.com/time-coin/time-coin/actions/workflows/ci.yml)
 [![GitHub language count](https://img.shields.io/github/languages/top/time-coin/time-coin)](https://github.com/time-coin/time-coin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/time-coin/time-coin/blob/main/LICENSE)
 
