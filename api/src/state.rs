@@ -83,7 +83,9 @@ impl ApiState {
                     return Ok(());
                 }
             }
-            return Err(ApiError::Unauthorized("Invalid or missing admin token".to_string())); 
+            return Err(ApiError::Unauthorized(
+                "Invalid or missing admin token".to_string(),
+            ));
         }
         Ok(())
     }

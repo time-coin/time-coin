@@ -255,25 +255,35 @@ impl BlockProducer {
             for retry_attempt in 0..5 {
                 if retry_attempt > 0 {
                     let delay_secs = 15 + (retry_attempt * 5);
-                    println!("   🔄 Retry attempt {}/5 for block {} (waiting {}s)...", 
-                             retry_attempt + 1, block_num, delay_secs);
+                    println!(
+                        "   🔄 Retry attempt {}/5 for block {} (waiting {}s)...",
+                        retry_attempt + 1,
+                        block_num,
+                        delay_secs
+                    );
                     tokio::time::sleep(Duration::from_secs(delay_secs as u64)).await;
                 }
-                
+
                 success = self
                     .produce_catchup_block_with_bft_consensus(block_num, timestamp, &masternodes)
                     .await;
-                    
+
                 if success {
                     println!("   ✅ Block {} created successfully!", block_num);
                     break;
                 } else if retry_attempt < 4 {
-                    println!("   ⚠️  Attempt {}/5 failed, will retry...", retry_attempt + 1);
+                    println!(
+                        "   ⚠️  Attempt {}/5 failed, will retry...",
+                        retry_attempt + 1
+                    );
                 }
             }
-            
+
             if !success {
-                println!("   ❌ Failed to create block {} after 5 attempts", block_num);
+                println!(
+                    "   ❌ Failed to create block {} after 5 attempts",
+                    block_num
+                );
                 println!("   ℹ️  Ensure all nodes are running same version");
                 break;
             }
@@ -369,7 +379,7 @@ impl BlockProducer {
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
             let masternode_counts = blockchain.masternode_counts().clone();
-            
+
             // Get active masternodes with their wallet addresses and tiers
             // Note: masternode_counts and active_masternodes represent the same state
             let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
@@ -377,7 +387,7 @@ impl BlockProducer {
                 .iter()
                 .map(|mn| (mn.wallet_address.clone(), mn.tier))
                 .collect();
-            
+
             drop(blockchain);
 
             // Calculate total transaction fees (currently 0 as we don't have UTXO validation yet)
@@ -396,9 +406,12 @@ impl BlockProducer {
             let mut all_transactions = vec![coinbase_tx];
             let mempool_count = transactions.len();
             all_transactions.extend(transactions);
-            
-            println!("   📋 {} total transactions (1 coinbase + {} mempool)", 
-                     all_transactions.len(), mempool_count);
+
+            println!(
+                "   📋 {} total transactions (1 coinbase + {} mempool)",
+                all_transactions.len(),
+                mempool_count
+            );
 
             let merkle_root = self.calc_merkle(&all_transactions);
 
@@ -533,10 +546,7 @@ impl BlockProducer {
         use sha3::{Digest, Sha3_256};
 
         // Build proper merkle tree (matching Block::calculate_merkle_root in core/src/block.rs)
-        let mut hashes: Vec<String> = transactions
-            .iter()
-            .map(|tx| tx.txid.clone())
-            .collect();
+        let mut hashes: Vec<String> = transactions.iter().map(|tx| tx.txid.clone()).collect();
 
         // Build merkle tree iteratively
         while hashes.len() > 1 {
@@ -981,8 +991,10 @@ impl BlockProducer {
                             "      ✔ Version-filtered consensus reached! ({}/{} votes from v{})",
                             version_approvals, version_total, my_version
                         );
-                        println!("      ℹ️  Excluded {} nodes with incompatible versions", 
-                            total - version_total);
+                        println!(
+                            "      ℹ️  Excluded {} nodes with incompatible versions",
+                            total - version_total
+                        );
 
                         let voters = self
                             .block_consensus
@@ -993,7 +1005,7 @@ impl BlockProducer {
                             .block_consensus
                             .get_masternodes_by_version(&my_version)
                             .await;
-                        
+
                         let version_filtered_voters: Vec<String> = voters
                             .into_iter()
                             .filter(|v| matching_version_nodes.contains(v))
@@ -1027,18 +1039,18 @@ impl BlockProducer {
         block_num: u64,
         timestamp: chrono::DateTime<Utc>,
     ) -> time_core::block::Block {
-        use time_core::block::{Block, BlockHeader, create_coinbase_transaction};
+        use time_core::block::{create_coinbase_transaction, Block, BlockHeader};
 
         let blockchain = self.blockchain.read().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
         let masternode_counts = blockchain.masternode_counts().clone();
-        
+
         let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_active_masternodes()
             .iter()
             .map(|mn| (mn.wallet_address.clone(), mn.tier))
             .collect();
-        
+
         drop(blockchain);
 
         let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
@@ -1072,7 +1084,10 @@ impl BlockProducer {
 
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
-        println!("      💰 Proposal includes rewards for {} masternodes", active_masternodes.len());
+        println!(
+            "      💰 Proposal includes rewards for {} masternodes",
+            active_masternodes.len()
+        );
         block
     }
 
@@ -1145,25 +1160,34 @@ impl BlockProducer {
             })
             .collect();
 
-        println!("      💡 DEBUG: registered masternodes = {}", registered_masternodes.len());
+        println!(
+            "      💡 DEBUG: registered masternodes = {}",
+            registered_masternodes.len()
+        );
         println!("      💡 DEBUG: voters = {:?}", voters);
 
         // If we have registered masternodes, distribute rewards
         if !registered_masternodes.is_empty() {
-            println!("      💰 Distributing rewards to {} registered masternodes", registered_masternodes.len());
-            
-            // Use the built-in distribution function
-            let masternode_outputs = distribute_masternode_rewards(
-                &registered_masternodes,
-                &masternode_counts
+            println!(
+                "      💰 Distributing rewards to {} registered masternodes",
+                registered_masternodes.len()
             );
-            
+
+            // Use the built-in distribution function
+            let masternode_outputs =
+                distribute_masternode_rewards(&registered_masternodes, &masternode_counts);
+
             outputs.extend(masternode_outputs);
-            
-            println!("      ✓ Added {} masternode reward outputs", registered_masternodes.len());
+
+            println!(
+                "      ✓ Added {} masternode reward outputs",
+                registered_masternodes.len()
+            );
         } else {
             println!("      ⚠️  No registered masternodes - treasury reward only");
-            println!("      💡 To receive rewards, masternodes must be registered in blockchain state");
+            println!(
+                "      💡 To receive rewards, masternodes must be registered in blockchain state"
+            );
         }
 
         let coinbase_tx = Transaction {

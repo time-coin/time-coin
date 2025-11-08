@@ -138,11 +138,7 @@ impl Dashboard {
             "Current Time".bright_black(),
             now.format("%Y-%m-%d %H:%M:%S UTC").to_string().white()
         );
-        println!(
-            "  {}: {}",
-            "API Endpoint".bright_black(),
-            &self.api_url
-        );
+        println!("  {}: {}", "API Endpoint".bright_black(), &self.api_url);
         println!();
     }
 

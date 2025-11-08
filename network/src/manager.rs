@@ -92,8 +92,8 @@ impl PeerManager {
             peer_arc.clone(),
             self.network.clone(),
             self.listen_addr,
-            None,  // No blockchain for outgoing connections
-            None,  // No consensus for outgoing connections
+            None, // No blockchain for outgoing connections
+            None, // No consensus for outgoing connections
         )
         .await
         {
@@ -420,10 +420,7 @@ impl PeerManager {
         let response = client.get(&url).send().await?;
 
         if !response.status().is_success() {
-            return Err(format!(
-                "HTTP request returned status: {}",
-                response.status()
-            ).into());
+            return Err(format!("HTTP request returned status: {}", response.status()).into());
         }
 
         #[derive(serde::Deserialize)]

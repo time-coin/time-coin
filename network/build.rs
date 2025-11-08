@@ -8,29 +8,24 @@ fn main() {
     println!("cargo:rustc-env=BUILD_TIMESTAMP={}", timestamp);
 
     // Get git hash (short form)
-    let git_hash = get_git_output(
-        vec!["rev-parse", "--short", "HEAD"],
-        "unknown",
-    );
+    let git_hash = get_git_output(vec!["rev-parse", "--short", "HEAD"], "unknown");
     println!("cargo:rustc-env=GIT_HASH={}", git_hash);
 
     // Get git branch
-    let git_branch = get_git_output(
-        vec!["rev-parse", "--abbrev-ref", "HEAD"],
-        "unknown",
-    );
+    let git_branch = get_git_output(vec!["rev-parse", "--abbrev-ref", "HEAD"], "unknown");
     println!("cargo:rustc-env=GIT_BRANCH={}", git_branch);
 
     // Get git commit message (first line only)
-    let git_message = get_git_output(
-        vec!["log", "-1", "--pretty=%B"],
-        "no message",
-    );
-    let first_line = git_message.lines().next().unwrap_or("no message").to_string();
+    let git_message = get_git_output(vec!["log", "-1", "--pretty=%B"], "no message");
+    let first_line = git_message
+        .lines()
+        .next()
+        .unwrap_or("no message")
+        .to_string();
     // Sanitize message for environment variable (remove special chars)
     let safe_message = first_line
         .chars()
-        .take(100)  // Limit to 100 chars
+        .take(100) // Limit to 100 chars
         .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
         .collect::<String>();
     println!("cargo:rustc-env=GIT_MESSAGE={}", safe_message);
@@ -43,10 +38,7 @@ fn main() {
     println!("cargo:rustc-env=GIT_COMMIT_DATE={}", git_commit_date);
 
     // Get number of commits
-    let commit_count = get_git_output(
-        vec!["rev-list", "--count", "HEAD"],
-        "0",
-    );
+    let commit_count = get_git_output(vec!["rev-list", "--count", "HEAD"], "0");
     println!("cargo:rustc-env=GIT_COMMIT_COUNT={}", commit_count);
 
     // Rebuild if git files change (../ because we're in network/ subdirectory)
@@ -59,9 +51,7 @@ fn main() {
     // Print summary to build output
     println!(
         "cargo:info=TIME Coin Build Info: {} | Branch: {} | Commit: {}",
-        timestamp,
-        git_branch,
-        git_hash
+        timestamp, git_branch, git_hash
     );
 }
 

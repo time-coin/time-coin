@@ -1,5 +1,5 @@
+use crate::masternode_handlers::{list_masternodes, register_masternode}; // UPDATE THIS LINE
 use crate::{ApiError, ApiResult, ApiState};
-use crate::masternode_handlers::{register_masternode, list_masternodes};  // UPDATE THIS LINE
 use axum::extract::Path;
 use axum::{
     extract::State,
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 pub fn create_routes() -> Router<ApiState> {
     Router::new()
         .route("/masternode/register", post(register_masternode))
-        .route("/masternodes/list", get(list_masternodes))  // Add this line
+        .route("/masternodes/list", get(list_masternodes)) // Add this line
         .route("/", get(root))
         .route("/blockchain/info", get(get_blockchain_info))
         .route("/blockchain/block/{height}", get(get_block_by_height))

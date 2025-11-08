@@ -367,7 +367,7 @@ async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
             }
         }
     }
-    
+
     if successful_queries > 0 {
         Some(max_height)
     } else {
@@ -381,14 +381,14 @@ async fn sync_mempool_from_peers(
     mempool: &Arc<time_mempool::Mempool>,
 ) -> Result<u32, Box<dyn std::error::Error>> {
     let peers = peer_manager.get_peer_ips().await;
-    
+
     if peers.is_empty() {
         println!("   ℹ️  No peers available for mempool sync");
         return Ok(0);
     }
 
     println!("📥 Syncing mempool from network...");
-    
+
     let mut total_transactions = 0;
     let mut successful_peers = 0;
     let mut failed_peers = Vec::new();
@@ -400,9 +400,9 @@ async fn sync_mempool_from_peers(
         } else {
             peer_ip.as_str()
         };
-        
+
         let url = format!("http://{}:24101/mempool/all", ip_only);
-        
+
         // Retry logic with exponential backoff
         let mut retry_count = 0;
         let max_retries = 3;
@@ -410,7 +410,7 @@ async fn sync_mempool_from_peers(
 
         while retry_count < max_retries && !success {
             println!("   Requesting mempool from {}:24101...", ip_only);
-            
+
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(5),
                 reqwest::Client::new().get(&url).send(),
@@ -418,16 +418,19 @@ async fn sync_mempool_from_peers(
             .await
             {
                 Ok(Ok(response)) => {
-                    match response.json::<Vec<time_core::transaction::Transaction>>().await {
+                    match response
+                        .json::<Vec<time_core::transaction::Transaction>>()
+                        .await
+                    {
                         Ok(transactions) => {
                             let tx_count = transactions.len();
                             println!("   ✓ Received {} transactions", tx_count);
-                            
+
                             // Iterate over references to avoid moving the vector
                             for tx in &transactions {
                                 let _ = mempool.add_transaction(tx.clone()).await;
                             }
-                            
+
                             total_transactions += tx_count as u32;
                             successful_peers += 1;
                             success = true;
@@ -441,8 +444,13 @@ async fn sync_mempool_from_peers(
                 Ok(Err(e)) => {
                     if retry_count < max_retries - 1 {
                         let wait_secs = 2_u64.pow(retry_count);
-                        println!("   ⏳ Retry {}/{} in {}s: {}", 
-                                 retry_count + 1, max_retries, wait_secs, e);
+                        println!(
+                            "   ⏳ Retry {}/{} in {}s: {}",
+                            retry_count + 1,
+                            max_retries,
+                            wait_secs,
+                            e
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(wait_secs)).await;
                     } else {
                         failed_peers.push((peer_ip.clone(), format!("request failed: {}", e)));
@@ -458,15 +466,19 @@ async fn sync_mempool_from_peers(
     }
 
     println!("✓ Mempool is up to date");
-    
+
     if !failed_peers.is_empty() {
         println!("   ⚠️  {} peer(s) failed to sync:", failed_peers.len());
         for (peer, reason) in failed_peers {
             println!("      - {}: {}", peer, reason);
         }
     }
-    
-    println!("   📊 Synced with {}/{} peers", successful_peers, peers.len());
+
+    println!(
+        "   📊 Synced with {}/{} peers",
+        successful_peers,
+        peers.len()
+    );
     Ok(total_transactions)
 }
 
@@ -533,9 +545,11 @@ async fn main() {
     if is_testnet {
         println!(
             "{}",
-            "╔════════════════════════════════════════════════════════════╗".yellow().bold()
+            "╔════════════════════════════════════════════════════════════╗"
+                .yellow()
+                .bold()
         );
-        
+
         let version_str = time_network::protocol::full_version();
         let build_info = format!(
             "{} | {} | Built: {}",
@@ -543,12 +557,12 @@ async fn main() {
             time_network::protocol::GIT_BRANCH,
             time_network::protocol::BUILD_TIMESTAMP
         );
-        
+
         let total_width: usize = 62; // Inner width of banner
         let padding = total_width.saturating_sub(build_info.len());
         let left_pad = padding / 2;
         let right_pad = padding - left_pad;
-        
+
         println!(
             "{}",
             format!(
@@ -561,33 +575,39 @@ async fn main() {
             .yellow()
             .bold()
         );
-        
+
         println!(
             "{}",
-            "║              [TESTNET]                                  ║".yellow().bold()
+            "║              [TESTNET]                                  ║"
+                .yellow()
+                .bold()
         );
         println!(
             "{}",
-            "╚════════════════════════════════════════════════════════════╝".yellow().bold()
+            "╚════════════════════════════════════════════════════════════╝"
+                .yellow()
+                .bold()
         );
     } else {
         println!(
             "{}",
-            "╔════════════════════════════════════════════════════════════╗".cyan().bold()
+            "╔════════════════════════════════════════════════════════════╗"
+                .cyan()
+                .bold()
         );
-        
+
         let version_str = time_network::protocol::full_version();
         let build_info = format!(
             "TIME Coin Node {} | {}",
             version_str,
             time_network::protocol::BUILD_TIMESTAMP
         );
-        
+
         let total_width: usize = 62;
         let padding = total_width.saturating_sub(build_info.len());
         let left_pad = padding / 2;
         let right_pad = padding - left_pad;
-        
+
         println!(
             "{}",
             format!(
@@ -600,24 +620,36 @@ async fn main() {
             .cyan()
             .bold()
         );
-        
+
         println!(
             "{}",
-            "║              [MAINNET]                                  ║".cyan().bold()
+            "║              [MAINNET]                                  ║"
+                .cyan()
+                .bold()
         );
         println!(
             "{}",
-            "╚════════════════════════════════════════════════════════════╝".cyan().bold()
+            "╚════════════════════════════════════════════════════════════╝"
+                .cyan()
+                .bold()
         );
     }
 
     println!("Config file: {:?}", config_path);
     println!("Network: {}", network_name.yellow().bold());
-    println!("Version: {}", time_network::protocol::full_version().bright_black());
-    println!("Built: {} UTC", time_network::protocol::BUILD_TIMESTAMP.bright_black());
-    println!("Branch: {} (commit #{})", 
-             time_network::protocol::GIT_BRANCH.bright_black(),
-             time_network::protocol::GIT_COMMIT_COUNT.bright_black());
+    println!(
+        "Version: {}",
+        time_network::protocol::full_version().bright_black()
+    );
+    println!(
+        "Built: {} UTC",
+        time_network::protocol::BUILD_TIMESTAMP.bright_black()
+    );
+    println!(
+        "Branch: {} (commit #{})",
+        time_network::protocol::GIT_BRANCH.bright_black(),
+        time_network::protocol::GIT_COMMIT_COUNT.bright_black()
+    );
     println!();
 
     let is_dev_mode = cli.dev
@@ -998,12 +1030,15 @@ async fn main() {
                 || ip_str.starts_with("192.168.")
                 || ip_str.starts_with("172.16.")
                 || ip_str.starts_with("127.");
-            
+
             if !is_private {
                 println!("✓ Using public IP: {}", ip_str);
             } else {
                 eprintln!("⚠️  WARNING: NODE_PUBLIC_IP not set!");
-                eprintln!("⚠️  Using private/local IP: {} (this may cause issues)", ip_str);
+                eprintln!(
+                    "⚠️  Using private/local IP: {} (this may cause issues)",
+                    ip_str
+                );
                 eprintln!("⚠️  Set NODE_PUBLIC_IP environment variable in systemd service");
             }
             ip_str
@@ -1013,7 +1048,7 @@ async fn main() {
             "unknown".to_string()
         }
     });
-    
+
     println!("Node ID: {}", node_id);
     consensus.add_masternode(node_id.clone()).await;
 
@@ -1200,7 +1235,7 @@ async fn main() {
             peer_manager.clone(),
             admin_token,
             blockchain.clone(),
-            consensus.clone(), 
+            consensus.clone(),
         )
         .with_mempool(mempool.clone())
         .with_tx_consensus(tx_consensus.clone())
@@ -1218,7 +1253,7 @@ async fn main() {
                 let tx_broadcaster_clone = tx_broadcaster.clone();
                 let tx_consensus_clone = tx_consensus.clone();
                 let block_consensus_clone = block_consensus.clone();
-                
+
                 tokio::spawn(async move {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
@@ -1226,17 +1261,16 @@ async fn main() {
                             let peer_addr = info.address;
 
                             // Register peer version WITH build info for Round 2 filtering
-                            if let (Some(build_time), Some(commits)) = (
-                                &info.build_timestamp,
-                                &info.commit_count
-                            ) {
+                            if let (Some(build_time), Some(commits)) =
+                                (&info.build_timestamp, &info.commit_count)
+                            {
                                 let commit_num = commits.parse::<u64>().unwrap_or(0);
                                 block_consensus_clone
                                     .register_peer_version_with_build_info(
                                         peer_addr.ip().to_string(),
                                         info.version.clone(),
                                         build_time.clone(),
-                                        commit_num
+                                        commit_num,
                                     )
                                     .await;
                             }
@@ -1261,7 +1295,10 @@ async fn main() {
                                     "✓ Connected to {} (v{}, built: {})",
                                     peer_addr.ip().to_string().bright_blue(),
                                     info.version.bright_black(),
-                                    info.build_timestamp.as_deref().unwrap_or("unknown").bright_black()
+                                    info.build_timestamp
+                                        .as_deref()
+                                        .unwrap_or("unknown")
+                                        .bright_black()
                                 )
                                 .green()
                             );
@@ -1276,14 +1313,17 @@ async fn main() {
                             consensus_clone
                                 .add_masternode(peer_addr.ip().to_string())
                                 .await;
-                            
+
                             // Register wallet address if provided
                             if let Some(wallet_addr) = &info.wallet_address {
                                 consensus_clone
-                                    .register_wallet(peer_addr.ip().to_string(), wallet_addr.clone())
+                                    .register_wallet(
+                                        peer_addr.ip().to_string(),
+                                        wallet_addr.clone(),
+                                    )
                                     .await;
                             }
-                            
+
                             let updated_masternodes = consensus_clone.get_masternodes().await;
                             tx_consensus_clone
                                 .set_masternodes(updated_masternodes.clone())
@@ -1448,127 +1488,129 @@ async fn main() {
     });
 
     // Helper function to extract peer IPs from PeerInfo list
-fn extract_peer_ips(peers: &[time_network::PeerInfo]) -> Vec<String> {
-    peers
-        .iter()
-        .map(|peer| peer.address.ip().to_string())
-        .collect()
-}
+    fn extract_peer_ips(peers: &[time_network::PeerInfo]) -> Vec<String> {
+        peers
+            .iter()
+            .map(|peer| peer.address.ip().to_string())
+            .collect()
+    }
 
-// Masternode synchronization task (KEEP THIS!)
-let peer_mgr_sync = peer_manager.clone();
-let consensus_sync = consensus.clone();
-let tx_consensus_sync = tx_consensus.clone();
-let block_consensus_sync = block_consensus.clone();
-tokio::spawn(async move {
-    let mut interval = time::interval(Duration::from_secs(30));
-    interval.tick().await;
-
-    loop {
+    // Masternode synchronization task (KEEP THIS!)
+    let peer_mgr_sync = peer_manager.clone();
+    let consensus_sync = consensus.clone();
+    let tx_consensus_sync = tx_consensus.clone();
+    let block_consensus_sync = block_consensus.clone();
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(30));
         interval.tick().await;
-        let peers = peer_mgr_sync.get_connected_peers().await;
 
-        // Get connected peer IPs using helper
-        let connected_ips = extract_peer_ips(&peers);
+        loop {
+            interval.tick().await;
+            let peers = peer_mgr_sync.get_connected_peers().await;
 
-        // Sync block consensus manager with connected peers
-        block_consensus_sync
-            .sync_with_connected_peers(connected_ips.clone())
-            .await;
+            // Get connected peer IPs using helper
+            let connected_ips = extract_peer_ips(&peers);
 
-        // Also update the main consensus and tx consensus
-        for peer in &peers {
-            consensus_sync
-                .add_masternode(peer.address.ip().to_string())
+            // Sync block consensus manager with connected peers
+            block_consensus_sync
+                .sync_with_connected_peers(connected_ips.clone())
+                .await;
+
+            // Also update the main consensus and tx consensus
+            for peer in &peers {
+                consensus_sync
+                    .add_masternode(peer.address.ip().to_string())
+                    .await;
+            }
+            let updated_masternodes = consensus_sync.get_masternodes().await;
+            tx_consensus_sync
+                .set_masternodes(updated_masternodes.clone())
                 .await;
         }
-        let updated_masternodes = consensus_sync.get_masternodes().await;
-        tx_consensus_sync
-            .set_masternodes(updated_masternodes.clone())
+    });
+
+    // Main heartbeat loop with detailed status (REPLACE WITH NEW VERSION)
+    let mut counter = 0;
+    let consensus_heartbeat = consensus.clone();
+    let block_consensus_heartbeat = block_consensus.clone();
+    let peer_mgr_heartbeat = peer_manager.clone();
+
+    loop {
+        time::sleep(Duration::from_secs(60)).await;
+        counter += 1;
+
+        // Sync with connected peers before getting the count
+        let peers = peer_mgr_heartbeat.get_connected_peers().await;
+        let connected_ips = extract_peer_ips(&peers);
+        block_consensus_heartbeat
+            .sync_with_connected_peers(connected_ips)
             .await;
-    }
-});
 
-// Main heartbeat loop with detailed status (REPLACE WITH NEW VERSION)
-let mut counter = 0;
-let consensus_heartbeat = consensus.clone();
-let block_consensus_heartbeat = block_consensus.clone();
-let peer_mgr_heartbeat = peer_manager.clone();
+        let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
 
-loop {
-    time::sleep(Duration::from_secs(60)).await;
-    counter += 1;
+        let total_nodes = block_consensus_heartbeat.active_masternode_count().await;
+        let mode = consensus_heartbeat.consensus_mode().await;
+        let consensus_mode = match mode {
+            time_consensus::ConsensusMode::Development => "DEV",
+            time_consensus::ConsensusMode::BootstrapNoQuorum => "BOOTSTRAP",
+            time_consensus::ConsensusMode::BFT => "BFT",
+        };
 
-    // Sync with connected peers before getting the count
-    let peers = peer_mgr_heartbeat.get_connected_peers().await;
-    let connected_ips = extract_peer_ips(&peers);
-    block_consensus_heartbeat
-        .sync_with_connected_peers(connected_ips)
-        .await;
+        // Detailed heartbeat output
+        if is_testnet {
+            println!(
+                "[{}] {} #{} | {} nodes | {} mode | {}",
+                timestamp,
+                "Heartbeat".bright_black(),
+                counter,
+                total_nodes.to_string().yellow(),
+                consensus_mode.yellow(),
+                "[TESTNET]".yellow()
+            );
+        } else if is_dev_mode {
+            println!(
+                "[{}] {} #{} | {} nodes | {}",
+                timestamp,
+                "Heartbeat".bright_black(),
+                counter,
+                total_nodes.to_string().yellow(),
+                "(dev mode)".yellow()
+            );
+        } else {
+            println!(
+                "[{}] {} #{} | {} nodes | {} mode",
+                timestamp,
+                "Heartbeat".bright_black(),
+                counter,
+                total_nodes.to_string().yellow(),
+                consensus_mode.yellow()
+            );
+        }
 
-    let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
-
-    let total_nodes = block_consensus_heartbeat.active_masternode_count().await;
-    let mode = consensus_heartbeat.consensus_mode().await;
-    let consensus_mode = match mode {
-        time_consensus::ConsensusMode::Development => "DEV",
-        time_consensus::ConsensusMode::BootstrapNoQuorum => "BOOTSTRAP",
-        time_consensus::ConsensusMode::BFT => "BFT",
-    };
-
-    // Detailed heartbeat output
-    if is_testnet {
-        println!(
-            "[{}] {} #{} | {} nodes | {} mode | {}",
-            timestamp,
-            "Heartbeat".bright_black(),
-            counter,
-            total_nodes.to_string().yellow(),
-            consensus_mode.yellow(),
-            "[TESTNET]".yellow()
-        );
-    } else if is_dev_mode {
-        println!(
-            "[{}] {} #{} | {} nodes | {}",
-            timestamp,
-            "Heartbeat".bright_black(),
-            counter,
-            total_nodes.to_string().yellow(),
-            "(dev mode)".yellow()
-        );
-    } else {
-        println!(
-            "[{}] {} #{} | {} nodes | {} mode",
-            timestamp,
-            "Heartbeat".bright_black(),
-            counter,
-            total_nodes.to_string().yellow(),
-            consensus_mode.yellow()
-        );
-    }
-
-    // Check for version updates every 10 minutes (every 10 heartbeats)
-    if counter % 10 == 0 {
-        for peer in peers.iter() {
-            if time_network::protocol::should_warn_version_update(
-                peer.build_timestamp.as_deref(),
-                peer.commit_count.as_deref(),
-            ) {
-                eprintln!(
-                    "\n⚠️  UPDATE REMINDER: Peer {} is running newer version {} (built: {})",
-                    peer.address.ip(),
-                    peer.version,
-                    peer.build_timestamp.as_deref().unwrap_or("unknown")
-                );
-                eprintln!("   Your version: {} (built: {})", 
-                         time_network::protocol::full_version(),
-                         time_network::protocol::BUILD_TIMESTAMP);
-                eprintln!("   Please update your node!\n");
-                break; // Only warn once per check cycle
+        // Check for version updates every 10 minutes (every 10 heartbeats)
+        if counter % 10 == 0 {
+            for peer in peers.iter() {
+                if time_network::protocol::should_warn_version_update(
+                    peer.build_timestamp.as_deref(),
+                    peer.commit_count.as_deref(),
+                ) {
+                    eprintln!(
+                        "\n⚠️  UPDATE REMINDER: Peer {} is running newer version {} (built: {})",
+                        peer.address.ip(),
+                        peer.version,
+                        peer.build_timestamp.as_deref().unwrap_or("unknown")
+                    );
+                    eprintln!(
+                        "   Your version: {} (built: {})",
+                        time_network::protocol::full_version(),
+                        time_network::protocol::BUILD_TIMESTAMP
+                    );
+                    eprintln!("   Please update your node!\n");
+                    break; // Only warn once per check cycle
+                }
             }
         }
     }
-}
 }
 fn load_or_create_wallet(data_dir: &str) -> Result<Wallet, Box<dyn std::error::Error>> {
     // Ensure wallet directory exists

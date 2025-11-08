@@ -57,7 +57,8 @@ impl PeerConnection {
                     wallet_addr.clone(),
                     blockchain.clone(),
                     consensus.clone(),
-                ).await;
+                )
+                .await;
             }
         }
 
@@ -87,24 +88,32 @@ impl PeerConnection {
     ) {
         use time_core::MasternodeTier;
 
-        println!("🔐 Auto-registering masternode: {} -> {}", node_ip, wallet_address);
+        println!(
+            "🔐 Auto-registering masternode: {} -> {}",
+            node_ip, wallet_address
+        );
 
         // Register in blockchain state
         let mut chain = blockchain.write().await;
         match chain.register_masternode(
             node_ip.clone(),
-            MasternodeTier::Free,  // Default to Free tier
+            MasternodeTier::Free, // Default to Free tier
             "peer_connection".to_string(),
             wallet_address.clone(),
         ) {
             Ok(_) => {
                 drop(chain);
-                
+
                 // Also register in consensus
                 consensus.add_masternode(node_ip.clone()).await;
-                consensus.register_wallet(node_ip.clone(), wallet_address.clone()).await;
-                
-                println!("✅ Masternode auto-registered: {} -> {}", node_ip, wallet_address);
+                consensus
+                    .register_wallet(node_ip.clone(), wallet_address.clone())
+                    .await;
+
+                println!(
+                    "✅ Masternode auto-registered: {} -> {}",
+                    node_ip, wallet_address
+                );
             }
             Err(e) => {
                 println!("⚠️  Auto-registration skipped for {}: {:?}", node_ip, e);

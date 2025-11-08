@@ -107,7 +107,7 @@ pub struct HandshakeMessage {
     /// Build timestamp (e.g., "2025-11-07 15:09:21")
     #[serde(default)]
     pub build_timestamp: Option<String>,
-    
+
     /// Git commit count
     #[serde(default)]
     pub commit_count: Option<String>,
@@ -136,7 +136,7 @@ impl HandshakeMessage {
     /// Create a new handshake message with optional wallet
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
         let wallet_address = std::env::var("MASTERNODE_WALLET").ok();
-        
+
         HandshakeMessage {
             version: version_for_handshake(),
             build_timestamp: Some(BUILD_TIMESTAMP.to_string()),
@@ -270,12 +270,12 @@ pub fn version_mismatch_message(peer_addr: &str, peer_version: &str) -> String {
 /// Compare two build timestamps and return true if remote is newer
 pub fn is_remote_version_newer(local_timestamp: &str, remote_timestamp: &str) -> bool {
     use chrono::NaiveDateTime;
-    
+
     let format = "%Y-%m-%d %H:%M:%S";
-    
+
     let local_dt = NaiveDateTime::parse_from_str(local_timestamp, format).ok();
     let remote_dt = NaiveDateTime::parse_from_str(remote_timestamp, format).ok();
-    
+
     match (local_dt, remote_dt) {
         (Some(local), Some(remote)) => remote > local,
         _ => false,
@@ -340,13 +340,13 @@ pub fn should_warn_version_update(
             return true;
         }
     }
-    
+
     if let Some(peer_commits) = peer_commit_count {
         if is_remote_commit_newer(GIT_COMMIT_COUNT, peer_commits) {
             return true;
         }
     }
-    
+
     false
 }
 

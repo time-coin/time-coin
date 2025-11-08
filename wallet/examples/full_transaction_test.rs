@@ -69,15 +69,21 @@ impl BlockchainSimulator {
         // Try to add to mempool (it might reject due to signature mismatch)
         // For testing purposes, we'll track success separately
         let mempool_result = self.mempool.add_transaction(core_tx.clone()).await;
-        
+
         match mempool_result {
             Ok(_) => {
-                println!("    ✓ Added to mempool (size: {})", self.mempool.size().await);
+                println!(
+                    "    ✓ Added to mempool (size: {})",
+                    self.mempool.size().await
+                );
             }
             Err(e) => {
                 // For testing, we'll accept transactions even if mempool rejects them
                 // because of signature format differences
-                println!("    ⚠ Mempool validation: {:?} (proceeding anyway for test)", e);
+                println!(
+                    "    ⚠ Mempool validation: {:?} (proceeding anyway for test)",
+                    e
+                );
             }
         }
 
@@ -377,7 +383,7 @@ async fn main() {
 
     let all_txs = blockchain.get_all_mempool_txs().await;
     println!("📊 Total transactions in mempool: {}", all_txs.len());
-    
+
     if !all_txs.is_empty() {
         println!("\n📋 Transaction Details:");
         for (i, tx) in all_txs.iter().enumerate() {

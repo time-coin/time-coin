@@ -722,7 +722,7 @@ pub mod block_consensus {
         ) {
             let mut versions = self.peer_versions.write().await;
             let mut build_info = self.peer_build_info.write().await;
-            
+
             versions.insert(peer_ip.clone(), version.clone());
             build_info.insert(
                 peer_ip,
@@ -737,25 +737,27 @@ pub mod block_consensus {
         /// Get the latest version among active nodes using comprehensive comparison
         async fn get_latest_version_among_active(&self, active_nodes: &[String]) -> Option<String> {
             use chrono::NaiveDateTime;
-            
+
             let build_info = self.peer_build_info.read().await;
-            
+
             if active_nodes.is_empty() {
                 return None;
             }
-            
+
             // Collect build info for active nodes
             let mut node_builds: Vec<(String, PeerBuildInfo)> = active_nodes
                 .iter()
                 .filter_map(|node| {
-                    build_info.get(node).map(|info| (node.clone(), info.clone()))
+                    build_info
+                        .get(node)
+                        .map(|info| (node.clone(), info.clone()))
                 })
                 .collect();
-            
+
             if node_builds.is_empty() {
                 return None;
             }
-            
+
             // Sort by commit count (highest first), then by timestamp
             node_builds.sort_by(|a, b| {
                 // First compare commit counts
@@ -763,14 +765,16 @@ pub mod block_consensus {
                     std::cmp::Ordering::Equal => {
                         // If equal, compare timestamps
                         let format = "%Y-%m-%d %H:%M:%S";
-                        let a_time = NaiveDateTime::parse_from_str(&a.1.build_timestamp, format).ok();
-                        let b_time = NaiveDateTime::parse_from_str(&b.1.build_timestamp, format).ok();
+                        let a_time =
+                            NaiveDateTime::parse_from_str(&a.1.build_timestamp, format).ok();
+                        let b_time =
+                            NaiveDateTime::parse_from_str(&b.1.build_timestamp, format).ok();
                         b_time.cmp(&a_time)
                     }
                     other => other,
                 }
             });
-            
+
             // Return the latest version
             node_builds.first().map(|(_, info)| info.version.clone())
         }
@@ -786,7 +790,7 @@ pub mod block_consensus {
             block_hash: &str,
         ) -> (bool, usize, usize, u8) {
             let all_masternodes = self.masternodes.read().await.clone();
-            
+
             if all_masternodes.is_empty() {
                 // No nodes registered - emergency
                 println!("   🚨 EMERGENCY: No masternodes registered - forcing block");
@@ -844,23 +848,23 @@ pub mod block_consensus {
             // ═══════════════════════════════════════════════════════════════
             // ROUND 2: Try consensus with LATEST-VERSION ACTIVE nodes only
             // ═══════════════════════════════════════════════════════════════
-            
+
             // Find the latest version among all active nodes
             let latest_version = self.get_latest_version_among_active(&active_nodes).await;
-            
+
             if let Some(ref version) = latest_version {
                 println!("   📌 Latest version detected: {}", version);
-                
+
                 // Get nodes running the latest version
                 let latest_version_nodes = self.get_masternodes_by_version(version).await;
-                
+
                 // Filter for both active AND latest version
                 let latest_version_active: Vec<String> = active_nodes
                     .iter()
                     .filter(|node| latest_version_nodes.contains(node))
                     .cloned()
                     .collect();
-                
+
                 let latest_version_count = latest_version_active.len();
 
                 if latest_version_count >= 3 {
@@ -881,14 +885,17 @@ pub mod block_consensus {
                             latest_version_approvals, latest_version_count, required_latest_version
                         );
                         println!("   📊 Using only nodes running latest version: {}", version);
-                        
+
                         // Warn outdated nodes
                         let outdated_count = active_count - latest_version_count;
                         if outdated_count > 0 {
-                            println!("   ⚠️  {} active node(s) running older versions excluded", outdated_count);
+                            println!(
+                                "   ⚠️  {} active node(s) running older versions excluded",
+                                outdated_count
+                            );
                             println!("   💡 Outdated nodes should update to version {}", version);
                         }
-                        
+
                         return (true, latest_version_approvals, latest_version_count, 2);
                     }
 
@@ -918,18 +925,18 @@ pub mod block_consensus {
             println!("   📊 Network Health:");
             println!("       - Total masternodes: {}", all_masternodes.len());
             println!("       - Active nodes: {}", active_count);
-            
+
             if let Some(version) = latest_version {
                 let latest_count = self.get_masternodes_by_version(&version).await.len();
                 println!("       - Latest-version active: {}", latest_count);
                 println!("       - Latest version: {}", version);
             }
-            
+
             if let Some(list) = vote_list.as_ref() {
                 let total_approvals = list.iter().filter(|v| v.approve).count();
                 println!("       - Total approvals received: {}", total_approvals);
             }
-            
+
             println!();
             println!("   ⚠️  OPERATOR WARNING:");
             println!("   - Emergency consensus should be RARE");
@@ -1423,7 +1430,7 @@ pub mod block_consensus {
         pub async fn get_masternodes_by_version(&self, target_version: &str) -> Vec<String> {
             let masternodes = self.masternodes.read().await;
             let versions = self.peer_versions.read().await;
-            
+
             masternodes
                 .iter()
                 .filter(|node| {
@@ -1444,23 +1451,18 @@ pub mod block_consensus {
             version_filter: Option<&str>,
         ) -> (bool, usize, usize) {
             let all_masternodes = self.masternodes.read().await;
-            
+
             let eligible_nodes = if let Some(version) = version_filter {
                 let versions = self.peer_versions.read().await;
                 all_masternodes
                     .iter()
-                    .filter(|node| {
-                        versions
-                            .get(*node)
-                            .map(|v| v == version)
-                            .unwrap_or(false)
-                    })
+                    .filter(|node| versions.get(*node).map(|v| v == version).unwrap_or(false))
                     .cloned()
                     .collect::<Vec<_>>()
             } else {
                 all_masternodes.clone()
             };
-            
+
             let total_nodes = eligible_nodes.len();
             drop(all_masternodes);
 
@@ -1475,7 +1477,7 @@ pub mod block_consensus {
                         .iter()
                         .filter(|v| v.approve && eligible_nodes.contains(&v.voter))
                         .count();
-                    
+
                     let required = (total_nodes * 2).div_ceil(3);
                     let has_consensus = approvals >= required;
                     return (has_consensus, approvals, total_nodes);

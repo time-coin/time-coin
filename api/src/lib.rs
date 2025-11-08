@@ -1,7 +1,7 @@
 mod error;
+pub mod masternode_handlers;
 mod routes;
-mod state;
-pub mod masternode_handlers;  // Add this line
+mod state; // Add this line
 
 pub use error::{ApiError, ApiResult};
 pub use state::ApiState;
