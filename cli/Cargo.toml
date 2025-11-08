@@ -39,3 +39,4 @@ time-mempool = { version = "0.1.0", path = "../mempool" }
 wallet = { version = "0.1.0", path = "../wallet" }
 sysinfo = "0.29"
 crossterm = "0.27"
+sha3.workspace = true

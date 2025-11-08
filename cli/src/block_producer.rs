@@ -525,6 +525,41 @@ impl BlockProducer {
         }
     }
 
+    fn calc_merkle(&self, transactions: &[time_core::Transaction]) -> String {
+        if transactions.is_empty() {
+            return "0".repeat(64);
+        }
+
+        use sha3::{Digest, Sha3_256};
+
+        // Build proper merkle tree (matching Block::calculate_merkle_root in core/src/block.rs)
+        let mut hashes: Vec<String> = transactions
+            .iter()
+            .map(|tx| tx.txid.clone())
+            .collect();
+
+        // Build merkle tree iteratively
+        while hashes.len() > 1 {
+            let mut next_level = Vec::new();
+
+            for i in (0..hashes.len()).step_by(2) {
+                let left = &hashes[i];
+                let right = if i + 1 < hashes.len() {
+                    &hashes[i + 1]
+                } else {
+                    left // Duplicate if odd number
+                };
+
+                let combined = format!("{}{}", left, right);
+                let hash = Sha3_256::digest(combined.as_bytes());
+                next_level.push(hex::encode(hash));
+            }
+
+            hashes = next_level;
+        }
+
+        hashes[0].clone()
+    }
 
     /// Broadcast finalized block to peers (best-effort)
     async fn broadcast_finalized_block(
@@ -1169,36 +1204,3 @@ impl BlockProducer {
         }
     }
 }
-    fn calc_merkle(&self, transactions: &[time_core::Transaction]) -> String {
-        if transactions.is_empty() {
-            return "0".repeat(64);
-        }
-
-        use sha3::{Digest, Sha3_256};
-
-        let mut hashes: Vec<String> = transactions
-            .iter()
-            .map(|tx| tx.txid.clone())
-            .collect();
-
-        while hashes.len() > 1 {
-            let mut next_level = Vec::new();
-
-            for i in (0..hashes.len()).step_by(2) {
-                let left = &hashes[i];
-                let right = if i + 1 < hashes.len() {
-                    &hashes[i + 1]
-                } else {
-                    left
-                };
-
-                let combined = format!("{}{}", left, right);
-                let hash = Sha3_256::digest(combined.as_bytes());
-                next_level.push(hex::encode(hash));
-            }
-
-            hashes = next_level;
-        }
-
-        hashes[0].clone()
-    }
