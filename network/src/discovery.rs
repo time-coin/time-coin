@@ -62,6 +62,19 @@ impl PeerInfo {
         self.last_seen = current_timestamp();
     }
 
+    /// Update the peer's version with build info (called after handshake)
+    pub fn update_version_with_build_info(
+        &mut self,
+        version: String,
+        build_timestamp: Option<String>,
+        commit_count: Option<String>,
+    ) {
+        self.version = version;
+        self.build_timestamp = build_timestamp;
+        self.commit_count = commit_count;
+        self.last_seen = current_timestamp();
+    }
+
     /// Update last seen timestamp
     pub fn touch(&mut self) {
         self.last_seen = current_timestamp();

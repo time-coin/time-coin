@@ -45,9 +45,23 @@ impl PeerConnection {
         let their_handshake = Self::receive_handshake(&mut stream).await?;
         their_handshake.validate(&network)?;
 
+        // Update peer info with version AND build info for consensus fallback
         peer.lock()
             .await
-            .update_version(their_handshake.version.clone());
+            .update_version_with_build_info(
+                their_handshake.version.clone(),
+                their_handshake.build_timestamp.clone(),
+                their_handshake.commit_count.clone(),
+            );
+
+        // Log peer connection with full version info
+        println!(
+            "🔗 Connected to peer: {} | Version: {} | Built: {} | Commits: {}",
+            peer_addr.ip(),
+            their_handshake.version,
+            their_handshake.build_timestamp.as_deref().unwrap_or("unknown"),
+            their_handshake.commit_count.as_deref().unwrap_or("unknown")
+        );
 
         // Auto-register masternode if wallet address provided
         if let Some(wallet_addr) = &their_handshake.wallet_address {
