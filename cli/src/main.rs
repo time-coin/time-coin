@@ -409,7 +409,7 @@ async fn sync_mempool_from_peers(
         let mut success = false;
 
         while retry_count < max_retries && !success {
-            println!("   Requesting mempool from {}:24101...", ip_only);
+            println!("   Requesting mempool from {}:24101 (API)...", ip_only);
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(5),
