@@ -1364,6 +1364,42 @@ async fn main() {
         );
 
         let api_state_clone = api_state.clone();
+
+        // Auto-register masternode
+        {
+            let wallet_addr = wallet_address.clone();
+            let node_ip = node_id.clone();
+            let port = api_port;
+            
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                
+                let url = format!("http://localhost:{}/masternode/register", port);
+                let payload = serde_json::json!({
+                    "node_ip": node_ip,
+                    "wallet_address": wallet_addr,
+                    "tier": "Free"
+                });
+                
+                match reqwest::Client::new()
+                    .post(&url)
+                    .json(&payload)
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        println!("{}", format!("Masternode auto-registered: {} -> {}", node_ip, wallet_addr).green());
+                    }
+                    Ok(resp) => {
+                        println!("{}", format!("Registration status: {}", resp.status()).yellow());
+                    }
+                    Err(e) => {
+                        println!("{}", format!("Auto-registration failed: {}", e).yellow());
+                    }
+                }
+            });
+        }
         tokio::spawn(async move {
             if let Err(e) = start_server(bind_addr.parse().unwrap(), api_state_clone).await {
                 eprintln!("API server error: {}", e);
