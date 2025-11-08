@@ -1235,6 +1235,7 @@ async fn main() {
             peer_manager.clone(),
             admin_token,
             blockchain.clone(),
+            wallet_address.clone(),
             consensus.clone(),
         )
         .with_mempool(mempool.clone())

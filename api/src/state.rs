@@ -13,6 +13,7 @@ pub struct ApiState {
     pub peer_manager: Arc<PeerManager>,
     pub admin_token: Option<String>,
     pub blockchain: Arc<RwLock<BlockchainState>>,
+    pub wallet_address: String,
     pub consensus: Arc<time_consensus::ConsensusEngine>,
     pub balances: Arc<RwLock<HashMap<String, u64>>>,
     pub mempool: Option<Arc<time_mempool::Mempool>>,
@@ -29,6 +30,7 @@ impl ApiState {
         peer_manager: Arc<PeerManager>,
         admin_token: Option<String>,
         blockchain: Arc<RwLock<BlockchainState>>,
+        wallet_address: String,
         consensus: Arc<time_consensus::ConsensusEngine>,
     ) -> Self {
         Self {
@@ -38,6 +40,7 @@ impl ApiState {
             peer_manager,
             admin_token,
             blockchain,
+            wallet_address,
             consensus,
             balances: Arc::new(RwLock::new(HashMap::new())),
             mempool: None,
@@ -100,6 +103,7 @@ impl Clone for ApiState {
             peer_manager: self.peer_manager.clone(),
             admin_token: self.admin_token.clone(),
             blockchain: self.blockchain.clone(),
+            wallet_address: self.wallet_address.clone(),
             consensus: self.consensus.clone(),
             balances: self.balances.clone(),
             mempool: self.mempool.clone(),
