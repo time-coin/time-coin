@@ -3,7 +3,6 @@
 //! Run with: cargo run --example full_transaction_test
 
 use std::sync::Arc;
-use tokio;
 use wallet::{NetworkType, Wallet, UTXO};
 
 // Import actual mempool
