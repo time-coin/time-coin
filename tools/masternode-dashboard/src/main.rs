@@ -7,9 +7,7 @@ use crossterm::{
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::{
-    fs,
     io::{self, Write},
-    path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
     sync::Arc,
     thread,
@@ -49,20 +47,7 @@ struct WalletBalance {
     pending: u64,
 }
 
-#[derive(Debug, Deserialize)]
-struct WalletData {
-    address: String,
-}
 
-#[derive(Debug, Deserialize)]
-struct Config {
-    node: Option<NodeConfig>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NodeConfig {
-    data_dir: Option<String>,
-}
 
 struct PeerWithPing {
     address: String,
@@ -80,6 +65,7 @@ const CLEAR_LINE: &str = "\x1b[2K"; // Clear entire line
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder().timeout(Duration::from_secs(2)).build()?;
+    let api_url = "http://localhost:24101";
 
     // Setup Ctrl+C handler
     let running = Arc::new(AtomicBool::new(true));
@@ -93,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Enter alternate screen buffer and hide cursor
     execute!(io::stdout(), EnterAlternateScreen, Hide)?;
 
-    let result = run_dashboard(&client, running);
+    let result = run_dashboard(api_url, &client, running);
 
     // Cleanup: Leave alternate screen buffer and show cursor on exit
     execute!(io::stdout(), Show, LeaveAlternateScreen)?;
@@ -103,181 +89,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     result
 }
 
-fn expand_path(path: &str) -> String {
-    // Try Windows environment variables first
-    if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        if path.contains("%USERPROFILE%") {
-            return path.replace("%USERPROFILE%", &userprofile);
-        }
-        if path.contains("$USERPROFILE") {
-            return path.replace("$USERPROFILE", &userprofile);
-        }
-    }
 
-    // Try Unix/Linux HOME variable
-    if let Ok(home) = std::env::var("HOME") {
-        if path.contains("$HOME") {
-            return path.replace("$HOME", &home);
-        }
-        if path.starts_with("~") {
-            return path.replacen("~", &home, 1);
-        }
-    }
 
-    // Windows USERNAME for path construction
-    if let Ok(username) = std::env::var("USERNAME") {
-        if path.contains("$USERNAME") {
-            return path.replace("$USERNAME", &username);
-        }
-    }
-
-    // Unix/Linux USER for path construction
-    if let Ok(user) = std::env::var("USER") {
-        if path.contains("$USER") {
-            return path.replace("$USER", &user);
-        }
-    }
-
-    path.to_string()
-}
-
-fn load_wallet_address() -> Option<String> {
+fn load_wallet_address(api_url: &str) -> Option<String> {
     // Method 1: Check environment variable first
     if let Ok(addr) = std::env::var("WALLET_ADDRESS") {
         return Some(addr);
     }
 
-    // Method 2: Build platform-specific wallet paths
-    let mut wallet_paths = Vec::new();
-
-    // Windows paths
-    if cfg!(target_os = "windows") {
-        if let Ok(userprofile) = std::env::var("USERPROFILE") {
-            wallet_paths.push(PathBuf::from(format!(
-                "{}\\time-coin-node\\data\\wallets\\node.json",
-                userprofile
-            )));
-        }
-        if let Ok(username) = std::env::var("USERNAME") {
-            wallet_paths.push(PathBuf::from(format!(
-                "C:\\Users\\{}\\time-coin-node\\data\\wallets\\node.json",
-                username
-            )));
-        }
-        wallet_paths.push(PathBuf::from("C:\\var\\lib\\time-coin\\wallets\\node.json"));
-        wallet_paths.push(PathBuf::from(
-            "C:\\time-coin-node\\data\\wallets\\node.json",
-        ));
-
-        // Add current directory relative paths
-        if let Ok(current_dir) = std::env::current_dir() {
-            wallet_paths.push(current_dir.join("data\\wallets\\node.json"));
-            wallet_paths.push(current_dir.join("..\\..\\data\\wallets\\node.json"));
-        }
-    }
-
-    // Linux/Unix paths
-    if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
-        wallet_paths.push(PathBuf::from("/var/lib/time-coin/wallets/node.json"));
-        wallet_paths.push(PathBuf::from("/root/time-coin-node/data/wallets/node.json"));
-
-        if let Ok(home) = std::env::var("HOME") {
-            wallet_paths.push(PathBuf::from(format!(
-                "{}/time-coin-node/data/wallets/node.json",
-                home
-            )));
-            wallet_paths.push(PathBuf::from(format!(
-                "{}/.time-coin/wallets/node.json",
-                home
-            )));
-        }
-
-        if let Ok(user) = std::env::var("USER") {
-            wallet_paths.push(PathBuf::from(format!(
-                "/home/{}/time-coin-node/data/wallets/node.json",
-                user
-            )));
-        }
-
-        // Add current directory relative paths
-        if let Ok(current_dir) = std::env::current_dir() {
-            wallet_paths.push(current_dir.join("data/wallets/node.json"));
-            wallet_paths.push(current_dir.join("../../data/wallets/node.json"));
-        }
-    }
-
-    // Try each wallet path
-    for wallet_path in &wallet_paths {
-        if let Ok(contents) = fs::read_to_string(wallet_path) {
-            if let Ok(wallet) = serde_json::from_str::<WalletData>(&contents) {
-                return Some(wallet.address);
-            }
-        }
-    }
-
-    // Method 3: Try to find it via config file
-    let mut config_paths = Vec::new();
-
-    // Windows config paths
-    if cfg!(target_os = "windows") {
-        if let Ok(userprofile) = std::env::var("USERPROFILE") {
-            config_paths.push(PathBuf::from(format!(
-                "{}\\time-coin-node\\config\\testnet.toml",
-                userprofile
-            )));
-        }
-        config_paths.push(PathBuf::from("C:\\time-coin-node\\config\\testnet.toml"));
-    }
-
-    // Linux config paths
-    if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
-        config_paths.push(PathBuf::from("/root/time-coin-node/config/testnet.toml"));
-
-        if let Ok(home) = std::env::var("HOME") {
-            config_paths.push(PathBuf::from(format!(
-                "{}/time-coin-node/config/testnet.toml",
-                home
-            )));
-        }
-    }
-
-    for config_path in config_paths {
-        if let Ok(contents) = fs::read_to_string(&config_path) {
-            if let Ok(config) = toml::from_str::<Config>(&contents) {
-                if let Some(node) = config.node {
-                    if let Some(data_dir) = node.data_dir {
-                        let expanded = expand_path(&data_dir);
-
-                        // Try both Unix and Windows path separators
-                        let wallet_paths = vec![
-                            PathBuf::from(format!("{}/wallets/node.json", expanded)),
-                            PathBuf::from(format!("{}\\wallets\\node.json", expanded)),
-                        ];
-
-                        for wallet_path in wallet_paths {
-                            if let Ok(contents) = fs::read_to_string(&wallet_path) {
-                                if let Ok(wallet) = serde_json::from_str::<WalletData>(&contents) {
-                                    return Some(wallet.address);
-                                }
-                            }
-                        }
-                    }
-                }
+    // Method 2: Try the new API endpoint (blocking call)
+    let wallet_url = format!("{}/node/wallet", api_url);
+    if let Ok(response) = reqwest::blocking::get(&wallet_url) {
+        if let Ok(json) = response.json::<serde_json::Value>() {
+            if let Some(address) = json.get("wallet_address").and_then(|v| v.as_str()) {
+                return Some(address.to_string());
             }
         }
     }
 
     None
 }
-
 fn run_dashboard(
+    api_url: &str,
     client: &Client,
     running: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut first_run = true;
 
     // Try to load the masternode's wallet address
-    let masternode_address = load_wallet_address();
+    let masternode_address = load_wallet_address(api_url);
 
     if let Some(ref addr) = masternode_address {
         println!("Found masternode wallet: {}", addr);
