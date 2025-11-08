@@ -17,8 +17,9 @@ bs58 = "0.5"
 hex = "0.4"
 thiserror = "1.0"
 chrono = "0.4"
-time-core = { path = "../core" }
+time-core = { version = "0.1.0", path = "../core" }
+time-mempool = { version = "0.1.0", path = "../mempool" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
-time-mempool = { path = "../mempool" }
+time-mempool = { version = "0.1.0", path = "../mempool" }

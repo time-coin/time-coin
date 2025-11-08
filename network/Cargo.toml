@@ -6,9 +6,9 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-time-core = { path = "../core" }
-time-consensus = { path = "../consensus" }
-time-mempool = { path = "../mempool" }
+time-core = { version = "0.1.0", path = "../core" }
+time-consensus = { version = "0.1.0", path = "../consensus" }
+time-mempool = { version = "0.1.0", path = "../mempool" }
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "macros"] }
