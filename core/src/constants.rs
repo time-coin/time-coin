@@ -24,7 +24,7 @@ pub const MAX_PEERS: usize = 125;
 
 // Consensus Constants
 pub const BFT_THRESHOLD: f64 = 0.67; // 67% for Byzantine Fault Tolerance
-pub const MIN_VALIDATORS: usize = 10;
+pub const MIN_VALIDATORS: usize = 3; // Minimum for BFT consensus (tolerates 0 Byzantine failures)
 pub const MAX_VALIDATORS: usize = 10_000;
 
 // Treasury Constants

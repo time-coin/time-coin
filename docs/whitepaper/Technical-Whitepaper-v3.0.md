@@ -251,7 +251,12 @@ Comparison:
 
 ### Modified Byzantine Fault Tolerant (BFT)
 
-- Minimum of 4 active masternodes required to initiate a voting round
+- Minimum of **3 active masternodes** required to initiate consensus (tolerates 0 Byzantine failures)
+- **Recommended**: 4+ nodes for production (tolerates 1 Byzantine failure), 7+ for high security (tolerates 2 Byzantine failures)
+
+**Current Implementation**: Simple one-node-one-vote counting with 67% threshold and deterministic round-robin quorum selection by block height.
+
+**Future Enhancement**: Weighted voting based on tier, longevity, and reputation with VRF-based quorum selection.
 
 #### Core Algorithm
 
@@ -322,7 +327,13 @@ impl BftConsensus {
 
 ### Dynamic Quorum Selection
 
-**Quorum Size Formula:**
+**Current Implementation:**
+
+Quorum size is calculated as: `(total_nodes * 2 / 3) + 1`
+
+**Minimum**: 3 nodes required for BFT consensus
+
+**Quorum Size Formula (Future Enhancement):**
 
 ```
 quorum_size = max(50, min(500, log₂(total_nodes) × 50))
@@ -337,7 +348,7 @@ Examples:
 - 100,000 nodes → 500 nodes (0.5%)
 ```
 
-**Selection Algorithm:**
+**Selection Algorithm (Future Enhancement):**
 
 ```rust
 pub fn select_quorum(
@@ -388,6 +399,8 @@ fn calculate_quorum_size(n: usize) -> usize {
 
 ### Voting Weight Calculation
 
+**Note**: The following weighted voting system is planned for future implementation. Current implementation uses simple one-node-one-vote counting.
+
 ```rust
 pub struct Masternode {
     pub address: Address,
@@ -397,16 +410,17 @@ pub struct Masternode {
 }
 
 impl Masternode {
-    /// Calculate tier weight
+    /// Calculate tier weight (Planned)
     pub fn tier_weight(&self) -> u64 {
         match self.tier {
-            Tier::Bronze => 1,
-            Tier::Silver => 10,
-            Tier::Gold => 100,
+            Tier::Free => 1,      // Free tier
+            Tier::Bronze => 1,    // 1,000 TIME collateral
+            Tier::Silver => 10,   // 10,000 TIME collateral
+            Tier::Gold => 100,    // 100,000 TIME collateral
         }
     }
     
-    /// Calculate longevity multiplier
+    /// Calculate longevity multiplier (Planned)
     pub fn longevity_multiplier(&self) -> f64 {
         let days_active = (current_time() - self.registration_time) / 86400;
         let years_active = days_active as f64 / 365.0;
@@ -416,7 +430,7 @@ impl Masternode {
         multiplier.min(3.0)
     }
     
-    /// Total voting power
+    /// Total voting power (Planned)
     pub fn voting_power(&self) -> u64 {
         (self.tier_weight() as f64 * self.longevity_multiplier()) as u64
     }
@@ -442,6 +456,7 @@ Proof:
 - Quorum can always be formed
 - Transactions always processed
 - Network never deadlocks
+- Minimum 3 nodes required (tolerates 0 Byzantine failures)
 ```
 
 **Finality**: Immediate and irreversible
@@ -882,6 +897,7 @@ Year 10+: 182,500 (rewards, capped) + purchase minting
 
 ```rust
 pub enum Tier {
+    Free,    // No collateral (limited features)
     Bronze,  // 1,000 TIME
     Silver,  // 10,000 TIME
     Gold,    // 100,000 TIME
@@ -897,6 +913,7 @@ pub struct MasternodeCollateral {
 impl MasternodeCollateral {
     pub fn required_amount(tier: Tier) -> u64 {
         match tier {
+            Tier::Free => 0,
             Tier::Bronze => 1_000 * TIME_UNIT,
             Tier::Silver => 10_000 * TIME_UNIT,
             Tier::Gold => 100_000 * TIME_UNIT,
@@ -1877,11 +1894,13 @@ pub const FEE_TREASURY_SHARE: f64 = 0.05;
 
 ```rust
 /// Tier collateral amounts
+pub const FREE_COLLATERAL: u64 = 0;
 pub const BRONZE_COLLATERAL: u64 = 1_000 * TIME_UNIT;
 pub const SILVER_COLLATERAL: u64 = 10_000 * TIME_UNIT;
 pub const GOLD_COLLATERAL: u64 = 100_000 * TIME_UNIT;
 
-/// Tier voting weights
+/// Tier voting weights (Planned for weighted voting)
+pub const FREE_WEIGHT: u64 = 1;
 pub const BRONZE_WEIGHT: u64 = 1;
 pub const SILVER_WEIGHT: u64 = 10;
 pub const GOLD_WEIGHT: u64 = 100;

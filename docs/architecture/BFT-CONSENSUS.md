@@ -4,6 +4,8 @@
 
 TIME Coin uses BFT consensus for instant transaction finality with masternode voting.
 
+**Current Implementation**: The system uses simple one-node-one-vote counting with a 67% threshold and deterministic round-robin quorum selection by block height. Weighted voting based on tier, longevity, and reputation is planned for future releases.
+
 ## How It Works
 
 ### 1. Transaction Submitted
@@ -12,12 +14,9 @@ User → Transaction → Network
 ```
 
 ### 2. Quorum Selection
-- Calculate quorum size (7-50 nodes)
-- Use VRF with transaction hash as seed
-- Select masternodes weighted by:
-  - Tier (1x, 10x, 100x)
-  - Longevity (up to 3x)
-  - Reputation (up to 2x)
+- Calculate quorum size (minimum 3 nodes)
+- **Current**: Deterministic round-robin selection by block height
+- **Future**: VRF-based weighted selection by tier, longevity, and reputation
 
 ### 3. Voting Round
 - Transaction broadcast to quorum
@@ -30,7 +29,8 @@ User → Transaction → Network
 
 ### 4. Vote Collection
 - Collect votes from quorum
-- Calculate voting power:
+- **Current**: Simple one-node-one-vote counting
+- **Future**: Weighted voting power calculation:
   - Approve power
   - Reject power
 - Check threshold (67% = 2/3+)
@@ -42,12 +42,15 @@ User → Transaction → Network
 
 ## Voting Power
 
-### Base Weight by Tier
-- Community: 1x
-- Verified: 10x  
-- Professional: 100x
+**Note**: The following weighted voting system is planned for future implementation. Current implementation uses simple one-node-one-vote counting.
 
-### Longevity Multiplier
+### Base Weight by Tier (Planned)
+- Free: 1x
+- Bronze: 1x  
+- Silver: 10x
+- Gold: 100x
+
+### Longevity Multiplier (Planned)
 ```
 multiplier = 1.0 + (years_active × 0.5)
 max = 3.0
@@ -58,7 +61,7 @@ Examples:
 - 4+ years: 3.0x
 ```
 
-### Reputation Multiplier
+### Reputation Multiplier (Planned)
 ```
 multiplier = reputation / 100
 min = 0.5
@@ -70,24 +73,40 @@ Examples:
 - 200 reputation: 2.0x
 ```
 
-### Total Power
+### Total Power (Planned)
 ```
 voting_power = base_weight × longevity × reputation
 
-Professional (4 years, 150 rep):
+Gold (4 years, 150 rep):
 100 × 3.0 × 1.5 = 450 power
 
-Verified (1 year, 100 rep):
+Silver (1 year, 100 rep):
 10 × 1.5 × 1.0 = 15 power
 
-Community (6 months, 80 rep):
+Bronze (6 months, 80 rep):
 1 × 1.0 × 0.8 = 0.8 power
 ```
 
 ## Quorum Size
 
-Dynamic based on network size:
+**Current Implementation**: Quorum size is dynamically calculated based on network size: `(total_nodes * 2 / 3) + 1`
 
+**Minimum Requirements**:
+```
+min = 3 nodes (tolerates 0 Byzantine failures)
+
+Recommended for production:
+- 4+ nodes (tolerates 1 Byzantine failure)
+- 7+ nodes (tolerates 2 Byzantine failures)
+- 10+ nodes (tolerates 3 Byzantine failures)
+
+Examples:
+- 3 nodes:   3 quorum (100%)
+- 10 nodes:  7 quorum (70%)
+- 100 nodes: 67 quorum (67%)
+```
+
+**Future Enhancement**: Dynamic logarithmic scaling
 ```
 size = log2(total_nodes) × 7
 min = 7 (for f=3 Byzantine faults)
@@ -103,16 +122,19 @@ Examples:
 
 ### Byzantine Fault Tolerance
 - Tolerates up to f < n/3 malicious nodes
-- Minimum 7 nodes (f=3)
-- Weighted voting reduces attack surface
+- **Minimum 3 nodes** (tolerates 0 Byzantine failures - basic consensus)
+- **Recommended 4+ nodes** for production (tolerates 1 Byzantine failure)
+- **Recommended 7+ nodes** for high security (tolerates 2 Byzantine failures)
+- **Future**: Weighted voting will reduce attack surface further
 
 ### Sybil Resistance
 - High collateral requirements
-- Weighted by tier
-- Long-term reputation matters
+- **Future**: Weighted by tier
+- **Future**: Long-term reputation matters
 
 ### Deterministic Selection
-- VRF ensures fairness
+- **Current**: Round-robin selection by block height
+- **Future**: VRF ensures fairness
 - Same transaction = same quorum
 - No favoritism possible
 
