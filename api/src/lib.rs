@@ -1,4 +1,5 @@
 mod error;
+mod handlers;
 pub mod masternode_handlers;
 mod routes;
 mod state; // Add this line

@@ -393,6 +393,16 @@ impl BlockProducer {
             // Calculate total transaction fees (currently 0 as we don't have UTXO validation yet)
             let total_fees: u64 = 0;
 
+            // Log masternode reward distribution
+            if !active_masternodes.is_empty() {
+                println!("   💰 Distributing rewards to {} masternodes:", active_masternodes.len());
+                for (wallet_addr, tier) in &active_masternodes {
+                    println!("      - {:?} tier: {}", tier, wallet_addr);
+                }
+            } else {
+                println!("   ⚠️  No active masternodes registered for rewards");
+            }
+
             // Create coinbase transaction with all rewards
             let coinbase_tx = time_core::block::create_coinbase_transaction(
                 block_num,
@@ -406,6 +416,10 @@ impl BlockProducer {
             let mut all_transactions = vec![coinbase_tx];
             let mempool_count = transactions.len();
             all_transactions.extend(transactions);
+
+            if mempool_count == 0 {
+                println!("   📦 Block will contain ONLY coinbase transaction (zero regular txs)");
+            }
 
             println!(
                 "   📋 {} total transactions (1 coinbase + {} mempool)",
@@ -1060,6 +1074,12 @@ impl BlockProducer {
                 "unknown".to_string()
             }
         });
+
+        // Log masternode reward distribution for catch-up block
+        println!(
+            "      💰 Catch-up block will reward {} masternodes",
+            active_masternodes.len()
+        );
 
         let coinbase_tx = create_coinbase_transaction(
             block_num,
