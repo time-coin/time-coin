@@ -240,12 +240,12 @@ impl PeerManager {
         if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
             return;
         }
-        
+
         let is_new_peer = {
             let peers = self.peers.read().await;
             !peers.contains_key(&peer.address)
         };
-        
+
         {
             let mut peers = self.peers.write().await;
             if let Some(existing) = peers.get(&peer.address) {
@@ -266,7 +266,7 @@ impl PeerManager {
             peer.version.clone(),
         )
         .await;
-        
+
         // Broadcast the newly connected peer to all other connected peers
         // Only broadcast if this is a genuinely new peer, not an update
         if is_new_peer {
@@ -517,7 +517,7 @@ impl PeerManager {
     /// This ensures that when a new peer connects, all existing peers learn about it
     pub async fn broadcast_new_peer(&self, new_peer_info: &PeerInfo) {
         let peers = self.peers.read().await.clone();
-        
+
         debug!(
             new_peer = %new_peer_info.address,
             peer_count = peers.len(),
@@ -532,14 +532,14 @@ impl PeerManager {
 
             let new_peer_addr = new_peer_info.address.to_string();
             let new_peer_version = new_peer_info.version.clone();
-            
+
             tokio::spawn(async move {
                 let url = format!("http://{}:24101/peers/discovered", addr.ip());
                 let payload = serde_json::json!({
                     "address": new_peer_addr,
                     "version": new_peer_version,
                 });
-                
+
                 let client = reqwest::Client::builder()
                     .timeout(std::time::Duration::from_secs(5))
                     .build()
@@ -746,10 +746,7 @@ mod tests {
         let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
 
         // Create a new peer to broadcast
-        let new_peer = PeerInfo::new(
-            "192.168.1.100:24100".parse().unwrap(),
-            NetworkType::Testnet,
-        );
+        let new_peer = PeerInfo::new("192.168.1.100:24100".parse().unwrap(), NetworkType::Testnet);
 
         // Initially no peers, so broadcast should complete without error
         manager.broadcast_new_peer(&new_peer).await;

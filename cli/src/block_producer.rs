@@ -1208,9 +1208,7 @@ impl BlockProducer {
             );
         } else {
             println!("      ⚠️  No voting masternodes - treasury reward only");
-            println!(
-                "      💡 To receive rewards, masternodes must vote in consensus"
-            );
+            println!("      💡 To receive rewards, masternodes must vote in consensus");
         }
 
         let coinbase_tx = Transaction {

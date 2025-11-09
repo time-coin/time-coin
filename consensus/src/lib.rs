@@ -4,12 +4,12 @@
 //! Requires minimum 3 masternodes for full BFT consensus
 
 // Public modules
-pub mod phased_protocol;
-pub mod leader_election;
-pub mod heartbeat;
 pub mod fallback;
-pub mod orchestrator;
+pub mod heartbeat;
+pub mod leader_election;
 pub mod monitoring;
+pub mod orchestrator;
+pub mod phased_protocol;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

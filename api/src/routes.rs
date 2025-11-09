@@ -214,7 +214,9 @@ async fn handle_peer_discovered(
     use time_network::PeerInfo as NetworkPeerInfo;
 
     // Parse the address
-    let peer_addr: SocketAddr = req.address.parse()
+    let peer_addr: SocketAddr = req
+        .address
+        .parse()
         .map_err(|e| ApiError::BadRequest(format!("Invalid peer address: {}", e)))?;
 
     // Get network type from state (assume same network as us)
@@ -228,11 +230,10 @@ async fn handle_peer_discovered(
     let peer_info = NetworkPeerInfo::with_version(peer_addr, network, req.version.clone());
 
     // Add to peer exchange for future connections
-    state.peer_manager.add_discovered_peer(
-        peer_addr.ip().to_string(),
-        peer_addr.port(),
-        req.version,
-    ).await;
+    state
+        .peer_manager
+        .add_discovered_peer(peer_addr.ip().to_string(), peer_addr.port(), req.version)
+        .await;
 
     println!(
         "📡 Learned about new peer {} from peer broadcast",
@@ -247,7 +248,10 @@ async fn handle_peer_discovered(
                 println!("✓ Successfully connected to broadcasted peer {}", peer_addr);
             }
             Err(e) => {
-                println!("⚠ Failed to connect to broadcasted peer {}: {}", peer_addr, e);
+                println!(
+                    "⚠ Failed to connect to broadcasted peer {}: {}",
+                    peer_addr, e
+                );
             }
         }
     });

@@ -23,6 +23,7 @@ pub struct ApiState {
 }
 
 impl ApiState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         dev_mode: bool,
         network: String,
