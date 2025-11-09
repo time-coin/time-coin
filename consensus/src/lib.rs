@@ -3,6 +3,10 @@
 //! Implements leader-based block production with Byzantine Fault Tolerance
 //! Requires minimum 3 masternodes for full BFT consensus
 
+// Public modules
+pub mod phased_protocol;
+pub mod leader_election;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
