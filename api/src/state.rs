@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use time_core::state::BlockchainState;
 use time_network::{PeerDiscovery, PeerManager};
 use tokio::sync::RwLock;
@@ -20,6 +21,8 @@ pub struct ApiState {
     pub tx_consensus: Option<Arc<time_consensus::tx_consensus::TxConsensusManager>>,
     pub block_consensus: Option<Arc<time_consensus::block_consensus::BlockConsensusManager>>,
     pub tx_broadcaster: Option<Arc<time_network::tx_broadcast::TransactionBroadcaster>>,
+    /// Track recently processed peer broadcasts to prevent duplicates
+    pub recent_broadcasts: Arc<RwLock<HashMap<String, Instant>>>,
 }
 
 impl ApiState {
@@ -34,7 +37,7 @@ impl ApiState {
         wallet_address: String,
         consensus: Arc<time_consensus::ConsensusEngine>,
     ) -> Self {
-        Self {
+        let state = Self {
             dev_mode,
             network,
             discovery,
@@ -48,7 +51,24 @@ impl ApiState {
             tx_consensus: None,
             block_consensus: None,
             tx_broadcaster: None,
-        }
+            recent_broadcasts: Arc::new(RwLock::new(HashMap::new())),
+        };
+        
+        // Spawn cleanup task for recent_broadcasts
+        let recent_broadcasts_clone = state.recent_broadcasts.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let mut broadcasts = recent_broadcasts_clone.write().await;
+                let now = Instant::now();
+                broadcasts.retain(|_, &mut last_seen| {
+                    now.duration_since(last_seen) < std::time::Duration::from_secs(300) // 5 minutes
+                });
+            }
+        });
+        
+        state
     }
 
     pub fn with_mempool(mut self, mempool: Arc<time_mempool::Mempool>) -> Self {
@@ -111,6 +131,7 @@ impl Clone for ApiState {
             tx_consensus: self.tx_consensus.clone(),
             block_consensus: self.block_consensus.clone(),
             tx_broadcaster: self.tx_broadcaster.clone(),
+            recent_broadcasts: self.recent_broadcasts.clone(),
         }
     }
 }

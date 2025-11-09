@@ -29,6 +29,11 @@ pub struct PeerManager {
     last_seen: Arc<RwLock<HashMap<SocketAddr, Instant>>>,
     stale_after: Duration,
     reaper_interval: Duration,
+    /// Track recently broadcast peers to prevent re-broadcasting
+    recent_peer_broadcasts: Arc<RwLock<HashMap<String, Instant>>>,
+    /// Track broadcast rate limiting (broadcasts per minute)
+    broadcast_count: Arc<RwLock<u32>>,
+    broadcast_count_reset: Arc<RwLock<Instant>>,
 }
 
 impl PeerManager {
@@ -43,10 +48,14 @@ impl PeerManager {
             last_seen: Arc::new(RwLock::new(HashMap::new())),
             stale_after: Duration::from_secs(90),
             reaper_interval: Duration::from_secs(10),
+            recent_peer_broadcasts: Arc::new(RwLock::new(HashMap::new())),
+            broadcast_count: Arc::new(RwLock::new(0)),
+            broadcast_count_reset: Arc::new(RwLock::new(Instant::now())),
         };
 
         manager.spawn_reaper();
         manager.spawn_reconnection_task();
+        manager.spawn_broadcast_cleanup_task();
         manager
     }
 
@@ -515,8 +524,53 @@ impl PeerManager {
 
     /// Broadcast a newly connected peer to all other connected peers
     /// This ensures that when a new peer connects, all existing peers learn about it
+    /// Includes deduplication and rate limiting to prevent broadcast storms
     pub async fn broadcast_new_peer(&self, new_peer_info: &PeerInfo) {
+        let peer_key = new_peer_info.address.to_string();
+
+        // Check if we recently broadcast this peer (deduplication)
+        {
+            let mut broadcasts = self.recent_peer_broadcasts.write().await;
+            let now = Instant::now();
+            
+            if let Some(&last_broadcast) = broadcasts.get(&peer_key) {
+                if now.duration_since(last_broadcast) < Duration::from_secs(300) {
+                    // Skip broadcasting if we broadcast this peer within the last 5 minutes
+                    debug!(
+                        peer = %peer_key,
+                        "Skipping broadcast - peer was recently broadcast"
+                    );
+                    return;
+                }
+            }
+            
+            // Record this broadcast
+            broadcasts.insert(peer_key.clone(), now);
+        }
+
+        // Rate limiting: max 60 broadcasts per minute
+        {
+            let mut count = self.broadcast_count.write().await;
+            let reset_time = self.broadcast_count_reset.read().await;
+            let now = Instant::now();
+
+            // Check if we need to reset the counter
+            if now.duration_since(*reset_time) >= Duration::from_secs(60) {
+                drop(reset_time);
+                let mut reset = self.broadcast_count_reset.write().await;
+                *reset = now;
+                *count = 0;
+            }
+
+            if *count >= 60 {
+                warn!("Broadcast rate limit exceeded, skipping broadcast for peer {}", peer_key);
+                return;
+            }
+            *count += 1;
+        }
+
         let peers = self.peers.read().await.clone();
+        let my_addr = self.listen_addr;
 
         debug!(
             new_peer = %new_peer_info.address,
@@ -527,6 +581,11 @@ impl PeerManager {
         for (addr, _info) in peers {
             // Don't broadcast to the peer itself
             if addr == new_peer_info.address {
+                continue;
+            }
+
+            // Don't send broadcast back to ourselves
+            if addr == my_addr {
                 continue;
             }
 
@@ -682,6 +741,40 @@ impl PeerManager {
             }
         });
     }
+
+    /// Spawn a background task that periodically cleans up old broadcast tracking entries
+    /// and resets the rate limiter counter
+    fn spawn_broadcast_cleanup_task(&self) {
+        let recent_broadcasts = self.recent_peer_broadcasts.clone();
+        let broadcast_count = self.broadcast_count.clone();
+        let broadcast_count_reset = self.broadcast_count_reset.clone();
+
+        tokio::spawn(async move {
+            let mut ticker = time::interval(Duration::from_secs(60)); // Run every minute
+            loop {
+                ticker.tick().await;
+                let now = Instant::now();
+
+                // Clean up old broadcast tracking entries (older than 5 minutes)
+                {
+                    let mut broadcasts = recent_broadcasts.write().await;
+                    broadcasts.retain(|_, &mut last_broadcast| {
+                        now.duration_since(last_broadcast) < Duration::from_secs(300)
+                    });
+                }
+
+                // Reset rate limiter if a minute has passed
+                {
+                    let mut reset_time = broadcast_count_reset.write().await;
+                    if now.duration_since(*reset_time) >= Duration::from_secs(60) {
+                        let mut count = broadcast_count.write().await;
+                        *count = 0;
+                        *reset_time = now;
+                    }
+                }
+            }
+        });
+    }
 }
 
 // Implement Clone trait for PeerManager so `.clone()` is idiomatic.
@@ -695,6 +788,9 @@ impl Clone for PeerManager {
             last_seen: self.last_seen.clone(),
             stale_after: self.stale_after,
             reaper_interval: self.reaper_interval,
+            recent_peer_broadcasts: self.recent_peer_broadcasts.clone(),
+            broadcast_count: self.broadcast_count.clone(),
+            broadcast_count_reset: self.broadcast_count_reset.clone(),
         }
     }
 }

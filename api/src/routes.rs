@@ -219,6 +219,27 @@ async fn handle_peer_discovered(
         .parse()
         .map_err(|e| ApiError::BadRequest(format!("Invalid peer address: {}", e)))?;
 
+    // Check if this peer was recently processed (deduplication)
+    {
+        let mut broadcasts = state.recent_broadcasts.write().await;
+        let now = std::time::Instant::now();
+        let peer_key = peer_addr.to_string();
+        
+        if let Some(&last_seen) = broadcasts.get(&peer_key) {
+            if now.duration_since(last_seen) < std::time::Duration::from_secs(300) {
+                // Skip if we processed this peer within the last 5 minutes
+                return Ok(Json(serde_json::json!({
+                    "success": true,
+                    "message": "Peer already recently processed",
+                    "deduplicated": true
+                })));
+            }
+        }
+        
+        // Record this peer as processed
+        broadcasts.insert(peer_key, now);
+    }
+
     // Get network type from state (assume same network as us)
     let network = if state.network == "mainnet" {
         time_network::NetworkType::Mainnet
