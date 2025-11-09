@@ -1,5 +1,5 @@
-use crate::masternode_handlers::{list_masternodes, register_masternode}; // UPDATE THIS LINE
 use crate::handlers::get_node_wallet;
+use crate::masternode_handlers::{list_masternodes, register_masternode}; // UPDATE THIS LINE
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
 use axum::{

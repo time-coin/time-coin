@@ -47,8 +47,6 @@ struct WalletBalance {
     pending: u64,
 }
 
-
-
 struct PeerWithPing {
     address: String,
     ping_ms: u64,
@@ -88,8 +86,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     result
 }
-
-
 
 fn load_wallet_address(api_url: &str) -> Option<String> {
     // Method 1: Check environment variable first

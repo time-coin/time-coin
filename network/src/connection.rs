@@ -46,20 +46,21 @@ impl PeerConnection {
         their_handshake.validate(&network)?;
 
         // Update peer info with version AND build info for consensus fallback
-        peer.lock()
-            .await
-            .update_version_with_build_info(
-                their_handshake.version.clone(),
-                their_handshake.build_timestamp.clone(),
-                their_handshake.commit_count.clone(),
-            );
+        peer.lock().await.update_version_with_build_info(
+            their_handshake.version.clone(),
+            their_handshake.build_timestamp.clone(),
+            their_handshake.commit_count.clone(),
+        );
 
         // Log peer connection with full version info
         println!(
             "🔗 Connected to peer: {} | Version: {} | Built: {} | Commits: {}",
             peer_addr.ip(),
             their_handshake.version,
-            their_handshake.build_timestamp.as_deref().unwrap_or("unknown"),
+            their_handshake
+                .build_timestamp
+                .as_deref()
+                .unwrap_or("unknown"),
             their_handshake.commit_count.as_deref().unwrap_or("unknown")
         );
 

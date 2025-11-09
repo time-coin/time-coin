@@ -395,7 +395,10 @@ impl BlockProducer {
 
             // Log masternode reward distribution
             if !active_masternodes.is_empty() {
-                println!("   💰 Distributing rewards to {} masternodes:", active_masternodes.len());
+                println!(
+                    "   💰 Distributing rewards to {} masternodes:",
+                    active_masternodes.len()
+                );
                 for (wallet_addr, tier) in &active_masternodes {
                     println!("      - {:?} tier: {}", tier, wallet_addr);
                 }
