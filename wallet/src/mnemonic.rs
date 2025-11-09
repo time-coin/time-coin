@@ -184,7 +184,8 @@ mod tests {
 
     #[test]
     fn test_invalid_mnemonic() {
-        let result = validate_mnemonic("invalid word word word word word word word word word word word");
+        let result =
+            validate_mnemonic("invalid word word word word word word word word word word word");
         assert!(result.is_err());
     }
 
@@ -192,7 +193,7 @@ mod tests {
     fn test_mnemonic_to_keypair() {
         let mnemonic = generate_mnemonic(12).unwrap();
         let keypair = mnemonic_to_keypair(&mnemonic, "").unwrap();
-        
+
         // Verify we can get public key
         let _public_key = keypair.public_key_bytes();
     }
@@ -201,10 +202,10 @@ mod tests {
     fn test_mnemonic_deterministic() {
         // Same mnemonic should produce same keypair
         let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        
+
         let keypair1 = mnemonic_to_keypair(test_mnemonic, "").unwrap();
         let keypair2 = mnemonic_to_keypair(test_mnemonic, "").unwrap();
-        
+
         assert_eq!(keypair1.public_key_bytes(), keypair2.public_key_bytes());
         assert_eq!(keypair1.secret_key_bytes(), keypair2.secret_key_bytes());
     }
@@ -212,11 +213,11 @@ mod tests {
     #[test]
     fn test_mnemonic_with_passphrase() {
         let mnemonic = generate_mnemonic(12).unwrap();
-        
+
         // Different passphrases should produce different keypairs
         let keypair1 = mnemonic_to_keypair(&mnemonic, "").unwrap();
         let keypair2 = mnemonic_to_keypair(&mnemonic, "password").unwrap();
-        
+
         assert_ne!(keypair1.public_key_bytes(), keypair2.public_key_bytes());
     }
 
@@ -224,7 +225,7 @@ mod tests {
     fn test_mnemonic_phrase_wrapper() {
         let phrase = MnemonicPhrase::generate(12).unwrap();
         assert_eq!(phrase.word_count(), 12);
-        
+
         let keypair = phrase.to_keypair("").unwrap();
         let _public_key = keypair.public_key_bytes();
     }

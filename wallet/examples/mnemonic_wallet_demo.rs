@@ -29,7 +29,10 @@ fn main() {
     println!("3. Restoring wallet from the same mnemonic...");
     let restored_wallet = Wallet::from_mnemonic(&mnemonic_12, "", NetworkType::Mainnet).unwrap();
     println!("   Restored Address: {}", restored_wallet.address());
-    println!("   ✓ Addresses match: {}", wallet.address_string() == restored_wallet.address_string());
+    println!(
+        "   ✓ Addresses match: {}",
+        wallet.address_string() == restored_wallet.address_string()
+    );
     println!();
 
     // 4. Generate 24-word mnemonic (more secure)
@@ -46,7 +49,8 @@ fn main() {
     // 5. Using a passphrase for additional security
     println!("5. Creating wallet with passphrase (additional security layer)...");
     let passphrase = "my-secure-passphrase";
-    let wallet_with_pass = Wallet::from_mnemonic(&mnemonic_12, passphrase, NetworkType::Mainnet).unwrap();
+    let wallet_with_pass =
+        Wallet::from_mnemonic(&mnemonic_12, passphrase, NetworkType::Mainnet).unwrap();
     println!("   Wallet with passphrase: {}", wallet_with_pass.address());
     println!("   Wallet without passphrase: {}", wallet.address());
     println!("   ✓ Different addresses (same mnemonic, different passphrase)");
@@ -55,7 +59,7 @@ fn main() {
     // 6. Demonstrate transaction creation with mnemonic wallet
     println!("6. Creating a transaction with mnemonic-based wallet...");
     let mut sender = Wallet::from_mnemonic(&mnemonic_12, "", NetworkType::Mainnet).unwrap();
-    
+
     // Add some UTXOs for demonstration
     let utxo = UTXO {
         tx_hash: [1u8; 32],
@@ -67,8 +71,10 @@ fn main() {
     println!("   Balance: {} TIME", sender.balance());
 
     let recipient = Wallet::new(NetworkType::Mainnet).unwrap();
-    let tx = sender.create_transaction(&recipient.address_string(), 1000, 50).unwrap();
-    
+    let tx = sender
+        .create_transaction(&recipient.address_string(), 1000, 50)
+        .unwrap();
+
     println!("   Transaction created successfully!");
     println!("   TXID: {}", tx.txid());
     println!("   Outputs: {}", tx.outputs.len());
@@ -78,15 +84,18 @@ fn main() {
     println!("7. Testing wallet recovery scenario...");
     println!("   Original wallet address: {}", wallet.address());
     println!("   Original wallet public key: {}", wallet.public_key_hex());
-    
+
     // Simulate losing the wallet and recovering it
     println!("   [Simulating wallet loss...]");
     println!("   [Recovering from mnemonic phrase...]");
-    
+
     let recovered = Wallet::from_mnemonic(&mnemonic_12, "", NetworkType::Mainnet).unwrap();
     println!("   Recovered wallet address: {}", recovered.address());
-    println!("   Recovered wallet public key: {}", recovered.public_key_hex());
-    
+    println!(
+        "   Recovered wallet public key: {}",
+        recovered.public_key_hex()
+    );
+
     assert_eq!(wallet.address_string(), recovered.address_string());
     assert_eq!(wallet.public_key(), recovered.public_key());
     assert_eq!(wallet.secret_key(), recovered.secret_key());
