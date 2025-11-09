@@ -86,6 +86,15 @@ struct EventRecord {
     timestamp: DateTime<Utc>,
 }
 
+/// Public representation of an event with its timestamp
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventWithTimestamp {
+    /// The consensus event
+    pub event: ConsensusEvent,
+    /// When the event occurred
+    pub timestamp: DateTime<Utc>,
+}
+
 /// Monitoring manager
 pub struct ConsensusMonitor {
     /// Event history
@@ -291,8 +300,52 @@ impl ConsensusMonitor {
             .collect()
     }
     
+    /// Get event history with timestamps
+    /// 
+    /// Returns all events along with their timestamps for detailed timing analysis
+    pub async fn get_events_with_timestamps(&self) -> Vec<EventWithTimestamp> {
+        self.events
+            .read()
+            .await
+            .iter()
+            .map(|r| EventWithTimestamp {
+                event: r.event.clone(),
+                timestamp: r.timestamp,
+            })
+            .collect()
+    }
+    
+    /// Get events within a specific time range
+    /// 
+    /// Useful for debugging timing issues and analyzing event sequences
+    /// 
+    /// # Arguments
+    /// * `start` - Start of the time range (inclusive)
+    /// * `end` - End of the time range (inclusive)
+    pub async fn get_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Vec<EventWithTimestamp> {
+        self.events
+            .read()
+            .await
+            .iter()
+            .filter(|r| r.timestamp >= start && r.timestamp <= end)
+            .map(|r| EventWithTimestamp {
+                event: r.event.clone(),
+                timestamp: r.timestamp,
+            })
+            .collect()
+    }
+    
     /// Print summary report
-    pub async fn print_summary(&self) {
+    /// 
+    /// Optionally displays event timing information for detailed analysis
+    /// 
+    /// # Arguments
+    /// * `show_event_timeline` - If true, shows all events with their timestamps
+    pub async fn print_summary(&self, show_event_timeline: bool) {
         let metrics = self.metrics.read().await;
         if let Some(ref m) = *metrics {
             println!();
@@ -321,6 +374,25 @@ impl ConsensusMonitor {
             if m.emergency_mode {
                 println!("Emergency Mode:      🚨 YES");
             }
+            
+            // Show event timeline if requested
+            if show_event_timeline {
+                println!();
+                println!("─────────────────────────────────────────────────────────────");
+                println!("Event Timeline:");
+                let events_with_timestamps = self.get_events_with_timestamps().await;
+                
+                if let Some(first_event) = events_with_timestamps.first() {
+                    let start_time = first_event.timestamp;
+                    
+                    for event_record in events_with_timestamps {
+                        let elapsed = (event_record.timestamp - start_time).num_milliseconds();
+                        println!("  [{:>6}ms] {:?}", elapsed, event_record.event);
+                    }
+                }
+                println!("─────────────────────────────────────────────────────────────");
+            }
+            
             println!("╚════════════════════════════════════════════════════════════╝");
             println!();
         }
@@ -405,5 +477,167 @@ mod tests {
         let metrics = monitor.complete_round(true).await.unwrap();
         assert!(metrics.total_duration_ms >= 100);
         assert!(metrics.success);
+    }
+    
+    #[tokio::test]
+    async fn test_get_events_with_timestamps() {
+        let monitor = ConsensusMonitor::new();
+        monitor.start_round(100).await;
+        
+        // Add a small delay between events to ensure different timestamps
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        
+        monitor
+            .record_event(ConsensusEvent::HeartbeatReceived {
+                node_id: "node1".to_string(),
+            })
+            .await;
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        
+        monitor
+            .record_event(ConsensusEvent::HeartbeatReceived {
+                node_id: "node2".to_string(),
+            })
+            .await;
+        
+        let events_with_timestamps = monitor.get_events_with_timestamps().await;
+        
+        // Should have 3 events: ProtocolStarted + 2 heartbeats
+        assert_eq!(events_with_timestamps.len(), 3);
+        
+        // Verify timestamps are in chronological order
+        for i in 0..events_with_timestamps.len() - 1 {
+            assert!(
+                events_with_timestamps[i].timestamp <= events_with_timestamps[i + 1].timestamp,
+                "Timestamps should be in chronological order"
+            );
+        }
+        
+        // Verify first event is ProtocolStarted
+        match &events_with_timestamps[0].event {
+            ConsensusEvent::ProtocolStarted { block_height } => {
+                assert_eq!(*block_height, 100);
+            }
+            _ => panic!("First event should be ProtocolStarted"),
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_get_events_in_time_range() {
+        let monitor = ConsensusMonitor::new();
+        
+        let start_time = Utc::now();
+        monitor.start_round(100).await;
+        
+        // Record some events with delays
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        monitor
+            .record_event(ConsensusEvent::HeartbeatReceived {
+                node_id: "node1".to_string(),
+            })
+            .await;
+        
+        let mid_time = Utc::now();
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        monitor
+            .record_event(ConsensusEvent::HeartbeatReceived {
+                node_id: "node2".to_string(),
+            })
+            .await;
+        
+        let end_time = Utc::now();
+        
+        // Get events in the full time range
+        let all_events = monitor
+            .get_events_in_time_range(start_time, end_time)
+            .await;
+        assert_eq!(all_events.len(), 3); // ProtocolStarted + 2 heartbeats
+        
+        // Get events after mid_time (should only include the last heartbeat)
+        let later_events = monitor
+            .get_events_in_time_range(mid_time, end_time)
+            .await;
+        assert_eq!(later_events.len(), 1);
+        match &later_events[0].event {
+            ConsensusEvent::HeartbeatReceived { node_id } => {
+                assert_eq!(node_id, "node2");
+            }
+            _ => panic!("Expected HeartbeatReceived event"),
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_timestamp_field_is_used() {
+        // This test verifies that the timestamp field is actually being read
+        let monitor = ConsensusMonitor::new();
+        monitor.start_round(100).await;
+        
+        let before = Utc::now();
+        
+        monitor
+            .record_event(ConsensusEvent::LeaderElected {
+                leader: "leader1".to_string(),
+                weight: 100,
+            })
+            .await;
+        
+        let after = Utc::now();
+        
+        let events = monitor.get_events_with_timestamps().await;
+        
+        // Find the LeaderElected event and verify its timestamp
+        let leader_event = events
+            .iter()
+            .find(|e| matches!(e.event, ConsensusEvent::LeaderElected { .. }))
+            .expect("Should find LeaderElected event");
+        
+        // Timestamp should be between before and after
+        assert!(
+            leader_event.timestamp >= before && leader_event.timestamp <= after,
+            "Timestamp should be within the expected range"
+        );
+    }
+    
+    #[tokio::test]
+    async fn test_print_summary_with_timeline() {
+        let monitor = ConsensusMonitor::new();
+        monitor.start_round(100).await;
+        
+        monitor
+            .record_event(ConsensusEvent::HeartbeatReceived {
+                node_id: "node1".to_string(),
+            })
+            .await;
+        
+        monitor
+            .record_event(ConsensusEvent::VoteReceived {
+                voter: "node1".to_string(),
+                approve: true,
+                weight: 10,
+            })
+            .await;
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        monitor.complete_round(true).await;
+        
+        // This should not panic and should print the timeline
+        monitor.print_summary(true).await;
+        
+        // Also test without timeline
+        monitor.print_summary(false).await;
+    }
+    
+    #[tokio::test]
+    async fn test_empty_time_range() {
+        let monitor = ConsensusMonitor::new();
+        
+        // Create a time range before any events
+        let start = Utc::now();
+        let end = start + chrono::Duration::milliseconds(100);
+        
+        let events = monitor.get_events_in_time_range(start, end).await;
+        assert_eq!(events.len(), 0, "Should have no events in empty time range");
     }
 }
