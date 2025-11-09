@@ -1,0 +1,24 @@
+[package]
+name = "wallet-gui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+wallet = { version = "0.1.0", path = "../wallet" }
+time-core = { version = "0.1.0", path = "../core" }
+time-network = { version = "0.1.0", path = "../network" }
+eframe = "0.31"  # egui framework with native window support
+egui = "0.31"
+egui_extras = { version = "0.31", features = ["image"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+dirs = "5.0"  # for finding user home directory
+env_logger = "0.11"  # for logging
