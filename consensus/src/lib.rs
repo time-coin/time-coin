@@ -6,6 +6,8 @@
 // Public modules
 pub mod phased_protocol;
 pub mod leader_election;
+pub mod heartbeat;
+pub mod fallback;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
