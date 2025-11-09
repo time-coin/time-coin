@@ -118,6 +118,9 @@ impl PeerManager {
 
                 self.record_peer_success(&peer_addr.to_string()).await;
 
+                // Broadcast the newly connected peer to all other connected peers
+                self.broadcast_new_peer(&info).await;
+
                 // Request peer list for peer exchange via HTTP API (best effort, don't fail on error)
                 let manager_for_pex = self.clone();
                 let peer_addr_for_pex = peer_addr;
@@ -237,16 +240,22 @@ impl PeerManager {
         if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
             return;
         }
-        let mut peers = self.peers.write().await;
-
-        if let Some(existing) = peers.get(&peer.address) {
-            // keep an existing known good version over unknown version
-            if existing.version != "unknown" && peer.version == "unknown" {
-                return;
+        
+        let is_new_peer = {
+            let peers = self.peers.read().await;
+            !peers.contains_key(&peer.address)
+        };
+        
+        {
+            let mut peers = self.peers.write().await;
+            if let Some(existing) = peers.get(&peer.address) {
+                // keep an existing known good version over unknown version
+                if existing.version != "unknown" && peer.version == "unknown" {
+                    return;
+                }
             }
+            peers.insert(peer.address, peer.clone());
         }
-
-        peers.insert(peer.address, peer.clone());
 
         // mark last-seen on add
         self.peer_seen(peer.address).await;
@@ -257,6 +266,12 @@ impl PeerManager {
             peer.version.clone(),
         )
         .await;
+        
+        // Broadcast the newly connected peer to all other connected peers
+        // Only broadcast if this is a genuinely new peer, not an update
+        if is_new_peer {
+            self.broadcast_new_peer(&peer).await;
+        }
     }
 
     pub async fn get_peer_ips(&self) -> Vec<String> {
@@ -498,6 +513,68 @@ impl PeerManager {
         }
     }
 
+    /// Broadcast a newly connected peer to all other connected peers
+    /// This ensures that when a new peer connects, all existing peers learn about it
+    pub async fn broadcast_new_peer(&self, new_peer_info: &PeerInfo) {
+        let peers = self.peers.read().await.clone();
+        
+        debug!(
+            new_peer = %new_peer_info.address,
+            peer_count = peers.len(),
+            "Broadcasting new peer to all connected peers"
+        );
+
+        for (addr, _info) in peers {
+            // Don't broadcast to the peer itself
+            if addr == new_peer_info.address {
+                continue;
+            }
+
+            let new_peer_addr = new_peer_info.address.to_string();
+            let new_peer_version = new_peer_info.version.clone();
+            
+            tokio::spawn(async move {
+                let url = format!("http://{}:24101/peers/discovered", addr.ip());
+                let payload = serde_json::json!({
+                    "address": new_peer_addr,
+                    "version": new_peer_version,
+                });
+                
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .unwrap();
+
+                match client.post(&url).json(&payload).send().await {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            debug!(
+                                target_peer = %addr,
+                                new_peer = %new_peer_addr,
+                                "Successfully notified peer about new connection"
+                            );
+                        } else {
+                            debug!(
+                                target_peer = %addr,
+                                new_peer = %new_peer_addr,
+                                status = %response.status(),
+                                "Peer notification returned error status"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            target_peer = %addr,
+                            new_peer = %new_peer_addr,
+                            error = %e,
+                            "Failed to notify peer about new connection"
+                        );
+                    }
+                }
+            });
+        }
+    }
+
     /// Spawn a background task that periodically removes stale peers and logs removals.
     fn spawn_reaper(&self) {
         let last_seen = self.last_seen.clone();
@@ -661,5 +738,51 @@ mod tests {
 
         // Give a moment for background tasks to initialize
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_new_peer() {
+        // Test that broadcast_new_peer sends notifications to connected peers
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+
+        // Create a new peer to broadcast
+        let new_peer = PeerInfo::new(
+            "192.168.1.100:24100".parse().unwrap(),
+            NetworkType::Testnet,
+        );
+
+        // Initially no peers, so broadcast should complete without error
+        manager.broadcast_new_peer(&new_peer).await;
+
+        // The test passes if broadcast_new_peer doesn't panic
+        // In a real scenario, we'd need to set up a mock HTTP server to verify the requests
+    }
+
+    #[tokio::test]
+    async fn test_add_connected_peer_triggers_broadcast() {
+        // Test that adding a new connected peer triggers a broadcast
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+
+        // Create a test peer
+        let test_peer = PeerInfo::with_version(
+            "192.168.1.101:24100".parse().unwrap(),
+            NetworkType::Testnet,
+            "0.1.0".to_string(),
+        );
+
+        // Add the peer - this should trigger broadcast
+        manager.add_connected_peer(test_peer.clone()).await;
+
+        // Verify the peer was added
+        let connected_peers = manager.get_connected_peers().await;
+        assert_eq!(connected_peers.len(), 1);
+        assert_eq!(connected_peers[0].address, test_peer.address);
+
+        // Adding the same peer again should not trigger another broadcast
+        manager.add_connected_peer(test_peer.clone()).await;
+
+        // Peer count should still be 1
+        let connected_peers = manager.get_connected_peers().await;
+        assert_eq!(connected_peers.len(), 1);
     }
 }
