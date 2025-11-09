@@ -2282,6 +2282,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
+ "hex",
  "md5",
  "owo-colors",
  "reqwest 0.12.24",
