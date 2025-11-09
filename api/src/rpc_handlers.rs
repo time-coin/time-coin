@@ -651,7 +651,7 @@ pub async fn listtransactions(
     let mut transactions = Vec::new();
     
     // Scan recent blocks for transactions involving this wallet
-    let start_height = if tip_height > 100 { tip_height - 100 } else { 0 };
+    let start_height = tip_height.saturating_sub(100);
     
     for height in (start_height..=tip_height).rev() {
         if let Some(block) = blockchain.get_block_by_height(height) {
