@@ -18,6 +18,7 @@ hex = "0.4"
 thiserror = "2.0"
 chrono = "0.4"
 time-core = { version = "0.1.0", path = "../core" }
+qrcode = "0.14"
 time-mempool = { version = "0.1.0", path = "../mempool" }
 
 [dev-dependencies]

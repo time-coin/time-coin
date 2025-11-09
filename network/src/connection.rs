@@ -77,15 +77,21 @@ impl PeerConnection {
             }
         }
 
-        // Check version and warn if outdated
-        if crate::protocol::is_version_outdated(&their_handshake.version) {
-            println!(
-                "{}",
-                crate::protocol::version_mismatch_message(
-                    &their_handshake.listen_addr.to_string(),
-                    &their_handshake.version
-                )
+        // Check version and warn ONLY if peer is running a NEWER version
+        if crate::protocol::should_warn_version_update(
+            their_handshake.build_timestamp.as_deref(),
+            their_handshake.commit_count.as_deref(),
+        ) {
+            let warning = crate::protocol::version_update_warning(
+                &format!("{}", peer_addr),
+                &their_handshake.version,
+                their_handshake
+                    .build_timestamp
+                    .as_deref()
+                    .unwrap_or("unknown"),
+                their_handshake.commit_count.as_deref().unwrap_or("0"),
             );
+            eprintln!("{}", warning);
         }
 
         Ok(PeerConnection {

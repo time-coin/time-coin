@@ -187,6 +187,23 @@ impl WalletManager {
     }
 
     /// Import private key
+    /// Get QR code for an address as SVG
+    pub fn get_address_qr_code_svg(&self, address: &str) -> Result<String, String> {
+        self.wallet_dat
+            .get_keys()
+            .iter()
+            .find(|k| k.address == address)
+            .ok_or_else(|| "Address not found".to_string())
+            .and_then(|_| {
+                let wallet = Wallet::from_secret_key(
+                    &self.wallet_dat.get_keys().iter().find(|k| k.address == address).unwrap().keypair_bytes,
+                    self.wallet_dat.network
+                ).map_err(|e| e.to_string())?;
+                wallet.address_qr_code_svg().map_err(|e| e.to_string())
+            })
+    }
+
+
     pub fn import_private_key(&mut self, hex_key: &str, label: String) -> Result<String, WalletDatError> {
         let keypair = Keypair::from_hex(hex_key)?;
         let key = self.wallet_dat.add_keypair(keypair, label, false)?;
