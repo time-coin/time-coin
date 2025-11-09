@@ -53,7 +53,7 @@ impl ApiState {
             tx_broadcaster: None,
             recent_broadcasts: Arc::new(RwLock::new(HashMap::new())),
         };
-        
+
         // Spawn cleanup task for recent_broadcasts
         let recent_broadcasts_clone = state.recent_broadcasts.clone();
         tokio::spawn(async move {
@@ -63,11 +63,12 @@ impl ApiState {
                 let mut broadcasts = recent_broadcasts_clone.write().await;
                 let now = Instant::now();
                 broadcasts.retain(|_, &mut last_seen| {
-                    now.duration_since(last_seen) < std::time::Duration::from_secs(300) // 5 minutes
+                    now.duration_since(last_seen) < std::time::Duration::from_secs(300)
+                    // 5 minutes
                 });
             }
         });
-        
+
         state
     }
 
