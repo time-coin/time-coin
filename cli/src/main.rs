@@ -1158,7 +1158,7 @@ async fn main() {
     }
 
     // Calculate dynamic mempool capacity based on available RAM
-    use sysinfo::{System, SystemExt};
+    use sysinfo::System;
     let mut sys = System::new_all();
     sys.refresh_memory();
 

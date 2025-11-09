@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 use tokio::sync::RwLock;
 
 pub struct ResourceMonitor {
