@@ -8,6 +8,7 @@ pub mod phased_protocol;
 pub mod leader_election;
 pub mod heartbeat;
 pub mod fallback;
+pub mod orchestrator;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
