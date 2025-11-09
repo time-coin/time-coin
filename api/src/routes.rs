@@ -23,6 +23,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/balance/{address}", get(get_balance))
         .route("/utxos/{address}", get(get_utxos_by_address))
         .route("/peers", get(get_peers))
+        .route("/peers/discovered", post(handle_peer_discovered))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
         // Allow peers to push a snapshot to this node
@@ -196,6 +197,65 @@ async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<PeersRespons
         peers: peer_info,
         count,
     }))
+}
+
+/// Handle notification of a newly discovered peer from another node
+#[derive(serde::Deserialize)]
+struct PeerDiscoveredRequest {
+    address: String,
+    version: String,
+}
+
+async fn handle_peer_discovered(
+    State(state): State<ApiState>,
+    Json(req): Json<PeerDiscoveredRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use std::net::SocketAddr;
+    use time_network::PeerInfo as NetworkPeerInfo;
+
+    // Parse the address
+    let peer_addr: SocketAddr = req.address.parse()
+        .map_err(|e| ApiError::BadRequest(format!("Invalid peer address: {}", e)))?;
+
+    // Get network type from state (assume same network as us)
+    let network = if state.network == "mainnet" {
+        time_network::NetworkType::Mainnet
+    } else {
+        time_network::NetworkType::Testnet
+    };
+
+    // Create peer info
+    let peer_info = NetworkPeerInfo::with_version(peer_addr, network, req.version.clone());
+
+    // Add to peer exchange for future connections
+    state.peer_manager.add_discovered_peer(
+        peer_addr.ip().to_string(),
+        peer_addr.port(),
+        req.version,
+    ).await;
+
+    println!(
+        "📡 Learned about new peer {} from peer broadcast",
+        peer_addr
+    );
+
+    // Attempt to connect to the newly discovered peer
+    let peer_manager_clone = state.peer_manager.clone();
+    tokio::spawn(async move {
+        match peer_manager_clone.connect_to_peer(peer_info).await {
+            Ok(_) => {
+                println!("✓ Successfully connected to broadcasted peer {}", peer_addr);
+            }
+            Err(e) => {
+                println!("⚠ Failed to connect to broadcasted peer {}: {}", peer_addr, e);
+            }
+        }
+    });
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Peer discovered and connection attempted"
+    })))
 }
 
 async fn get_genesis(State(_state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
