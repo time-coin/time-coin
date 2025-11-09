@@ -532,7 +532,7 @@ impl PeerManager {
         {
             let mut broadcasts = self.recent_peer_broadcasts.write().await;
             let now = Instant::now();
-            
+
             if let Some(&last_broadcast) = broadcasts.get(&peer_key) {
                 if now.duration_since(last_broadcast) < Duration::from_secs(300) {
                     // Skip broadcasting if we broadcast this peer within the last 5 minutes
@@ -543,7 +543,7 @@ impl PeerManager {
                     return;
                 }
             }
-            
+
             // Record this broadcast
             broadcasts.insert(peer_key.clone(), now);
         }
@@ -563,7 +563,10 @@ impl PeerManager {
             }
 
             if *count >= 60 {
-                warn!("Broadcast rate limit exceeded, skipping broadcast for peer {}", peer_key);
+                warn!(
+                    "Broadcast rate limit exceeded, skipping broadcast for peer {}",
+                    peer_key
+                );
                 return;
             }
             *count += 1;
