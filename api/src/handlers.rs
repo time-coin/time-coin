@@ -1,11 +1,7 @@
 //! API Request Handlers
 
 use crate::ApiState;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, Json};
 use serde_json::json;
 
 // Get the node's wallet address
