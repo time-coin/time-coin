@@ -1167,12 +1167,12 @@ impl BlockProducer {
             address: "TIME1treasury00000000000000000000000000".to_string(),
         }];
 
-        // Get registered masternodes with their wallet addresses from blockchain
-        let registered_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+        // Filter masternodes to only include those that participated in voting
+        let voting_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_all_masternodes()
             .iter()
             .filter_map(|mn| {
-                if mn.is_active {
+                if mn.is_active && voters.contains(&mn.address) {
                     Some((mn.wallet_address.clone(), mn.tier))
                 } else {
                     None
@@ -1180,33 +1180,33 @@ impl BlockProducer {
             })
             .collect();
 
-        println!(
-            "      💡 DEBUG: registered masternodes = {}",
-            registered_masternodes.len()
-        );
         println!("      💡 DEBUG: voters = {:?}", voters);
+        println!(
+            "      💡 DEBUG: voting masternodes = {}",
+            voting_masternodes.len()
+        );
 
-        // If we have registered masternodes, distribute rewards
-        if !registered_masternodes.is_empty() {
+        // If we have voting masternodes, distribute rewards
+        if !voting_masternodes.is_empty() {
             println!(
-                "      💰 Distributing rewards to {} registered masternodes",
-                registered_masternodes.len()
+                "      💰 Distributing rewards to {} voting masternodes",
+                voting_masternodes.len()
             );
 
             // Use the built-in distribution function
             let masternode_outputs =
-                distribute_masternode_rewards(&registered_masternodes, &masternode_counts);
+                distribute_masternode_rewards(&voting_masternodes, &masternode_counts);
 
             outputs.extend(masternode_outputs);
 
             println!(
                 "      ✓ Added {} masternode reward outputs",
-                registered_masternodes.len()
+                voting_masternodes.len()
             );
         } else {
-            println!("      ⚠️  No registered masternodes - treasury reward only");
+            println!("      ⚠️  No voting masternodes - treasury reward only");
             println!(
-                "      💡 To receive rewards, masternodes must be registered in blockchain state"
+                "      💡 To receive rewards, masternodes must vote in consensus"
             );
         }
 
