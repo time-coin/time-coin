@@ -90,40 +90,44 @@ enum WalletCommands {
         db_path: PathBuf,
     },
 
-    /// Get wallet balance
+    /// Get wallet balance (defaults to node wallet)
     Balance {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// Get wallet information
+    /// Get wallet information (defaults to node wallet)
     Info {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// List all UTXOs
+    /// List all UTXOs (defaults to node wallet)
     ListUtxos {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// Lock collateral for masternode tier
+    /// Lock collateral for masternode tier (defaults to node wallet)
     LockCollateral {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Tier (bronze, silver, gold)
         tier: String,
@@ -133,20 +137,22 @@ enum WalletCommands {
         db_path: PathBuf,
     },
 
-    /// Unlock collateral
+    /// Unlock collateral (defaults to node wallet)
     UnlockCollateral {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// Add reward to wallet (for testing)
+    /// Add reward to wallet (for testing, defaults to node wallet)
     AddReward {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Amount in TIME
         amount: f64,
@@ -168,10 +174,11 @@ enum RpcCommands {
     /// Get current block count
     GetBlockCount,
 
-    /// Get block hash at specific height
+    /// Get block hash at specific height (defaults to latest)
     GetBlockHash {
-        /// Block height
-        height: u64,
+        /// Block height (optional, defaults to current tip)
+        #[arg(short = 'H', long)]
+        height: Option<u64>,
     },
 
     /// Get block by hash
@@ -235,10 +242,11 @@ enum RpcCommands {
     /// Get time block information
     GetTimeBlockInfo,
 
-    /// Get time block rewards
+    /// Get time block rewards (defaults to current height)
     GetTimeBlockRewards {
-        /// Block height
-        height: u64,
+        /// Block height (optional, defaults to current)
+        #[arg(short = 'H', long)]
+        height: Option<u64>,
     },
 
     /// Get consensus status
@@ -253,10 +261,11 @@ enum RpcCommands {
 
 #[derive(Subcommand)]
 enum MasternodeCommands {
-    /// Register a masternode
+    /// Register a masternode (defaults to local node)
     Register {
-        /// Node IP address
-        node_ip: String,
+        /// Node IP address (optional, defaults to local IP)
+        #[arg(short = 'n', long)]
+        node_ip: Option<String>,
 
         /// Wallet address
         wallet_address: String,
@@ -266,10 +275,11 @@ enum MasternodeCommands {
         tier: String,
     },
 
-    /// Get masternode information
+    /// Get masternode information (defaults to local node)
     Info {
-        /// Masternode address (IP or node ID)
-        address: String,
+        /// Masternode address (optional, defaults to local node IP)
+        #[arg(short, long)]
+        address: Option<String>,
     },
 
     /// List all masternodes
@@ -315,6 +325,30 @@ struct ConsensusStatus {
     bft_threshold: f64,
     instant_finality: bool,
     consensus_mode: String,
+}
+
+// Helper function to get local IP or fall back
+fn get_local_ip_or_fallback() -> String {
+    if let Ok(ip) = local_ip_address::local_ip() {
+        ip.to_string()
+    } else {
+        "127.0.0.1".to_string()
+    }
+}
+
+// Helper function to get current blockchain height
+async fn get_current_height(client: &Client, api: &str) -> Result<u64, Box<dyn std::error::Error>> {
+    let response = client
+        .get(format!("{}/blockchain/info", api))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let info: serde_json::Value = response.json().await?;
+        Ok(info["height"].as_u64().unwrap_or(0))
+    } else {
+        Ok(0)
+    }
 }
 
 #[tokio::main]
@@ -478,7 +512,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn handle_wallet_command(
     command: WalletCommands,
-    _api: &str,
+    api: &str,
     json_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
@@ -519,6 +553,45 @@ async fn handle_wallet_command(
             }
         }
 
+        WalletCommands::Balance {
+            address,
+            db_path: _,
+        } => {
+            let addr = if let Some(a) = address {
+                a
+            } else {
+                // Get node wallet address from API
+                let client = reqwest::Client::new();
+                let response = client
+                    .get(format!("{}/blockchain/info", api))
+                    .send()
+                    .await?;
+
+                if response.status().is_success() {
+                    let info: serde_json::Value = response.json().await?;
+                    info["wallet_address"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            };
+
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "address": addr,
+                        "message": "This wallet command requires local database access"
+                    }))?
+                );
+            } else {
+                println!("Address: {}", addr);
+                println!("This wallet command requires local database access");
+            }
+        }
+
         _ => {
             if json_output {
                 println!(
@@ -553,11 +626,17 @@ async fn handle_rpc_command(
         }
 
         RpcCommands::GetBlockHash { height } => {
+            let h = if let Some(height) = height {
+                height
+            } else {
+                get_current_height(client, api).await?
+            };
+
             handle_rpc_call(
                 client,
                 api,
                 "getblockhash",
-                json!({ "height": height }),
+                json!({ "height": h }),
                 json_output,
             )
             .await?;
@@ -656,11 +735,17 @@ async fn handle_rpc_command(
         }
 
         RpcCommands::GetTimeBlockRewards { height } => {
+            let h = if let Some(height) = height {
+                height
+            } else {
+                get_current_height(client, api).await?
+            };
+
             handle_rpc_call(
                 client,
                 api,
                 "gettimeblockrewards",
-                json!({ "height": height }),
+                json!({ "height": h }),
                 json_output,
             )
             .await?;
@@ -735,10 +820,12 @@ async fn handle_masternode_command(
             wallet_address,
             tier,
         } => {
+            let ip = node_ip.unwrap_or_else(get_local_ip_or_fallback);
+
             let response = client
                 .post(format!("{}/masternode/register", api))
                 .json(&json!({
-                    "node_ip": node_ip,
+                    "node_ip": ip,
                     "wallet_address": wallet_address,
                     "tier": tier
                 }))
@@ -771,9 +858,11 @@ async fn handle_masternode_command(
         }
 
         MasternodeCommands::Info { address } => {
+            let addr = address.unwrap_or_else(get_local_ip_or_fallback);
+
             let response = client
                 .post(format!("{}/rpc/getmasternodeinfo", api))
-                .json(&json!({ "address": address }))
+                .json(&json!({ "address": addr }))
                 .send()
                 .await?;
 
