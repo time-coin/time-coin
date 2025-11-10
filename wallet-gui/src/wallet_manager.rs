@@ -24,7 +24,8 @@ impl WalletManager {
         wallet_dat.save(&wallet_path)?;
 
         // Create active wallet from primary key
-        let active_wallet = Self::create_wallet_from_key(&wallet_dat, wallet_dat.get_primary_key().unwrap())?;
+        let active_wallet =
+            Self::create_wallet_from_key(&wallet_dat, wallet_dat.get_primary_key().unwrap())?;
 
         Ok(Self {
             wallet_dat,
@@ -58,7 +59,10 @@ impl WalletManager {
     }
 
     /// Helper to create a Wallet instance from a KeyEntry
-    fn create_wallet_from_key(wallet_dat: &WalletDat, key: &KeyEntry) -> Result<Wallet, WalletDatError> {
+    fn create_wallet_from_key(
+        wallet_dat: &WalletDat,
+        key: &KeyEntry,
+    ) -> Result<Wallet, WalletDatError> {
         let wallet = Wallet::from_secret_key(&key.keypair_bytes, wallet_dat.network)?;
         Ok(wallet)
     }
@@ -89,7 +93,11 @@ impl WalletManager {
     }
 
     /// Generate a new key
-    pub fn generate_new_key(&mut self, label: String, set_as_default: bool) -> Result<String, WalletDatError> {
+    pub fn generate_new_key(
+        &mut self,
+        label: String,
+        set_as_default: bool,
+    ) -> Result<String, WalletDatError> {
         let key = self.wallet_dat.generate_key(label, set_as_default)?;
         let address = key.address.clone();
 
@@ -118,7 +126,10 @@ impl WalletManager {
 
     /// Get current balance from active wallet
     pub fn get_balance(&self) -> u64 {
-        self.active_wallet.as_ref().map(|w| w.balance()).unwrap_or(0)
+        self.active_wallet
+            .as_ref()
+            .map(|w| w.balance())
+            .unwrap_or(0)
     }
 
     /// Get primary address
@@ -196,15 +207,25 @@ impl WalletManager {
             .ok_or_else(|| "Address not found".to_string())
             .and_then(|_| {
                 let wallet = Wallet::from_secret_key(
-                    &self.wallet_dat.get_keys().iter().find(|k| k.address == address).unwrap().keypair_bytes,
-                    self.wallet_dat.network
-                ).map_err(|e| e.to_string())?;
+                    &self
+                        .wallet_dat
+                        .get_keys()
+                        .iter()
+                        .find(|k| k.address == address)
+                        .unwrap()
+                        .keypair_bytes,
+                    self.wallet_dat.network,
+                )
+                .map_err(|e| e.to_string())?;
                 wallet.address_qr_code_svg().map_err(|e| e.to_string())
             })
     }
 
-
-    pub fn import_private_key(&mut self, hex_key: &str, label: String) -> Result<String, WalletDatError> {
+    pub fn import_private_key(
+        &mut self,
+        hex_key: &str,
+        label: String,
+    ) -> Result<String, WalletDatError> {
         let keypair = Keypair::from_hex(hex_key)?;
         let key = self.wallet_dat.add_keypair(keypair, label, false)?;
         let address = key.address.clone();
@@ -239,7 +260,8 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("test-wallet-balance");
         let _ = std::fs::create_dir_all(&temp_dir);
 
-        let mut manager = WalletManager::create_new(NetworkType::Testnet, "Test".to_string()).unwrap();
+        let mut manager =
+            WalletManager::create_new(NetworkType::Testnet, "Test".to_string()).unwrap();
         assert_eq!(manager.get_balance(), 0);
 
         let address = manager.get_primary_address().unwrap();

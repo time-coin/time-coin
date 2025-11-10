@@ -331,17 +331,30 @@ impl Wallet {
     /// Generate QR code for the wallet address (as ASCII art for terminal display)
     pub fn address_qr_code(&self) -> Result<String, WalletError> {
         use qrcode::QrCode;
-        let code = QrCode::new(self.address_string().as_bytes()).map_err(|_| WalletError::SerializationError)?;
-        let string = code.render::<char>().quiet_zone(true).module_dimensions(2, 1).dark_color('█').light_color(' ').build();
+        let code = QrCode::new(self.address_string().as_bytes())
+            .map_err(|_| WalletError::SerializationError)?;
+        let string = code
+            .render::<char>()
+            .quiet_zone(true)
+            .module_dimensions(2, 1)
+            .dark_color('█')
+            .light_color(' ')
+            .build();
         Ok(string)
     }
 
     /// Generate QR code as SVG string (for GUI applications)
     pub fn address_qr_code_svg(&self) -> Result<String, WalletError> {
-        use qrcode::QrCode;
         use qrcode::render::svg;
-        let code = QrCode::new(self.address_string().as_bytes()).map_err(|_| WalletError::SerializationError)?;
-        let svg = code.render().min_dimensions(200, 200).dark_color(svg::Color("#000000")).light_color(svg::Color("#ffffff")).build();
+        use qrcode::QrCode;
+        let code = QrCode::new(self.address_string().as_bytes())
+            .map_err(|_| WalletError::SerializationError)?;
+        let svg = code
+            .render()
+            .min_dimensions(200, 200)
+            .dark_color(svg::Color("#000000"))
+            .light_color(svg::Color("#ffffff"))
+            .build();
         Ok(svg)
     }
 

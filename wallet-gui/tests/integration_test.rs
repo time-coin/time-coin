@@ -127,8 +127,8 @@ fn test_insufficient_funds() {
 
 #[test]
 fn test_wallet_persistence() {
-    use wallet::Wallet;
     use std::fs;
+    use wallet::Wallet;
 
     let temp_path = "/tmp/test_wallet_persist.json";
 

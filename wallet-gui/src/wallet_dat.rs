@@ -98,7 +98,11 @@ impl WalletDat {
     }
 
     /// Generate a new key and add it to the wallet
-    pub fn generate_key(&mut self, label: String, is_default: bool) -> Result<&KeyEntry, WalletDatError> {
+    pub fn generate_key(
+        &mut self,
+        label: String,
+        is_default: bool,
+    ) -> Result<&KeyEntry, WalletDatError> {
         let keypair = Keypair::generate()?;
         self.add_keypair(keypair, label, is_default)
     }

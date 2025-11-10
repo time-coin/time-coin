@@ -1,5 +1,5 @@
 //! Example: Create and use a TIME Coin wallet programmatically
-//! 
+//!
 //! This example shows how to use the wallet components without the GUI.
 //! Run with: cargo run --example basic_wallet
 
@@ -35,13 +35,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let amount = 2500;
     let fee = 10;
     let tx = alice.create_transaction(&bob.address_string(), amount, fee)?;
-    
+
     println!("Transaction created!");
     println!("  Inputs: {}", tx.inputs.len());
     println!("  Outputs: {}", tx.outputs.len());
     println!("  Amount sent: {} TIME", amount);
     println!("  Fee: {} TIME", fee);
-    println!("  Change: {} TIME\n", tx.outputs.get(1).map(|o| o.amount).unwrap_or(0));
+    println!(
+        "  Change: {} TIME\n",
+        tx.outputs.get(1).map(|o| o.amount).unwrap_or(0)
+    );
 
     // 5. Export and import private key
     println!("Exporting Alice's private key...");
@@ -51,7 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Importing private key to create Alice2...");
     let alice2 = Wallet::from_private_key_hex(&private_key, NetworkType::Testnet)?;
     println!("Alice2's address: {}", alice2.address_string());
-    println!("Addresses match: {}\n", alice.address_string() == alice2.address_string());
+    println!(
+        "Addresses match: {}\n",
+        alice.address_string() == alice2.address_string()
+    );
 
     // 6. Save wallet to file
     println!("Saving Alice's wallet to file...");
@@ -63,9 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading wallet from file...");
     let loaded_wallet = Wallet::load_from_file(wallet_path)?;
     println!("Loaded address: {}", loaded_wallet.address_string());
-    println!("Addresses match: {}\n", alice.address_string() == loaded_wallet.address_string());
+    println!(
+        "Addresses match: {}\n",
+        alice.address_string() == loaded_wallet.address_string()
+    );
 
     println!("=== Example completed successfully! ===");
-    
+
     Ok(())
 }
