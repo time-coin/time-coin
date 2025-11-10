@@ -16,7 +16,7 @@
 
 3. **Start node:**
 ```bash
-   time-node -c ~/time-coin-node/config/testnet.toml
+   timed -c ~/time-coin-node/config/testnet.toml
 ```
 
 ## Path Expansion
