@@ -1004,10 +1004,10 @@ async fn main() {
     // ═══════════════════════════════════════════════════════════════
     // STEP 4.5: Initialize Chain Sync
     // ═══════════════════════════════════════════════════════════════
-    
+
     // Create shared state for block producer activity
     let block_producer_active_state = Arc::new(RwLock::new(false));
-    
+
     // Configure midnight window from config
     let midnight_config = if config.sync.midnight_window_enabled.unwrap_or(true) {
         Some(chain_sync::MidnightWindowConfig {
@@ -1018,7 +1018,7 @@ async fn main() {
     } else {
         None
     };
-    
+
     let chain_sync = Arc::new(ChainSync::with_midnight_config(
         Arc::clone(&blockchain),
         Arc::clone(&peer_manager),

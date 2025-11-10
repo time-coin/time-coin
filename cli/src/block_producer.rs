@@ -56,6 +56,7 @@ impl BlockProducer {
     }
 
     /// Create a BlockProducer with a shared active state
+    #[allow(clippy::too_many_arguments)]
     pub fn with_shared_state(
         node_id: String,
         peer_manager: Arc<PeerManager>,
@@ -128,7 +129,7 @@ impl BlockProducer {
 
             // It's midnight! Produce block immediately
             println!("Midnight reached - producing block...");
-            
+
             // Mark block producer as active during block production
             *self.is_active.write().await = true;
             self.create_and_propose_block().await;

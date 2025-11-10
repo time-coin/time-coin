@@ -31,8 +31,8 @@ pub struct MidnightWindowConfig {
 impl Default for MidnightWindowConfig {
     fn default() -> Self {
         Self {
-            start_hour: 23,  // 11 PM
-            end_hour: 1,      // 1 AM
+            start_hour: 23, // 11 PM
+            end_hour: 1,    // 1 AM
             check_consensus: true,
         }
     }
@@ -76,7 +76,7 @@ impl ChainSync {
         if let Some(config) = &self.midnight_config {
             let now = Utc::now();
             let hour = now.hour();
-            
+
             // Handle window that spans midnight (e.g., 23:00 to 01:00)
             if config.start_hour > config.end_hour {
                 hour >= config.start_hour || hour < config.end_hour
@@ -461,7 +461,7 @@ mod tests {
         let config = MidnightWindowConfig::default();
         assert_eq!(config.start_hour, 23);
         assert_eq!(config.end_hour, 1);
-        assert_eq!(config.check_consensus, true);
+        assert!(config.check_consensus);
     }
 
     #[test]
@@ -474,7 +474,11 @@ mod tests {
         };
 
         // Check that hour 23 (11 PM) is in window
-        let now = Utc::now().date_naive().and_hms_opt(23, 30, 0).unwrap().and_utc();
+        let now = Utc::now()
+            .date_naive()
+            .and_hms_opt(23, 30, 0)
+            .unwrap()
+            .and_utc();
         let hour = now.hour();
         let in_window = if config.start_hour > config.end_hour {
             hour >= config.start_hour || hour < config.end_hour
@@ -484,7 +488,11 @@ mod tests {
         assert!(in_window, "Hour 23 should be in midnight window");
 
         // Check that hour 0 (midnight) is in window
-        let now = Utc::now().date_naive().and_hms_opt(0, 30, 0).unwrap().and_utc();
+        let now = Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 30, 0)
+            .unwrap()
+            .and_utc();
         let hour = now.hour();
         let in_window = if config.start_hour > config.end_hour {
             hour >= config.start_hour || hour < config.end_hour
@@ -494,17 +502,28 @@ mod tests {
         assert!(in_window, "Hour 0 should be in midnight window");
 
         // Check that hour 1 (1 AM) is NOT in window (exclusive end)
-        let now = Utc::now().date_naive().and_hms_opt(1, 0, 0).unwrap().and_utc();
+        let now = Utc::now()
+            .date_naive()
+            .and_hms_opt(1, 0, 0)
+            .unwrap()
+            .and_utc();
         let hour = now.hour();
         let in_window = if config.start_hour > config.end_hour {
             hour >= config.start_hour || hour < config.end_hour
         } else {
             hour >= config.start_hour && hour < config.end_hour
         };
-        assert!(!in_window, "Hour 1 should not be in midnight window (exclusive)");
+        assert!(
+            !in_window,
+            "Hour 1 should not be in midnight window (exclusive)"
+        );
 
         // Check that hour 12 (noon) is NOT in window
-        let now = Utc::now().date_naive().and_hms_opt(12, 0, 0).unwrap().and_utc();
+        let now = Utc::now()
+            .date_naive()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc();
         let hour = now.hour();
         let in_window = if config.start_hour > config.end_hour {
             hour >= config.start_hour || hour < config.end_hour
@@ -524,7 +543,11 @@ mod tests {
         };
 
         // Check that hour 22 is in window
-        let now = Utc::now().date_naive().and_hms_opt(22, 30, 0).unwrap().and_utc();
+        let now = Utc::now()
+            .date_naive()
+            .and_hms_opt(22, 30, 0)
+            .unwrap()
+            .and_utc();
         let hour = now.hour();
         let in_window = if config.start_hour > config.end_hour {
             hour >= config.start_hour || hour < config.end_hour
@@ -534,7 +557,11 @@ mod tests {
         assert!(in_window, "Hour 22 should be in window");
 
         // Check that hour 23 is NOT in window (exclusive end)
-        let now = Utc::now().date_naive().and_hms_opt(23, 0, 0).unwrap().and_utc();
+        let now = Utc::now()
+            .date_naive()
+            .and_hms_opt(23, 0, 0)
+            .unwrap()
+            .and_utc();
         let hour = now.hour();
         let in_window = if config.start_hour > config.end_hour {
             hour >= config.start_hour || hour < config.end_hour
@@ -544,7 +571,11 @@ mod tests {
         assert!(!in_window, "Hour 23 should not be in window (exclusive)");
 
         // Check that hour 21 is NOT in window
-        let now = Utc::now().date_naive().and_hms_opt(21, 30, 0).unwrap().and_utc();
+        let now = Utc::now()
+            .date_naive()
+            .and_hms_opt(21, 30, 0)
+            .unwrap()
+            .and_utc();
         let hour = now.hour();
         let in_window = if config.start_hour > config.end_hour {
             hour >= config.start_hour || hour < config.end_hour
