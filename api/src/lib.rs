@@ -2,10 +2,14 @@ mod error;
 mod handlers;
 pub mod masternode_handlers;
 mod routes;
+mod rpc_handlers;
 mod state; // Add this line
 
 pub use error::{ApiError, ApiResult};
 pub use state::ApiState;
+
+// Re-export create_routes for testing
+pub use routes::create_routes;
 
 use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE},
