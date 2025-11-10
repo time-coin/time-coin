@@ -17,6 +17,7 @@ bs58 = "0.5"
 hex = "0.4"
 thiserror = "2.0"
 chrono = "0.4"
+bip39 = { version = "2.2", features = ["serde", "rand"] }
 time-core = { version = "0.1.0", path = "../core" }
 time-mempool = { version = "0.1.0", path = "../mempool" }
 
