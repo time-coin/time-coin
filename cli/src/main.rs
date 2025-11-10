@@ -64,6 +64,9 @@ struct Config {
 
     #[serde(default)]
     rpc: RpcConfig,
+
+    #[serde(default)]
+    sync: SyncConfig,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -103,6 +106,18 @@ struct RpcConfig {
     bind: Option<String>,
     port: Option<u16>,
     admin_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SyncConfig {
+    /// Enable midnight window sync skipping
+    midnight_window_enabled: Option<bool>,
+    /// Hour before midnight to start window (default: 23 = 11 PM)
+    midnight_window_start_hour: Option<u32>,
+    /// Hour after midnight to end window (default: 1 = 1 AM)
+    midnight_window_end_hour: Option<u32>,
+    /// Check consensus status before skipping (default: true)
+    midnight_window_check_consensus: Option<bool>,
 }
 
 fn load_config(path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
@@ -989,9 +1004,26 @@ async fn main() {
     // ═══════════════════════════════════════════════════════════════
     // STEP 4.5: Initialize Chain Sync
     // ═══════════════════════════════════════════════════════════════
-    let chain_sync = Arc::new(ChainSync::new(
+    
+    // Create shared state for block producer activity
+    let block_producer_active_state = Arc::new(RwLock::new(false));
+    
+    // Configure midnight window from config
+    let midnight_config = if config.sync.midnight_window_enabled.unwrap_or(true) {
+        Some(chain_sync::MidnightWindowConfig {
+            start_hour: config.sync.midnight_window_start_hour.unwrap_or(23),
+            end_hour: config.sync.midnight_window_end_hour.unwrap_or(1),
+            check_consensus: config.sync.midnight_window_check_consensus.unwrap_or(true),
+        })
+    } else {
+        None
+    };
+    
+    let chain_sync = Arc::new(ChainSync::with_midnight_config(
         Arc::clone(&blockchain),
         Arc::clone(&peer_manager),
+        midnight_config,
+        block_producer_active_state.clone(),
     ));
 
     // Run initial sync
@@ -1475,7 +1507,7 @@ async fn main() {
         }
     }
 
-    let block_producer = BlockProducer::new(
+    let block_producer = BlockProducer::with_shared_state(
         node_id.clone(),
         peer_manager.clone(),
         consensus.clone(),
@@ -1483,6 +1515,7 @@ async fn main() {
         mempool.clone(),
         block_consensus.clone(),
         tx_consensus.clone(),
+        block_producer_active_state,
     );
 
     tokio::spawn(async move {

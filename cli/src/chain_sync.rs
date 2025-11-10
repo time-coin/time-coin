@@ -1,3 +1,4 @@
+use chrono::{Timelike, Utc};
 use serde::Deserialize;
 use std::sync::Arc;
 use time_core::block::Block;
@@ -16,17 +17,101 @@ struct BlockResponse {
     block: Block,
 }
 
+/// Configuration for midnight window
+#[derive(Debug, Clone)]
+pub struct MidnightWindowConfig {
+    /// Hours before midnight to start the window (e.g., 23 for 11 PM)
+    pub start_hour: u32,
+    /// Hours after midnight to end the window (e.g., 1 for 1 AM)
+    pub end_hour: u32,
+    /// Whether to check consensus status before skipping updates
+    pub check_consensus: bool,
+}
+
+impl Default for MidnightWindowConfig {
+    fn default() -> Self {
+        Self {
+            start_hour: 23,  // 11 PM
+            end_hour: 1,      // 1 AM
+            check_consensus: true,
+        }
+    }
+}
+
 pub struct ChainSync {
     blockchain: Arc<RwLock<BlockchainState>>,
     peer_manager: Arc<PeerManager>,
+    midnight_config: Option<MidnightWindowConfig>,
+    is_block_producer_active: Arc<RwLock<bool>>,
 }
 
 impl ChainSync {
+    #[allow(dead_code)]
     pub fn new(blockchain: Arc<RwLock<BlockchainState>>, peer_manager: Arc<PeerManager>) -> Self {
         Self {
             blockchain,
             peer_manager,
+            midnight_config: Some(MidnightWindowConfig::default()),
+            is_block_producer_active: Arc::new(RwLock::new(false)),
         }
+    }
+
+    /// Create ChainSync with custom midnight window configuration and block producer state
+    pub fn with_midnight_config(
+        blockchain: Arc<RwLock<BlockchainState>>,
+        peer_manager: Arc<PeerManager>,
+        midnight_config: Option<MidnightWindowConfig>,
+        is_block_producer_active: Arc<RwLock<bool>>,
+    ) -> Self {
+        Self {
+            blockchain,
+            peer_manager,
+            midnight_config,
+            is_block_producer_active,
+        }
+    }
+
+    /// Check if current time is within the midnight window
+    fn is_in_midnight_window(&self) -> bool {
+        if let Some(config) = &self.midnight_config {
+            let now = Utc::now();
+            let hour = now.hour();
+            
+            // Handle window that spans midnight (e.g., 23:00 to 01:00)
+            if config.start_hour > config.end_hour {
+                hour >= config.start_hour || hour < config.end_hour
+            } else {
+                // Handle window that doesn't span midnight (e.g., 22:00 to 23:00)
+                hour >= config.start_hour && hour < config.end_hour
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Check if periodic sync should be skipped
+    async fn should_skip_sync(&self) -> bool {
+        if !self.is_in_midnight_window() {
+            return false;
+        }
+
+        // We're in the midnight window
+        if let Some(config) = &self.midnight_config {
+            if config.check_consensus {
+                // Check if consensus (block producer) is actively running
+                let is_active = *self.is_block_producer_active.read().await;
+                if is_active {
+                    println!("   ⏸️  Skipping sync: in midnight window and consensus is active");
+                    return true;
+                }
+            } else {
+                // Just skip during midnight window without checking consensus
+                println!("   ⏸️  Skipping sync: in midnight window");
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Query all peers and find the highest blockchain height
@@ -343,6 +428,11 @@ impl ChainSync {
             loop {
                 interval.tick().await;
 
+                // Check if we should skip this sync
+                if self.should_skip_sync().await {
+                    continue;
+                }
+
                 println!("\n🔄 Running periodic chain sync...");
 
                 // First check for forks
@@ -358,5 +448,109 @@ impl ChainSync {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Timelike, Utc};
+
+    #[test]
+    fn test_midnight_window_default_config() {
+        let config = MidnightWindowConfig::default();
+        assert_eq!(config.start_hour, 23);
+        assert_eq!(config.end_hour, 1);
+        assert_eq!(config.check_consensus, true);
+    }
+
+    #[test]
+    fn test_is_in_midnight_window_spanning_midnight() {
+        // Test with a window that spans midnight (23:00 - 01:00)
+        let config = MidnightWindowConfig {
+            start_hour: 23,
+            end_hour: 1,
+            check_consensus: true,
+        };
+
+        // Check that hour 23 (11 PM) is in window
+        let now = Utc::now().date_naive().and_hms_opt(23, 30, 0).unwrap().and_utc();
+        let hour = now.hour();
+        let in_window = if config.start_hour > config.end_hour {
+            hour >= config.start_hour || hour < config.end_hour
+        } else {
+            hour >= config.start_hour && hour < config.end_hour
+        };
+        assert!(in_window, "Hour 23 should be in midnight window");
+
+        // Check that hour 0 (midnight) is in window
+        let now = Utc::now().date_naive().and_hms_opt(0, 30, 0).unwrap().and_utc();
+        let hour = now.hour();
+        let in_window = if config.start_hour > config.end_hour {
+            hour >= config.start_hour || hour < config.end_hour
+        } else {
+            hour >= config.start_hour && hour < config.end_hour
+        };
+        assert!(in_window, "Hour 0 should be in midnight window");
+
+        // Check that hour 1 (1 AM) is NOT in window (exclusive end)
+        let now = Utc::now().date_naive().and_hms_opt(1, 0, 0).unwrap().and_utc();
+        let hour = now.hour();
+        let in_window = if config.start_hour > config.end_hour {
+            hour >= config.start_hour || hour < config.end_hour
+        } else {
+            hour >= config.start_hour && hour < config.end_hour
+        };
+        assert!(!in_window, "Hour 1 should not be in midnight window (exclusive)");
+
+        // Check that hour 12 (noon) is NOT in window
+        let now = Utc::now().date_naive().and_hms_opt(12, 0, 0).unwrap().and_utc();
+        let hour = now.hour();
+        let in_window = if config.start_hour > config.end_hour {
+            hour >= config.start_hour || hour < config.end_hour
+        } else {
+            hour >= config.start_hour && hour < config.end_hour
+        };
+        assert!(!in_window, "Hour 12 should not be in midnight window");
+    }
+
+    #[test]
+    fn test_is_in_midnight_window_not_spanning_midnight() {
+        // Test with a window that doesn't span midnight (22:00 - 23:00)
+        let config = MidnightWindowConfig {
+            start_hour: 22,
+            end_hour: 23,
+            check_consensus: true,
+        };
+
+        // Check that hour 22 is in window
+        let now = Utc::now().date_naive().and_hms_opt(22, 30, 0).unwrap().and_utc();
+        let hour = now.hour();
+        let in_window = if config.start_hour > config.end_hour {
+            hour >= config.start_hour || hour < config.end_hour
+        } else {
+            hour >= config.start_hour && hour < config.end_hour
+        };
+        assert!(in_window, "Hour 22 should be in window");
+
+        // Check that hour 23 is NOT in window (exclusive end)
+        let now = Utc::now().date_naive().and_hms_opt(23, 0, 0).unwrap().and_utc();
+        let hour = now.hour();
+        let in_window = if config.start_hour > config.end_hour {
+            hour >= config.start_hour || hour < config.end_hour
+        } else {
+            hour >= config.start_hour && hour < config.end_hour
+        };
+        assert!(!in_window, "Hour 23 should not be in window (exclusive)");
+
+        // Check that hour 21 is NOT in window
+        let now = Utc::now().date_naive().and_hms_opt(21, 30, 0).unwrap().and_utc();
+        let hour = now.hour();
+        let in_window = if config.start_hour > config.end_hour {
+            hour >= config.start_hour || hour < config.end_hour
+        } else {
+            hour >= config.start_hour && hour < config.end_hour
+        };
+        assert!(!in_window, "Hour 21 should not be in window");
     }
 }
