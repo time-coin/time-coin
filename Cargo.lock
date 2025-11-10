@@ -4738,6 +4738,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
+ "hex",
  "md5",
  "owo-colors",
  "reqwest 0.12.24",
@@ -5364,6 +5365,7 @@ name = "wallet"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "bip39",
  "bs58",
  "chrono",
  "ed25519-dalek",

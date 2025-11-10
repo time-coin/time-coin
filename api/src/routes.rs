@@ -1,5 +1,6 @@
 use crate::handlers::get_node_wallet;
 use crate::masternode_handlers::{list_masternodes, register_masternode}; // UPDATE THIS LINE
+use crate::rpc_handlers;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
 use axum::{
@@ -44,6 +45,23 @@ pub fn create_routes() -> Router<ApiState> {
         // Consensus block retrieval / push endpoints (axum style)
         .route("/consensus/block/{height}", get(get_consensus_block))
         .route("/consensus/finalized-block", post(receive_finalized_block))
+        // Bitcoin RPC-compatible endpoints
+        .route("/rpc/getblockchaininfo", post(rpc_handlers::getblockchaininfo))
+        .route("/rpc/getblockcount", post(rpc_handlers::getblockcount))
+        .route("/rpc/getblockhash", post(rpc_handlers::getblockhash))
+        .route("/rpc/getblock", post(rpc_handlers::getblock))
+        .route("/rpc/getrawtransaction", post(rpc_handlers::getrawtransaction))
+        .route("/rpc/sendrawtransaction", post(rpc_handlers::sendrawtransaction))
+        .route("/rpc/getwalletinfo", post(rpc_handlers::getwalletinfo))
+        .route("/rpc/getbalance", post(rpc_handlers::getbalance))
+        .route("/rpc/getnewaddress", post(rpc_handlers::getnewaddress))
+        .route("/rpc/validateaddress", post(rpc_handlers::validateaddress))
+        .route("/rpc/listunspent", post(rpc_handlers::listunspent))
+        .route("/rpc/listtransactions", post(rpc_handlers::listtransactions))
+        .route("/rpc/getpeerinfo", post(rpc_handlers::getpeerinfo))
+        .route("/rpc/getnetworkinfo", post(rpc_handlers::getnetworkinfo))
+        .route("/rpc/getmininginfo", post(rpc_handlers::getmininginfo))
+        .route("/rpc/estimatefee", post(rpc_handlers::estimatefee))
 }
 
 async fn root() -> &'static str {

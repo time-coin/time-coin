@@ -1,5 +1,6 @@
 use crate::address::{Address, AddressError, NetworkType};
 use crate::keypair::{Keypair, KeypairError};
+use crate::mnemonic::{mnemonic_to_keypair, MnemonicError};
 use crate::transaction::{Transaction, TransactionError, TxInput, TxOutput};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -28,6 +29,9 @@ pub enum WalletError {
 
     #[error("Invalid address")]
     InvalidAddress,
+
+    #[error("Mnemonic error: {0}")]
+    MnemonicError(#[from] MnemonicError),
 }
 
 /// UTXO (Unspent Transaction Output)
@@ -89,6 +93,42 @@ impl Wallet {
     /// Create a wallet from hex-encoded secret key
     pub fn from_private_key_hex(hex_key: &str, network: NetworkType) -> Result<Self, WalletError> {
         let keypair = Keypair::from_hex(hex_key)?;
+        let public_key = keypair.public_key_bytes();
+        let address = Address::from_public_key(&public_key, network)?;
+
+        Ok(Self {
+            keypair,
+            address,
+            network,
+            balance: 0,
+            nonce: 0,
+            utxos: Vec::new(),
+        })
+    }
+
+    /// Create a wallet from a BIP-39 mnemonic phrase
+    ///
+    /// # Arguments
+    /// * `mnemonic` - The mnemonic phrase (space-separated words)
+    /// * `passphrase` - Optional passphrase for additional security (use "" for none)
+    /// * `network` - Network type (Mainnet or Testnet)
+    ///
+    /// # Returns
+    /// * `Result<Self, WalletError>` - The created wallet
+    ///
+    /// # Example
+    /// ```
+    /// use wallet::{Wallet, NetworkType, generate_mnemonic};
+    ///
+    /// let mnemonic = generate_mnemonic(12).unwrap();
+    /// let wallet = Wallet::from_mnemonic(&mnemonic, "", NetworkType::Mainnet).unwrap();
+    /// ```
+    pub fn from_mnemonic(
+        mnemonic: &str,
+        passphrase: &str,
+        network: NetworkType,
+    ) -> Result<Self, WalletError> {
+        let keypair = mnemonic_to_keypair(mnemonic, passphrase)?;
         let public_key = keypair.public_key_bytes();
         let address = Address::from_public_key(&public_key, network)?;
 
@@ -448,5 +488,55 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_file(temp_file);
+    }
+
+    #[test]
+    fn test_wallet_from_mnemonic() {
+        use crate::mnemonic::generate_mnemonic;
+
+        let mnemonic = generate_mnemonic(12).unwrap();
+        let wallet = Wallet::from_mnemonic(&mnemonic, "", NetworkType::Mainnet).unwrap();
+
+        assert!(!wallet.is_testnet());
+        assert_eq!(wallet.balance(), 0);
+        assert_eq!(wallet.nonce(), 0);
+    }
+
+    #[test]
+    fn test_wallet_mnemonic_deterministic() {
+        // Same mnemonic should produce same wallet
+        let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+        let wallet1 = Wallet::from_mnemonic(test_mnemonic, "", NetworkType::Mainnet).unwrap();
+        let wallet2 = Wallet::from_mnemonic(test_mnemonic, "", NetworkType::Mainnet).unwrap();
+
+        assert_eq!(wallet1.address_string(), wallet2.address_string());
+        assert_eq!(wallet1.public_key(), wallet2.public_key());
+        assert_eq!(wallet1.secret_key(), wallet2.secret_key());
+    }
+
+    #[test]
+    fn test_wallet_mnemonic_with_passphrase() {
+        use crate::mnemonic::generate_mnemonic;
+
+        let mnemonic = generate_mnemonic(12).unwrap();
+
+        // Different passphrases should produce different wallets
+        let wallet1 = Wallet::from_mnemonic(&mnemonic, "", NetworkType::Mainnet).unwrap();
+        let wallet2 = Wallet::from_mnemonic(&mnemonic, "password", NetworkType::Mainnet).unwrap();
+
+        assert_ne!(wallet1.address_string(), wallet2.address_string());
+        assert_ne!(wallet1.public_key(), wallet2.public_key());
+    }
+
+    #[test]
+    fn test_wallet_from_invalid_mnemonic() {
+        let result = Wallet::from_mnemonic(
+            "invalid word word word word word word word word word word word",
+            "",
+            NetworkType::Mainnet,
+        );
+
+        assert!(result.is_err());
     }
 }

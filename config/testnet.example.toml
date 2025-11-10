@@ -44,6 +44,26 @@ collateral = 1000
 testnet_mode = true
 testnet_auto_fund = true
 
+[sync]
+# Midnight window configuration for periodic chain sync
+# When enabled, periodic network updates are conditionally skipped during a configurable 
+# time window around midnight to avoid interference with consensus operations
+
+# Enable/disable midnight window sync skipping (default: true)
+midnight_window_enabled = true
+
+# Hour to start the midnight window (24-hour format, default: 23 = 11 PM UTC)
+midnight_window_start_hour = 23
+
+# Hour to end the midnight window (24-hour format, default: 1 = 1 AM UTC)
+# This creates a 2-hour window from 11 PM to 1 AM by default
+midnight_window_end_hour = 1
+
+# Whether to check if consensus is actively running before skipping sync (default: true)
+# If true, sync is only skipped when in the midnight window AND consensus is active
+# If false, sync is skipped whenever in the midnight window
+midnight_window_check_consensus = true
+
 [logging]
 level = "info"
 file = "$HOME/time-coin-node/logs/node.log"

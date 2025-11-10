@@ -29,9 +29,11 @@ pub struct BlockProducer {
     block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
     #[allow(dead_code)]
     tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+    is_active: Arc<RwLock<bool>>,
 }
 
 impl BlockProducer {
+    #[allow(dead_code)]
     pub fn new(
         node_id: String,
         peer_manager: Arc<PeerManager>,
@@ -49,7 +51,38 @@ impl BlockProducer {
             mempool,
             block_consensus,
             tx_consensus,
+            is_active: Arc::new(RwLock::new(false)),
         }
+    }
+
+    /// Create a BlockProducer with a shared active state
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_shared_state(
+        node_id: String,
+        peer_manager: Arc<PeerManager>,
+        consensus: Arc<ConsensusEngine>,
+        blockchain: Arc<RwLock<BlockchainState>>,
+        mempool: Arc<time_mempool::Mempool>,
+        block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
+        tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+        is_active: Arc<RwLock<bool>>,
+    ) -> Self {
+        BlockProducer {
+            node_id,
+            peer_manager,
+            consensus,
+            blockchain,
+            mempool,
+            block_consensus,
+            tx_consensus,
+            is_active,
+        }
+    }
+
+    /// Get a reference to the block producer active state
+    #[allow(dead_code)]
+    pub fn get_active_state(&self) -> Arc<RwLock<bool>> {
+        self.is_active.clone()
     }
 
     async fn load_block_height(&self) -> u64 {
@@ -96,7 +129,11 @@ impl BlockProducer {
 
             // It's midnight! Produce block immediately
             println!("Midnight reached - producing block...");
+
+            // Mark block producer as active during block production
+            *self.is_active.write().await = true;
             self.create_and_propose_block().await;
+            *self.is_active.write().await = false;
 
             // Sleep a few seconds to avoid duplicate triggers
             tokio::time::sleep(Duration::from_secs(5)).await;
