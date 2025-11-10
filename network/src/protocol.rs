@@ -335,14 +335,20 @@ pub fn should_warn_version_update(
     peer_build: Option<&str>,
     peer_commit_count: Option<&str>,
 ) -> bool {
-    if let Some(peer_build_time) = peer_build {
-        if is_remote_version_newer(BUILD_TIMESTAMP, peer_build_time) {
+    // First check commit counts - this is the primary version indicator
+    if let Some(peer_commits) = peer_commit_count {
+        if is_remote_commit_newer(GIT_COMMIT_COUNT, peer_commits) {
             return true;
+        }
+        // If peer has same or older commit count, no update needed
+        if peer_commits == GIT_COMMIT_COUNT {
+            return false;
         }
     }
 
-    if let Some(peer_commits) = peer_commit_count {
-        if is_remote_commit_newer(GIT_COMMIT_COUNT, peer_commits) {
+    // Only check build time if commit count is unavailable or older
+    if let Some(peer_build_time) = peer_build {
+        if is_remote_version_newer(BUILD_TIMESTAMP, peer_build_time) {
             return true;
         }
     }
