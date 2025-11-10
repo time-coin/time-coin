@@ -3,7 +3,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiPeer {
-    pub address: String,  // This includes port like "134.199.175.106:24100"
+    pub address: String, // This includes port like "134.199.175.106:24100"
     pub version: String,
     pub connected: bool,
 }
@@ -56,98 +56,107 @@ impl NetworkManager {
             client: reqwest::Client::new(),
         }
     }
-    
+
     pub fn api_endpoint(&self) -> &str {
         &self.api_endpoint
     }
-    
+
     pub fn current_block_height(&self) -> u64 {
         self.current_block_height
     }
-    
+
     pub fn network_block_height(&self) -> u64 {
         self.network_block_height
     }
-    
+
     /// Fetch peer list from API
     pub async fn fetch_peers(&self) -> Result<Vec<PeerInfo>, String> {
         let url = format!("{}/peers", self.api_endpoint);
-        
+
         log::info!("Fetching peers from: {}", url);
-        
+
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-        
+
         let response = client
             .get(&url)
             .send()
             .await
             .map_err(|e| format!("Failed to fetch peers: {}", e))?;
-        
+
         if !response.status().is_success() {
             return Err(format!("API returned error: {}", response.status()));
         }
-        
+
         let api_response: ApiPeersResponse = response
             .json()
             .await
             .map_err(|e| format!("Failed to parse peer response: {}", e))?;
-        
+
         log::info!("Fetched {} peers from API", api_response.count);
-        
+
         // Convert ApiPeer to PeerInfo
-        let peer_infos: Vec<PeerInfo> = api_response.peers.iter().map(|api_peer| {
-            let parts: Vec<&str> = api_peer.address.split(':').collect();
-            let ip = parts.get(0).unwrap_or(&"").to_string();
-            let port = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(24100);
-            PeerInfo {
-                address: ip,
-                port,
-                version: Some(api_peer.version.clone()),
-                last_seen: Some(std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()),
-                latency_ms: 0,
-            }
-        }).collect();
+        let peer_infos: Vec<PeerInfo> = api_response
+            .peers
+            .iter()
+            .map(|api_peer| {
+                let parts: Vec<&str> = api_peer.address.split(':').collect();
+                let ip = parts.get(0).unwrap_or(&"").to_string();
+                let port = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(24100);
+                PeerInfo {
+                    address: ip,
+                    port,
+                    version: Some(api_peer.version.clone()),
+                    last_seen: Some(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                    ),
+                    latency_ms: 0,
+                }
+            })
+            .collect();
         Ok(peer_infos)
     }
-    
+
     /// Connect to peers (placeholder - will be implemented with P2P)
     pub async fn connect_to_peers(&mut self, peers: Vec<PeerInfo>) -> Result<(), String> {
         log::info!("Attempting to connect to {} peers", peers.len());
-        
+
         // TODO: Implement actual P2P connection logic
         self.connected_peers = peers;
-        
+
         Ok(())
     }
-    
+
     /// Get peer count
     pub fn peer_count(&self) -> u32 {
         self.connected_peers.len() as u32
     }
-    
+
     /// Check if synced
     pub fn is_synced(&self) -> bool {
         !self.is_syncing && self.sync_progress >= 1.0 && self.current_block_height > 0
     }
-    
+
     /// Get sync progress (0.0 to 1.0)
     pub fn sync_progress(&self) -> f32 {
         self.sync_progress
     }
-    
+
     /// Start syncing blockchain
     pub async fn start_sync(&mut self) -> Result<(), String> {
         if self.connected_peers.is_empty() {
             return Err("No peers connected".to_string());
         }
 
-        log::info!("Starting blockchain sync from {} peers...", self.connected_peers.len());
+        log::info!(
+            "Starting blockchain sync from {} peers...",
+            self.connected_peers.len()
+        );
         self.is_syncing = true;
         self.sync_progress = 0.0;
 
@@ -168,25 +177,29 @@ impl NetworkManager {
             }
         };
     }
-        
+
     pub async fn fetch_blockchain_info(&self) -> Result<BlockchainInfo, String> {
         // Try each connected peer until we get a successful response
         for peer in &self.connected_peers {
             let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
             let url = format!("http://{}:24101/blockchain/info", peer_ip);
-            
+
             log::info!("Fetching blockchain info from peer: {}", url);
-            
+
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(5))
                 .build()
                 .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-            
+
             match client.get(&url).send().await {
                 Ok(response) if response.status().is_success() => {
                     match response.json::<BlockchainInfo>().await {
                         Ok(info) => {
-                            log::info!("Got blockchain height {} from peer {}", info.height, peer_ip);
+                            log::info!(
+                                "Got blockchain height {} from peer {}",
+                                info.height,
+                                peer_ip
+                            );
                             return Ok(info);
                         }
                         Err(e) => {
@@ -205,15 +218,14 @@ impl NetworkManager {
                 }
             }
         }
-        
+
         Err("No peers responded with blockchain info".to_string())
     }
 
-    
     /// Bootstrap network connections
     pub async fn bootstrap(&mut self, bootstrap_nodes: Vec<String>) -> Result<(), String> {
         log::info!("Bootstrapping network with {} nodes", bootstrap_nodes.len());
-        
+
         // First, try to fetch peers from API
         match self.fetch_peers().await {
             Ok(peers) => {
@@ -223,7 +235,7 @@ impl NetworkManager {
             Err(e) => {
                 log::warn!("Failed to fetch peers from API: {}", e);
                 log::info!("Falling back to bootstrap nodes");
-                
+
                 // Fall back to bootstrap nodes from config
                 let fallback_peers: Vec<PeerInfo> = bootstrap_nodes
                     .into_iter()
@@ -235,18 +247,18 @@ impl NetworkManager {
                                     port,
                                     version: None,
                                     last_seen: None,
-                                latency_ms: 0,
+                                    latency_ms: 0,
                                 });
                             }
                         }
                         None
                     })
                     .collect();
-                
+
                 self.connect_to_peers(fallback_peers).await?;
             }
         }
-        
+
         // Start blockchain sync
         self.start_sync().await?;
 
@@ -255,7 +267,7 @@ impl NetworkManager {
         if let Err(e) = self.discover_and_connect_peers().await {
             log::warn!("Peer discovery had issues: {}", e);
         }
-        
+
         Ok(())
     }
 
@@ -263,9 +275,15 @@ impl NetworkManager {
     async fn measure_latency(&self, peer_address: &str) -> Result<u64, String> {
         let peer_ip = peer_address.split(':').next().unwrap_or(peer_address);
         let url = format!("http://{}:24101/blockchain/info", peer_ip);
-        
+
         let start = std::time::Instant::now();
-        match self.client.get(&url).timeout(Duration::from_secs(3)).send().await {
+        match self
+            .client
+            .get(&url)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+        {
             Ok(response) if response.status().is_success() => {
                 let latency = start.elapsed().as_millis() as u64;
                 Ok(latency)
@@ -279,30 +297,47 @@ impl NetworkManager {
     async fn discover_peers_from_peer(&self, peer_address: &str) -> Result<Vec<PeerInfo>, String> {
         let peer_ip = peer_address.split(':').next().unwrap_or(peer_address);
         let url = format!("http://{}:24101/peers", peer_ip);
-        
+
         log::info!("Discovering peers from: {}", url);
-        
-        match self.client.get(&url).timeout(Duration::from_secs(5)).send().await {
+
+        match self
+            .client
+            .get(&url)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+        {
             Ok(response) if response.status().is_success() => {
                 match response.json::<ApiPeersResponse>().await {
                     Ok(data) => {
-                        log::info!("Discovered {} peers from {}", data.peers.len(), peer_address);
+                        log::info!(
+                            "Discovered {} peers from {}",
+                            data.peers.len(),
+                            peer_address
+                        );
                         // Convert ApiPeer to PeerInfo
-                        let peer_infos: Vec<PeerInfo> = data.peers.iter().map(|api_peer| {
-                            let parts: Vec<&str> = api_peer.address.split(':').collect();
-                            let ip = parts.get(0).unwrap_or(&"").to_string();
-                            let port = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(24100);
-                            PeerInfo {
-                                address: ip,
-                                port,
-                                version: Some(api_peer.version.clone()),
-                                last_seen: Some(std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs()),
-                                latency_ms: 0,
-                            }
-                        }).collect();
+                        let peer_infos: Vec<PeerInfo> = data
+                            .peers
+                            .iter()
+                            .map(|api_peer| {
+                                let parts: Vec<&str> = api_peer.address.split(':').collect();
+                                let ip = parts.get(0).unwrap_or(&"").to_string();
+                                let port =
+                                    parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(24100);
+                                PeerInfo {
+                                    address: ip,
+                                    port,
+                                    version: Some(api_peer.version.clone()),
+                                    last_seen: Some(
+                                        std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs(),
+                                    ),
+                                    latency_ms: 0,
+                                }
+                            })
+                            .collect();
                         Ok(peer_infos)
                     }
                     Err(e) => {
@@ -312,7 +347,11 @@ impl NetworkManager {
                 }
             }
             Ok(response) => {
-                log::warn!("Peer {} returned status: {}", peer_address, response.status());
+                log::warn!(
+                    "Peer {} returned status: {}",
+                    peer_address,
+                    response.status()
+                );
                 Err(format!("Non-success response: {}", response.status()))
             }
             Err(e) => {
@@ -325,9 +364,18 @@ impl NetworkManager {
     /// Discover and connect to peers recursively
 
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
-        log::info!("get_connected_peers called, returning {} peers", self.connected_peers.len());
+        log::info!(
+            "get_connected_peers called, returning {} peers",
+            self.connected_peers.len()
+        );
         for (i, peer) in self.connected_peers.iter().enumerate() {
-            log::info!("  Peer {}: {}:{} - {}ms", i+1, peer.address, peer.port, peer.latency_ms);
+            log::info!(
+                "  Peer {}: {}:{} - {}ms",
+                i + 1,
+                peer.address,
+                peer.port,
+                peer.latency_ms
+            );
         }
         self.connected_peers.clone()
     }
@@ -338,45 +386,53 @@ impl NetworkManager {
 
     pub async fn discover_and_connect_peers(&mut self) -> Result<(), String> {
         log::info!("Starting peer discovery...");
-        
-        let mut discovered_peers: std::collections::HashMap<String, PeerInfo> = std::collections::HashMap::new();
-        let mut peers_to_check: Vec<String> = self.connected_peers.iter()
+
+        let mut discovered_peers: std::collections::HashMap<String, PeerInfo> =
+            std::collections::HashMap::new();
+        let mut peers_to_check: Vec<String> = self
+            .connected_peers
+            .iter()
             .map(|p| format!("{}:{}", p.address, p.port))
             .collect();
         let mut checked_peers: std::collections::HashSet<String> = std::collections::HashSet::new();
-        
+
         // Discover peers from each connected peer
         while !peers_to_check.is_empty() {
             let current_peer = peers_to_check.pop().unwrap();
-            
+
             if checked_peers.contains(&current_peer) {
                 continue;
             }
-            
+
             checked_peers.insert(current_peer.clone());
-            
+
             if let Ok(peers) = self.discover_peers_from_peer(&current_peer).await {
                 for peer in peers {
                     let peer_key = format!("{}:{}", peer.address, peer.port);
-                    if !discovered_peers.contains_key(&peer_key) && !checked_peers.contains(&peer_key) {
+                    if !discovered_peers.contains_key(&peer_key)
+                        && !checked_peers.contains(&peer_key)
+                    {
                         discovered_peers.insert(peer_key.clone(), peer.clone());
                         peers_to_check.push(peer_key);
                     }
                 }
             }
-            
+
             // Limit discovery to avoid infinite loops
             if checked_peers.len() > 20 {
-                log::info!("Reached discovery limit, stopping at {} peers checked", checked_peers.len());
+                log::info!(
+                    "Reached discovery limit, stopping at {} peers checked",
+                    checked_peers.len()
+                );
                 break;
             }
         }
-        
+
         log::info!("Discovered {} total peers", discovered_peers.len());
-        
+
         // Measure latency for all discovered peers
         let mut peers_with_latency: Vec<PeerInfo> = Vec::new();
-        
+
         for (address, mut peer) in discovered_peers {
             log::info!("Measuring latency for discovered peer: {}", address);
             if let Ok(latency) = self.measure_latency(&address).await {
@@ -384,30 +440,36 @@ impl NetworkManager {
                 peers_with_latency.push(peer);
                 log::info!("  ✓ Peer {} latency: {}ms", address, latency);
             } else {
-                log::warn!("  ✗ Failed to measure latency for peer: {} - peer excluded", address);
+                log::warn!(
+                    "  ✗ Failed to measure latency for peer: {} - peer excluded",
+                    address
+                );
             }
         }
-        
+
         // Sort by latency (lowest first)
         peers_with_latency.sort_by_key(|p| p.latency_ms);
-        
+
         // Keep top 5 fastest peers
         let top_peers: Vec<PeerInfo> = peers_with_latency.into_iter().take(5).collect();
-        
+
         log::info!("Selected top {} peers based on latency:", top_peers.len());
         for peer in &top_peers {
             log::info!("  {}:{} - {}ms", peer.address, peer.port, peer.latency_ms);
         }
-        
+
         // Update connected peers
         self.connected_peers = top_peers;
-        
+
         Ok(())
     }
 
     /// Refresh latency measurements for all connected peers by directly pinging them
     pub async fn refresh_peer_latencies(&mut self) {
-        log::info!("Pinging {} peers to measure latency", self.connected_peers.len());
+        log::info!(
+            "Pinging {} peers to measure latency",
+            self.connected_peers.len()
+        );
 
         for peer in &mut self.connected_peers {
             let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);

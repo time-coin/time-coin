@@ -1,5 +1,5 @@
 //! Bitcoin RPC-compatible handlers for Time Coin
-//! 
+//!
 //! This module implements Bitcoin RPC-style endpoints to provide
 //! familiar interfaces for developers and tools.
 
@@ -28,13 +28,11 @@ pub struct BlockchainInfo {
     pub pruned: bool,
 }
 
-pub async fn getblockchaininfo(
-    State(state): State<ApiState>,
-) -> ApiResult<Json<BlockchainInfo>> {
+pub async fn getblockchaininfo(State(state): State<ApiState>) -> ApiResult<Json<BlockchainInfo>> {
     let blockchain = state.blockchain.read().await;
     let height = blockchain.chain_tip_height();
     let best_hash = blockchain.chain_tip_hash().to_string();
-    
+
     Ok(Json(BlockchainInfo {
         chain: state.network.clone(),
         blocks: height,
@@ -45,7 +43,7 @@ pub async fn getblockchaininfo(
         verificationprogress: 1.0,
         initialblockdownload: false,
         chainwork: format!("{:064x}", height), // Simplified chainwork
-        size_on_disk: 0, // TODO: Calculate actual size
+        size_on_disk: 0,                       // TODO: Calculate actual size
         pruned: false,
     }))
 }
@@ -79,7 +77,7 @@ pub async fn getblockhash(
     Json(params): Json<BlockHeightParam>,
 ) -> ApiResult<Json<BlockHash>> {
     let blockchain = state.blockchain.read().await;
-    
+
     match blockchain.get_block_by_height(params.height) {
         Some(block) => Ok(Json(BlockHash {
             result: block.hash.clone(),
@@ -123,7 +121,7 @@ pub async fn getblock(
 ) -> ApiResult<Json<GetBlockResponse>> {
     let blockchain = state.blockchain.read().await;
     let tip_height = blockchain.chain_tip_height();
-    
+
     // Find block by hash
     let mut found_block = None;
     for height in 0..=tip_height {
@@ -134,19 +132,25 @@ pub async fn getblock(
             }
         }
     }
-    
+
     match found_block {
         Some((block, height)) => {
             let confirmations = tip_height - height + 1;
-            let tx_ids: Vec<String> = block.transactions.iter().map(|tx| tx.txid.clone()).collect();
-            
+            let tx_ids: Vec<String> = block
+                .transactions
+                .iter()
+                .map(|tx| tx.txid.clone())
+                .collect();
+
             // Get next block hash if not at tip
             let next_hash = if height < tip_height {
-                blockchain.get_block_by_height(height + 1).map(|b| b.hash.clone())
+                blockchain
+                    .get_block_by_height(height + 1)
+                    .map(|b| b.hash.clone())
             } else {
                 None
             };
-            
+
             Ok(Json(GetBlockResponse {
                 hash: block.hash.clone(),
                 confirmations,
@@ -155,7 +159,7 @@ pub async fn getblock(
                 merkleroot: block.header.merkle_root.clone(),
                 time: block.header.timestamp.timestamp(),
                 mediantime: block.header.timestamp.timestamp(),
-                nonce: 0, // TIME uses BFT, not PoW nonce
+                nonce: 0,                     // TIME uses BFT, not PoW nonce
                 bits: "00000000".to_string(), // No PoW bits in BFT
                 difficulty: 1.0,
                 chainwork: format!("{:064x}", height),
@@ -236,12 +240,12 @@ pub async fn getrawtransaction(
 ) -> ApiResult<Json<RawTransaction>> {
     let blockchain = state.blockchain.read().await;
     let tip_height = blockchain.chain_tip_height();
-    
+
     // Search for transaction in blockchain
     let mut found_tx = None;
     let mut found_block_hash = None;
     let mut found_height = 0u64;
-    
+
     for height in 0..=tip_height {
         if let Some(block) = blockchain.get_block_by_height(height) {
             for tx in &block.transactions {
@@ -257,13 +261,13 @@ pub async fn getrawtransaction(
             }
         }
     }
-    
+
     match found_tx {
         Some(tx) => {
             // Convert transaction to hex (simplified)
             let tx_json = serde_json::to_string(&tx).unwrap_or_default();
             let tx_hex = hex::encode(tx_json.as_bytes());
-            
+
             let vin: Vec<TxInputInfo> = tx
                 .inputs
                 .iter()
@@ -277,7 +281,7 @@ pub async fn getrawtransaction(
                     sequence: input.sequence,
                 })
                 .collect();
-            
+
             let vout: Vec<TxOutputInfo> = tx
                 .outputs
                 .iter()
@@ -286,20 +290,23 @@ pub async fn getrawtransaction(
                     value: output.amount as f64 / 100_000_000.0, // Convert to TIME coins
                     n,
                     scriptPubKey: ScriptPubKey {
-                        asm: format!("OP_DUP OP_HASH160 {} OP_EQUALVERIFY OP_CHECKSIG", output.address),
+                        asm: format!(
+                            "OP_DUP OP_HASH160 {} OP_EQUALVERIFY OP_CHECKSIG",
+                            output.address
+                        ),
                         hex: hex::encode(&output.address),
                         script_type: "pubkeyhash".to_string(),
                         address: output.address.clone(),
                     },
                 })
                 .collect();
-            
+
             let confirmations = if found_block_hash.is_some() {
                 Some(tip_height - found_height + 1)
             } else {
                 None
             };
-            
+
             Ok(Json(RawTransaction {
                 hex: tx_hex.clone(),
                 txid: tx.txid.clone(),
@@ -323,7 +330,7 @@ pub async fn getrawtransaction(
                 if let Some(tx) = mempool_txs.iter().find(|t| t.txid == params.txid) {
                     let tx_json = serde_json::to_string(&tx).unwrap_or_default();
                     let tx_hex = hex::encode(tx_json.as_bytes());
-                    
+
                     let vin: Vec<TxInputInfo> = tx
                         .inputs
                         .iter()
@@ -337,7 +344,7 @@ pub async fn getrawtransaction(
                             sequence: input.sequence,
                         })
                         .collect();
-                    
+
                     let vout: Vec<TxOutputInfo> = tx
                         .outputs
                         .iter()
@@ -346,14 +353,17 @@ pub async fn getrawtransaction(
                             value: output.amount as f64 / 100_000_000.0,
                             n,
                             scriptPubKey: ScriptPubKey {
-                                asm: format!("OP_DUP OP_HASH160 {} OP_EQUALVERIFY OP_CHECKSIG", output.address),
+                                asm: format!(
+                                    "OP_DUP OP_HASH160 {} OP_EQUALVERIFY OP_CHECKSIG",
+                                    output.address
+                                ),
                                 hex: hex::encode(&output.address),
                                 script_type: "pubkeyhash".to_string(),
                                 address: output.address.clone(),
                             },
                         })
                         .collect();
-                    
+
                     return Ok(Json(RawTransaction {
                         hex: tx_hex.clone(),
                         txid: tx.txid.clone(),
@@ -371,7 +381,7 @@ pub async fn getrawtransaction(
                     }));
                 }
             }
-            
+
             Err(ApiError::TransactionNotFound(format!(
                 "Transaction not found: {}",
                 params.txid
@@ -400,28 +410,28 @@ pub async fn sendrawtransaction(
     // Decode hex to transaction
     let tx_bytes = hex::decode(&params.hexstring)
         .map_err(|e| ApiError::BadRequest(format!("Invalid hex: {}", e)))?;
-    
+
     let tx_json = String::from_utf8(tx_bytes)
         .map_err(|e| ApiError::BadRequest(format!("Invalid transaction encoding: {}", e)))?;
-    
+
     let tx: time_core::Transaction = serde_json::from_str(&tx_json)
         .map_err(|e| ApiError::BadRequest(format!("Invalid transaction format: {}", e)))?;
-    
+
     let txid = tx.txid.clone();
-    
+
     // Add to mempool
     if let Some(mempool) = state.mempool.as_ref() {
         mempool
             .add_transaction(tx.clone())
             .await
             .map_err(|e| ApiError::Internal(format!("Failed to add transaction: {}", e)))?;
-        
+
         // Broadcast to peers
         if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
             broadcaster.broadcast_transaction(tx).await;
         }
     }
-    
+
     Ok(Json(SendRawTransactionResponse { result: txid }))
 }
 
@@ -448,7 +458,7 @@ pub struct WalletInfo {
 pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<WalletInfo>> {
     let balances = state.balances.read().await;
     let wallet_balance = balances.get(&state.wallet_address).copied().unwrap_or(0);
-    
+
     Ok(Json(WalletInfo {
         walletname: "time-wallet".to_string(),
         walletversion: 1,
@@ -480,10 +490,12 @@ pub async fn getbalance(
     State(state): State<ApiState>,
     Json(params): Json<GetBalanceParams>,
 ) -> ApiResult<Json<GetBalanceResponse>> {
-    let address = params.address.unwrap_or_else(|| state.wallet_address.clone());
+    let address = params
+        .address
+        .unwrap_or_else(|| state.wallet_address.clone());
     let balances = state.balances.read().await;
     let balance = balances.get(&address).copied().unwrap_or(0);
-    
+
     Ok(Json(GetBalanceResponse {
         result: balance as f64 / 100_000_000.0,
     }))
@@ -500,10 +512,8 @@ pub async fn getnewaddress(State(_state): State<ApiState>) -> ApiResult<Json<New
     let keypair = time_crypto::KeyPair::generate();
     let public_key_hex = keypair.public_key_hex();
     let address = time_crypto::public_key_to_address(&public_key_hex);
-    
-    Ok(Json(NewAddress {
-        result: address,
-    }))
+
+    Ok(Json(NewAddress { result: address }))
 }
 
 /// Response for validateaddress RPC
@@ -527,7 +537,7 @@ pub async fn validateaddress(
 ) -> ApiResult<Json<ValidateAddressResponse>> {
     // Basic validation - check if address starts with TIME1
     let is_valid = params.address.starts_with("TIME1") && params.address.len() > 10;
-    
+
     Ok(Json(ValidateAddressResponse {
         isvalid: is_valid,
         address: if is_valid {
@@ -580,22 +590,22 @@ pub async fn listunspent(
     let blockchain = state.blockchain.read().await;
     let utxo_set = blockchain.utxo_set();
     let tip_height = blockchain.chain_tip_height();
-    
+
     let addresses = if params.addresses.is_empty() {
         vec![state.wallet_address.clone()]
     } else {
         params.addresses
     };
-    
+
     let mut unspent = Vec::new();
-    
+
     for address in addresses {
         let utxos = utxo_set.get_utxos_by_address(&address);
-        
+
         for (outpoint, output) in utxos {
             // Calculate confirmations (simplified - would need block height of tx)
             let confirmations = tip_height;
-            
+
             if confirmations >= params.minconf && confirmations <= params.maxconf {
                 unspent.push(UnspentOutput {
                     txid: outpoint.txid.clone(),
@@ -611,7 +621,7 @@ pub async fn listunspent(
             }
         }
     }
-    
+
     Ok(Json(unspent))
 }
 
@@ -646,26 +656,30 @@ pub async fn listtransactions(
     let blockchain = state.blockchain.read().await;
     let tip_height = blockchain.chain_tip_height();
     let wallet_addr = state.wallet_address.clone();
-    
+
     let count = if params.count == 0 { 10 } else { params.count };
     let mut transactions = Vec::new();
-    
+
     // Scan recent blocks for transactions involving this wallet
     let start_height = tip_height.saturating_sub(100);
-    
+
     for height in (start_height..=tip_height).rev() {
         if let Some(block) = blockchain.get_block_by_height(height) {
             for tx in &block.transactions {
                 // Check if transaction involves our wallet
                 let has_input = tx.inputs.iter().any(|_| false); // Would need to check UTXO ownership
                 let has_output = tx.outputs.iter().any(|out| out.address == wallet_addr);
-                
+
                 if has_output {
                     for (vout, output) in tx.outputs.iter().enumerate() {
                         if output.address == wallet_addr {
                             transactions.push(TransactionListItem {
                                 address: output.address.clone(),
-                                category: if has_input { "send".to_string() } else { "receive".to_string() },
+                                category: if has_input {
+                                    "send".to_string()
+                                } else {
+                                    "receive".to_string()
+                                },
                                 amount: output.amount as f64 / 100_000_000.0,
                                 vout,
                                 confirmations: tip_height - height + 1,
@@ -679,7 +693,7 @@ pub async fn listtransactions(
                         }
                     }
                 }
-                
+
                 if transactions.len() >= count + params.skip {
                     break;
                 }
@@ -689,14 +703,14 @@ pub async fn listtransactions(
             }
         }
     }
-    
+
     // Apply skip and limit
     let result: Vec<TransactionListItem> = transactions
         .into_iter()
         .skip(params.skip)
         .take(count)
         .collect();
-    
+
     Ok(Json(result))
 }
 
@@ -730,7 +744,7 @@ pub struct PeerInfoResponse {
 
 pub async fn getpeerinfo(State(state): State<ApiState>) -> ApiResult<Json<Vec<PeerInfoResponse>>> {
     let peers = state.peer_manager.get_connected_peers().await;
-    
+
     let peer_info: Vec<PeerInfoResponse> = peers
         .iter()
         .enumerate()
@@ -756,7 +770,7 @@ pub async fn getpeerinfo(State(state): State<ApiState>) -> ApiResult<Json<Vec<Pe
             synced_blocks: 0,
         })
         .collect();
-    
+
     Ok(Json(peer_info))
 }
 
@@ -789,7 +803,7 @@ pub struct NetworkDetails {
 
 pub async fn getnetworkinfo(State(state): State<ApiState>) -> ApiResult<Json<NetworkInfo>> {
     let peers = state.peer_manager.get_connected_peers().await;
-    
+
     Ok(Json(NetworkInfo {
         version: 1000000, // 1.0.0
         subversion: "/TIME:1.0.0/".to_string(),
@@ -837,12 +851,12 @@ pub async fn getmininginfo(State(state): State<ApiState>) -> ApiResult<Json<Mini
     } else {
         0
     };
-    
+
     Ok(Json(MiningInfo {
         blocks: blockchain.chain_tip_height(),
         currentblockweight: 0,
         currentblocktx: 0,
-        difficulty: 1.0, // TIME uses BFT, not PoW
+        difficulty: 1.0,    // TIME uses BFT, not PoW
         networkhashps: 0.0, // Not applicable for BFT
         pooledtx: mempool_size,
         chain: state.network.clone(),
@@ -869,6 +883,6 @@ pub async fn estimatefee(
     // TIME has fast finality, so fees are relatively constant
     Ok(Json(EstimateFeeResponse {
         feerate: 0.00001, // 0.00001 TIME per KB
-        blocks: 1, // Instant finality
+        blocks: 1,        // Instant finality
     }))
 }

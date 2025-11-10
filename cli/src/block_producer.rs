@@ -287,41 +287,16 @@ impl BlockProducer {
             let timestamp_date = genesis_date + chrono::Duration::days(block_num as i64);
             let timestamp = Utc.from_utc_datetime(&timestamp_date.and_hms_opt(0, 0, 0).unwrap());
 
-            // Retry up to 5 times with increasing delays
-            let mut success = false;
-            for retry_attempt in 0..5 {
-                if retry_attempt > 0 {
-                    let delay_secs = 15 + (retry_attempt * 5);
-                    println!(
-                        "   🔄 Retry attempt {}/5 for block {} (waiting {}s)...",
-                        retry_attempt + 1,
-                        block_num,
-                        delay_secs
-                    );
-                    tokio::time::sleep(Duration::from_secs(delay_secs as u64)).await;
-                }
+            // Single attempt with improved consensus (fast-track + emergency fallback)
+            let success = self
+                .produce_catchup_block_with_bft_consensus(block_num, timestamp, &masternodes)
+                .await;
 
-                success = self
-                    .produce_catchup_block_with_bft_consensus(block_num, timestamp, &masternodes)
-                    .await;
-
-                if success {
-                    println!("   ✅ Block {} created successfully!", block_num);
-                    break;
-                } else if retry_attempt < 4 {
-                    println!(
-                        "   ⚠️  Attempt {}/5 failed, will retry...",
-                        retry_attempt + 1
-                    );
-                }
-            }
-
-            if !success {
-                println!(
-                    "   ❌ Failed to create block {} after 5 attempts",
-                    block_num
-                );
-                println!("   ℹ️  Ensure all nodes are running same version");
+            if success {
+                println!("   ✅ Block {} created successfully!", block_num);
+            } else {
+                println!("   ❌ Failed to create block {}", block_num);
+                println!("   ℹ️  Ensure all nodes are running and properly configured");
                 break;
             }
         }
@@ -989,7 +964,13 @@ impl BlockProducer {
         // Step 2: Wait for proposal and vote (all nodes including producer)
         println!("      ▶️ Waiting for block proposal and consensus...");
 
-        for attempt in 0..30 {
+        let mut proposal_data: Option<(
+            time_consensus::block_consensus::BlockProposal,
+            usize,
+            usize,
+        )> = None;
+
+        for attempt in 0..15 {
             tokio::time::sleep(Duration::from_secs(1)).await;
 
             // Check if we have a proposal
@@ -1009,75 +990,60 @@ impl BlockProducer {
                     }
                 }
 
-                // PHASE 1: Try consensus with all masternodes
+                // Check consensus status
                 let (has_consensus, approvals, total) = self
                     .block_consensus
                     .has_block_consensus(block_num, &proposal.block_hash)
                     .await;
 
+                // Store proposal data for potential emergency fallback
+                proposal_data = Some((proposal.clone(), approvals, total));
+
+                // Fast-track finalization: After 10 seconds, if we have required votes, finalize immediately
+                let required_votes = (total * 2).div_ceil(3);
+                if attempt >= 10 && approvals >= required_votes {
+                    println!(
+                        "      ⚡ Fast-track finalization! ({}/{} votes, required: {})",
+                        approvals, total, required_votes
+                    );
+                    return self
+                        .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
+                        .await;
+                }
+
                 if has_consensus {
                     println!("      ✔ Consensus reached! ({}/{} votes)", approvals, total);
-
-                    let voters = self
-                        .block_consensus
-                        .get_voters(block_num, &proposal.block_hash)
-                        .await;
-
                     return self
-                        .finalize_catchup_block_with_rewards(block_num, timestamp, &voters)
+                        .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
                         .await;
                 }
 
-                // PHASE 2: After 15 attempts, try version-filtered consensus
-                if attempt >= 15 {
-                    let my_version = time_network::protocol::full_version();
-                    let (has_version_consensus, version_approvals, version_total) = self
-                        .block_consensus
-                        .has_block_consensus_with_version_filter(
-                            block_num,
-                            &proposal.block_hash,
-                            Some(&my_version),
-                        )
-                        .await;
-
-                    if has_version_consensus && version_total >= 3 {
-                        println!(
-                            "      ✔ Version-filtered consensus reached! ({}/{} votes from v{})",
-                            version_approvals, version_total, my_version
-                        );
-                        println!(
-                            "      ℹ️  Excluded {} nodes with incompatible versions",
-                            total - version_total
-                        );
-
-                        let voters = self
-                            .block_consensus
-                            .get_voters(block_num, &proposal.block_hash)
-                            .await;
-
-                        let matching_version_nodes = self
-                            .block_consensus
-                            .get_masternodes_by_version(&my_version)
-                            .await;
-
-                        let version_filtered_voters: Vec<String> = voters
-                            .into_iter()
-                            .filter(|v| matching_version_nodes.contains(v))
-                            .collect();
-
-                        return self
-                            .finalize_catchup_block_with_rewards(
-                                block_num,
-                                timestamp,
-                                &version_filtered_voters,
-                            )
-                            .await;
-                    }
+                // Progress logging every 3 attempts
+                if attempt % 3 == 0 {
+                    println!(
+                        "      ▶️ Waiting for consensus... ({}/{} votes, need {})",
+                        approvals, total, required_votes
+                    );
                 }
+            }
+        }
 
-                if attempt % 5 == 0 {
-                    println!("      ▶️ Waiting for consensus...");
-                }
+        // Emergency fallback: If we have a valid proposal with at least 2 votes, finalize anyway
+        if let Some((_proposal, approvals, _total)) = proposal_data {
+            if approvals >= 2 {
+                println!(
+                    "      ⚠️  Timeout reached but valid proposal exists with {} votes",
+                    approvals
+                );
+                println!("      🚨 Emergency fallback: finalizing to prevent chain halt");
+                return self
+                    .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
+                    .await;
+            } else {
+                println!(
+                    "      ⚠️  Timeout - insufficient votes for emergency fallback ({}/2 minimum)",
+                    approvals
+                );
             }
         }
 
@@ -1183,7 +1149,7 @@ impl BlockProducer {
         &self,
         block_num: u64,
         timestamp: chrono::DateTime<Utc>,
-        voters: &[String],
+        _masternodes: &[String],
     ) -> bool {
         use time_core::block::{calculate_treasury_reward, distribute_masternode_rewards};
         use time_core::block::{Block, BlockHeader};
@@ -1207,12 +1173,12 @@ impl BlockProducer {
             address: "TIME1treasury00000000000000000000000000".to_string(),
         }];
 
-        // Filter masternodes to only include those that participated in voting
-        let voting_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+        // Pay all registered masternodes (simplified approach)
+        let all_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_all_masternodes()
             .iter()
             .filter_map(|mn| {
-                if mn.is_active && voters.contains(&mn.address) {
+                if mn.is_active {
                     Some((mn.wallet_address.clone(), mn.tier))
                 } else {
                     None
@@ -1220,32 +1186,25 @@ impl BlockProducer {
             })
             .collect();
 
-        println!("      💡 DEBUG: voters = {:?}", voters);
         println!(
-            "      💡 DEBUG: voting masternodes = {}",
-            voting_masternodes.len()
+            "      💰 Distributing rewards to {} registered masternodes",
+            all_masternodes.len()
         );
 
-        // If we have voting masternodes, distribute rewards
-        if !voting_masternodes.is_empty() {
-            println!(
-                "      💰 Distributing rewards to {} voting masternodes",
-                voting_masternodes.len()
-            );
-
+        // Distribute rewards to all registered masternodes
+        if !all_masternodes.is_empty() {
             // Use the built-in distribution function
             let masternode_outputs =
-                distribute_masternode_rewards(&voting_masternodes, &masternode_counts);
+                distribute_masternode_rewards(&all_masternodes, &masternode_counts);
 
             outputs.extend(masternode_outputs);
 
             println!(
                 "      ✓ Added {} masternode reward outputs",
-                voting_masternodes.len()
+                all_masternodes.len()
             );
         } else {
-            println!("      ⚠️  No voting masternodes - treasury reward only");
-            println!("      💡 To receive rewards, masternodes must vote in consensus");
+            println!("      ⚠️  No registered masternodes - treasury reward only");
         }
 
         let coinbase_tx = Transaction {
