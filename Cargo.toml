@@ -8,7 +8,7 @@ members = [
     "api",
     "mempool",
     "masternode",
-    "tools/masternode-dashboard",  # Add this line
+    "tools/masternode-dashboard", "wallet-gui",  # Add this line
 ]
 resolver = "2"
 

@@ -47,6 +47,7 @@ time-coin/
 ├── storage/        # Database layer
 ├── treasury/       # Community treasury
 ├── wallet/         # Wallet implementation
+├── wallet-gui/     # GUI hot wallet application
 └── docs/           # Documentation and guides
 ```
 
@@ -73,7 +74,25 @@ cargo test --all
 
 # Run a node (development)
 cargo run --bin time-node --release
+
+# Run the GUI wallet
+cargo run --bin wallet-gui --release
 ```
+
+## GUI Wallet
+
+TIME Coin includes a cross-platform GUI hot wallet with Bitcoin-style wallet.dat file support:
+
+```bash
+# Run the GUI wallet
+cargo run --bin wallet-gui --release
+```
+
+See [wallet-gui/README.md](wallet-gui/README.md) for detailed documentation on:
+- Wallet creation and key management
+- Sending and receiving TIME coins
+- Backup and restore procedures
+- Security considerations
 
 ## Running a masternode
 
