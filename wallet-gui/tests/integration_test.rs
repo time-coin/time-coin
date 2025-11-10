@@ -8,6 +8,86 @@ use wallet::{NetworkType, UTXO};
 // since the GUI is hard to test without a display
 
 #[test]
+fn test_mnemonic_generation() {
+    use wallet::generate_mnemonic;
+
+    println!("Testing mnemonic generation...");
+
+    // Generate 12-word mnemonic
+    let mnemonic = generate_mnemonic(12).expect("Failed to generate mnemonic");
+    let words: Vec<&str> = mnemonic.split_whitespace().collect();
+    
+    assert_eq!(words.len(), 12, "Mnemonic should have 12 words");
+    println!("Generated mnemonic: {}", mnemonic);
+    println!("✅ Mnemonic generation test passed");
+}
+
+#[test]
+fn test_wallet_from_mnemonic() {
+    use wallet::{generate_mnemonic, Wallet};
+
+    println!("Testing wallet creation from mnemonic...");
+
+    // Generate mnemonic
+    let mnemonic = generate_mnemonic(12).expect("Failed to generate mnemonic");
+    
+    // Create wallet from mnemonic
+    let wallet = Wallet::from_mnemonic(&mnemonic, "", NetworkType::Testnet)
+        .expect("Failed to create wallet from mnemonic");
+    
+    let address = wallet.address_string();
+    println!("Created wallet with address: {}", address);
+    
+    assert!(!address.is_empty());
+    println!("✅ Wallet from mnemonic test passed");
+}
+
+#[test]
+fn test_mnemonic_deterministic() {
+    use wallet::Wallet;
+
+    println!("Testing mnemonic determinism...");
+
+    // Use a known mnemonic
+    let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    
+    // Create two wallets from same mnemonic
+    let wallet1 = Wallet::from_mnemonic(mnemonic, "", NetworkType::Testnet)
+        .expect("Failed to create wallet 1");
+    let wallet2 = Wallet::from_mnemonic(mnemonic, "", NetworkType::Testnet)
+        .expect("Failed to create wallet 2");
+    
+    // They should have identical addresses
+    assert_eq!(wallet1.address_string(), wallet2.address_string());
+    assert_eq!(wallet1.public_key(), wallet2.public_key());
+    
+    println!("Wallet 1 address: {}", wallet1.address_string());
+    println!("Wallet 2 address: {}", wallet2.address_string());
+    println!("✅ Mnemonic determinism test passed");
+}
+
+#[test]
+fn test_mnemonic_validation() {
+    use wallet::validate_mnemonic;
+
+    println!("Testing mnemonic validation...");
+
+    // Valid mnemonic
+    let valid = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    assert!(validate_mnemonic(valid).is_ok());
+    
+    // Invalid mnemonic (wrong words)
+    let invalid = "invalid word word word word word word word word word word word";
+    assert!(validate_mnemonic(invalid).is_err());
+    
+    // Invalid mnemonic (wrong count)
+    let invalid_count = "abandon abandon abandon";
+    assert!(validate_mnemonic(invalid_count).is_err());
+    
+    println!("✅ Mnemonic validation test passed");
+}
+
+#[test]
 fn test_complete_wallet_flow() {
     use wallet::Wallet;
 

@@ -34,6 +34,61 @@ impl WalletManager {
         })
     }
 
+    /// Create a wallet from a BIP-39 mnemonic phrase
+    pub fn create_from_mnemonic(
+        network: NetworkType,
+        mnemonic: &str,
+        passphrase: &str,
+        label: String,
+    ) -> Result<Self, WalletDatError> {
+        // Validate mnemonic first
+        wallet::validate_mnemonic(mnemonic)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+
+        // Create wallet from mnemonic
+        let wallet = Wallet::from_mnemonic(mnemonic, passphrase, network)?;
+        
+        // Create wallet_dat and add the keypair
+        let wallet_path = WalletDat::ensure_data_dir(network)?;
+        let mut wallet_dat = WalletDat::new(network);
+        
+        // Store the mnemonic in wallet_dat
+        wallet_dat.mnemonic_phrase = Some(mnemonic.to_string());
+        
+        // Add the keypair from the mnemonic
+        let keypair = Keypair::from_secret_key(&wallet.secret_key())?;
+        wallet_dat.add_keypair(keypair, label, true)?;
+        
+        // Save immediately
+        wallet_dat.save(&wallet_path)?;
+
+        // Create active wallet
+        let active_wallet = Some(wallet);
+
+        Ok(Self {
+            wallet_dat,
+            wallet_path,
+            active_wallet,
+        })
+    }
+
+    /// Generate a new 12-word BIP-39 mnemonic phrase
+    pub fn generate_mnemonic() -> Result<String, WalletDatError> {
+        wallet::generate_mnemonic(12)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))
+    }
+
+    /// Validate a BIP-39 mnemonic phrase
+    pub fn validate_mnemonic(phrase: &str) -> Result<(), WalletDatError> {
+        wallet::validate_mnemonic(phrase)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))
+    }
+
+    /// Get the mnemonic phrase if the wallet was created from one
+    pub fn get_mnemonic(&self) -> Option<String> {
+        self.wallet_dat.mnemonic_phrase.clone()
+    }
+
     /// Load existing wallet from default path
     pub fn load_default(network: NetworkType) -> Result<Self, WalletDatError> {
         let wallet_path = WalletDat::default_path(network);
