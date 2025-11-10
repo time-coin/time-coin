@@ -30,7 +30,3 @@ tiny-skia = "0.11"
 # Local wallet dependency from parent project
 wallet = { path = "../wallet" }
 
-[profile.release]
-opt-level = 2
-strip = true
-lto = true

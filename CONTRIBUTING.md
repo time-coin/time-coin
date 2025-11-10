@@ -12,7 +12,7 @@ Thank you for your interest in contributing to TIME Coin!
 
 ## Development Setup
 
-1. Install Rust: https://rustup.rs/
+1. Install Rust: <https://rustup.rs/>
 2. Clone the repository
 3. Run `cargo build`
 4. Run tests: `cargo test --all`
@@ -50,14 +50,15 @@ cargo tarpaulin --out Html
 ## Governance Contributions
 
 Want to propose ecosystem improvements? See:
+
 - [Proposal Template](docs/governance/proposal-template.md)
 - [Treasury Guidelines](docs/treasury/treasury-overview.md)
 
 ## Questions?
 
-- Forum: https://forum.time-coin.io
-- Telegram: https://t.me/+CaN6EflYM-83OTY0
-- Discord: https://discord.gg/timecoin
+- Forum: <https://forum.time-coin.io>
+- Telegram: <https://t.me/+CaN6EflYM-83OTY0>
+- Discord: <https://discord.gg/timecoin>
 
 ## Code of Conduct
 

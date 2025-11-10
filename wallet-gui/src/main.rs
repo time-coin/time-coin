@@ -1,3 +1,11 @@
+#![allow(dead_code)]
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::get_first)]
+#![allow(clippy::manual_while_let_some)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(unused_variables)]
+#![allow(non_snake_case)]
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 use wallet::NetworkType;
@@ -101,7 +109,7 @@ impl WalletApp {
                 ui.add_space(10.0);
 
                 ui.horizontal(|ui| {
-                    if ui.selectable_value(&mut self.network, NetworkType::Mainnet, "Mainnet").clicked() {}
+                    ui.selectable_value(&mut self.network, NetworkType::Mainnet, "Mainnet").clicked();
                     if ui.selectable_value(&mut self.network, NetworkType::Testnet, "Testnet").clicked() {}
                 });
 

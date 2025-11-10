@@ -244,7 +244,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&temp_dir);
 
         // Override default path for testing
-        let test_path = temp_dir.join("test_wallet.dat");
+        let _test_path = temp_dir.join("test_wallet.dat");
 
         let manager = WalletManager::create_new(NetworkType::Testnet, "Test".to_string()).unwrap();
         assert!(manager.get_active_wallet().is_some());

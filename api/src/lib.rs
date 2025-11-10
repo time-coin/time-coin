@@ -3,7 +3,7 @@ mod handlers;
 pub mod masternode_handlers;
 mod routes;
 mod rpc_handlers;
-mod state; // Add this line
+mod state;
 
 pub use error::{ApiError, ApiResult};
 pub use state::ApiState;
