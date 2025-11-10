@@ -23,8 +23,8 @@ Ubuntu:   ~/time-coin-node/config/testnet.toml
 
 ### Binary Locations
 ```
-Windows:  ~/projects/time-coin/target/release/time-node.exe
-Ubuntu:   /usr/local/bin/time-node
+Windows:  ~/projects/time-coin/target/release/timed.exe
+Ubuntu:   /usr/local/bin/timed
 ```
 
 ## Clone Commands
@@ -49,15 +49,15 @@ cd time-coin
 ```bash
 cd ~/projects/time-coin
 git pull origin main
-cargo build --release --bin time-node
+cargo build --release --bin timed
 ```
 
 ### Ubuntu Server
 ```bash
 cd ~/time-coin
 git pull origin main
-cargo build --release --bin time-node
-sudo systemctl stop time-node
-sudo cp target/release/time-node /usr/local/bin/
-sudo systemctl start time-node
+cargo build --release --bin timed
+sudo systemctl stop timed
+sudo cp target/release/timed /usr/local/bin/
+sudo systemctl start timed
 ```

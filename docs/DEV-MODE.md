@@ -39,14 +39,14 @@ auto_approve = true
 ### Method 2: Command Line Flag
 
 ```bash
-time-node --dev
+timed --dev
 ```
 
 ### Method 3: Environment Variable
 
 ```bash
 export TIME_NODE_DEV_MODE=true
-time-node
+timed
 ```
 
 ## What Dev Mode Does
@@ -83,7 +83,7 @@ TX → Validate → Auto-Approve → Confirm
 ```bash
 # 1. Start node in dev mode
 cd ~/time-coin
-cargo run --release --bin time-node -- --dev
+cargo run --release --bin timed -- --dev
 
 # 2. Create a transaction (in another terminal)
 # This will auto-approve in dev mode
@@ -189,7 +189,7 @@ Node Status: ACTIVE
 
 ```bash
 # Perfect for developing features
-time-node --dev
+timed --dev
 
 # Test transactions without other nodes
 # All valid TXs auto-approve
@@ -199,9 +199,9 @@ time-node --dev
 
 ```bash
 # Run 3 nodes for testing P2P
-time-node --dev --port 24100 --data-dir ./node1
-time-node --dev --port 24200 --data-dir ./node2
-time-node --dev --port 24300 --data-dir ./node3
+timed --dev --port 24100 --data-dir ./node1
+timed --dev --port 24200 --data-dir ./node2
+timed --dev --port 24300 --data-dir ./node3
 
 # Each auto-approves, tests networking
 ```
@@ -212,5 +212,5 @@ time-node --dev --port 24300 --data-dir ./node3
 # Disable dev mode
 # Ensure min 7 masternodes running
 # Full BFT consensus active
-time-node --config production.toml
+timed --config production.toml
 ```

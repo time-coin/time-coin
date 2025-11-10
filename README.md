@@ -73,7 +73,7 @@ cargo build --release
 cargo test --all
 
 # Run a node (development)
-cargo run --bin time-node --release
+cargo run --bin timed --release
 
 # Run the GUI wallet
 cargo run --bin wallet-gui --release
@@ -140,7 +140,7 @@ sudo ./scripts/setup-masternode.sh
 ```
 
 Typical post-install actions performed by the installer:
-- Build in release mode and install `time-node`
+- Build in release mode and install `timed`
 - Create default configuration files (e.g., config/testnet.toml and genesis file)
 - Set up a systemd service and management scripts
 - Start the masternode service
@@ -149,13 +149,13 @@ Typical post-install actions performed by the installer:
 
 ```bash
 # Check service status
-sudo systemctl status time-node
+sudo systemctl status timed
 
 # Follow logs
-sudo journalctl -u time-node -f
+sudo journalctl -u timed -f
 
 # Restart the service
-sudo systemctl restart time-node
+sudo systemctl restart timed
 ```
 
 ### Updating your masternode
@@ -164,7 +164,7 @@ sudo systemctl restart time-node
 cd ~/time-coin
 git pull origin main
 sudo bash ./scripts/setup-masternode.sh
-sudo systemctl restart time-node
+sudo systemctl restart timed
 ```
 
 ### Network ports
@@ -196,7 +196,7 @@ cp config/genesis-testnet.json ~/time-coin-node/config/
 
 Start a node with your config:
 ```bash
-time-node -c ~/time-coin-node/config/testnet.toml
+timed -c ~/time-coin-node/config/testnet.toml
 ```
 
 The node expands `$HOME` and `~` in config paths.

@@ -35,7 +35,7 @@ use time_consensus::ConsensusEngine;
 use tokio::time;
 
 #[derive(Parser)]
-#[command(name = "time-node")]
+#[command(name = "timed")]
 #[command(about = "TIME Coin Node", version)]
 struct Cli {
     #[arg(short, long, value_name = "FILE")]
@@ -530,7 +530,7 @@ async fn main() {
     let cli = Cli::parse();
 
     if cli.version {
-        println!("time-node {}", time_network::protocol::full_version());
+        println!("timed {}", time_network::protocol::full_version());
         println!("Built: {}", time_network::protocol::BUILD_TIMESTAMP);
         return;
     }

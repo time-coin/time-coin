@@ -201,7 +201,7 @@ data_dir = "/var/lib/time-coin"
             println!("\n⚠️  Important: Edit the config file to set:");
             println!("   - masternode.address (your actual address)");
             println!("   - peers.bootstrap (peer addresses)");
-            println!("\n💡 Start node with: sudo systemctl start time-node");
+            println!("\n💡 Start node with: sudo systemctl start timed");
         }
 
         Commands::Status => {
@@ -221,7 +221,7 @@ data_dir = "/var/lib/time-coin"
                 }
                 Err(_) => {
                     println!("Status:       Not running");
-                    println!("💡 Start with: sudo systemctl start time-node");
+                    println!("💡 Start with: sudo systemctl start timed");
                 }
             }
             println!();

@@ -131,7 +131,7 @@ The dashboard queries the following TIME Coin API endpoints:
 **Problem**: Cannot connect to node: Request failed: ...
 
 **Solution**:
-1. Verify the node is running: `systemctl status time-node` (Linux) or check task manager (Windows)
+1. Verify the node is running: `systemctl status timed` (Linux) or check task manager (Windows)
 2. Check the API is enabled in your node configuration
 3. Verify the correct port is being used (default: 24101)
 4. Check firewall settings if connecting to a remote node

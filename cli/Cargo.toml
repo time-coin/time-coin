@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "time-node"
+name = "timed"
 path = "src/main.rs"
 
 [[bin]]
