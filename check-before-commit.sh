@@ -11,7 +11,6 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 ERRORS=0
-cargo fmt
 
 # Check 1: Cargo fmt
 echo "📝 Checking code formatting..."
@@ -21,6 +20,7 @@ else
     echo -e "${RED}✗ Code formatting failed${NC}"
     echo -e "${YELLOW}  Run: cargo fmt${NC}"
     ERRORS=$((ERRORS + 1))
+    cargo fmt
 fi
 echo ""
 
@@ -32,6 +32,7 @@ else
     echo -e "${RED}✗ Clippy found issues${NC}"
     echo -e "${YELLOW}  Fix warnings or run: cargo clippy --fix${NC}"
     ERRORS=$((ERRORS + 1))
+    cargo clippy --fix --allow-dirty --allow-staged
 fi
 echo ""
 

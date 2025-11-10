@@ -4815,6 +4815,7 @@ dependencies = [
  "time-api",
  "time-consensus",
  "time-core",
+ "time-crypto",
  "time-mempool",
  "time-network",
  "tokio",
