@@ -232,3 +232,39 @@ fn test_wallet_persistence() {
 
     println!("✅ Wallet persistence test passed");
 }
+
+#[test]
+fn test_wallet_manager_mnemonic_create() {
+    use std::fs;
+    
+    println!("Testing WalletManager mnemonic creation...");
+    
+    // Clean up any existing test wallet
+    let test_dir = std::env::temp_dir().join("time-coin-test-mnemonic");
+    let _ = fs::remove_dir_all(&test_dir);
+    fs::create_dir_all(&test_dir).unwrap();
+    
+    // This test would require importing WalletManager which is part of the binary
+    // For now, we test through the wallet library which is what WalletManager uses
+    
+    // Generate mnemonic
+    let mnemonic = wallet::generate_mnemonic(12).expect("Failed to generate mnemonic");
+    println!("Generated mnemonic: {}", mnemonic);
+    
+    // Validate it
+    wallet::validate_mnemonic(&mnemonic).expect("Mnemonic should be valid");
+    
+    // Create wallet from it
+    let wallet = wallet::Wallet::from_mnemonic(&mnemonic, "", NetworkType::Testnet)
+        .expect("Failed to create wallet from mnemonic");
+    
+    println!("Created wallet with address: {}", wallet.address_string());
+    
+    // Verify we can recreate the same wallet
+    let wallet2 = wallet::Wallet::from_mnemonic(&mnemonic, "", NetworkType::Testnet)
+        .expect("Failed to create second wallet");
+    
+    assert_eq!(wallet.address_string(), wallet2.address_string());
+    
+    println!("✅ WalletManager mnemonic creation test passed");
+}
