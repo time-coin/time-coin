@@ -1048,6 +1048,9 @@ async fn main() {
         block_producer_active_state.clone(),
     ));
 
+    // Get quarantine reference for API and monitoring
+    let quarantine = chain_sync.quarantine();
+
     // Run initial sync
     // Check for forks first
     println!("{}", "🔍 Checking for blockchain forks...".cyan());
@@ -1067,6 +1070,31 @@ async fn main() {
     println!(
         "{}",
         "✓ Periodic chain sync started (5 min interval)".green()
+    );
+
+    // Start periodic quarantine logging (every 15 minutes)
+    let quarantine_logger = quarantine.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(900)); // 15 minutes
+        interval.tick().await; // Skip first immediate tick
+
+        loop {
+            interval.tick().await;
+            
+            let quarantined_peers = quarantine_logger.get_quarantined_peers().await;
+            if !quarantined_peers.is_empty() {
+                println!("\n🛡️  Quarantine Status Report:");
+                println!("   {} peer(s) currently quarantined:", quarantined_peers.len());
+                for entry in quarantined_peers.iter() {
+                    println!("   • {} - {}", entry.peer_ip, entry.reason);
+                }
+                println!();
+            }
+        }
+    });
+    println!(
+        "{}",
+        "✓ Quarantine monitoring started (15 min logging)".green()
     );
 
     // ═══════════════════════════════════════════════════════════════
@@ -1295,7 +1323,8 @@ async fn main() {
         .with_mempool(mempool.clone())
         .with_tx_consensus(tx_consensus.clone())
         .with_block_consensus(block_consensus.clone())
-        .with_tx_broadcaster(tx_broadcaster.clone());
+        .with_tx_broadcaster(tx_broadcaster.clone())
+        .with_quarantine(quarantine.clone());
 
         // Start Peer Listener for incoming connections
         let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();

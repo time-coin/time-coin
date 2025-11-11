@@ -76,7 +76,6 @@ impl ChainSync {
     }
 
     /// Get the quarantine system (for external access)
-    #[allow(dead_code)]
     pub fn quarantine(&self) -> Arc<PeerQuarantine> {
         self.quarantine.clone()
     }
