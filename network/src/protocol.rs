@@ -96,6 +96,29 @@ impl BuildInfo {
 /// Protocol version for compatibility checking
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// Magic bytes for network message identification (inspired by Bitcoin)
+/// These 4-byte sequences appear at the start of every network message
+/// to help nodes synchronize and identify valid messages in the data stream
+pub mod magic_bytes {
+    /// Mainnet magic bytes: 0xC01D7E4D ("COLD TIME" mnemonic - C0 1D 7E 4D)
+    /// Represents the frozen time concept of 24-hour blocks
+    pub const MAINNET: [u8; 4] = [0xC0, 0x1D, 0x7E, 0x4D];
+    
+    /// Testnet magic bytes: 0x7E577E4D ("TEST TIME" mnemonic - 7E 57 7E 4D)
+    /// Distinct from mainnet to prevent accidental cross-network messages
+    pub const TESTNET: [u8; 4] = [0x7E, 0x57, 0x7E, 0x4D];
+}
+
+impl crate::discovery::NetworkType {
+    /// Get the magic bytes for this network type
+    pub fn magic_bytes(&self) -> [u8; 4] {
+        match self {
+            crate::discovery::NetworkType::Mainnet => magic_bytes::MAINNET,
+            crate::discovery::NetworkType::Testnet => magic_bytes::TESTNET,
+        }
+    }
+}
+
 /// Handshake message sent when connecting to peers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandshakeMessage {
@@ -128,11 +151,24 @@ pub struct HandshakeMessage {
     /// Wallet address for masternode rewards
     #[serde(default)]
     pub wallet_address: Option<String>,
+
+    /// Genesis block hash for chain validation
+    #[serde(default)]
+    pub genesis_hash: Option<String>,
 }
 
 impl HandshakeMessage {
     /// Create a new handshake message with optional wallet
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
+        Self::new_with_genesis(network, listen_addr, None)
+    }
+
+    /// Create a new handshake message with genesis hash
+    pub fn new_with_genesis(
+        network: NetworkType,
+        listen_addr: SocketAddr,
+        genesis_hash: Option<String>,
+    ) -> Self {
         let wallet_address = std::env::var("MASTERNODE_WALLET").ok();
 
         HandshakeMessage {
@@ -145,6 +181,7 @@ impl HandshakeMessage {
             timestamp: current_timestamp(),
             capabilities: vec!["masternode".to_string(), "sync".to_string()],
             wallet_address,
+            genesis_hash,
         }
     }
 
@@ -162,6 +199,30 @@ impl HandshakeMessage {
                 "Protocol version mismatch: expected {}, got {}",
                 PROTOCOL_VERSION, self.protocol_version
             ));
+        }
+
+        Ok(())
+    }
+
+    /// Validate handshake with genesis block verification
+    pub fn validate_with_genesis(
+        &self,
+        expected_network: &NetworkType,
+        expected_genesis_hash: Option<&str>,
+    ) -> Result<(), String> {
+        // First perform standard validation
+        self.validate(expected_network)?;
+
+        // Then validate genesis block if both sides provide it
+        if let (Some(their_genesis), Some(our_genesis)) = (&self.genesis_hash, expected_genesis_hash)
+        {
+            if their_genesis != our_genesis {
+                return Err(format!(
+                    "Genesis block mismatch: expected {}..., got {}...",
+                    &our_genesis[..16],
+                    &their_genesis[..16]
+                ));
+            }
         }
 
         Ok(())
@@ -435,6 +496,56 @@ mod tests {
         // Same commit date should not be considered newer
         let date = "2025-11-07T15:09:21Z";
         assert!(!is_remote_version_newer(date, date));
+    }
+
+    #[test]
+    fn test_handshake_genesis_validation() {
+        let addr = "127.0.0.1:24100".parse().unwrap();
+        let genesis_hash = "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048";
+
+        let handshake = HandshakeMessage::new_with_genesis(
+            NetworkType::Testnet,
+            addr,
+            Some(genesis_hash.to_string()),
+        );
+
+        // Should succeed with matching genesis
+        assert!(handshake
+            .validate_with_genesis(&NetworkType::Testnet, Some(genesis_hash))
+            .is_ok());
+
+        // Should fail with mismatched genesis
+        let different_genesis = "00000000000000000000000000000000000000000000000000000000deadbeef";
+        assert!(handshake
+            .validate_with_genesis(&NetworkType::Testnet, Some(different_genesis))
+            .is_err());
+
+        // Should succeed when one side doesn't provide genesis (backward compatibility)
+        assert!(handshake
+            .validate_with_genesis(&NetworkType::Testnet, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_handshake_genesis_mismatch_error_message() {
+        let addr = "127.0.0.1:24100".parse().unwrap();
+        let genesis_hash = "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048";
+
+        let handshake = HandshakeMessage::new_with_genesis(
+            NetworkType::Testnet,
+            addr,
+            Some(genesis_hash.to_string()),
+        );
+
+        let different_genesis = "0000000000000000000000000000000000000000000000000000000011111111";
+        let result =
+            handshake.validate_with_genesis(&NetworkType::Testnet, Some(different_genesis));
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Genesis block mismatch"));
+        assert!(err_msg.contains("00000000839a8e68")); // First 16 chars of actual genesis
+        assert!(err_msg.contains("0000000000000000")); // First 16 chars of different genesis
     }
 }
 

@@ -3,6 +3,7 @@ pub mod connection;
 pub mod discovery;
 pub mod manager;
 pub mod protocol;
+pub mod quarantine;
 pub mod sync;
 
 pub use connection::PeerConnection;
@@ -12,6 +13,7 @@ pub use manager::PeerManager;
 pub use manager::Snapshot;
 pub use protocol::{HandshakeMessage, ProtocolVersion, PROTOCOL_VERSION, VERSION};
 pub use protocol::{NetworkMessage, TransactionMessage, TransactionValidation};
+pub use quarantine::{PeerQuarantine, QuarantineReason};
 
 pub mod peer_exchange;
 

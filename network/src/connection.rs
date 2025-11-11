@@ -40,10 +40,24 @@ impl PeerConnection {
             .await
             .map_err(|e| format!("Connect failed: {}", e))?;
 
-        let our_handshake = HandshakeMessage::new(network.clone(), our_listen_addr);
-        Self::send_handshake(&mut stream, &our_handshake).await?;
-        let their_handshake = Self::receive_handshake(&mut stream).await?;
-        their_handshake.validate(&network)?;
+        // Get our genesis hash if blockchain is available
+        let our_genesis_hash = if let Some(bc) = &blockchain {
+            let chain = bc.read().await;
+            Some(chain.genesis_hash().to_string())
+        } else {
+            None
+        };
+
+        let our_handshake = HandshakeMessage::new_with_genesis(
+            network.clone(),
+            our_listen_addr,
+            our_genesis_hash.clone(),
+        );
+        Self::send_handshake(&mut stream, &our_handshake, &network).await?;
+        let their_handshake = Self::receive_handshake(&mut stream, &network).await?;
+
+        // Validate with genesis check
+        their_handshake.validate_with_genesis(&network, our_genesis_hash.as_deref())?;
 
         // Update peer info with version AND commit info
         peer.lock().await.update_version_with_build_info(
@@ -138,9 +152,22 @@ impl PeerConnection {
         }
     }
 
-    async fn send_handshake(stream: &mut TcpStream, h: &HandshakeMessage) -> Result<(), String> {
+    async fn send_handshake(
+        stream: &mut TcpStream,
+        h: &HandshakeMessage,
+        network: &NetworkType,
+    ) -> Result<(), String> {
         let json = serde_json::to_vec(h).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
+        
+        // Write magic bytes first
+        let magic = network.magic_bytes();
+        stream
+            .write_all(&magic)
+            .await
+            .map_err(|e| format!("Failed to write magic bytes: {}", e))?;
+        
+        // Then write length and payload
         stream
             .write_all(&len.to_be_bytes())
             .await
@@ -150,7 +177,26 @@ impl PeerConnection {
         Ok(())
     }
 
-    async fn receive_handshake(stream: &mut TcpStream) -> Result<HandshakeMessage, String> {
+    async fn receive_handshake(
+        stream: &mut TcpStream,
+        network: &NetworkType,
+    ) -> Result<HandshakeMessage, String> {
+        // Read and validate magic bytes
+        let mut magic_bytes = [0u8; 4];
+        stream
+            .read_exact(&mut magic_bytes)
+            .await
+            .map_err(|e| format!("Failed to read magic bytes: {}", e))?;
+        
+        let expected_magic = network.magic_bytes();
+        if magic_bytes != expected_magic {
+            return Err(format!(
+                "Invalid magic bytes: expected {:?}, got {:?}",
+                expected_magic, magic_bytes
+            ));
+        }
+        
+        // Read length
         let mut len_bytes = [0u8; 4];
         stream
             .read_exact(&mut len_bytes)
@@ -160,6 +206,8 @@ impl PeerConnection {
         if len > 1024 * 1024 {
             return Err("Too large".into());
         }
+        
+        // Read payload
         let mut buf = vec![0u8; len];
         stream
             .read_exact(&mut buf)
@@ -231,11 +279,11 @@ impl PeerListener {
             .map_err(|e| format!("Accept failed: {}", e))?;
         println!("📥 Incoming connection from {}", addr);
 
-        let their_handshake = PeerConnection::receive_handshake(&mut stream).await?;
+        let their_handshake = PeerConnection::receive_handshake(&mut stream, &self.network).await?;
         their_handshake.validate(&self.network)?;
 
         let our_handshake = HandshakeMessage::new(self.network.clone(), self.our_listen_addr);
-        PeerConnection::send_handshake(&mut stream, &our_handshake).await?;
+        PeerConnection::send_handshake(&mut stream, &our_handshake, &self.network).await?;
 
         let peer_info =
             PeerInfo::with_version(addr, self.network.clone(), their_handshake.version.clone());
