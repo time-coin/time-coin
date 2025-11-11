@@ -53,14 +53,16 @@ impl PeerConnection {
         );
 
         // Log peer connection with full version info
+        let peer_date = their_handshake
+            .commit_date
+            .as_deref()
+            .or(their_handshake.build_timestamp.as_deref())
+            .unwrap_or("unknown");
         println!(
-            "🔗 Connected to peer: {} | Version: {} | Built: {} | Commits: {}",
+            "🔗 Connected to peer: {} | Version: {} | Committed: {} | Commits: {}",
             peer_addr.ip(),
             their_handshake.version,
-            their_handshake
-                .build_timestamp
-                .as_deref()
-                .unwrap_or("unknown"),
+            peer_date,
             their_handshake.commit_count.as_deref().unwrap_or("unknown")
         );
 
@@ -78,17 +80,18 @@ impl PeerConnection {
         }
 
         // Check version and warn ONLY if peer is running a NEWER version
+        let peer_date = their_handshake
+            .commit_date
+            .as_deref()
+            .or(their_handshake.build_timestamp.as_deref());
         if crate::protocol::should_warn_version_update(
-            their_handshake.build_timestamp.as_deref(),
+            peer_date,
             their_handshake.commit_count.as_deref(),
         ) {
             let warning = crate::protocol::version_update_warning(
                 &format!("{}", peer_addr),
                 &their_handshake.version,
-                their_handshake
-                    .build_timestamp
-                    .as_deref()
-                    .unwrap_or("unknown"),
+                peer_date.unwrap_or("unknown"),
                 their_handshake.commit_count.as_deref().unwrap_or("0"),
             );
             eprintln!("{}", warning);

@@ -41,10 +41,10 @@ pub fn full_version() -> String {
 /// Get version with complete build information
 pub fn version_with_build_info() -> String {
     format!(
-        "v{} | Branch: {} | Built: {} UTC | Commits: {}",
+        "v{} | Branch: {} | Committed: {} | Commits: {}",
         full_version(),
         GIT_BRANCH,
-        BUILD_TIMESTAMP,
+        GIT_COMMIT_DATE,
         GIT_COMMIT_COUNT
     )
 }
@@ -53,13 +53,11 @@ pub fn version_with_build_info() -> String {
 pub fn build_info_detailed() -> String {
     format!(
         "Version:        {}\n\
-         Build Date:    {} UTC\n\
          Git Branch:    {}\n\
          Git Commit:    {} (#{})\n\
          Commit Date:   {}\n\
          Message:       {}",
         full_version(),
-        BUILD_TIMESTAMP,
         GIT_BRANCH,
         GIT_HASH,
         GIT_COMMIT_COUNT,
@@ -78,7 +76,7 @@ pub struct BuildInfo {
     pub version: String,
     pub git_hash: String,
     pub git_branch: String,
-    pub build_timestamp: String,
+    pub commit_date: String,
     pub git_commit_count: u64,
 }
 
@@ -89,7 +87,7 @@ impl BuildInfo {
             version: full_version(),
             git_hash: GIT_HASH.to_string(),
             git_branch: GIT_BRANCH.to_string(),
-            build_timestamp: BUILD_TIMESTAMP.to_string(),
+            commit_date: GIT_COMMIT_DATE.to_string(),
             git_commit_count: GIT_COMMIT_COUNT.parse().unwrap_or(0),
         }
     }
@@ -104,7 +102,11 @@ pub struct HandshakeMessage {
     /// Software version (e.g., "0.1.0-9569fe2")
     pub version: String,
 
-    /// Build timestamp (e.g., "2025-11-07 15:09:21")
+    /// Git commit date (e.g., "2025-11-07T15:09:21Z")
+    #[serde(default)]
+    pub commit_date: Option<String>,
+
+    /// Build timestamp (e.g., "2025-11-07 15:09:21") - kept for backward compatibility
     #[serde(default)]
     pub build_timestamp: Option<String>,
 
@@ -139,7 +141,8 @@ impl HandshakeMessage {
 
         HandshakeMessage {
             version: version_for_handshake(),
-            build_timestamp: Some(BUILD_TIMESTAMP.to_string()),
+            commit_date: Some(GIT_COMMIT_DATE.to_string()),
+            build_timestamp: Some(GIT_COMMIT_DATE.to_string()), // Use commit date for backward compatibility
             commit_count: Some(GIT_COMMIT_COUNT.to_string()),
             protocol_version: PROTOCOL_VERSION,
             network,
@@ -179,7 +182,7 @@ impl HandshakeMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolVersion {
     pub software_version: String,
-    pub build_timestamp: Option<String>,
+    pub commit_date: Option<String>,
     pub protocol_version: u32,
 }
 
@@ -187,7 +190,7 @@ impl ProtocolVersion {
     pub fn current() -> Self {
         ProtocolVersion {
             software_version: VERSION.to_string(),
-            build_timestamp: Some(BUILD_TIMESTAMP.to_string()),
+            commit_date: Some(GIT_COMMIT_DATE.to_string()),
             protocol_version: PROTOCOL_VERSION,
         }
     }
@@ -240,14 +243,14 @@ pub fn version_mismatch_message_detailed(
 ) -> String {
     match peer_build {
         Some(build_str) => format!(
-            "⚠️  Peer {} is running v{} (built: {}). \
-             You are running {} (built: {}). \
+            "⚠️  Peer {} is running v{} (committed: {}). \
+             You are running {} (committed: {}). \
              Please ensure versions match!",
             peer_addr,
             peer_version,
             build_str,
             full_version(),
-            BUILD_TIMESTAMP
+            GIT_COMMIT_DATE
         ),
         None => format!(
             "⚠️  Peer {} is running version {} (current: {}). Please update!",
@@ -267,14 +270,25 @@ pub fn version_mismatch_message(peer_addr: &str, peer_version: &str) -> String {
 // VERSION COMPARISON AND UPDATE DETECTION
 // ═══════════════════════════════════════════════════════════════
 
-/// Compare two build timestamps and return true if remote is newer
+/// Compare two timestamps (supports both ISO 8601 and old format) and return true if remote is newer
 pub fn is_remote_version_newer(local_timestamp: &str, remote_timestamp: &str) -> bool {
-    use chrono::NaiveDateTime;
+    use chrono::{DateTime, NaiveDateTime};
 
-    let format = "%Y-%m-%d %H:%M:%S";
+    // Try ISO 8601 format first (e.g., "2025-11-07T15:09:21Z")
+    let local_dt = DateTime::parse_from_rfc3339(local_timestamp)
+        .ok()
+        .map(|dt| dt.naive_utc())
+        .or_else(|| {
+            // Fall back to old format (e.g., "2025-11-07 15:09:21")
+            NaiveDateTime::parse_from_str(local_timestamp, "%Y-%m-%d %H:%M:%S").ok()
+        });
 
-    let local_dt = NaiveDateTime::parse_from_str(local_timestamp, format).ok();
-    let remote_dt = NaiveDateTime::parse_from_str(remote_timestamp, format).ok();
+    let remote_dt = DateTime::parse_from_rfc3339(remote_timestamp)
+        .ok()
+        .map(|dt| dt.naive_utc())
+        .or_else(|| {
+            NaiveDateTime::parse_from_str(remote_timestamp, "%Y-%m-%d %H:%M:%S").ok()
+        });
 
     match (local_dt, remote_dt) {
         (Some(local), Some(remote)) => remote > local,
@@ -293,7 +307,7 @@ pub fn is_remote_commit_newer(local_count: &str, remote_count: &str) -> bool {
 pub fn version_update_warning(
     peer_addr: &str,
     peer_version: &str,
-    peer_build: &str,
+    peer_commit_date: &str,
     peer_commit_count: &str,
 ) -> String {
     format!(
@@ -304,11 +318,11 @@ pub fn version_update_warning(
         \n\
         Peer {} is running a NEWER version:\n\
         \n\
-        Peer Version:  {} (commit #{})\n\
-        Peer Built:    {} UTC\n\
+        Peer Version:   {} (commit #{})\n\
+        Peer Committed: {}\n\
         \n\
-        Your Version:  {} (commit #{})\n\
-        Your Built:    {} UTC\n\
+        Your Version:   {} (commit #{})\n\
+        Your Committed: {}\n\
         \n\
         ⚠️  RECOMMENDED ACTION:\n\
         1. Update your node to the latest version\n\
@@ -323,10 +337,10 @@ pub fn version_update_warning(
         peer_addr,
         peer_version,
         peer_commit_count,
-        peer_build,
+        peer_commit_date,
         full_version(),
         GIT_COMMIT_COUNT,
-        BUILD_TIMESTAMP
+        GIT_COMMIT_DATE
     )
 }
 
@@ -346,9 +360,9 @@ pub fn should_warn_version_update(
         }
     }
 
-    // Only check build time if commit count is unavailable or older
-    if let Some(peer_build_time) = peer_build {
-        if is_remote_version_newer(BUILD_TIMESTAMP, peer_build_time) {
+    // Only check commit date if commit count is unavailable or older
+    if let Some(peer_commit_date) = peer_build {
+        if is_remote_version_newer(GIT_COMMIT_DATE, peer_commit_date) {
             return true;
         }
     }
@@ -368,7 +382,7 @@ mod tests {
         assert_eq!(handshake.version, full_version());
         assert_eq!(handshake.protocol_version, PROTOCOL_VERSION);
         assert_eq!(handshake.network, NetworkType::Testnet);
-        assert!(handshake.build_timestamp.is_some());
+        assert!(handshake.commit_date.is_some());
     }
 
     #[test]
@@ -385,7 +399,7 @@ mod tests {
         let version = ProtocolVersion::current();
         assert_eq!(version.software_version, VERSION);
         assert_eq!(version.protocol_version, PROTOCOL_VERSION);
-        assert!(version.build_timestamp.is_some());
+        assert!(version.commit_date.is_some());
     }
 
     #[test]

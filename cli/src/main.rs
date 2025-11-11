@@ -36,12 +36,13 @@ use tokio::time;
 
 #[derive(Parser)]
 #[command(name = "time-node")]
-#[command(about = "TIME Coin Node", version)]
+#[command(about = "TIME Coin Node", long_version = None)]
+#[command(disable_version_flag = true)]
 struct Cli {
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(short = 'V', long)]
     version: bool,
 
     #[arg(long)]
@@ -531,7 +532,7 @@ async fn main() {
 
     if cli.version {
         println!("time-node {}", time_network::protocol::full_version());
-        println!("Built: {}", time_network::protocol::BUILD_TIMESTAMP);
+        println!("Committed: {}", time_network::protocol::GIT_COMMIT_DATE);
         return;
     }
 
@@ -567,10 +568,10 @@ async fn main() {
 
         let version_str = time_network::protocol::full_version();
         let build_info = format!(
-            "{} | {} | Built: {}",
+            "{} | {} | Committed: {}",
             version_str,
             time_network::protocol::GIT_BRANCH,
-            time_network::protocol::BUILD_TIMESTAMP
+            time_network::protocol::GIT_COMMIT_DATE
         );
 
         let total_width: usize = 62; // Inner width of banner
@@ -615,7 +616,7 @@ async fn main() {
         let build_info = format!(
             "TIME Coin Node {} | {}",
             version_str,
-            time_network::protocol::BUILD_TIMESTAMP
+            time_network::protocol::GIT_COMMIT_DATE
         );
 
         let total_width: usize = 62;
@@ -657,8 +658,8 @@ async fn main() {
         time_network::protocol::full_version().bright_black()
     );
     println!(
-        "Built: {} UTC",
-        time_network::protocol::BUILD_TIMESTAMP.bright_black()
+        "Committed: {}",
+        time_network::protocol::GIT_COMMIT_DATE.bright_black()
     );
     println!(
         "Branch: {} (commit #{})",
@@ -1672,15 +1673,15 @@ async fn main() {
                     peer.commit_count.as_deref(),
                 ) {
                     eprintln!(
-                        "\n⚠️  UPDATE REMINDER: Peer {} is running newer version {} (built: {})",
+                        "\n⚠️  UPDATE REMINDER: Peer {} is running newer version {} (committed: {})",
                         peer.address.ip(),
                         peer.version,
                         peer.build_timestamp.as_deref().unwrap_or("unknown")
                     );
                     eprintln!(
-                        "   Your version: {} (built: {})",
+                        "   Your version: {} (committed: {})",
                         time_network::protocol::full_version(),
-                        time_network::protocol::BUILD_TIMESTAMP
+                        time_network::protocol::GIT_COMMIT_DATE
                     );
                     eprintln!("   Please update your node!\n");
                     break; // Only warn once per check cycle
