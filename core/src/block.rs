@@ -68,7 +68,7 @@ pub struct Block {
 }
 
 /// Masternode tier definitions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MasternodeTier {
     Free,
     Bronze,
@@ -435,12 +435,14 @@ pub fn distribute_masternode_rewards(
 }
 
 /// Create a complete coinbase transaction with all block rewards
+/// Uses block_timestamp to ensure deterministic transaction across all nodes
 pub fn create_coinbase_transaction(
-    _block_number: u64,
+    block_number: u64,
     treasury_address: &str,
     active_masternodes: &[(String, MasternodeTier)],
     counts: &MasternodeCounts,
     transaction_fees: u64,
+    block_timestamp: i64,  // NEW: Use block timestamp for determinism
 ) -> crate::transaction::Transaction {
     let mut outputs = Vec::new();
 
@@ -451,14 +453,17 @@ pub fn create_coinbase_transaction(
         treasury_address.to_string(),
     ));
 
-    // Masternode rewards
-    let masternode_outputs = distribute_masternode_rewards(active_masternodes, counts);
+    // Masternode rewards - sorted by address for determinism
+    let mut masternode_list: Vec<(String, MasternodeTier)> = active_masternodes.to_vec();
+    masternode_list.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by wallet address
+    
+    let masternode_outputs = distribute_masternode_rewards(&masternode_list, counts);
     outputs.extend(masternode_outputs);
 
     // Transaction fees go to block producer (if any)
-    if transaction_fees > 0 && !active_masternodes.is_empty() {
-        // Give fees to the first masternode (block producer)
-        if let Some((producer_address, _)) = active_masternodes.first() {
+    if transaction_fees > 0 && !masternode_list.is_empty() {
+        // Give fees to the first masternode (block producer) after sorting
+        if let Some((producer_address, _)) = masternode_list.first() {
             outputs.push(crate::transaction::TxOutput::new(
                 transaction_fees,
                 producer_address.clone(),
@@ -466,8 +471,15 @@ pub fn create_coinbase_transaction(
         }
     }
 
-    // Create coinbase transaction
-    crate::transaction::Transaction::new(vec![], outputs)
+    // Create coinbase transaction with DETERMINISTIC timestamp
+    crate::transaction::Transaction {
+        txid: format!("coinbase_{}", block_number), // This will be recalculated
+        version: 1,
+        inputs: vec![],
+        outputs,
+        lock_time: 0,
+        timestamp: block_timestamp, // Use block timestamp for determinism!
+    }
 }
 
 #[cfg(test)]
@@ -696,12 +708,14 @@ mod tests {
             gold: 0,
         };
 
+        let block_timestamp = 1700000000; // Fixed timestamp for testing
         let tx = create_coinbase_transaction(
             100,
             "treasury_addr",
             &masternodes,
             &counts,
             50_000_000, // 0.5 TIME in fees
+            block_timestamp,
         );
 
         // Verify it's a coinbase
