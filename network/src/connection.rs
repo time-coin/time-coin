@@ -40,10 +40,24 @@ impl PeerConnection {
             .await
             .map_err(|e| format!("Connect failed: {}", e))?;
 
-        let our_handshake = HandshakeMessage::new(network.clone(), our_listen_addr);
+        // Get our genesis hash if blockchain is available
+        let our_genesis_hash = if let Some(bc) = &blockchain {
+            let chain = bc.read().await;
+            Some(chain.genesis_hash().to_string())
+        } else {
+            None
+        };
+
+        let our_handshake = HandshakeMessage::new_with_genesis(
+            network.clone(),
+            our_listen_addr,
+            our_genesis_hash.clone(),
+        );
         Self::send_handshake(&mut stream, &our_handshake).await?;
         let their_handshake = Self::receive_handshake(&mut stream).await?;
-        their_handshake.validate(&network)?;
+
+        // Validate with genesis check
+        their_handshake.validate_with_genesis(&network, our_genesis_hash.as_deref())?;
 
         // Update peer info with version AND commit info
         peer.lock().await.update_version_with_build_info(

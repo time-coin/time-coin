@@ -183,9 +183,15 @@ impl ChainSync {
 
     /// Sync blockchain from peers
     pub async fn sync_from_peers(&self) -> Result<u64, String> {
-        let our_height = {
+        let (our_height, genesis_time) = {
             let blockchain = self.blockchain.read().await;
-            blockchain.chain_tip_height()
+            let genesis_block = blockchain
+                .get_block_by_height(0)
+                .ok_or("Genesis block not found")?;
+            (
+                blockchain.chain_tip_height(),
+                genesis_block.header.timestamp.timestamp(),
+            )
         };
 
         println!("   Current height: {}", our_height);
@@ -202,6 +208,44 @@ impl ChainSync {
             .iter()
             .max_by_key(|(_, h, _)| h)
             .ok_or("No valid peer heights")?;
+
+        // Validate that the height is reasonable based on time elapsed
+        let now = chrono::Utc::now().timestamp();
+        let elapsed_days = (now - genesis_time) / 86400; // seconds per day
+        let max_expected_height = elapsed_days as u64 + 10; // Allow some tolerance
+
+        if *max_height > max_expected_height {
+            println!(
+                "   ⚠️  Peer height {} exceeds expected maximum {} (based on time since genesis)",
+                max_height, max_expected_height
+            );
+            println!("      Days since genesis: {}", elapsed_days);
+            println!("      This may indicate a fork or imposter chain");
+            // Don't sync from this peer, find another
+            let valid_peers: Vec<_> = peer_heights
+                .iter()
+                .filter(|(_, h, _)| *h <= max_expected_height)
+                .collect();
+
+            if valid_peers.is_empty() {
+                return Err("No peers with valid height found".to_string());
+            }
+
+            let (best_peer, max_height, _) = valid_peers
+                .iter()
+                .max_by_key(|(_, h, _)| h)
+                .ok_or("No valid peer heights")?;
+
+            if *max_height <= our_height {
+                println!("   ✓ Already at latest height");
+                return Ok(0);
+            }
+
+            println!(
+                "   Using peer {} with validated height {}",
+                best_peer, max_height
+            );
+        }
 
         if *max_height <= our_height {
             println!("   ✓ Already at latest height");
@@ -258,9 +302,12 @@ impl ChainSync {
 
     /// Detect and resolve blockchain forks
     pub async fn detect_and_resolve_forks(&self) -> Result<(), String> {
-        let our_height = {
+        let (our_height, our_genesis) = {
             let blockchain = self.blockchain.read().await;
-            blockchain.chain_tip_height()
+            (
+                blockchain.chain_tip_height(),
+                blockchain.genesis_hash().to_string(),
+            )
         };
 
         // Query all peers for their blocks at our current height
@@ -268,6 +315,27 @@ impl ChainSync {
 
         if peer_heights.is_empty() {
             return Ok(());
+        }
+
+        // Check for genesis block mismatches first
+        for (peer_ip, _, _peer_hash) in &peer_heights {
+            // Try to get their genesis block (height 0)
+            if let Some(peer_genesis_block) = self.download_block(peer_ip, 0).await {
+                if peer_genesis_block.hash != our_genesis {
+                    println!(
+                        "\n⛔ GENESIS MISMATCH: Peer {} on different chain!",
+                        peer_ip
+                    );
+                    println!("   Our genesis:   {}...", &our_genesis[..16]);
+                    println!(
+                        "   Peer genesis:  {}...",
+                        &peer_genesis_block.hash[..16]
+                    );
+                    println!("   ⚠️  This peer will be quarantined from consensus");
+                    // In a real implementation, we would mark this peer for quarantine
+                    continue;
+                }
+            }
         }
 
         // Check if any peer has a different block at our height

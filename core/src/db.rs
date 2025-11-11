@@ -95,4 +95,32 @@ impl BlockchainDB {
             ))),
         }
     }
+
+    /// Clear all blocks from the database
+    pub fn clear_all(&self) -> Result<(), StateError> {
+        // Get all keys that start with "block:"
+        let keys_to_delete: Vec<_> = self
+            .db
+            .scan_prefix(b"block:")
+            .keys()
+            .filter_map(|k| k.ok())
+            .collect();
+
+        // Delete all block entries
+        for key in keys_to_delete {
+            self.db
+                .remove(key)
+                .map_err(|e| StateError::IoError(format!("Failed to clear database: {}", e)))?;
+        }
+
+        // Also clear snapshots
+        let _ = self.db.remove(b"snapshot:hot_state");
+
+        // Flush to ensure changes are persisted
+        self.db
+            .flush()
+            .map_err(|e| StateError::IoError(format!("Failed to flush database: {}", e)))?;
+
+        Ok(())
+    }
 }

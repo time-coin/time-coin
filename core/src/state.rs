@@ -119,6 +119,22 @@ impl BlockchainState {
         let db = crate::db::BlockchainDB::open(db_path)?;
         let existing_blocks = db.load_all_blocks()?;
 
+        // Validate genesis block matches if we have existing blocks
+        if !existing_blocks.is_empty() {
+            let first_block = &existing_blocks[0];
+            if first_block.hash != genesis_block.hash {
+                eprintln!(
+                    "⚠️  Genesis block mismatch detected!\n   Expected: {}...\n   Found:    {}...",
+                    &genesis_block.hash[..16],
+                    &first_block.hash[..16]
+                );
+                eprintln!("   Rebuilding blockchain from new genesis block...");
+
+                // Clear the database
+                db.clear_all()?;
+            }
+        }
+
         let mut state = Self {
             utxo_set: UTXOSet::new(),
             blocks: HashMap::new(),
@@ -137,6 +153,9 @@ impl BlockchainState {
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
         };
 
+        // Load blocks from disk if they match the genesis
+        let existing_blocks = state.db.load_all_blocks()?;
+
         if existing_blocks.is_empty() {
             genesis_block.validate_structure()?;
             for tx in &genesis_block.transactions {
@@ -147,6 +166,7 @@ impl BlockchainState {
                 .insert(genesis_block.hash.clone(), genesis_block.clone());
             state.blocks_by_height.insert(0, genesis_block.hash.clone());
             state.db.save_block(&genesis_block)?;
+            eprintln!("✅ Genesis block initialized: {}...", &genesis_block.hash[..16]);
         } else {
             for block in existing_blocks {
                 for tx in &block.transactions {
@@ -159,6 +179,11 @@ impl BlockchainState {
                     .blocks_by_height
                     .insert(block.header.block_number, block.hash.clone());
             }
+            eprintln!(
+                "✅ Loaded {} blocks from disk (genesis: {}...)",
+                state.blocks.len(),
+                &state.genesis_hash[..16]
+            );
         }
 
         Ok(state)
