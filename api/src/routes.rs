@@ -1,5 +1,5 @@
 use crate::handlers::get_node_wallet;
-use crate::masternode_handlers::{list_masternodes, register_masternode}; // UPDATE THIS LINE
+use crate::masternode_handlers::{list_masternodes, register_masternode};
 use crate::rpc_handlers;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
@@ -12,12 +12,14 @@ use owo_colors::OwoColorize;
 use serde::Serialize;
 use std::collections::HashMap;
 
-/// Create routes (existing ones retained)
+/// Create routes with TIME Coin-specific endpoints
 pub fn create_routes() -> Router<ApiState> {
     Router::new()
+        // Masternode management endpoints
         .route("/masternode/register", post(register_masternode))
         .route("/masternodes/list", get(list_masternodes))
-        .route("/node/wallet", get(get_node_wallet)) // Add this line
+        .route("/node/wallet", get(get_node_wallet))
+        // Core blockchain endpoints
         .route("/", get(root))
         .route("/blockchain/info", get(get_blockchain_info))
         .route("/blockchain/block/{height}", get(get_block_by_height))
@@ -27,7 +29,6 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/peers/discovered", post(handle_peer_discovered))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
-        // Allow peers to push a snapshot to this node
         .route("/snapshot/receive", post(receive_snapshot))
         .route("/transaction", post(submit_transaction))
         .route("/propose", post(propose_block))
@@ -42,10 +43,12 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/tx-vote", post(receive_tx_vote))
         .route("/consensus/block-proposal", post(receive_block_proposal))
         .route("/consensus/block-vote", post(receive_block_vote))
-        // Consensus block retrieval / push endpoints (axum style)
         .route("/consensus/block/{height}", get(get_consensus_block))
         .route("/consensus/finalized-block", post(receive_finalized_block))
-        // Bitcoin RPC-compatible endpoints
+        // ============================================================
+        // Bitcoin-compatible RPC endpoints (maintained for compatibility)
+        // ============================================================
+        // Blockchain information
         .route(
             "/rpc/getblockchaininfo",
             post(rpc_handlers::getblockchaininfo),
@@ -53,6 +56,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/rpc/getblockcount", post(rpc_handlers::getblockcount))
         .route("/rpc/getblockhash", post(rpc_handlers::getblockhash))
         .route("/rpc/getblock", post(rpc_handlers::getblock))
+        // Transaction handling
         .route(
             "/rpc/getrawtransaction",
             post(rpc_handlers::getrawtransaction),
@@ -61,19 +65,45 @@ pub fn create_routes() -> Router<ApiState> {
             "/rpc/sendrawtransaction",
             post(rpc_handlers::sendrawtransaction),
         )
+        // Wallet operations
         .route("/rpc/getwalletinfo", post(rpc_handlers::getwalletinfo))
         .route("/rpc/getbalance", post(rpc_handlers::getbalance))
         .route("/rpc/getnewaddress", post(rpc_handlers::getnewaddress))
         .route("/rpc/validateaddress", post(rpc_handlers::validateaddress))
         .route("/rpc/listunspent", post(rpc_handlers::listunspent))
-        .route(
-            "/rpc/listtransactions",
-            post(rpc_handlers::listtransactions),
-        )
+        // Network information
         .route("/rpc/getpeerinfo", post(rpc_handlers::getpeerinfo))
         .route("/rpc/getnetworkinfo", post(rpc_handlers::getnetworkinfo))
-        .route("/rpc/getmininginfo", post(rpc_handlers::getmininginfo))
-        .route("/rpc/estimatefee", post(rpc_handlers::estimatefee))
+        // ============================================================
+        // TIME Coin-specific RPC endpoints
+        // ============================================================
+        // 24-hour time block endpoints
+        .route(
+            "/rpc/gettimeblockinfo",
+            post(rpc_handlers::gettimeblockinfo),
+        )
+        .route(
+            "/rpc/gettimeblockrewards",
+            post(rpc_handlers::gettimeblockrewards),
+        )
+        // Masternode RPC endpoints
+        .route(
+            "/rpc/getmasternodeinfo",
+            post(rpc_handlers::getmasternodeinfo),
+        )
+        .route("/rpc/listmasternodes", post(rpc_handlers::listmasternodes))
+        .route(
+            "/rpc/getmasternodecount",
+            post(rpc_handlers::getmasternodecount),
+        )
+        // Consensus endpoints
+        .route(
+            "/rpc/getconsensusstatus",
+            post(rpc_handlers::getconsensusstatus),
+        )
+        // Treasury & Governance endpoints
+        .route("/rpc/gettreasury", post(rpc_handlers::gettreasury))
+        .route("/rpc/listproposals", post(rpc_handlers::listproposals))
 }
 
 async fn root() -> &'static str {
@@ -127,13 +157,10 @@ async fn get_block_by_height(
     }
 }
 
-// New: GET /consensus/block/{height} — same contract as /blockchain/block/{height},
-// but kept under consensus namespace for producer/non-producer fetches.
 async fn get_consensus_block(
     State(state): State<ApiState>,
     Path(height): Path<u64>,
 ) -> ApiResult<Json<BlockResponse>> {
-    // Reuse the same logic as get_block_by_height
     let blockchain = state.blockchain.read().await;
 
     match blockchain.get_block_by_height(height) {
@@ -229,7 +256,6 @@ async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<PeersRespons
     }))
 }
 
-/// Handle notification of a newly discovered peer from another node
 #[derive(serde::Deserialize)]
 struct PeerDiscoveredRequest {
     address: String,
@@ -243,21 +269,24 @@ async fn handle_peer_discovered(
     use std::net::SocketAddr;
     use time_network::PeerInfo as NetworkPeerInfo;
 
-    // Parse the address
-    let peer_addr: SocketAddr = req
+    let mut peer_addr: SocketAddr = req
         .address
         .parse()
         .map_err(|e| ApiError::BadRequest(format!("Invalid peer address: {}", e)))?;
 
-    // Check if this peer was recently processed (deduplication)
+    // Detect ephemeral ports (49152-65535) and replace with standard port 24100
+    if peer_addr.port() >= 49152 {
+        peer_addr.set_port(24100);
+    }
+
     {
         let mut broadcasts = state.recent_broadcasts.write().await;
         let now = std::time::Instant::now();
-        let peer_key = peer_addr.to_string();
+        // Use IP-only for deduplication key
+        let peer_key = peer_addr.ip().to_string();
 
         if let Some(&last_seen) = broadcasts.get(&peer_key) {
             if now.duration_since(last_seen) < std::time::Duration::from_secs(300) {
-                // Skip if we processed this peer within the last 5 minutes
                 return Ok(Json(serde_json::json!({
                     "success": true,
                     "message": "Peer already recently processed",
@@ -266,21 +295,17 @@ async fn handle_peer_discovered(
             }
         }
 
-        // Record this peer as processed
         broadcasts.insert(peer_key, now);
     }
 
-    // Get network type from state (assume same network as us)
     let network = if state.network == "mainnet" {
         time_network::NetworkType::Mainnet
     } else {
         time_network::NetworkType::Testnet
     };
 
-    // Create peer info
     let peer_info = NetworkPeerInfo::with_version(peer_addr, network, req.version.clone());
 
-    // Add to peer exchange for future connections
     state
         .peer_manager
         .add_discovered_peer(peer_addr.ip().to_string(), peer_addr.port(), req.version)
@@ -291,7 +316,6 @@ async fn handle_peer_discovered(
         peer_addr
     );
 
-    // Attempt to connect to the newly discovered peer
     let peer_manager_clone = state.peer_manager.clone();
     tokio::spawn(async move {
         match peer_manager_clone.connect_to_peer(peer_info).await {
@@ -331,7 +355,7 @@ async fn get_genesis(State(_state): State<ApiState>) -> ApiResult<Json<serde_jso
 struct SnapshotResponse {
     height: u64,
     state_hash: String,
-    balances: HashMap<String, u64>, // <- use HashMap here
+    balances: HashMap<String, u64>,
     masternodes: Vec<String>,
     timestamp: i64,
 }
@@ -348,7 +372,6 @@ async fn get_snapshot(State(state): State<ApiState>) -> ApiResult<Json<SnapshotR
     let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
     let state_hash = format!("{:x}", md5::compute(&state_data));
 
-    // Use actual blockchain height if available
     let height = {
         let chain = state.blockchain.read().await;
         chain.chain_tip_height()
@@ -363,12 +386,11 @@ async fn get_snapshot(State(state): State<ApiState>) -> ApiResult<Json<SnapshotR
     }))
 }
 
-/// POST handler to receive a pushed snapshot from a peer
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SnapshotReceiveRequest {
     height: u64,
     state_hash: String,
-    balances: HashMap<String, u64>, // <- use HashMap here
+    balances: HashMap<String, u64>,
     masternodes: Vec<String>,
     timestamp: i64,
 }
@@ -377,7 +399,6 @@ async fn receive_snapshot(
     State(state): State<ApiState>,
     Json(req): Json<SnapshotReceiveRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    // Recompute the hash locally to verify snapshot integrity
     let mut sorted_balances: Vec<_> = req.balances.iter().collect();
     sorted_balances.sort_by_key(|&(k, _)| k);
     let mut sorted_masternodes = req.masternodes.clone();
@@ -396,14 +417,11 @@ async fn receive_snapshot(
         return Err(ApiError::BadRequest("Snapshot hash mismatch".to_string()));
     }
 
-    // Apply balances to ApiState (this is the API's quick view of balances used by /snapshot)
     {
         let mut balances = state.balances.write().await;
         *balances = req.balances.clone();
     }
 
-    // Optionally: we could merge the masternode list into peer discovery / peer manager.
-    // For now we simply log it and rely on discovery mechanisms.
     {
         let mut mn = req.masternodes.clone();
         mn.sort();
@@ -415,8 +433,6 @@ async fn receive_snapshot(
         );
     }
 
-    // Persist the received snapshot to disk for durability so it can be inspected / loaded later
-    // Use an optional DATA_DIR env var (fallback to current dir)
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| ".".to_string());
     let filename = format!(
         "{}/snapshot_received_{}.json",
@@ -444,8 +460,6 @@ async fn receive_snapshot(
             );
         }
     }
-
-    // Best-effort: notify any components if required (left as extension point)
 
     Ok(Json(serde_json::json!({ "result": "ok" })))
 }
@@ -576,7 +590,6 @@ async fn check_quorum(
     }))
 }
 
-// Mempool endpoints
 #[derive(serde::Serialize)]
 struct MempoolStatusResponse {
     size: usize,
@@ -614,7 +627,6 @@ async fn add_to_mempool(
         .await
         .map_err(|e| ApiError::Internal(format!("Failed to add transaction: {}", e)))?;
 
-    // Broadcast to peers
     if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
         broadcaster.broadcast_transaction(tx).await;
     }
@@ -643,7 +655,6 @@ async fn receive_tx_proposal(
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::tx_consensus::TransactionProposal;
 
-    // Parse the proposal
     let tx_proposal: TransactionProposal = serde_json::from_value(proposal)
         .map_err(|e| ApiError::Internal(format!("Invalid proposal format: {}", e)))?;
 
@@ -655,17 +666,14 @@ async fn receive_tx_proposal(
     println!("   Transactions: {}", tx_proposal.tx_ids.len());
     println!("   Merkle root: {}...", &tx_proposal.merkle_root[..16]);
 
-    // Store proposal in tx_consensus
     if let Some(tx_consensus) = state.tx_consensus.as_ref() {
         tx_consensus.propose_tx_set(tx_proposal.clone()).await;
 
-        // Auto-vote if we're a validator (not the proposer)
         let blockchain = state.blockchain.read().await;
-        let node_id = blockchain.chain_tip_hash().to_string(); // Use our node ID
+        let node_id = blockchain.chain_tip_hash().to_string();
         drop(blockchain);
 
         if node_id != tx_proposal.proposer {
-            // Validate the transactions exist in our mempool
             let mut all_valid = true;
             if let Some(mempool) = state.mempool.as_ref() {
                 for txid in &tx_proposal.tx_ids {
@@ -676,7 +684,6 @@ async fn receive_tx_proposal(
                 }
             }
 
-            // Cast our vote
             let vote = time_consensus::tx_consensus::TxSetVote {
                 block_height: tx_proposal.block_height,
                 merkle_root: tx_proposal.merkle_root.clone(),
@@ -694,7 +701,6 @@ async fn receive_tx_proposal(
             };
             println!("   🗳️  Auto-voted: {}", vote_type);
 
-            // Broadcast our vote to other nodes
             if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
                 let vote_json = serde_json::to_value(&vote).unwrap();
                 broadcaster.broadcast_tx_vote(vote_json).await;
@@ -714,7 +720,6 @@ async fn receive_tx_vote(
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::tx_consensus::TxSetVote;
 
-    // Parse the vote
     let tx_vote: TxSetVote = serde_json::from_value(vote)
         .map_err(|e| ApiError::Internal(format!("Invalid vote format: {}", e)))?;
 
@@ -728,14 +733,12 @@ async fn receive_tx_vote(
         vote_type, tx_vote.voter
     );
 
-    // Store vote in tx_consensus
     if let Some(tx_consensus) = state.tx_consensus.as_ref() {
         tx_consensus
             .vote_on_tx_set(tx_vote.clone())
             .await
             .map_err(ApiError::Internal)?;
 
-        // Check if we now have consensus
         let (has_consensus, approvals, total) = tx_consensus
             .has_tx_consensus(tx_vote.block_height, &tx_vote.merkle_root)
             .await;
@@ -755,6 +758,7 @@ async fn receive_tx_vote(
         "message": "Vote recorded"
     })))
 }
+
 async fn receive_block_proposal(
     State(state): State<ApiState>,
     Json(proposal): Json<serde_json::Value>,
@@ -826,9 +830,6 @@ async fn receive_block_vote(
     })))
 }
 
-// --- New consensus finalized-block POST handler (axum style) ---
-// Accept a finalized block pushed by a producer and attempt to add it to the chain.
-// This is best-effort: returns an error if the block can't be added.
 async fn receive_finalized_block(
     State(state): State<ApiState>,
     Json(block): Json<time_core::block::Block>,

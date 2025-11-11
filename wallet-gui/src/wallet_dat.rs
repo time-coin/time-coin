@@ -70,6 +70,9 @@ pub struct WalletDat {
     /// Future: encrypted flag (placeholder for now)
     #[serde(default)]
     pub is_encrypted: bool,
+    /// BIP-39 mnemonic phrase (if wallet was created from mnemonic)
+    #[serde(default)]
+    pub mnemonic_phrase: Option<String>,
 }
 
 impl WalletDat {
@@ -87,6 +90,7 @@ impl WalletDat {
             modified_at: now,
             encryption_salt: None,
             is_encrypted: false,
+            mnemonic_phrase: None,
         }
     }
 

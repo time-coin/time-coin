@@ -20,7 +20,7 @@ pub struct PeerInfo {
     pub network: NetworkType,
 
     #[serde(default)]
-    pub build_timestamp: Option<String>,
+    pub commit_date: Option<String>,
 
     #[serde(default)]
     pub commit_count: Option<String>,
@@ -37,7 +37,7 @@ impl PeerInfo {
             last_seen: current_timestamp(),
             version: "unknown".to_string(),
             network, // <-- use 'network' not 'self.network'
-            build_timestamp: None,
+            commit_date: None,
             commit_count: None,
             wallet_address: None,
         }
@@ -48,9 +48,9 @@ impl PeerInfo {
         PeerInfo {
             address, // <-- use 'address' not 'peer_addr'
             last_seen: current_timestamp(),
-            version,               // <-- use 'version' not 'peer.version'
-            network,               // <-- use 'network' not 'self.network'
-            build_timestamp: None, // <-- These should be None for this constructor
+            version,           // <-- use 'version' not 'peer.version'
+            network,           // <-- use 'network' not 'self.network'
+            commit_date: None, // <-- These should be None for this constructor
             commit_count: None,
             wallet_address: None,
         }
@@ -62,15 +62,15 @@ impl PeerInfo {
         self.last_seen = current_timestamp();
     }
 
-    /// Update the peer's version with build info (called after handshake)
+    /// Update the peer's version with commit info (called after handshake)
     pub fn update_version_with_build_info(
         &mut self,
         version: String,
-        build_timestamp: Option<String>,
+        commit_date: Option<String>,
         commit_count: Option<String>,
     ) {
         self.version = version;
-        self.build_timestamp = build_timestamp;
+        self.commit_date = commit_date;
         self.commit_count = commit_count;
         self.last_seen = current_timestamp();
     }

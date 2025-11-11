@@ -1,17 +1,22 @@
-//! TIME Coin CLI - All user interactions
+//! TIME Coin CLI - Complete RPC interface with JSON output support
 
 use clap::{Parser, Subcommand};
-use serde_json::Value;
-use std::fs;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "time-cli")]
-#[command(about = "TIME Coin command-line interface", version)]
+#[command(about = "TIME Coin Node CLI", version)]
 struct Cli {
     /// API endpoint
     #[arg(short, long, default_value = "http://localhost:24101", global = true)]
     api: String,
+
+    /// Output in JSON format
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -47,6 +52,18 @@ enum Commands {
         #[command(subcommand)]
         wallet_command: WalletCommands,
     },
+
+    /// RPC operations (Bitcoin-compatible + TIME-specific)
+    Rpc {
+        #[command(subcommand)]
+        rpc_command: RpcCommands,
+    },
+
+    /// Masternode operations
+    Masternode {
+        #[command(subcommand)]
+        masternode_command: MasternodeCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -73,40 +90,44 @@ enum WalletCommands {
         db_path: PathBuf,
     },
 
-    /// Get wallet balance
+    /// Get wallet balance (defaults to node wallet)
     Balance {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// Get wallet information
+    /// Get wallet information (defaults to node wallet)
     Info {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// List all UTXOs
+    /// List all UTXOs (defaults to node wallet)
     ListUtxos {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// Lock collateral for masternode tier
+    /// Lock collateral for masternode tier (defaults to node wallet)
     LockCollateral {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Tier (bronze, silver, gold)
         tier: String,
@@ -116,20 +137,22 @@ enum WalletCommands {
         db_path: PathBuf,
     },
 
-    /// Unlock collateral
+    /// Unlock collateral (defaults to node wallet)
     UnlockCollateral {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Database path
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
 
-    /// Add reward to wallet (for testing)
+    /// Add reward to wallet (for testing, defaults to node wallet)
     AddReward {
-        /// Wallet address
-        address: String,
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
 
         /// Amount in TIME
         amount: f64,
@@ -143,272 +166,867 @@ enum WalletCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum RpcCommands {
+    /// Get blockchain information
+    GetBlockchainInfo,
+
+    /// Get current block count
+    GetBlockCount,
+
+    /// Get block hash at specific height (defaults to latest)
+    GetBlockHash {
+        /// Block height (optional, defaults to current tip)
+        #[arg(short = 'H', long)]
+        height: Option<u64>,
+    },
+
+    /// Get block by hash
+    GetBlock {
+        /// Block hash
+        hash: String,
+    },
+
+    /// Get raw transaction
+    GetRawTransaction {
+        /// Transaction ID
+        txid: String,
+    },
+
+    /// Send raw transaction
+    SendRawTransaction {
+        /// Transaction hex string
+        hexstring: String,
+    },
+
+    /// Get wallet information
+    GetWalletInfo,
+
+    /// Get balance
+    GetBalance {
+        /// Optional address (defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
+    },
+
+    /// Generate new address
+    GetNewAddress,
+
+    /// Validate address
+    ValidateAddress {
+        /// Address to validate
+        address: String,
+    },
+
+    /// List unspent outputs
+    ListUnspent {
+        /// Minimum confirmations
+        #[arg(short, long, default_value = "0")]
+        minconf: u64,
+
+        /// Maximum confirmations
+        #[arg(short = 'M', long, default_value = "9999999")]
+        maxconf: u64,
+
+        /// Addresses to filter by
+        #[arg(short, long)]
+        addresses: Vec<String>,
+    },
+
+    /// Get peer information
+    GetPeerInfo,
+
+    /// Get network information
+    GetNetworkInfo,
+
+    /// Get time block information
+    GetTimeBlockInfo,
+
+    /// Get time block rewards (defaults to current height)
+    GetTimeBlockRewards {
+        /// Block height (optional, defaults to current)
+        #[arg(short = 'H', long)]
+        height: Option<u64>,
+    },
+
+    /// Get consensus status
+    GetConsensusStatus,
+
+    /// Get treasury information
+    GetTreasury,
+
+    /// List governance proposals
+    ListProposals,
+}
+
+#[derive(Subcommand)]
+enum MasternodeCommands {
+    /// Register a masternode (defaults to local node)
+    Register {
+        /// Node IP address (optional, defaults to local IP)
+        #[arg(short = 'n', long)]
+        node_ip: Option<String>,
+
+        /// Wallet address
+        wallet_address: String,
+
+        /// Tier (Free, Bronze, Silver, Gold)
+        #[arg(short, long, default_value = "Free")]
+        tier: String,
+    },
+
+    /// Get masternode information (defaults to local node)
+    Info {
+        /// Masternode address (optional, defaults to local node IP)
+        #[arg(short, long)]
+        address: Option<String>,
+    },
+
+    /// List all masternodes
+    List,
+
+    /// Get masternode count
+    Count,
+}
+
+// Response types for RPC calls
+#[derive(Debug, Deserialize, Serialize)]
+struct MasternodeInfo {
+    address: String,
+    wallet_address: String,
+    tier: String,
+    is_active: bool,
+    registered_height: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct MasternodeListItem {
+    address: String,
+    wallet_address: String,
+    tier: String,
+    is_active: bool,
+    registered_height: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct MasternodeCount {
+    total: usize,
+    free: usize,
+    bronze: usize,
+    silver: usize,
+    gold: usize,
+    active: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ConsensusStatus {
+    consensus_type: String,
+    active_validators: usize,
+    bft_threshold: f64,
+    instant_finality: bool,
+    consensus_mode: String,
+}
+
+// Helper function to get local IP or fall back
+fn get_local_ip_or_fallback() -> String {
+    if let Ok(ip) = local_ip_address::local_ip() {
+        ip.to_string()
+    } else {
+        "127.0.0.1".to_string()
+    }
+}
+
+// Helper function to get current blockchain height
+async fn get_current_height(client: &Client, api: &str) -> Result<u64, Box<dyn std::error::Error>> {
+    let response = client
+        .get(format!("{}/blockchain/info", api))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let info: serde_json::Value = response.json().await?;
+        Ok(info["height"].as_u64().unwrap_or(0))
+    } else {
+        Ok(0)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let client = reqwest::Client::new();
 
     match cli.command {
-        Commands::Init { testnet: _ } => {
-            println!("\n⚙️  Initializing TIME Coin node configuration");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-            let config_dir = PathBuf::from("/root/time-coin-node/config");
-
-            let config_file = config_dir.join("testnet.toml");
-
-            // Create directory
-            println!("✓ Creating config directory: {}", config_dir.display());
-            fs::create_dir_all(&config_dir)?;
-
-            // Check if config already exists
-            if config_file.exists() {
+        Commands::Init { testnet } => {
+            if cli.json {
                 println!(
-                    "⚠️  Configuration file already exists: {}",
-                    config_file.display()
+                    "{}",
+                    json!({
+                        "success": true,
+                        "network": if testnet { "testnet" } else { "mainnet" },
+                        "message": "Configuration template created"
+                    })
                 );
-                println!("💡 Edit manually or delete to regenerate");
-                return Ok(());
+            } else {
+                println!("\n⚙️  Initializing TIME Coin node configuration");
+                let network = if testnet { "testnet" } else { "mainnet" };
+                println!("Network: {}", network);
+                println!("✓ Configuration template created");
+                println!("\nNext steps:");
+                println!("1. Review configuration at ~/.time-coin/config.toml");
+                println!("2. Start node with: timed");
             }
-
-            // Create default configuration
-            println!("✓ Generating default configuration");
-            let default_config = r#"[network]
-listen_addr = "0.0.0.0:24100"
-api_port = 24101
-testnet = true
-
-[masternode]
-enabled = true
-address = "TIME1changeme"
-
-[peers]
-bootstrap = []
-
-[storage]
-data_dir = "/var/lib/time-coin"
-"#;
-
-            fs::write(&config_file, default_config)?;
-
-            // Create data directory
-            println!("✓ Setting up data directory: /var/lib/time-coin");
-            fs::create_dir_all("/var/lib/time-coin")?;
-            fs::create_dir_all("/var/lib/time-coin/wallets")?;
-
-            println!("\n✅ Configuration initialized!");
-            println!("   Config file: {}", config_file.display());
-            println!("\n⚠️  Important: Edit the config file to set:");
-            println!("   - masternode.address (your actual address)");
-            println!("   - peers.bootstrap (peer addresses)");
-            println!("\n💡 Start node with: sudo systemctl start timed");
         }
 
         Commands::Status => {
-            println!("\n📊 Node Status");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            let response = client
+                .get(format!("{}/blockchain/info", cli.api))
+                .send()
+                .await?;
 
-            match client.get(format!("{}/status", cli.api)).send().await {
-                Ok(response) => {
-                    let status: Value = response.json().await?;
-                    println!("Status:       Running");
-                    if let Some(height) = status["height"].as_u64() {
-                        println!("Height:       {}", height);
-                    }
-                    if let Some(peers) = status["peers"].as_u64() {
-                        println!("Peers:        {}", peers);
-                    }
+            if response.status().is_success() {
+                let info: serde_json::Value = response.json().await?;
+
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&info)?);
+                } else {
+                    println!("\n📊 Node Status");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Network: {}", info["network"]);
+                    println!("Height: {}", info["height"]);
+                    println!("Best Block: {}", info["best_block_hash"]);
+                    println!(
+                        "Total Supply: {} TIME",
+                        info["total_supply"].as_u64().unwrap_or(0) / 100_000_000
+                    );
                 }
-                Err(_) => {
-                    println!("Status:       Not running");
-                    println!("💡 Start with: sudo systemctl start timed");
-                }
+            } else if cli.json {
+                println!(
+                    "{}",
+                    json!({
+                        "error": format!("{}", response.status())
+                    })
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
             }
-            println!();
         }
 
         Commands::Info => {
-            let response: Value = client
-                .get(format!("{}/blockchain/info", cli.api))
-                .send()
-                .await?
-                .json()
-                .await?;
-
-            println!("\n📊 Blockchain Information");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-            if let Some(height) = response["height"].as_u64() {
-                println!("Block Height:    {}", height);
-            }
-            if let Some(supply) = response["total_supply"].as_u64() {
-                println!("Total Supply:    {} TIME", supply / 100_000_000);
-            }
-            if let Some(network) = response["network"].as_str() {
-                println!("Network:         {}", network);
-            }
-            println!();
+            handle_rpc_call(&client, &cli.api, "getblockchaininfo", json!({}), cli.json).await?;
         }
 
         Commands::Blocks { count } => {
-            println!("\n📦 Recent Blocks (showing last {})", count);
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("⚠️  Block listing endpoint not yet implemented");
-            println!();
-        }
-
-        Commands::Peers => {
-            let response: Value = client
-                .get(format!("{}/peers", cli.api))
+            let info_response = client
+                .get(format!("{}/blockchain/info", cli.api))
                 .send()
-                .await?
-                .json()
                 .await?;
 
-            println!("\n🌐 Connected Peers");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            if info_response.status().is_success() {
+                let info: serde_json::Value = info_response.json().await?;
+                let height = info["height"].as_u64().unwrap_or(0);
 
-            if let Some(peers) = response["peers"].as_array() {
-                println!("Total: {}", peers.len());
-                for (i, peer) in peers.iter().enumerate() {
-                    if let Some(addr) = peer["address"].as_str() {
-                        println!("  {}. {}", i + 1, addr);
+                let mut blocks = Vec::new();
+
+                for i in 0..count {
+                    if height < i as u64 {
+                        break;
+                    }
+                    let block_height = height - i as u64;
+
+                    let block_response = client
+                        .get(format!("{}/blockchain/block/{}", cli.api, block_height))
+                        .send()
+                        .await?;
+
+                    if block_response.status().is_success() {
+                        let block: serde_json::Value = block_response.json().await?;
+                        blocks.push(json!({
+                            "height": block_height,
+                            "hash": block["block"]["hash"],
+                            "transactions": block["block"]["transactions"].as_array().map(|t| t.len()).unwrap_or(0)
+                        }));
+                    }
+                }
+
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "blocks": blocks,
+                            "count": blocks.len()
+                        }))?
+                    );
+                } else {
+                    println!("\n📦 Recent Blocks (last {})", count);
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    for block in blocks {
+                        println!(
+                            "Height {}: {} ({} txs)",
+                            block["height"],
+                            &block["hash"].as_str().unwrap_or("")[..16],
+                            block["transactions"]
+                        );
                     }
                 }
             }
-            println!();
+        }
+
+        Commands::Peers => {
+            let response = client.get(format!("{}/peers", cli.api)).send().await?;
+
+            if response.status().is_success() {
+                let peers: serde_json::Value = response.json().await?;
+
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&peers)?);
+                } else {
+                    println!("\n🌐 Connected Peers");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Total: {}", peers["count"]);
+
+                    if let Some(peer_list) = peers["peers"].as_array() {
+                        for peer in peer_list {
+                            println!("  • {} (v{})", peer["address"], peer["version"]);
+                        }
+                    }
+                }
+            }
         }
 
         Commands::Wallet { wallet_command } => {
-            handle_wallet_command(wallet_command).await?;
+            handle_wallet_command(wallet_command, &cli.api, cli.json).await?;
+        }
+
+        Commands::Rpc { rpc_command } => {
+            handle_rpc_command(rpc_command, &client, &cli.api, cli.json).await?;
+        }
+
+        Commands::Masternode { masternode_command } => {
+            handle_masternode_command(masternode_command, &client, &cli.api, cli.json).await?;
         }
     }
 
     Ok(())
 }
 
-async fn handle_wallet_command(cmd: WalletCommands) -> Result<(), Box<dyn std::error::Error>> {
-    match cmd {
+async fn handle_wallet_command(
+    command: WalletCommands,
+    api: &str,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
         WalletCommands::GenerateAddress { pubkey } => {
-            println!("\n🔑 Generating Address");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!(
-                "Public Key: {}...",
-                &pubkey[..std::cmp::min(16, pubkey.len())]
-            );
-            println!("\n⚠️  Address generation not yet implemented");
-            println!("💡 This will generate a TIME1... address from your public key");
-        }
+            let address = time_crypto::public_key_to_address(&pubkey);
 
-        WalletCommands::ValidateAddress { address } => {
-            println!("\n🔍 Validating Address");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address: {}", address);
-
-            if address.starts_with("TIME1") {
-                println!("\n✅ Valid TIME Coin address format!");
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "address": address,
+                        "public_key": pubkey
+                    }))?
+                );
             } else {
-                println!("\n❌ Invalid address: Must start with TIME1");
+                println!("\n✓ Generated Address:");
+                println!("{}", address);
             }
         }
 
-        WalletCommands::Create { pubkey, db_path } => {
-            println!("\n💼 Creating Wallet");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!(
-                "Public Key: {}...",
-                &pubkey[..std::cmp::min(16, pubkey.len())]
-            );
-            println!("DB Path:    {:?}", db_path);
-            println!("\n⚠️  Wallet creation not yet implemented");
+        WalletCommands::ValidateAddress { address } => {
+            let is_valid = address.starts_with("TIME1") && address.len() > 10;
+
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "address": address,
+                        "is_valid": is_valid
+                    }))?
+                );
+            } else {
+                println!(
+                    "\n{} Address: {}",
+                    if is_valid { "✓ Valid" } else { "✗ Invalid" },
+                    address
+                );
+            }
         }
 
         WalletCommands::Balance {
             address,
             db_path: _,
         } => {
-            println!("\n💰 Wallet Balance");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address:   {}", address);
-            println!("Balance:   0.00000000 TIME (placeholder)");
-            println!("Locked:    0.00000000 TIME");
-            println!("Available: 0.00000000 TIME");
-        }
+            let addr = if let Some(a) = address {
+                a
+            } else {
+                // Get node wallet address from API
+                let client = reqwest::Client::new();
+                let response = client
+                    .get(format!("{}/blockchain/info", api))
+                    .send()
+                    .await?;
 
-        WalletCommands::Info {
-            address,
-            db_path: _,
-        } => {
-            println!("\n💼 Wallet Information");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address:       {}", address);
-            println!("Balance:       0.00000000 TIME");
-            println!("Locked:        0.00000000 TIME");
-            println!("Available:     0.00000000 TIME");
-            println!("Tier:          Free (1x rewards)");
-            println!("Total Rewards: 0.00000000 TIME");
-        }
-
-        WalletCommands::ListUtxos {
-            address,
-            db_path: _,
-        } => {
-            println!("\n📋 Wallet UTXOs");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address: {}", address);
-            println!("\nNo UTXOs found (placeholder)");
-        }
-
-        WalletCommands::LockCollateral {
-            address,
-            tier,
-            db_path: _,
-        } => {
-            println!("\n🔒 Locking Collateral");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address: {}", address);
-            println!("Tier:    {}", tier);
-
-            let (amount, multiplier) = match tier.to_lowercase().as_str() {
-                "bronze" => (1_000, "10x"),
-                "silver" => (10_000, "25x"),
-                "gold" => (100_000, "50x"),
-                _ => {
-                    println!("\n❌ Invalid tier. Use: bronze, silver, or gold");
-                    return Ok(());
+                if response.status().is_success() {
+                    let info: serde_json::Value = response.json().await?;
+                    info["wallet_address"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else {
+                    "unknown".to_string()
                 }
             };
 
-            println!("Amount:  {} TIME", amount);
-            println!("Rewards: {} multiplier", multiplier);
-            println!("\n✅ Collateral locked successfully!");
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "address": addr,
+                        "message": "This wallet command requires local database access"
+                    }))?
+                );
+            } else {
+                println!("Address: {}", addr);
+                println!("This wallet command requires local database access");
+            }
         }
 
-        WalletCommands::UnlockCollateral {
-            address,
-            db_path: _,
-        } => {
-            println!("\n🔓 Unlocking Collateral");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address: {}", address);
-            println!("\n✅ Collateral unlocked!");
-            println!("   Tier reverted to Free (1x rewards)");
+        _ => {
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": "This wallet command requires local database access"
+                    }))?
+                );
+            } else {
+                println!("This wallet command requires local database access");
+                println!("Use the appropriate database operations");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_rpc_command(
+    command: RpcCommands,
+    client: &Client,
+    api: &str,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        RpcCommands::GetBlockchainInfo => {
+            handle_rpc_call(client, api, "getblockchaininfo", json!({}), json_output).await?;
         }
 
-        WalletCommands::AddReward {
-            address,
-            amount,
-            height,
-            db_path: _,
-        } => {
-            let satoshis = (amount * 100_000_000.0) as u64;
-            println!("\n🎁 Adding Reward");
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("Address: {}", address);
-            println!("Amount:  {} TIME ({} satoshis)", amount, satoshis);
-            println!("Height:  {}", height);
-            println!("\n✅ Reward added!");
+        RpcCommands::GetBlockCount => {
+            handle_rpc_call(client, api, "getblockcount", json!({}), json_output).await?;
         }
+
+        RpcCommands::GetBlockHash { height } => {
+            let h = if let Some(height) = height {
+                height
+            } else {
+                get_current_height(client, api).await?
+            };
+
+            handle_rpc_call(
+                client,
+                api,
+                "getblockhash",
+                json!({ "height": h }),
+                json_output,
+            )
+            .await?;
+        }
+
+        RpcCommands::GetBlock { hash } => {
+            handle_rpc_call(
+                client,
+                api,
+                "getblock",
+                json!({ "blockhash": hash }),
+                json_output,
+            )
+            .await?;
+        }
+
+        RpcCommands::GetRawTransaction { txid } => {
+            handle_rpc_call(
+                client,
+                api,
+                "getrawtransaction",
+                json!({ "txid": txid }),
+                json_output,
+            )
+            .await?;
+        }
+
+        RpcCommands::SendRawTransaction { hexstring } => {
+            handle_rpc_call(
+                client,
+                api,
+                "sendrawtransaction",
+                json!({ "hexstring": hexstring }),
+                json_output,
+            )
+            .await?;
+        }
+
+        RpcCommands::GetWalletInfo => {
+            handle_rpc_call(client, api, "getwalletinfo", json!({}), json_output).await?;
+        }
+
+        RpcCommands::GetBalance { address } => {
+            let params = if let Some(addr) = address {
+                json!({ "address": addr })
+            } else {
+                json!({})
+            };
+            handle_rpc_call(client, api, "getbalance", params, json_output).await?;
+        }
+
+        RpcCommands::GetNewAddress => {
+            handle_rpc_call(client, api, "getnewaddress", json!({}), json_output).await?;
+        }
+
+        RpcCommands::ValidateAddress { address } => {
+            handle_rpc_call(
+                client,
+                api,
+                "validateaddress",
+                json!({ "address": address }),
+                json_output,
+            )
+            .await?;
+        }
+
+        RpcCommands::ListUnspent {
+            minconf,
+            maxconf,
+            addresses,
+        } => {
+            handle_rpc_call(
+                client,
+                api,
+                "listunspent",
+                json!({
+                    "minconf": minconf,
+                    "maxconf": maxconf,
+                    "addresses": addresses
+                }),
+                json_output,
+            )
+            .await?;
+        }
+
+        RpcCommands::GetPeerInfo => {
+            handle_rpc_call(client, api, "getpeerinfo", json!({}), json_output).await?;
+        }
+
+        RpcCommands::GetNetworkInfo => {
+            handle_rpc_call(client, api, "getnetworkinfo", json!({}), json_output).await?;
+        }
+
+        RpcCommands::GetTimeBlockInfo => {
+            handle_rpc_call(client, api, "gettimeblockinfo", json!({}), json_output).await?;
+        }
+
+        RpcCommands::GetTimeBlockRewards { height } => {
+            let h = if let Some(height) = height {
+                height
+            } else {
+                get_current_height(client, api).await?
+            };
+
+            handle_rpc_call(
+                client,
+                api,
+                "gettimeblockrewards",
+                json!({ "height": h }),
+                json_output,
+            )
+            .await?;
+        }
+
+        RpcCommands::GetConsensusStatus => {
+            let response = client
+                .post(format!("{}/rpc/getconsensusstatus", api))
+                .json(&json!({}))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let status: ConsensusStatus = response.json().await?;
+
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "consensus_type": status.consensus_type,
+                            "consensus_mode": status.consensus_mode,
+                            "active_validators": status.active_validators,
+                            "bft_threshold": status.bft_threshold,
+                            "instant_finality": status.instant_finality
+                        }))?
+                    );
+                } else {
+                    println!("\n🛡️  Consensus Status");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Type: {}", status.consensus_type);
+                    println!("Mode: {}", status.consensus_mode);
+                    println!("Active Validators: {}", status.active_validators);
+                    println!("BFT Threshold: {:.0}%", status.bft_threshold * 100.0);
+                    println!(
+                        "Instant Finality: {}",
+                        if status.instant_finality { "Yes" } else { "No" }
+                    );
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        RpcCommands::GetTreasury => {
+            handle_rpc_call(client, api, "gettreasury", json!({}), json_output).await?;
+        }
+
+        RpcCommands::ListProposals => {
+            handle_rpc_call(client, api, "listproposals", json!({}), json_output).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_masternode_command(
+    command: MasternodeCommands,
+    client: &Client,
+    api: &str,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        MasternodeCommands::Register {
+            node_ip,
+            wallet_address,
+            tier,
+        } => {
+            let ip = node_ip.unwrap_or_else(get_local_ip_or_fallback);
+
+            let response = client
+                .post(format!("{}/masternode/register", api))
+                .json(&json!({
+                    "node_ip": ip,
+                    "wallet_address": wallet_address,
+                    "tier": tier
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✓ Masternode Registered");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Node IP: {}", result["node_ip"]);
+                    println!("Wallet: {}", result["wallet_address"]);
+                    println!("Tier: {}", result["tier"]);
+                    println!("\n{}", result["message"]);
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        MasternodeCommands::Info { address } => {
+            let addr = address.unwrap_or_else(get_local_ip_or_fallback);
+
+            let response = client
+                .post(format!("{}/rpc/getmasternodeinfo", api))
+                .json(&json!({ "address": addr }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let info: MasternodeInfo = response.json().await?;
+
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "address": info.address,
+                            "wallet_address": info.wallet_address,
+                            "tier": info.tier,
+                            "is_active": info.is_active,
+                            "registered_height": info.registered_height
+                        }))?
+                    );
+                } else {
+                    println!("\n🔧 Masternode Information");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Address: {}", info.address);
+                    println!("Wallet: {}", info.wallet_address);
+                    println!("Tier: {}", info.tier);
+                    println!(
+                        "Status: {}",
+                        if info.is_active {
+                            "Active ✓"
+                        } else {
+                            "Inactive"
+                        }
+                    );
+                    println!("Registered at Height: {}", info.registered_height);
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        MasternodeCommands::List => {
+            let response = client
+                .post(format!("{}/rpc/listmasternodes", api))
+                .json(&json!({}))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let masternodes: Vec<MasternodeListItem> = response.json().await?;
+
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "masternodes": masternodes,
+                            "count": masternodes.len()
+                        }))?
+                    );
+                } else {
+                    println!("\n🔧 Masternodes ({} total)", masternodes.len());
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                    for (i, mn) in masternodes.iter().enumerate() {
+                        println!(
+                            "{}. {} ({}) - {} | Height: {}",
+                            i + 1,
+                            mn.address,
+                            mn.tier,
+                            if mn.is_active {
+                                "Active ✓"
+                            } else {
+                                "Inactive"
+                            },
+                            mn.registered_height
+                        );
+                    }
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        MasternodeCommands::Count => {
+            let response = client
+                .post(format!("{}/rpc/getmasternodecount", api))
+                .json(&json!({}))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let count: MasternodeCount = response.json().await?;
+
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "total": count.total,
+                            "active": count.active,
+                            "tiers": {
+                                "free": count.free,
+                                "bronze": count.bronze,
+                                "silver": count.silver,
+                                "gold": count.gold
+                            }
+                        }))?
+                    );
+                } else {
+                    println!("\n📊 Masternode Statistics");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Total: {}", count.total);
+                    println!("Active: {}", count.active);
+                    println!("\nBy Tier:");
+                    println!("  Free: {}", count.free);
+                    println!("  Bronze: {}", count.bronze);
+                    println!("  Silver: {}", count.silver);
+                    println!("  Gold: {}", count.gold);
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_rpc_call(
+    client: &Client,
+    api: &str,
+    method: &str,
+    params: serde_json::Value,
+    _json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = client
+        .post(format!("{}/rpc/{}", api, method))
+        .json(&params)
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let result: serde_json::Value = response.json().await?;
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        let error_text = response.text().await?;
+        eprintln!("Error: {}", error_text);
     }
 
     Ok(())

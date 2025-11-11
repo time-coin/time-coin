@@ -71,11 +71,15 @@ impl PeerExchange {
     }
 
     pub fn add_peer(&mut self, address: String, port: u16, version: String) {
-        let key = format!("{}:{}", address, port);
+        let key = address.clone();
 
         if let Some(peer) = self.peers.get_mut(&key) {
             peer.last_seen = Utc::now().timestamp();
             peer.version = version;
+            // Prefer non-ephemeral ports (< 49152) when updating existing peers
+            if port < 49152 && peer.port >= 49152 {
+                peer.port = port;
+            }
         } else {
             self.peers
                 .insert(key, PeerInfo::new(address, port, version));
@@ -159,5 +163,81 @@ impl PeerExchange {
 
     pub fn peer_count(&self) -> usize {
         self.peers.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn get_unique_test_path() -> String {
+        let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("/tmp/test_peers_{}_{}.json", timestamp, id)
+    }
+
+    #[test]
+    fn test_peer_uses_ip_only_as_key() {
+        let mut exchange = PeerExchange::new(get_unique_test_path());
+
+        // Add a peer with ephemeral port
+        exchange.add_peer("192.168.1.1".to_string(), 55000, "1.0.0".to_string());
+        assert_eq!(exchange.peer_count(), 1);
+
+        // Add same IP with different ephemeral port - should update, not duplicate
+        exchange.add_peer("192.168.1.1".to_string(), 56000, "1.0.0".to_string());
+        assert_eq!(exchange.peer_count(), 1);
+
+        // Add different IP - should create new entry
+        exchange.add_peer("192.168.1.2".to_string(), 55000, "1.0.0".to_string());
+        assert_eq!(exchange.peer_count(), 2);
+    }
+
+    #[test]
+    fn test_prefers_non_ephemeral_ports() {
+        let mut exchange = PeerExchange::new(get_unique_test_path());
+
+        // Add peer with ephemeral port first
+        exchange.add_peer("192.168.1.1".to_string(), 55000, "1.0.0".to_string());
+        let peer = exchange.peers.get("192.168.1.1").unwrap();
+        assert_eq!(peer.port, 55000);
+
+        // Update with standard port - should replace ephemeral port
+        exchange.add_peer("192.168.1.1".to_string(), 24100, "1.0.1".to_string());
+        let peer = exchange.peers.get("192.168.1.1").unwrap();
+        assert_eq!(peer.port, 24100);
+        assert_eq!(peer.version, "1.0.1");
+
+        // Try to update with another ephemeral port - should keep standard port
+        exchange.add_peer("192.168.1.1".to_string(), 56000, "1.0.2".to_string());
+        let peer = exchange.peers.get("192.168.1.1").unwrap();
+        assert_eq!(peer.port, 24100); // Port should remain at standard port
+        assert_eq!(peer.version, "1.0.2"); // Version should still update
+    }
+
+    #[test]
+    fn test_ephemeral_port_detection() {
+        let mut exchange = PeerExchange::new(get_unique_test_path());
+
+        // Ports below 49152 are not ephemeral
+        exchange.add_peer("192.168.1.1".to_string(), 24100, "1.0.0".to_string());
+        let peer = exchange.peers.get("192.168.1.1").unwrap();
+        assert_eq!(peer.port, 24100);
+
+        // Update with ephemeral port (>= 49152) should not replace standard port
+        exchange.add_peer("192.168.1.1".to_string(), 49152, "1.0.1".to_string());
+        let peer = exchange.peers.get("192.168.1.1").unwrap();
+        assert_eq!(peer.port, 24100);
+
+        // Update with another standard port should NOT replace (only replaces ephemeral with standard)
+        exchange.add_peer("192.168.1.1".to_string(), 8080, "1.0.2".to_string());
+        let peer = exchange.peers.get("192.168.1.1").unwrap();
+        assert_eq!(peer.port, 24100); // Should keep the first standard port
     }
 }

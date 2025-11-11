@@ -362,7 +362,6 @@ impl NetworkManager {
     }
 
     /// Discover and connect to peers recursively
-
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
         log::info!(
             "get_connected_peers called, returning {} peers",

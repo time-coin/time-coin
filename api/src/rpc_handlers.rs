@@ -1,12 +1,14 @@
-//! Bitcoin RPC-compatible handlers for Time Coin
+//! TIME Coin RPC-compatible handlers
 //!
-//! This module implements Bitcoin RPC-style endpoints to provide
-//! familiar interfaces for developers and tools.
+//! This module implements RPC endpoints tailored for TIME Coin's unique features:
+//! - BFT consensus (no mining)
+//! - 24-hour time blocks
+//! - Masternode network with tiered collateral
+//! - Treasury and governance system
 
 use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ============================================================================
 // BLOCKCHAIN RPC METHODS
@@ -19,13 +21,12 @@ pub struct BlockchainInfo {
     pub blocks: u64,
     pub headers: u64,
     pub bestblockhash: String,
-    pub difficulty: f64,
     pub mediantime: i64,
     pub verificationprogress: f64,
     pub initialblockdownload: bool,
-    pub chainwork: String,
     pub size_on_disk: u64,
     pub pruned: bool,
+    pub consensus: String, // "BFT" for TIME Coin
 }
 
 pub async fn getblockchaininfo(State(state): State<ApiState>) -> ApiResult<Json<BlockchainInfo>> {
@@ -38,13 +39,12 @@ pub async fn getblockchaininfo(State(state): State<ApiState>) -> ApiResult<Json<
         blocks: height,
         headers: height,
         bestblockhash: best_hash,
-        difficulty: 1.0, // TIME uses BFT, not PoW difficulty
         mediantime: chrono::Utc::now().timestamp(),
         verificationprogress: 1.0,
         initialblockdownload: false,
-        chainwork: format!("{:064x}", height), // Simplified chainwork
-        size_on_disk: 0,                       // TODO: Calculate actual size
+        size_on_disk: 0, // TODO: Calculate actual size
         pruned: false,
+        consensus: "BFT".to_string(),
     }))
 }
 
@@ -99,20 +99,15 @@ pub struct GetBlockResponse {
     pub merkleroot: String,
     pub time: i64,
     pub mediantime: i64,
-    pub nonce: u64,
-    pub bits: String,
-    pub difficulty: f64,
-    pub chainwork: String,
     pub tx: Vec<String>,
     pub previousblockhash: String,
     pub nextblockhash: Option<String>,
+    pub is_timeblock: bool, // True if this is a 24-hour checkpoint block
 }
 
 #[derive(Deserialize)]
 pub struct GetBlockParams {
     pub blockhash: String,
-    #[serde(default)]
-    pub verbosity: u32, // 0=hex, 1=json, 2=json with tx details
 }
 
 pub async fn getblock(
@@ -159,18 +154,89 @@ pub async fn getblock(
                 merkleroot: block.header.merkle_root.clone(),
                 time: block.header.timestamp.timestamp(),
                 mediantime: block.header.timestamp.timestamp(),
-                nonce: 0,                     // TIME uses BFT, not PoW nonce
-                bits: "00000000".to_string(), // No PoW bits in BFT
-                difficulty: 1.0,
-                chainwork: format!("{:064x}", height),
                 tx: tx_ids,
                 previousblockhash: block.header.previous_hash.clone(),
                 nextblockhash: next_hash,
+                is_timeblock: height % 24 == 0, // Daily checkpoints
             }))
         }
         None => Err(ApiError::TransactionNotFound(format!(
             "Block not found: {}",
             params.blockhash
+        ))),
+    }
+}
+
+// ============================================================================
+// TIME BLOCK METHODS (24-hour checkpoint system)
+// ============================================================================
+
+/// Response for gettimeblockinfo RPC
+#[derive(Serialize)]
+pub struct TimeBlockInfo {
+    pub current_block: u64,
+    pub next_timeblock: u64,
+    pub seconds_until_next: i64,
+    pub transactions_in_period: usize,
+    pub total_fees_collected: u64,
+}
+
+pub async fn gettimeblockinfo(State(state): State<ApiState>) -> ApiResult<Json<TimeBlockInfo>> {
+    let blockchain = state.blockchain.read().await;
+    let current_height = blockchain.chain_tip_height();
+    let next_timeblock = ((current_height / 24) + 1) * 24;
+
+    // Calculate time until next 24-hour block
+    let blocks_remaining = next_timeblock - current_height;
+    let seconds_until = blocks_remaining as i64 * 3; // ~3 seconds per block for instant finality
+
+    Ok(Json(TimeBlockInfo {
+        current_block: current_height,
+        next_timeblock,
+        seconds_until_next: seconds_until,
+        transactions_in_period: 0, // TODO: Count transactions since last timeblock
+        total_fees_collected: 0,   // TODO: Sum fees
+    }))
+}
+
+/// Response for gettimeblockrewards RPC
+#[derive(Serialize)]
+pub struct TimeBlockRewards {
+    pub block_height: u64,
+    pub total_reward: u64,
+    pub masternode_rewards: u64,
+    pub treasury_allocation: u64,
+    pub timestamp: i64,
+}
+
+#[derive(Deserialize)]
+pub struct TimeBlockParams {
+    pub height: u64,
+}
+
+pub async fn gettimeblockrewards(
+    State(state): State<ApiState>,
+    Json(params): Json<TimeBlockParams>,
+) -> ApiResult<Json<TimeBlockRewards>> {
+    let blockchain = state.blockchain.read().await;
+
+    match blockchain.get_block_by_height(params.height) {
+        Some(block) => {
+            let total_reward = 50_000_000_000u64; // 500 TIME per block
+            let treasury_allocation = total_reward / 10; // 10% to treasury
+            let masternode_rewards = total_reward - treasury_allocation;
+
+            Ok(Json(TimeBlockRewards {
+                block_height: params.height,
+                total_reward,
+                masternode_rewards,
+                treasury_allocation,
+                timestamp: block.header.timestamp.timestamp(),
+            }))
+        }
+        None => Err(ApiError::TransactionNotFound(format!(
+            "Time block not found at height {}",
+            params.height
         ))),
     }
 }
@@ -195,13 +261,15 @@ pub struct RawTransaction {
     pub confirmations: Option<u64>,
     pub time: Option<i64>,
     pub blocktime: Option<i64>,
+    pub finalized: bool, // TIME-specific: instant finality
 }
 
 #[derive(Serialize)]
 pub struct TxInputInfo {
     pub txid: String,
     pub vout: u32,
-    pub scriptSig: ScriptSig,
+    #[serde(rename = "scriptSig")]
+    pub script_sig: ScriptSig,
     pub sequence: u32,
 }
 
@@ -215,7 +283,8 @@ pub struct ScriptSig {
 pub struct TxOutputInfo {
     pub value: f64, // In TIME coins
     pub n: usize,
-    pub scriptPubKey: ScriptPubKey,
+    #[serde(rename = "scriptPubKey")]
+    pub script_pub_key: ScriptPubKey,
 }
 
 #[derive(Serialize)]
@@ -230,8 +299,6 @@ pub struct ScriptPubKey {
 #[derive(Deserialize)]
 pub struct GetRawTransactionParams {
     pub txid: String,
-    #[serde(default)]
-    pub verbose: bool,
 }
 
 pub async fn getrawtransaction(
@@ -274,7 +341,7 @@ pub async fn getrawtransaction(
                 .map(|input| TxInputInfo {
                     txid: input.previous_output.txid.clone(),
                     vout: input.previous_output.vout,
-                    scriptSig: ScriptSig {
+                    script_sig: ScriptSig {
                         asm: hex::encode(&input.signature),
                         hex: hex::encode(&input.signature),
                     },
@@ -289,7 +356,7 @@ pub async fn getrawtransaction(
                 .map(|(n, output)| TxOutputInfo {
                     value: output.amount as f64 / 100_000_000.0, // Convert to TIME coins
                     n,
-                    scriptPubKey: ScriptPubKey {
+                    script_pub_key: ScriptPubKey {
                         asm: format!(
                             "OP_DUP OP_HASH160 {} OP_EQUALVERIFY OP_CHECKSIG",
                             output.address
@@ -321,6 +388,7 @@ pub async fn getrawtransaction(
                 confirmations,
                 time: Some(tx.timestamp),
                 blocktime: Some(tx.timestamp),
+                finalized: confirmations.unwrap_or(0) > 0, // Instant finality in TIME
             }))
         }
         None => {
@@ -337,7 +405,7 @@ pub async fn getrawtransaction(
                         .map(|input| TxInputInfo {
                             txid: input.previous_output.txid.clone(),
                             vout: input.previous_output.vout,
-                            scriptSig: ScriptSig {
+                            script_sig: ScriptSig {
                                 asm: hex::encode(&input.signature),
                                 hex: hex::encode(&input.signature),
                             },
@@ -352,7 +420,7 @@ pub async fn getrawtransaction(
                         .map(|(n, output)| TxOutputInfo {
                             value: output.amount as f64 / 100_000_000.0,
                             n,
-                            scriptPubKey: ScriptPubKey {
+                            script_pub_key: ScriptPubKey {
                                 asm: format!(
                                     "OP_DUP OP_HASH160 {} OP_EQUALVERIFY OP_CHECKSIG",
                                     output.address
@@ -378,6 +446,7 @@ pub async fn getrawtransaction(
                         confirmations: None,
                         time: Some(tx.timestamp),
                         blocktime: Some(tx.timestamp),
+                        finalized: false,
                     }));
                 }
             }
@@ -399,8 +468,6 @@ pub struct SendRawTransactionResponse {
 #[derive(Deserialize)]
 pub struct SendRawTransactionParams {
     pub hexstring: String,
-    #[serde(default)]
-    pub maxfeerate: f64,
 }
 
 pub async fn sendrawtransaction(
@@ -436,6 +503,149 @@ pub async fn sendrawtransaction(
 }
 
 // ============================================================================
+// MASTERNODE RPC METHODS
+// ============================================================================
+
+/// Response for getmasternodeinfo RPC
+#[derive(Serialize)]
+pub struct GetMasternodeInfoResponse {
+    pub success: bool,
+    pub address: String,
+    pub wallet_address: String,
+    pub tier: String,
+    pub is_active: bool,
+    pub registered_height: u64,
+}
+
+/// Parameters for getmasternodeinfo RPC
+#[derive(Deserialize)]
+pub struct GetMasternodeInfoParams {
+    pub address: String,
+}
+
+/// RPC handler to get masternode information by address
+pub async fn getmasternodeinfo(
+    State(state): State<ApiState>,
+    Json(params): Json<GetMasternodeInfoParams>,
+) -> ApiResult<Json<GetMasternodeInfoResponse>> {
+    // Validate address format
+    if params.address.is_empty() {
+        return Err(ApiError::InvalidAddress(
+            "Address cannot be empty".to_string(),
+        ));
+    }
+
+    // Get blockchain state
+    let blockchain = state.blockchain.read().await;
+
+    // Look up the masternode by address
+    let masternode = blockchain.get_masternode(&params.address).ok_or_else(|| {
+        ApiError::InvalidAddress(format!(
+            "Masternode not found with address: {}",
+            params.address
+        ))
+    })?;
+
+    // Return masternode information
+    Ok(Json(GetMasternodeInfoResponse {
+        success: true,
+        address: masternode.address.clone(),
+        wallet_address: masternode.wallet_address.clone(),
+        tier: format!("{:?}", masternode.tier),
+        is_active: masternode.is_active,
+        registered_height: masternode.registered_height,
+    }))
+}
+
+/// Response for listmasternodes RPC
+#[derive(Serialize)]
+pub struct MasternodeListItem {
+    pub address: String,
+    pub wallet_address: String,
+    pub tier: String,
+    pub is_active: bool,
+    pub registered_height: u64,
+}
+
+pub async fn listmasternodes(
+    State(state): State<ApiState>,
+) -> ApiResult<Json<Vec<MasternodeListItem>>> {
+    let blockchain = state.blockchain.read().await;
+
+    let masternodes: Vec<MasternodeListItem> = blockchain
+        .get_all_masternodes()
+        .iter()
+        .map(|mn| MasternodeListItem {
+            address: mn.address.clone(),
+            wallet_address: mn.wallet_address.clone(),
+            tier: format!("{:?}", mn.tier),
+            is_active: mn.is_active,
+            registered_height: mn.registered_height,
+        })
+        .collect();
+
+    Ok(Json(masternodes))
+}
+
+/// Response for getmasternodecount RPC
+#[derive(Serialize)]
+pub struct MasternodeCount {
+    pub total: usize,
+    pub free: usize,
+    pub bronze: usize,
+    pub silver: usize,
+    pub gold: usize,
+    pub active: usize,
+}
+
+pub async fn getmasternodecount(State(state): State<ApiState>) -> ApiResult<Json<MasternodeCount>> {
+    let blockchain = state.blockchain.read().await;
+    let stats = blockchain.get_stats();
+    let all_masternodes = blockchain.get_all_masternodes();
+
+    Ok(Json(MasternodeCount {
+        total: all_masternodes.len(),
+        free: stats.free_masternodes as usize,
+        bronze: stats.bronze_masternodes as usize,
+        silver: stats.silver_masternodes as usize,
+        gold: stats.gold_masternodes as usize,
+        active: stats.active_masternodes as usize,
+    }))
+}
+
+// ============================================================================
+// CONSENSUS RPC METHODS
+// ============================================================================
+
+/// Response for getconsensusstatus RPC
+#[derive(Serialize)]
+pub struct ConsensusStatus {
+    pub consensus_type: String,
+    pub active_validators: usize,
+    pub bft_threshold: f64, // 67% for BFT
+    pub instant_finality: bool,
+    pub consensus_mode: String,
+}
+
+pub async fn getconsensusstatus(State(state): State<ApiState>) -> ApiResult<Json<ConsensusStatus>> {
+    let masternode_count = state.consensus.masternode_count().await;
+    let mode = state.consensus.consensus_mode().await;
+    let mode_str = match mode {
+        time_consensus::ConsensusMode::Development => "Development",
+        time_consensus::ConsensusMode::BootstrapNoQuorum => "Bootstrap (No Quorum)",
+        time_consensus::ConsensusMode::BFT => "BFT",
+    };
+
+    Ok(Json(ConsensusStatus {
+        consensus_type: "BFT".to_string(),
+        active_validators: masternode_count,
+        bft_threshold: 0.67,
+        instant_finality: true,
+        consensus_mode: mode_str.to_string(),
+    }))
+}
+
+// ============================================================================
 // WALLET RPC METHODS
 // ============================================================================
 
@@ -446,13 +656,8 @@ pub struct WalletInfo {
     pub walletversion: u32,
     pub balance: f64,
     pub unconfirmed_balance: f64,
-    pub immature_balance: f64,
     pub txcount: usize,
-    pub keypoololdest: i64,
     pub keypoolsize: usize,
-    pub paytxfee: f64,
-    pub hdseedid: Option<String>,
-    pub private_keys_enabled: bool,
 }
 
 pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<WalletInfo>> {
@@ -464,13 +669,8 @@ pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<Wall
         walletversion: 1,
         balance: wallet_balance as f64 / 100_000_000.0,
         unconfirmed_balance: 0.0,
-        immature_balance: 0.0,
         txcount: 0,
-        keypoololdest: chrono::Utc::now().timestamp(),
         keypoolsize: 100,
-        paytxfee: 0.00001, // 0.00001 TIME
-        hdseedid: None,
-        private_keys_enabled: true,
     }))
 }
 
@@ -521,9 +721,8 @@ pub async fn getnewaddress(State(_state): State<ApiState>) -> ApiResult<Json<New
 pub struct ValidateAddressResponse {
     pub isvalid: bool,
     pub address: Option<String>,
-    pub scriptPubKey: Option<String>,
-    pub isscript: bool,
-    pub iswitness: bool,
+    #[serde(rename = "scriptPubKey")]
+    pub script_pub_key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -545,13 +744,11 @@ pub async fn validateaddress(
         } else {
             None
         },
-        scriptPubKey: if is_valid {
+        script_pub_key: if is_valid {
             Some(hex::encode(&params.address))
         } else {
             None
         },
-        isscript: false,
-        iswitness: false,
     }))
 }
 
@@ -562,11 +759,11 @@ pub struct UnspentOutput {
     pub vout: u32,
     pub address: String,
     pub account: String,
-    pub scriptPubKey: String,
+    #[serde(rename = "scriptPubKey")]
+    pub script_pub_key: String,
     pub amount: f64,
     pub confirmations: u64,
     pub spendable: bool,
-    pub solvable: bool,
 }
 
 #[derive(Deserialize)]
@@ -603,7 +800,6 @@ pub async fn listunspent(
         let utxos = utxo_set.get_utxos_by_address(&address);
 
         for (outpoint, output) in utxos {
-            // Calculate confirmations (simplified - would need block height of tx)
             let confirmations = tip_height;
 
             if confirmations >= params.minconf && confirmations <= params.maxconf {
@@ -612,106 +808,16 @@ pub async fn listunspent(
                     vout: outpoint.vout,
                     address: output.address.clone(),
                     account: "".to_string(),
-                    scriptPubKey: hex::encode(&output.address),
+                    script_pub_key: hex::encode(&output.address),
                     amount: output.amount as f64 / 100_000_000.0,
                     confirmations,
                     spendable: true,
-                    solvable: true,
                 });
             }
         }
     }
 
     Ok(Json(unspent))
-}
-
-/// Response for listtransactions RPC
-#[derive(Serialize)]
-pub struct TransactionListItem {
-    pub address: String,
-    pub category: String,
-    pub amount: f64,
-    pub vout: usize,
-    pub confirmations: u64,
-    pub blockhash: String,
-    pub blockheight: u64,
-    pub blocktime: i64,
-    pub txid: String,
-    pub time: i64,
-    pub timereceived: i64,
-}
-
-#[derive(Deserialize)]
-pub struct ListTransactionsParams {
-    #[serde(default)]
-    pub count: usize,
-    #[serde(default)]
-    pub skip: usize,
-}
-
-pub async fn listtransactions(
-    State(state): State<ApiState>,
-    Json(params): Json<ListTransactionsParams>,
-) -> ApiResult<Json<Vec<TransactionListItem>>> {
-    let blockchain = state.blockchain.read().await;
-    let tip_height = blockchain.chain_tip_height();
-    let wallet_addr = state.wallet_address.clone();
-
-    let count = if params.count == 0 { 10 } else { params.count };
-    let mut transactions = Vec::new();
-
-    // Scan recent blocks for transactions involving this wallet
-    let start_height = tip_height.saturating_sub(100);
-
-    for height in (start_height..=tip_height).rev() {
-        if let Some(block) = blockchain.get_block_by_height(height) {
-            for tx in &block.transactions {
-                // Check if transaction involves our wallet
-                let has_input = tx.inputs.iter().any(|_| false); // Would need to check UTXO ownership
-                let has_output = tx.outputs.iter().any(|out| out.address == wallet_addr);
-
-                if has_output {
-                    for (vout, output) in tx.outputs.iter().enumerate() {
-                        if output.address == wallet_addr {
-                            transactions.push(TransactionListItem {
-                                address: output.address.clone(),
-                                category: if has_input {
-                                    "send".to_string()
-                                } else {
-                                    "receive".to_string()
-                                },
-                                amount: output.amount as f64 / 100_000_000.0,
-                                vout,
-                                confirmations: tip_height - height + 1,
-                                blockhash: block.hash.clone(),
-                                blockheight: height,
-                                blocktime: block.header.timestamp.timestamp(),
-                                txid: tx.txid.clone(),
-                                time: tx.timestamp,
-                                timereceived: tx.timestamp,
-                            });
-                        }
-                    }
-                }
-
-                if transactions.len() >= count + params.skip {
-                    break;
-                }
-            }
-            if transactions.len() >= count + params.skip {
-                break;
-            }
-        }
-    }
-
-    // Apply skip and limit
-    let result: Vec<TransactionListItem> = transactions
-        .into_iter()
-        .skip(params.skip)
-        .take(count)
-        .collect();
-
-    Ok(Json(result))
 }
 
 // ============================================================================
@@ -723,22 +829,9 @@ pub async fn listtransactions(
 pub struct PeerInfoResponse {
     pub id: usize,
     pub addr: String,
-    pub addrlocal: Option<String>,
-    pub services: String,
-    pub relaytxes: bool,
-    pub lastsend: i64,
-    pub lastrecv: i64,
-    pub bytessent: u64,
-    pub bytesrecv: u64,
-    pub conntime: i64,
-    pub timeoffset: i64,
-    pub pingtime: f64,
     pub version: String,
     pub subver: String,
     pub inbound: bool,
-    pub startingheight: u64,
-    pub banscore: u32,
-    pub synced_headers: u64,
     pub synced_blocks: u64,
 }
 
@@ -751,22 +844,9 @@ pub async fn getpeerinfo(State(state): State<ApiState>) -> ApiResult<Json<Vec<Pe
         .map(|(id, peer)| PeerInfoResponse {
             id,
             addr: peer.address.to_string(),
-            addrlocal: None,
-            services: "0000000000000001".to_string(),
-            relaytxes: true,
-            lastsend: chrono::Utc::now().timestamp(),
-            lastrecv: chrono::Utc::now().timestamp(),
-            bytessent: 0,
-            bytesrecv: 0,
-            conntime: chrono::Utc::now().timestamp(),
-            timeoffset: 0,
-            pingtime: 0.05,
             version: peer.version.clone(),
             subver: format!("/TIME:{}/", peer.version),
             inbound: false,
-            startingheight: 0,
-            banscore: 0,
-            synced_headers: 0,
             synced_blocks: 0,
         })
         .collect();
@@ -780,16 +860,8 @@ pub struct NetworkInfo {
     pub version: u32,
     pub subversion: String,
     pub protocolversion: u32,
-    pub localservices: String,
-    pub localrelay: bool,
-    pub timeoffset: i64,
-    pub networkactive: bool,
     pub connections: usize,
     pub networks: Vec<NetworkDetails>,
-    pub relayfee: f64,
-    pub incrementalfee: f64,
-    pub localaddresses: Vec<HashMap<String, serde_json::Value>>,
-    pub warnings: String,
 }
 
 #[derive(Serialize)]
@@ -797,8 +869,6 @@ pub struct NetworkDetails {
     pub name: String,
     pub limited: bool,
     pub reachable: bool,
-    pub proxy: String,
-    pub proxy_randomize_credentials: bool,
 }
 
 pub async fn getnetworkinfo(State(state): State<ApiState>) -> ApiResult<Json<NetworkInfo>> {
@@ -808,81 +878,55 @@ pub async fn getnetworkinfo(State(state): State<ApiState>) -> ApiResult<Json<Net
         version: 1000000, // 1.0.0
         subversion: "/TIME:1.0.0/".to_string(),
         protocolversion: 1,
-        localservices: "0000000000000001".to_string(),
-        localrelay: true,
-        timeoffset: 0,
-        networkactive: true,
         connections: peers.len(),
         networks: vec![NetworkDetails {
             name: "ipv4".to_string(),
             limited: false,
             reachable: true,
-            proxy: "".to_string(),
-            proxy_randomize_credentials: false,
         }],
-        relayfee: 0.00001,
-        incrementalfee: 0.00001,
-        localaddresses: vec![],
-        warnings: "".to_string(),
     }))
 }
 
 // ============================================================================
-// MINING/CONSENSUS RPC METHODS
+// TREASURY & GOVERNANCE RPC METHODS
 // ============================================================================
 
-/// Response for getmininginfo RPC
+/// Response for gettreasury RPC
 #[derive(Serialize)]
-pub struct MiningInfo {
-    pub blocks: u64,
-    pub currentblockweight: u64,
-    pub currentblocktx: usize,
-    pub difficulty: f64,
-    pub networkhashps: f64,
-    pub pooledtx: usize,
-    pub chain: String,
-    pub warnings: String,
+pub struct TreasuryInfo {
+    pub balance: f64,
+    pub total_allocated: f64,
+    pub pending_proposals: usize,
+    pub monthly_budget: f64,
 }
 
-pub async fn getmininginfo(State(state): State<ApiState>) -> ApiResult<Json<MiningInfo>> {
-    let blockchain = state.blockchain.read().await;
-    let mempool_size = if let Some(mempool) = state.mempool.as_ref() {
-        mempool.get_all_transactions().await.len()
-    } else {
-        0
-    };
+pub async fn gettreasury(State(state): State<ApiState>) -> ApiResult<Json<TreasuryInfo>> {
+    let balances = state.balances.read().await;
+    let treasury_address = "TIME1treasury00000000000000000000000000";
+    let treasury_balance = balances.get(treasury_address).copied().unwrap_or(0);
 
-    Ok(Json(MiningInfo {
-        blocks: blockchain.chain_tip_height(),
-        currentblockweight: 0,
-        currentblocktx: 0,
-        difficulty: 1.0,    // TIME uses BFT, not PoW
-        networkhashps: 0.0, // Not applicable for BFT
-        pooledtx: mempool_size,
-        chain: state.network.clone(),
-        warnings: "TIME Coin uses BFT consensus, not Proof-of-Work mining".to_string(),
+    Ok(Json(TreasuryInfo {
+        balance: treasury_balance as f64 / 100_000_000.0,
+        total_allocated: 0.0,    // TODO: Track allocated funds
+        pending_proposals: 0,    // TODO: Count pending proposals
+        monthly_budget: 50000.0, // TODO: Calculate monthly budget
     }))
 }
 
-/// Response for estimatefee RPC
+/// Response for listproposals RPC
 #[derive(Serialize)]
-pub struct EstimateFeeResponse {
-    pub feerate: f64, // Fee in TIME per KB
-    pub blocks: u64,
+pub struct ProposalListItem {
+    pub id: String,
+    pub title: String,
+    pub amount: f64,
+    pub votes_yes: u32,
+    pub votes_no: u32,
+    pub status: String,
 }
 
-#[derive(Deserialize)]
-pub struct EstimateFeeParams {
-    pub conf_target: u64,
-}
-
-pub async fn estimatefee(
+pub async fn listproposals(
     State(_state): State<ApiState>,
-    Json(_params): Json<EstimateFeeParams>,
-) -> ApiResult<Json<EstimateFeeResponse>> {
-    // TIME has fast finality, so fees are relatively constant
-    Ok(Json(EstimateFeeResponse {
-        feerate: 0.00001, // 0.00001 TIME per KB
-        blocks: 1,        // Instant finality
-    }))
+) -> ApiResult<Json<Vec<ProposalListItem>>> {
+    // TODO: Implement actual proposal listing from governance system
+    Ok(Json(vec![]))
 }
