@@ -5,6 +5,7 @@
 
 // Public modules
 pub mod fallback;
+pub mod foolproof_block;
 pub mod heartbeat;
 pub mod leader_election;
 pub mod monitoring;
@@ -1024,7 +1025,8 @@ pub mod block_consensus {
         }
 
         pub async fn wait_for_proposal(&self, block_height: u64) -> Option<BlockProposal> {
-            for _ in 0..300 {
+            // Wait up to 60 seconds for a proposal
+            for _ in 0..600 {
                 let proposals = self.proposals.read().await;
                 if let Some(proposal) = proposals.get(&block_height) {
                     return Some(proposal.clone());
@@ -1040,7 +1042,19 @@ pub mod block_consensus {
             block_height: u64,
             required_votes: usize,
         ) -> (usize, usize) {
-            for _ in 0..300 {
+            self.collect_votes_with_timeout(block_height, required_votes, 30).await
+        }
+
+        /// Collect votes with a configurable timeout in seconds
+        pub async fn collect_votes_with_timeout(
+            &self,
+            block_height: u64,
+            required_votes: usize,
+            timeout_secs: u64,
+        ) -> (usize, usize) {
+            let iterations = (timeout_secs * 10) as usize; // Check every 100ms
+            
+            for _ in 0..iterations {
                 let votes = self.votes.read().await;
                 if let Some(height_votes) = votes.get(&block_height) {
                     let mut total = 0;
@@ -1060,6 +1074,8 @@ pub mod block_consensus {
                 drop(votes);
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
+            
+            // Timeout reached - return whatever votes we have
             let votes = self.votes.read().await;
             if let Some(height_votes) = votes.get(&block_height) {
                 let mut total = 0;
