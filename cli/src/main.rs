@@ -1080,11 +1080,14 @@ async fn main() {
 
         loop {
             interval.tick().await;
-            
+
             let quarantined_peers = quarantine_logger.get_quarantined_peers().await;
             if !quarantined_peers.is_empty() {
                 println!("\n🛡️  Quarantine Status Report:");
-                println!("   {} peer(s) currently quarantined:", quarantined_peers.len());
+                println!(
+                    "   {} peer(s) currently quarantined:",
+                    quarantined_peers.len()
+                );
                 for entry in quarantined_peers.iter() {
                     println!("   • {} - {}", entry.peer_ip, entry.reason);
                 }
@@ -1337,12 +1340,28 @@ async fn main() {
                 let tx_broadcaster_clone = tx_broadcaster.clone();
                 let tx_consensus_clone = tx_consensus.clone();
                 let block_consensus_clone = block_consensus.clone();
+                let quarantine_clone = quarantine.clone();
 
                 tokio::spawn(async move {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
                             let info = conn.peer_info().await;
                             let peer_addr = info.address;
+
+                            // Check if peer is quarantined
+                            if quarantine_clone.is_quarantined(&peer_addr.ip()).await {
+                                if let Some(reason) =
+                                    quarantine_clone.get_reason(&peer_addr.ip()).await
+                                {
+                                    println!(
+                                        "🚫 Rejecting quarantined peer {} (reason: {})",
+                                        peer_addr.ip(),
+                                        reason
+                                    );
+                                }
+                                // Drop the connection without adding the peer
+                                continue;
+                            }
 
                             // Register peer version WITH commit info for Round 2 filtering
                             if let (Some(commit_date), Some(commits)) =
@@ -1628,6 +1647,7 @@ async fn main() {
     let consensus_sync = consensus.clone();
     let tx_consensus_sync = tx_consensus.clone();
     let block_consensus_sync = block_consensus.clone();
+    let quarantine_sync = quarantine.clone();
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(30));
         interval.tick().await;
@@ -1636,8 +1656,16 @@ async fn main() {
             interval.tick().await;
             let peers = peer_mgr_sync.get_connected_peers().await;
 
+            // Filter out quarantined peers before syncing
+            let mut non_quarantined_peers = Vec::new();
+            for peer in peers {
+                if !quarantine_sync.is_quarantined(&peer.address.ip()).await {
+                    non_quarantined_peers.push(peer);
+                }
+            }
+
             // Get connected peer IPs using helper
-            let connected_ips = extract_peer_ips(&peers);
+            let connected_ips = extract_peer_ips(&non_quarantined_peers);
 
             // Sync block consensus manager with connected peers
             block_consensus_sync
@@ -1645,7 +1673,7 @@ async fn main() {
                 .await;
 
             // Also update the main consensus and tx consensus
-            for peer in &peers {
+            for peer in &non_quarantined_peers {
                 consensus_sync
                     .add_masternode(peer.address.ip().to_string())
                     .await;
