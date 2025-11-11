@@ -1,6 +1,7 @@
 mod error;
 mod handlers;
 pub mod masternode_handlers;
+pub mod quarantine_handlers;
 mod routes;
 mod rpc_handlers;
 mod state;

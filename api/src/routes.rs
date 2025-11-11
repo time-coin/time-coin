@@ -1,5 +1,8 @@
 use crate::handlers::get_node_wallet;
 use crate::masternode_handlers::{list_masternodes, register_masternode};
+use crate::quarantine_handlers::{
+    get_quarantine_stats, get_quarantined_peers, release_peer,
+};
 use crate::rpc_handlers;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
@@ -19,6 +22,10 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/masternode/register", post(register_masternode))
         .route("/masternodes/list", get(list_masternodes))
         .route("/node/wallet", get(get_node_wallet))
+        // Quarantine management endpoints
+        .route("/network/quarantine", get(get_quarantined_peers))
+        .route("/network/quarantine/release", post(release_peer))
+        .route("/network/quarantine/stats", get(get_quarantine_stats))
         // Core blockchain endpoints
         .route("/", get(root))
         .route("/blockchain/info", get(get_blockchain_info))
