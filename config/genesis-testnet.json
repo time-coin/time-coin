@@ -1,8 +1,8 @@
 {
   "network": "testnet",
   "version": 1,
-  "timestamp": 1730419200,
-  "message": "TIME Coin Testnet - 24 Hour Blocks, Instant Finality",
+  "timestamp": 1728691200,
+  "message": "TIME Coin Testnet Launch - October 12, 2024 - 24 Hour Blocks, Instant Finality",
   "hash": "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
   "transactions": []
 }
