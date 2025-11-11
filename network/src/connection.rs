@@ -53,10 +53,7 @@ impl PeerConnection {
         );
 
         // Log peer connection with full version info
-        let peer_date = their_handshake
-            .commit_date
-            .as_deref()
-            .unwrap_or("unknown");
+        let peer_date = their_handshake.commit_date.as_deref().unwrap_or("unknown");
         println!(
             "🔗 Connected to peer: {} | Version: {} | Committed: {} | Commits: {}",
             peer_addr.ip(),

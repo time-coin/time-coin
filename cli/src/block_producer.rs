@@ -385,7 +385,7 @@ impl BlockProducer {
             let mut transactions = self.mempool.get_all_transactions().await;
             // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
-            
+
             // Get blockchain state atomically (all data retrieved while holding read lock)
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
@@ -403,11 +403,11 @@ impl BlockProducer {
 
             // Check for empty mempool - use deterministic reward-only block path
             let is_reward_only = transactions.is_empty();
-            
+
             if is_reward_only {
                 println!("   📭 Mempool is empty - creating deterministic reward-only block");
                 println!("   ⚡ This should achieve instant consensus (identical blocks)");
-                
+
                 // Use deterministic reward-only block creation
                 let block = time_core::block::create_reward_only_block(
                     block_num,
@@ -416,7 +416,7 @@ impl BlockProducer {
                     &active_masternodes,
                     &masternode_counts,
                 );
-                
+
                 // Create proposal with reward-only flag
                 let proposal = time_consensus::block_consensus::BlockProposal {
                     block_height: block_num,
@@ -427,14 +427,14 @@ impl BlockProducer {
                     timestamp: block.header.timestamp.timestamp(),
                     is_reward_only: true,
                 };
-                
+
                 self.block_consensus.store_proposal(proposal.clone()).await;
-                
+
                 let proposal_json = serde_json::to_value(&proposal).unwrap();
                 self.peer_manager
                     .broadcast_block_proposal(proposal_json)
                     .await;
-                
+
                 println!("   📡 Reward-only proposal broadcast");
                 println!(
                     "   ▶️ Collecting votes (need {}/{})...",
@@ -452,7 +452,7 @@ impl BlockProducer {
 
                 if approved >= required_votes {
                     println!("   ✔ Quorum reached! Finalizing reward-only block...");
-                    
+
                     // Apply the deterministic block
                     let mut blockchain_write = self.blockchain.write().await;
                     match blockchain_write.add_block(block.clone()) {
@@ -469,7 +469,7 @@ impl BlockProducer {
                 } else {
                     println!("   ❌ FAILED: Insufficient votes ({}/{})", approved, total);
                 }
-                
+
                 return;
             }
 
@@ -485,35 +485,56 @@ impl BlockProducer {
                     "   💰 Distributing rewards to {} masternodes:",
                     active_masternodes.len()
                 );
-                
+
                 // Calculate what each tier will receive
-                let total_pool = time_core::block::calculate_total_masternode_reward(&masternode_counts);
+                let total_pool =
+                    time_core::block::calculate_total_masternode_reward(&masternode_counts);
                 let total_weight = masternode_counts.total_weight();
-                let per_weight = if total_weight > 0 { total_pool / total_weight } else { 0 };
-                
-                println!("      Total reward pool: {} satoshis ({} TIME)", 
-                    total_pool, total_pool / 100_000_000);
+                let per_weight = if total_weight > 0 {
+                    total_pool / total_weight
+                } else {
+                    0
+                };
+
+                println!(
+                    "      Total reward pool: {} satoshis ({} TIME)",
+                    total_pool,
+                    total_pool / 100_000_000
+                );
                 println!("      Total weight: {}", total_weight);
                 println!("      Per weight unit: {} satoshis", per_weight);
-                
+
                 // Show breakdown by tier
-                let mut tier_summary: std::collections::HashMap<time_core::MasternodeTier, (usize, u64)> = 
-                    std::collections::HashMap::new();
-                
+                let mut tier_summary: std::collections::HashMap<
+                    time_core::MasternodeTier,
+                    (usize, u64),
+                > = std::collections::HashMap::new();
+
                 for (wallet_addr, tier) in &active_masternodes {
                     let reward = per_weight * tier.weight();
                     let entry = tier_summary.entry(*tier).or_insert((0, 0));
                     entry.0 += 1;
                     entry.1 += reward;
-                    
-                    println!("      - {:?} tier ({} weight): {} → {} satoshis ({:.2} TIME)",
-                        tier, tier.weight(), &wallet_addr[..20], reward, reward as f64 / 100_000_000.0);
+
+                    println!(
+                        "      - {:?} tier ({} weight): {} → {} satoshis ({:.2} TIME)",
+                        tier,
+                        tier.weight(),
+                        &wallet_addr[..20],
+                        reward,
+                        reward as f64 / 100_000_000.0
+                    );
                 }
-                
+
                 println!("   📊 Reward Summary:");
                 for (tier, (count, total_reward)) in tier_summary.iter() {
-                    println!("      {:?}: {} nodes, {} satoshis total ({:.2} TIME each)",
-                        tier, count, total_reward, (*total_reward as f64 / *count as f64) / 100_000_000.0);
+                    println!(
+                        "      {:?}: {} nodes, {} satoshis total ({:.2} TIME each)",
+                        tier,
+                        count,
+                        total_reward,
+                        (*total_reward as f64 / *count as f64) / 100_000_000.0
+                    );
                 }
             } else {
                 println!("   ⚠️  No active masternodes registered for rewards");
@@ -547,12 +568,16 @@ impl BlockProducer {
                 all_transactions.len(),
                 mempool_count
             );
-            
+
             // Verify coinbase transaction
             let coinbase_outputs = all_transactions[0].outputs.len();
             let coinbase_amount: u64 = all_transactions[0].outputs.iter().map(|o| o.amount).sum();
-            println!("   💰 Coinbase: {} outputs, {} satoshis total ({} TIME)", 
-                coinbase_outputs, coinbase_amount, coinbase_amount / 100_000_000);
+            println!(
+                "   💰 Coinbase: {} outputs, {} satoshis total ({} TIME)",
+                coinbase_outputs,
+                coinbase_amount,
+                coinbase_amount / 100_000_000
+            );
 
             let merkle_root = self.calc_merkle(&all_transactions);
 
@@ -588,10 +613,13 @@ impl BlockProducer {
 
             while attempt < MAX_VOTE_ATTEMPTS {
                 attempt += 1;
-                
+
                 let timeout_secs = if attempt == 1 { 60 } else { 30 }; // First attempt: 60s, retries: 30s
-                println!("   🗳️  Vote collection attempt {}/{} ({}s timeout)", attempt, MAX_VOTE_ATTEMPTS, timeout_secs);
-                
+                println!(
+                    "   🗳️  Vote collection attempt {}/{} ({}s timeout)",
+                    attempt, MAX_VOTE_ATTEMPTS, timeout_secs
+                );
+
                 let (approved, total) = self
                     .block_consensus
                     .collect_votes_with_timeout(block_num, required_votes, timeout_secs)
@@ -615,22 +643,38 @@ impl BlockProducer {
 
                 if approved >= required_votes {
                     println!("   ✔ Quorum reached! Finalizing...");
-                    self.finalize_block_bft(&all_transactions, &previous_hash, &merkle_root, block_num)
-                        .await;
+                    self.finalize_block_bft(
+                        &all_transactions,
+                        &previous_hash,
+                        &merkle_root,
+                        block_num,
+                    )
+                    .await;
                     return;
                 } else {
-                    println!("   ⚠️  Attempt {}: Quorum not reached ({} < {})", attempt, approved, required_votes);
-                    
+                    println!(
+                        "   ⚠️  Attempt {}: Quorum not reached ({} < {})",
+                        attempt, approved, required_votes
+                    );
+
                     // On final attempt, check for emergency fallback
                     if attempt == MAX_VOTE_ATTEMPTS {
                         // If we have more than 50% votes, create block anyway
                         if approved > total / 2 {
                             println!("   🚨 EMERGENCY: Simple majority reached ({}/{}), finalizing block", approved, total);
-                            self.finalize_block_bft(&all_transactions, &previous_hash, &merkle_root, block_num)
-                                .await;
+                            self.finalize_block_bft(
+                                &all_transactions,
+                                &previous_hash,
+                                &merkle_root,
+                                block_num,
+                            )
+                            .await;
                             return;
                         } else {
-                            println!("   ❌ FAILED: Insufficient votes ({}/{}), block not created", approved, total);
+                            println!(
+                                "   ❌ FAILED: Insufficient votes ({}/{}), block not created",
+                                approved, total
+                            );
                             println!("   ℹ️  Block will be created during next catch-up cycle");
                         }
                     } else {
@@ -670,7 +714,7 @@ impl BlockProducer {
                 // Fast-path validation for reward-only blocks
                 if proposal.is_reward_only {
                     println!("   🚀 Reward-only block - using fast-path validation");
-                    
+
                     // Recreate the deterministic block locally
                     let expected_block = time_core::block::create_reward_only_block(
                         block_num,
@@ -679,7 +723,7 @@ impl BlockProducer {
                         &active_masternodes,
                         &masternode_counts,
                     );
-                    
+
                     // Verify the block hash matches
                     if expected_block.hash == proposal.block_hash {
                         println!("   ✅ Reward-only block verified - auto-approving");
@@ -720,7 +764,7 @@ impl BlockProducer {
                     // For reward-only blocks, we can recreate locally instead of fetching
                     if proposal.is_reward_only {
                         println!("   ✅ Reward-only block approved - applying locally...");
-                        
+
                         let reward_block = time_core::block::create_reward_only_block(
                             block_num,
                             chain_tip_hash,
@@ -728,7 +772,7 @@ impl BlockProducer {
                             &active_masternodes,
                             &masternode_counts,
                         );
-                        
+
                         let mut blockchain = self.blockchain.write().await;
                         match blockchain.add_block(reward_block) {
                             Ok(_) => {
@@ -744,7 +788,11 @@ impl BlockProducer {
                         // Actively fetch the finalized block from producer
                         if let Some(producer_id) = selected_producer {
                             if let Some(block) = self
-                                .fetch_finalized_block(&producer_id, block_num, &proposal.merkle_root)
+                                .fetch_finalized_block(
+                                    &producer_id,
+                                    block_num,
+                                    &proposal.merkle_root,
+                                )
                                 .await
                             {
                                 // Apply the finalized block
@@ -1130,7 +1178,7 @@ impl BlockProducer {
         loop {
             let strategy = foolproof.current_strategy().await;
             let timeout_secs = strategy.timeout_secs();
-            
+
             println!();
             println!("╔═══════════════════════════════════════════════════════════╗");
             println!("║  Strategy: {:?}", strategy);
@@ -1153,17 +1201,23 @@ impl BlockProducer {
             let am_i_leader = selected_producer.as_ref() == Some(&my_id);
 
             println!("   Leader: {:?}", selected_producer);
-            
+
             // Step 1: Leader creates and broadcasts proposal
             if am_i_leader {
                 println!("   📝 I'm the leader - creating block proposal...");
 
                 let block = if strategy.includes_mempool_txs() {
                     // Full block with mempool transactions
-                    self.create_catchup_block_structure(block_num, timestamp).await
+                    self.create_catchup_block_structure(block_num, timestamp)
+                        .await
                 } else {
                     // Reward-only or emergency block
-                    self.create_minimal_catchup_block(block_num, timestamp, strategy == BlockCreationStrategy::Emergency).await
+                    self.create_minimal_catchup_block(
+                        block_num,
+                        timestamp,
+                        strategy == BlockCreationStrategy::Emergency,
+                    )
+                    .await
                 };
 
                 let proposal = BlockProposal {
@@ -1177,7 +1231,8 @@ impl BlockProducer {
                 };
 
                 self.block_consensus.propose_block(proposal.clone()).await;
-                self.broadcast_block_proposal(proposal.clone(), &active_masternodes).await;
+                self.broadcast_block_proposal(proposal.clone(), &active_masternodes)
+                    .await;
 
                 // Leader auto-votes
                 let vote = BlockVote {
@@ -1192,8 +1247,11 @@ impl BlockProducer {
             }
 
             // Step 2: Wait for consensus with strategy-specific timeout
-            println!("   ▶️ Waiting for consensus (timeout: {}s)...", timeout_secs);
-            
+            println!(
+                "   ▶️ Waiting for consensus (timeout: {}s)...",
+                timeout_secs
+            );
+
             let start_time = Utc::now();
             let mut best_votes = 0;
             let mut best_total = active_masternodes.len();
@@ -1202,21 +1260,27 @@ impl BlockProducer {
             // For emergency strategy, always succeed
             if strategy == BlockCreationStrategy::Emergency {
                 println!("   🚨 EMERGENCY MODE: Creating block without consensus");
-                
+
                 // Finalize immediately
                 let success = self
                     .finalize_catchup_block_with_rewards(block_num, timestamp, &active_masternodes)
                     .await;
-                    
-                foolproof.record_attempt(
-                    strategy,
-                    selected_producer.unwrap_or_else(|| "emergency".to_string()),
-                    1, // Emergency assumes 1 vote (self)
-                    active_masternodes.len(),
-                    success,
-                    if success { None } else { Some("Emergency finalization failed".to_string()) },
-                ).await;
-                
+
+                foolproof
+                    .record_attempt(
+                        strategy,
+                        selected_producer.unwrap_or_else(|| "emergency".to_string()),
+                        1, // Emergency assumes 1 vote (self)
+                        active_masternodes.len(),
+                        success,
+                        if success {
+                            None
+                        } else {
+                            Some("Emergency finalization failed".to_string())
+                        },
+                    )
+                    .await;
+
                 foolproof.log_summary().await;
                 return success;
             }
@@ -1236,7 +1300,12 @@ impl BlockProducer {
                             timestamp: chrono::Utc::now().timestamp(),
                         };
 
-                        if self.block_consensus.vote_on_block(vote.clone()).await.is_ok() {
+                        if self
+                            .block_consensus
+                            .vote_on_block(vote.clone())
+                            .await
+                            .is_ok()
+                        {
                             self.broadcast_block_vote(vote, &active_masternodes).await;
                         }
                     }
@@ -1251,7 +1320,10 @@ impl BlockProducer {
                     best_total = total;
 
                     // Check with foolproof threshold
-                    if foolproof.check_consensus_with_strategy(approvals, total).await {
+                    if foolproof
+                        .check_consensus_with_strategy(approvals, total)
+                        .await
+                    {
                         consensus_reached = true;
                         println!("   ✅ Consensus reached! ({}/{} votes)", approvals, total);
                         break;
@@ -1260,11 +1332,8 @@ impl BlockProducer {
                     // Log progress
                     if (Utc::now() - start_time).num_seconds() % 5 == 0 {
                         let (num, denom) = strategy.vote_threshold();
-                        let required = (total * num + denom - 1) / denom;
-                        println!(
-                            "   ⏳ Votes: {}/{} (need {})",
-                            approvals, total, required
-                        );
+                        let required = (total * num).div_ceil(denom);
+                        println!("   ⏳ Votes: {}/{} (need {})", approvals, total, required);
                     }
                 }
             }
@@ -1274,27 +1343,35 @@ impl BlockProducer {
                 let success = self
                     .finalize_catchup_block_with_rewards(block_num, timestamp, &active_masternodes)
                     .await;
-                    
-                foolproof.record_attempt(
-                    strategy,
-                    selected_producer.unwrap_or_else(|| "unknown".to_string()),
-                    best_votes,
-                    best_total,
-                    success,
-                    if success { None } else { Some("Finalization failed".to_string()) },
-                ).await;
-                
+
+                foolproof
+                    .record_attempt(
+                        strategy,
+                        selected_producer.unwrap_or_else(|| "unknown".to_string()),
+                        best_votes,
+                        best_total,
+                        success,
+                        if success {
+                            None
+                        } else {
+                            Some("Finalization failed".to_string())
+                        },
+                    )
+                    .await;
+
                 foolproof.log_summary().await;
                 return success;
             } else {
-                foolproof.record_attempt(
-                    strategy,
-                    selected_producer.unwrap_or_else(|| "unknown".to_string()),
-                    best_votes,
-                    best_total,
-                    false,
-                    Some(format!("Timeout after {}s without consensus", timeout_secs)),
-                ).await;
+                foolproof
+                    .record_attempt(
+                        strategy,
+                        selected_producer.unwrap_or_else(|| "unknown".to_string()),
+                        best_votes,
+                        best_total,
+                        false,
+                        Some(format!("Timeout after {}s without consensus", timeout_secs)),
+                    )
+                    .await;
 
                 // Try next strategy
                 if foolproof.advance_strategy().await.is_some() {
@@ -1354,7 +1431,7 @@ impl BlockProducer {
                 amount: time_core::block::calculate_treasury_reward(),
                 address: "TIME1treasury00000000000000000000000000".to_string(),
             }];
-            
+
             let masternode_outputs = time_core::block::distribute_masternode_rewards(
                 &active_masternodes,
                 &masternode_counts,
@@ -1387,12 +1464,12 @@ impl BlockProducer {
 
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
-        
+
         println!(
             "      💰 Minimal block: {} transaction(s)",
             block.transactions.len()
         );
-        
+
         block
     }
 
