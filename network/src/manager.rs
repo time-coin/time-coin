@@ -125,7 +125,7 @@ impl PeerManager {
                 )
                 .await;
 
-                self.record_peer_success(&peer_addr.to_string()).await;
+                self.record_peer_success(&peer_addr.ip().to_string()).await;
 
                 // Broadcast the newly connected peer to all other connected peers
                 self.broadcast_new_peer(&info).await;
@@ -209,7 +209,7 @@ impl PeerManager {
             }
             Err(e) => {
                 // On connect failure, record failure and return error
-                self.record_peer_failure(&peer_addr.to_string()).await;
+                self.record_peer_failure(&peer_addr.ip().to_string()).await;
                 Err(e)
             }
         }
@@ -592,7 +592,8 @@ impl PeerManager {
                 continue;
             }
 
-            let new_peer_addr = new_peer_info.address.to_string();
+            // Use standard listening port (24100) for broadcast instead of ephemeral ports
+            let new_peer_addr = format!("{}:24100", new_peer_info.address.ip());
             let new_peer_version = new_peer_info.version.clone();
 
             tokio::spawn(async move {

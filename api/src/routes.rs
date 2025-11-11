@@ -269,15 +269,21 @@ async fn handle_peer_discovered(
     use std::net::SocketAddr;
     use time_network::PeerInfo as NetworkPeerInfo;
 
-    let peer_addr: SocketAddr = req
+    let mut peer_addr: SocketAddr = req
         .address
         .parse()
         .map_err(|e| ApiError::BadRequest(format!("Invalid peer address: {}", e)))?;
 
+    // Detect ephemeral ports (49152-65535) and replace with standard port 24100
+    if peer_addr.port() >= 49152 {
+        peer_addr.set_port(24100);
+    }
+
     {
         let mut broadcasts = state.recent_broadcasts.write().await;
         let now = std::time::Instant::now();
-        let peer_key = peer_addr.to_string();
+        // Use IP-only for deduplication key
+        let peer_key = peer_addr.ip().to_string();
 
         if let Some(&last_seen) = broadcasts.get(&peer_key) {
             if now.duration_since(last_seen) < std::time::Duration::from_secs(300) {
