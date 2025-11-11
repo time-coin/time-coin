@@ -22,7 +22,7 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_core::block::{Block, MasternodeCounts, calculate_total_masternode_reward};
+use time_core::block::{calculate_total_masternode_reward, Block, MasternodeCounts};
 use time_core::transaction::TxOutput;
 
 use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
@@ -749,7 +749,7 @@ async fn main() {
                 // Calculate total reward for BFT minimum (3 free tier nodes)
                 // This reward will be divided among registered masternodes
                 let genesis_counts = MasternodeCounts {
-                    free: 3,  // Minimum for BFT consensus
+                    free: 3, // Minimum for BFT consensus
                     bronze: 0,
                     silver: 0,
                     gold: 0,
@@ -761,7 +761,7 @@ async fn main() {
             // No transactions field in genesis JSON, use default masternode reward
             // Calculate total reward for BFT minimum (3 free tier nodes)
             let genesis_counts = MasternodeCounts {
-                free: 3,  // Minimum for BFT consensus
+                free: 3, // Minimum for BFT consensus
                 bronze: 0,
                 silver: 0,
                 gold: 0,
@@ -773,7 +773,7 @@ async fn main() {
         // No genesis JSON loaded, use default masternode reward
         // Calculate total reward for BFT minimum (3 free tier nodes)
         let genesis_counts = MasternodeCounts {
-            free: 3,  // Minimum for BFT consensus
+            free: 3, // Minimum for BFT consensus
             bronze: 0,
             silver: 0,
             gold: 0,
