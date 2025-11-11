@@ -750,7 +750,7 @@ async fn main() {
                 address: "testnet_faucet".to_string(),
             }],
             lock_time: 0,
-            timestamp: 1730419200,
+            timestamp: 1761955200,
         }],
         hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
     };

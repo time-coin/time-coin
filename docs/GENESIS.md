@@ -7,7 +7,7 @@ The genesis block is the first block in the TIME Coin blockchain. It defines the
 ## Testnet Genesis
 
 - **Network:** Testnet
-- **Timestamp:** November 1, 2025 00:00:00 UTC (1730419200)
+- **Timestamp:** November 1, 2025 00:00:00 UTC (1761955200)
 - **Message:** "TIME Coin Testnet - 24 Hour Blocks, Instant Finality"
 
 ### Initial Allocations
@@ -32,7 +32,7 @@ Block rewards are distributed as follows:
 
 - **Total Supply:** Coins minted on-demand via block rewards
 - **Network:** Mainnet
-- **Timestamp:** November 1, 2025 00:00:00 UTC (1730419200)
+- **Timestamp:** November 1, 2025 00:00:00 UTC (1761955200)
 - **Message:** "TIME Coin - Where Every Second Counts"
 
 ### Initial Allocations
