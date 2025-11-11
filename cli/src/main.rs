@@ -733,7 +733,7 @@ async fn main() {
     let genesis_block = Block {
         header: BlockHeader {
             block_number: 0,
-            timestamp: chrono::Utc.with_ymd_and_hms(2025, 10, 24, 0, 0, 0).unwrap(),
+            timestamp: chrono::Utc.with_ymd_and_hms(2025, 11, 1, 0, 0, 0).unwrap(),
             previous_hash: "0000000000000000000000000000000000000000000000000000000000000000"
                 .to_string(),
             merkle_root: "0000000000000000000000000000000000000000000000000000000000000000"
@@ -745,26 +745,12 @@ async fn main() {
             txid: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
             version: 1,
             inputs: vec![],
-            outputs: vec![
-                TxOutput {
-                    amount: 50_000_000_000_000,
-                    address: "TIME1treasury00000000000000000000000000".to_string(),
-                },
-                TxOutput {
-                    amount: 10_000_000_000_000,
-                    address: "TIME1development0000000000000000000000".to_string(),
-                },
-                TxOutput {
-                    amount: 10_000_000_000_000,
-                    address: "TIME1operations0000000000000000000000".to_string(),
-                },
-                TxOutput {
-                    amount: 30_000_000_000_000,
-                    address: "TIME1rewards000000000000000000000000000".to_string(),
-                },
-            ],
+            outputs: vec![TxOutput {
+                amount: 500_000_000_000_000,
+                address: "testnet_faucet".to_string(),
+            }],
             lock_time: 0,
-            timestamp: 1761264000,
+            timestamp: 1730419200,
         }],
         hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
     };

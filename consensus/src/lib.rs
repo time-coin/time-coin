@@ -1044,7 +1044,8 @@ pub mod block_consensus {
             block_height: u64,
             required_votes: usize,
         ) -> (usize, usize) {
-            self.collect_votes_with_timeout(block_height, required_votes, 30).await
+            self.collect_votes_with_timeout(block_height, required_votes, 30)
+                .await
         }
 
         /// Collect votes with a configurable timeout in seconds
@@ -1055,7 +1056,7 @@ pub mod block_consensus {
             timeout_secs: u64,
         ) -> (usize, usize) {
             let iterations = (timeout_secs * 10) as usize; // Check every 100ms
-            
+
             for _ in 0..iterations {
                 let votes = self.votes.read().await;
                 if let Some(height_votes) = votes.get(&block_height) {
@@ -1076,7 +1077,7 @@ pub mod block_consensus {
                 drop(votes);
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
-            
+
             // Timeout reached - return whatever votes we have
             let votes = self.votes.read().await;
             if let Some(height_votes) = votes.get(&block_height) {
@@ -1109,7 +1110,7 @@ pub mod block_consensus {
                 println!("      Got: {}", proposal.previous_hash);
                 return false;
             }
-            
+
             // Validate block height
             if proposal.block_height != blockchain_height + 1 {
                 println!("   ❌ REJECT: Block height mismatch");
@@ -1117,12 +1118,12 @@ pub mod block_consensus {
                 println!("      Got: {}", proposal.block_height);
                 return false;
             }
-            
+
             println!("   ✅ Proposal validation passed");
             println!("      Block height: {}", proposal.block_height);
             println!("      Previous hash: {}...", &proposal.previous_hash[..16]);
             println!("      Merkle root: {}...", &proposal.merkle_root[..16]);
-            
+
             true
         }
 

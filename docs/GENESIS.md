@@ -6,30 +6,42 @@ The genesis block is the first block in the TIME Coin blockchain. It defines the
 
 ## Testnet Genesis
 
-- **Total Supply:** 1,000,000 TIME
 - **Network:** Testnet
-- **Timestamp:** October 17, 2025 00:00:00 UTC
-- **Message:** "TIME Coin Testnet - Testing the Future"
+- **Timestamp:** November 1, 2025 00:00:00 UTC (1730419200)
+- **Message:** "TIME Coin Testnet - 24 Hour Blocks, Instant Finality"
 
-### Allocations
+### Initial Allocations
 
-1. **Treasury:** 100,000 TIME (10%)
-2. **Development:** 50,000 TIME (5%)
-3. **Masternode Pool:** 850,000 TIME (85%)
+1. **Testnet Faucet:** 5,000,000 TIME (for testing purposes)
+
+### Treasury Model
+
+The treasury no longer uses a pre-allocated burn address. Instead:
+
+- **Block Rewards**: All block rewards are minted on-demand and distributed directly to masternodes via coinbase transactions
+- **Treasury Budget**: Treasury funds are tracked off-chain in the TreasuryPool as a budget authority
+- **Governance Spending**: When governance approves spending, coins are minted directly to recipients in future coinbase transactions
+- **No Burn Address**: This eliminates the problem of inaccessible funds in burn addresses
+
+Block rewards are distributed as follows:
+- Masternodes receive rewards based on their tier (Free, Bronze, Silver, Gold)
+- Treasury budget is maintained separately and does not require pre-allocated coins
+- All rewards go directly to masternode addresses (no burn address)
 
 ## Mainnet Genesis
 
-- **Total Supply:** 21,000,000 TIME
+- **Total Supply:** Coins minted on-demand via block rewards
 - **Network:** Mainnet
-- **Timestamp:** October 17, 2025 00:00:00 UTC
+- **Timestamp:** November 1, 2025 00:00:00 UTC (1730419200)
 - **Message:** "TIME Coin - Where Every Second Counts"
 
-### Allocations
+### Initial Allocations
 
-1. **Treasury:** 2,100,000 TIME (10%)
-2. **Core Development:** 1,050,000 TIME (5%, 48-month vesting)
-3. **Marketing & Growth:** 420,000 TIME (2%, 36-month vesting)
-4. **Masternode Pool:** 17,430,000 TIME (83%)
+Minimal initial allocations for bootstrap purposes only.
+
+### Treasury Model
+
+Same as testnet - treasury operates as a budget authority with on-demand minting through governance-approved coinbase transactions.
 
 ## Port Configuration
 

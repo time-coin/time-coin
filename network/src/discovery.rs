@@ -48,9 +48,9 @@ impl PeerInfo {
         PeerInfo {
             address, // <-- use 'address' not 'peer_addr'
             last_seen: current_timestamp(),
-            version,            // <-- use 'version' not 'peer.version'
-            network,            // <-- use 'network' not 'self.network'
-            commit_date: None,  // <-- These should be None for this constructor
+            version,           // <-- use 'version' not 'peer.version'
+            network,           // <-- use 'network' not 'self.network'
+            commit_date: None, // <-- These should be None for this constructor
             commit_count: None,
             wallet_address: None,
         }

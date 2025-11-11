@@ -102,25 +102,25 @@ impl BlockCreationStrategy {
 pub struct BlockCreationAttempt {
     /// Attempt number (1, 2, 3, ...)
     pub attempt_number: u32,
-    
+
     /// Strategy used
     pub strategy: BlockCreationStrategy,
-    
+
     /// Leader/producer for this attempt
     pub leader: String,
-    
+
     /// Timestamp of attempt
     pub timestamp: DateTime<Utc>,
-    
+
     /// Number of votes received
     pub votes_received: usize,
-    
+
     /// Total possible votes
     pub total_voters: usize,
-    
+
     /// Whether attempt succeeded
     pub succeeded: bool,
-    
+
     /// Failure reason if failed
     pub failure_reason: Option<String>,
 }
@@ -130,13 +130,13 @@ pub struct BlockCreationAttempt {
 pub struct FoolproofConfig {
     /// Enable all fallback strategies
     pub enable_fallbacks: bool,
-    
+
     /// Maximum total time across all attempts (seconds)
     pub max_total_time_secs: u64,
-    
+
     /// Enable emergency blocks as last resort
     pub enable_emergency_blocks: bool,
-    
+
     /// Minimum number of masternodes for BFT
     pub min_masternodes_for_bft: usize,
 }
@@ -156,13 +156,13 @@ impl Default for FoolproofConfig {
 pub struct FoolproofBlockManager {
     /// Configuration
     config: FoolproofConfig,
-    
+
     /// Current attempts for this round
     attempts: Arc<RwLock<Vec<BlockCreationAttempt>>>,
-    
+
     /// Round start time
     round_start: Arc<RwLock<Option<DateTime<Utc>>>>,
-    
+
     /// Current strategy
     current_strategy: Arc<RwLock<BlockCreationStrategy>>,
 }
@@ -181,13 +181,13 @@ impl FoolproofBlockManager {
     pub async fn start_round(&self) {
         let mut attempts = self.attempts.write().await;
         attempts.clear();
-        
+
         let mut start = self.round_start.write().await;
         *start = Some(Utc::now());
-        
+
         let mut strategy = self.current_strategy.write().await;
         *strategy = BlockCreationStrategy::NormalBFT;
-        
+
         println!();
         println!("╔══════════════════════════════════════════════════════════════╗");
         println!("║         FOOLPROOF BLOCK CREATION SYSTEM ACTIVATED            ║");
@@ -211,7 +211,7 @@ impl FoolproofBlockManager {
         failure_reason: Option<String>,
     ) {
         let mut attempts = self.attempts.write().await;
-        
+
         let attempt = BlockCreationAttempt {
             attempt_number: (attempts.len() + 1) as u32,
             strategy,
@@ -222,14 +222,20 @@ impl FoolproofBlockManager {
             succeeded,
             failure_reason,
         };
-        
+
         println!();
         println!("─────────────────────────────────────────────────────────────");
-        println!("📋 ATTEMPT #{} - {:?}", attempt.attempt_number, attempt.strategy);
+        println!(
+            "📋 ATTEMPT #{} - {:?}",
+            attempt.attempt_number, attempt.strategy
+        );
         println!("─────────────────────────────────────────────────────────────");
         println!("   Leader: {}", attempt.leader);
-        println!("   Votes: {}/{}", attempt.votes_received, attempt.total_voters);
-        
+        println!(
+            "   Votes: {}/{}",
+            attempt.votes_received, attempt.total_voters
+        );
+
         if succeeded {
             println!("   ✅ SUCCESS");
         } else {
@@ -238,14 +244,14 @@ impl FoolproofBlockManager {
                 println!("   Reason: {}", reason);
             }
         }
-        
+
         attempts.push(attempt);
     }
 
     /// Advance to next strategy
     pub async fn advance_strategy(&self) -> Option<BlockCreationStrategy> {
         let mut strategy = self.current_strategy.write().await;
-        
+
         if let Some(next) = strategy.next() {
             *strategy = next;
             println!();
@@ -277,12 +283,12 @@ impl FoolproofBlockManager {
     ) -> bool {
         let strategy = self.current_strategy().await;
         let (num, denom) = strategy.vote_threshold();
-        
+
         // Calculate required votes using ceiling division
         // For 1/2+: need more than half, so (total / 2) + 1
         // For 2/3+: need (total * 2 + denom - 1) / denom
-        let required = ((total_voters * num) + denom - 1) / denom;
-        
+        let required = (total_voters * num).div_ceil(denom);
+
         votes_received >= required
     }
 
@@ -305,27 +311,31 @@ impl FoolproofBlockManager {
     pub async fn log_summary(&self) {
         let attempts = self.attempts.read().await;
         let start = self.round_start.read().await;
-        
+
         if attempts.is_empty() {
             return;
         }
-        
+
         println!();
         println!("╔══════════════════════════════════════════════════════════════╗");
         println!("║           FOOLPROOF BLOCK CREATION SUMMARY                   ║");
         println!("╚══════════════════════════════════════════════════════════════╝");
         println!();
         println!("Total attempts: {}", attempts.len());
-        
+
         if let Some(start_time) = *start {
             let elapsed = (Utc::now() - start_time).num_seconds();
             println!("Total time: {}s", elapsed);
         }
-        
+
         println!();
-        
+
         for attempt in attempts.iter() {
-            let status = if attempt.succeeded { "✅ SUCCESS" } else { "❌ FAILED" };
+            let status = if attempt.succeeded {
+                "✅ SUCCESS"
+            } else {
+                "❌ FAILED"
+            };
             println!(
                 "Attempt #{}: {:?} - {} ({}/{})",
                 attempt.attempt_number,
@@ -334,21 +344,24 @@ impl FoolproofBlockManager {
                 attempt.votes_received,
                 attempt.total_voters
             );
-            
+
             if let Some(reason) = &attempt.failure_reason {
                 println!("  └─ Reason: {}", reason);
             }
         }
-        
+
         println!();
-        
+
         let success_count = attempts.iter().filter(|a| a.succeeded).count();
         if success_count > 0 {
-            println!("✅ Block creation successful after {} attempt(s)", attempts.len());
+            println!(
+                "✅ Block creation successful after {} attempt(s)",
+                attempts.len()
+            );
         } else {
             println!("⚠️  All attempts failed - this should never happen!");
         }
-        
+
         println!("╚══════════════════════════════════════════════════════════════╝");
         println!();
     }
@@ -380,16 +393,16 @@ mod tests {
     fn test_strategy_progression() {
         let strat = BlockCreationStrategy::NormalBFT;
         assert_eq!(strat.next(), Some(BlockCreationStrategy::LeaderRotation));
-        
+
         let strat = BlockCreationStrategy::LeaderRotation;
         assert_eq!(strat.next(), Some(BlockCreationStrategy::ReducedThreshold));
-        
+
         let strat = BlockCreationStrategy::ReducedThreshold;
         assert_eq!(strat.next(), Some(BlockCreationStrategy::RewardOnly));
-        
+
         let strat = BlockCreationStrategy::RewardOnly;
         assert_eq!(strat.next(), Some(BlockCreationStrategy::Emergency));
-        
+
         let strat = BlockCreationStrategy::Emergency;
         assert_eq!(strat.next(), None);
     }
@@ -399,11 +412,11 @@ mod tests {
         // Normal BFT: 2/3+
         let (num, denom) = BlockCreationStrategy::NormalBFT.vote_threshold();
         assert_eq!((num, denom), (2, 3));
-        
+
         // Reduced: 1/2+
         let (num, denom) = BlockCreationStrategy::ReducedThreshold.vote_threshold();
         assert_eq!((num, denom), (1, 2));
-        
+
         // Emergency: 1/10 (10%)
         let (num, denom) = BlockCreationStrategy::Emergency.vote_threshold();
         assert_eq!((num, denom), (1, 10));
@@ -413,17 +426,17 @@ mod tests {
     async fn test_consensus_calculation() {
         let config = FoolproofConfig::default();
         let manager = FoolproofBlockManager::new(config);
-        
+
         manager.start_round().await;
-        
+
         // Normal BFT with 4 nodes: need 3 votes (2/3+ = 2.67 -> 3)
         assert!(manager.check_consensus_with_strategy(3, 4).await);
         assert!(!manager.check_consensus_with_strategy(2, 4).await);
-        
+
         // Advance to reduced threshold
         manager.advance_strategy().await; // LeaderRotation (still 2/3)
         manager.advance_strategy().await; // ReducedThreshold (1/2)
-        
+
         // Reduced threshold with 4 nodes: need 2 votes (1/2 = 2)
         assert!(manager.check_consensus_with_strategy(2, 4).await);
         assert!(!manager.check_consensus_with_strategy(1, 4).await);
@@ -433,33 +446,37 @@ mod tests {
     async fn test_attempt_tracking() {
         let config = FoolproofConfig::default();
         let manager = FoolproofBlockManager::new(config);
-        
+
         manager.start_round().await;
-        
+
         assert_eq!(manager.attempt_count().await, 0);
         assert!(!manager.has_success().await);
-        
-        manager.record_attempt(
-            BlockCreationStrategy::NormalBFT,
-            "node1".to_string(),
-            2,
-            4,
-            false,
-            Some("Timeout".to_string()),
-        ).await;
-        
+
+        manager
+            .record_attempt(
+                BlockCreationStrategy::NormalBFT,
+                "node1".to_string(),
+                2,
+                4,
+                false,
+                Some("Timeout".to_string()),
+            )
+            .await;
+
         assert_eq!(manager.attempt_count().await, 1);
         assert!(!manager.has_success().await);
-        
-        manager.record_attempt(
-            BlockCreationStrategy::LeaderRotation,
-            "node2".to_string(),
-            3,
-            4,
-            true,
-            None,
-        ).await;
-        
+
+        manager
+            .record_attempt(
+                BlockCreationStrategy::LeaderRotation,
+                "node2".to_string(),
+                3,
+                4,
+                true,
+                None,
+            )
+            .await;
+
         assert_eq!(manager.attempt_count().await, 2);
         assert!(manager.has_success().await);
     }

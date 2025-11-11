@@ -503,8 +503,28 @@ mod tests {
         let db_path = db_dir.to_str().unwrap().to_string();
         let _ = std::fs::remove_dir_all(&db_path);
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
-        // Use the allowed coinbase amount (treasury 5 TIME = 5 * 100_000_000 = 500_000_000)
-        let outputs = vec![TxOutput::new(500_000_000, "miner1".to_string())];
+
+        // Register a Free tier masternode (no collateral required)
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral_tx_1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
+
+        // Calculate the expected masternode reward for 1 Free node
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+
+        // Create block with proper masternode reward (no treasury)
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
         assert_eq!(state.chain_tip_height(), 1);
