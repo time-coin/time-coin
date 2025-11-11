@@ -38,7 +38,7 @@ pub async fn get_quarantined_peers(
     if let Some(quarantine) = &state.quarantine {
         let entries = quarantine.get_quarantined_peers().await;
         let now = Instant::now();
-        
+
         let formatted_entries: Vec<QuarantineEntry> = entries
             .iter()
             .map(|entry| {
@@ -47,7 +47,7 @@ pub async fn get_quarantined_peers(
                 } else {
                     0
                 };
-                
+
                 QuarantineEntry {
                     peer_ip: entry.peer_ip.to_string(),
                     reason: entry.reason.to_string(),

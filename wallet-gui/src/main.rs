@@ -268,20 +268,34 @@ impl WalletApp {
 
                 // Mode selection
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.mnemonic_mode, MnemonicMode::Generate, "Generate New Phrase");
-                    ui.selectable_value(&mut self.mnemonic_mode, MnemonicMode::Import, "Import Existing Phrase");
+                    ui.selectable_value(
+                        &mut self.mnemonic_mode,
+                        MnemonicMode::Generate,
+                        "Generate New Phrase",
+                    );
+                    ui.selectable_value(
+                        &mut self.mnemonic_mode,
+                        MnemonicMode::Import,
+                        "Import Existing Phrase",
+                    );
                 });
 
                 ui.add_space(30.0);
 
                 if self.mnemonic_mode == MnemonicMode::Generate {
                     // Generate mode
-                    ui.label(egui::RichText::new("A 12-word recovery phrase will be generated for you.").size(14.0));
+                    ui.label(
+                        egui::RichText::new("A 12-word recovery phrase will be generated for you.")
+                            .size(14.0),
+                    );
                     ui.add_space(10.0);
                     ui.label("This phrase is the ONLY way to recover your wallet.");
                     ui.add_space(20.0);
 
-                    if ui.button(egui::RichText::new("Generate Recovery Phrase").size(16.0)).clicked() {
+                    if ui
+                        .button(egui::RichText::new("Generate Recovery Phrase").size(16.0))
+                        .clicked()
+                    {
                         match WalletManager::generate_mnemonic() {
                             Ok(mnemonic) => {
                                 self.mnemonic_phrase = mnemonic;
@@ -289,7 +303,8 @@ impl WalletApp {
                                 self.error_message = None;
                             }
                             Err(e) => {
-                                self.error_message = Some(format!("Failed to generate mnemonic: {}", e));
+                                self.error_message =
+                                    Some(format!("Failed to generate mnemonic: {}", e));
                             }
                         }
                     }
@@ -302,7 +317,7 @@ impl WalletApp {
                         egui::TextEdit::multiline(&mut self.mnemonic_input)
                             .desired_width(500.0)
                             .desired_rows(3)
-                            .hint_text("word1 word2 word3 ...")
+                            .hint_text("word1 word2 word3 ..."),
                     );
 
                     ui.add_space(10.0);
@@ -321,10 +336,16 @@ impl WalletApp {
 
                     ui.add_space(20.0);
 
-                    let can_proceed = !self.mnemonic_input.is_empty() 
+                    let can_proceed = !self.mnemonic_input.is_empty()
                         && WalletManager::validate_mnemonic(&self.mnemonic_input).is_ok();
 
-                    if ui.add_enabled(can_proceed, egui::Button::new(egui::RichText::new("Import Wallet").size(16.0))).clicked() {
+                    if ui
+                        .add_enabled(
+                            can_proceed,
+                            egui::Button::new(egui::RichText::new("Import Wallet").size(16.0)),
+                        )
+                        .clicked()
+                    {
                         self.mnemonic_phrase = self.mnemonic_input.clone();
                         self.create_wallet_from_mnemonic(ctx);
                     }
@@ -350,15 +371,28 @@ impl WalletApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(30.0);
-                ui.heading(egui::RichText::new("⚠️ Save Your Recovery Phrase").size(28.0).color(egui::Color32::from_rgb(255, 165, 0)));
+                ui.heading(
+                    egui::RichText::new("⚠️ Save Your Recovery Phrase")
+                        .size(28.0)
+                        .color(egui::Color32::from_rgb(255, 165, 0)),
+                );
                 ui.add_space(20.0);
 
                 // Warning messages
                 ui.group(|ui| {
                     ui.set_max_width(600.0);
-                    ui.colored_label(egui::Color32::RED, "⚠️ Write down these 12 words in order and keep them safe");
-                    ui.colored_label(egui::Color32::RED, "⚠️ Anyone with this phrase can access your funds");
-                    ui.colored_label(egui::Color32::RED, "⚠️ We cannot recover your wallet without this phrase");
+                    ui.colored_label(
+                        egui::Color32::RED,
+                        "⚠️ Write down these 12 words in order and keep them safe",
+                    );
+                    ui.colored_label(
+                        egui::Color32::RED,
+                        "⚠️ Anyone with this phrase can access your funds",
+                    );
+                    ui.colored_label(
+                        egui::Color32::RED,
+                        "⚠️ We cannot recover your wallet without this phrase",
+                    );
                 });
 
                 ui.add_space(30.0);
@@ -367,7 +401,7 @@ impl WalletApp {
                 ui.group(|ui| {
                     ui.set_max_width(600.0);
                     let words: Vec<&str> = self.mnemonic_phrase.split_whitespace().collect();
-                    
+
                     egui::Grid::new("mnemonic_grid")
                         .spacing([20.0, 10.0])
                         .show(ui, |ui| {
@@ -392,15 +426,21 @@ impl WalletApp {
                 ui.add_space(30.0);
 
                 // Confirmation checkbox
-                ui.checkbox(&mut self.mnemonic_confirmed, "I have written down my recovery phrase in a safe place");
+                ui.checkbox(
+                    &mut self.mnemonic_confirmed,
+                    "I have written down my recovery phrase in a safe place",
+                );
 
                 ui.add_space(20.0);
 
                 // Create wallet button
-                if ui.add_enabled(
-                    self.mnemonic_confirmed,
-                    egui::Button::new(egui::RichText::new("Create Wallet").size(16.0))
-                ).clicked() {
+                if ui
+                    .add_enabled(
+                        self.mnemonic_confirmed,
+                        egui::Button::new(egui::RichText::new("Create Wallet").size(16.0)),
+                    )
+                    .clicked()
+                {
                     self.create_wallet_from_mnemonic(ctx);
                 }
 
@@ -436,7 +476,7 @@ impl WalletApp {
                 self.wallet_manager = Some(manager);
                 self.current_screen = Screen::Overview;
                 self.success_message = Some("Wallet created successfully!".to_string());
-                
+
                 // Clear mnemonic from memory after wallet creation
                 self.mnemonic_input.clear();
                 self.mnemonic_confirmed = false;
@@ -447,7 +487,9 @@ impl WalletApp {
                     if let Ok(wallet_config) = WalletConfig::load(&wallet_dir) {
                         self.config = wallet_config.clone();
                     }
-                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
+                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
+                        main_config.api_endpoint.clone(),
+                    )));
                     self.network_manager = Some(network_mgr.clone());
                     self.network_status = "Connecting...".to_string();
 
@@ -955,7 +997,8 @@ impl WalletApp {
                         ui.add_space(10.0);
                         if ui.button("📋 Copy Recovery Phrase").clicked() {
                             ctx.copy_text(mnemonic);
-                            self.success_message = Some("Recovery phrase copied to clipboard!".to_string());
+                            self.success_message =
+                                Some("Recovery phrase copied to clipboard!".to_string());
                         }
                     }
                 });

@@ -38,14 +38,14 @@ impl QuarantineSeverity {
             QuarantineSeverity::Permanent => Duration::from_secs(365 * 24 * 3600), // 1 year (effectively permanent)
         }
     }
-    
+
     /// Calculate duration with exponential backoff based on attempts
     pub fn duration_with_backoff(&self, attempts: u32) -> Duration {
         let base = self.base_duration();
         if *self == QuarantineSeverity::Permanent {
             return base;
         }
-        
+
         // Exponential backoff: base * 2^(attempts-1), capped at 30 days
         let multiplier = 2u64.saturating_pow(attempts.saturating_sub(1));
         let duration_secs = base.as_secs().saturating_mul(multiplier);
@@ -73,36 +73,22 @@ pub enum QuarantineReason {
         max_expected: u64,
     },
     /// General consensus protocol violation
-    ConsensusViolation {
-        reason: String,
-    },
+    ConsensusViolation { reason: String },
     /// Peer sent an invalid block
-    InvalidBlock {
-        height: u64,
-        reason: String,
-    },
+    InvalidBlock { height: u64, reason: String },
     /// Peer sent an invalid transaction
-    InvalidTransaction {
-        txid: String,
-        reason: String,
-    },
+    InvalidTransaction { txid: String, reason: String },
     /// Protocol version mismatch
     ProtocolMismatch {
         our_version: u32,
         their_version: u32,
     },
     /// Excessive connection failures
-    ConnectionFailures {
-        count: u32,
-    },
+    ConnectionFailures { count: u32 },
     /// Peer exceeded rate limits (too many requests)
-    RateLimitExceeded {
-        requests_per_second: u32,
-    },
+    RateLimitExceeded { requests_per_second: u32 },
     /// Peer timed out excessively
-    ExcessiveTimeouts {
-        count: u32,
-    },
+    ExcessiveTimeouts { count: u32 },
 }
 
 impl QuarantineReason {
@@ -277,9 +263,11 @@ impl PeerQuarantine {
 
     /// Create with custom quarantine duration (legacy method)
     pub fn with_duration(duration: Duration) -> Self {
-        let mut config = QuarantineConfig::default();
-        config.default_duration = duration;
-        config.use_severity_based_durations = false;
+        let config = QuarantineConfig {
+            default_duration: duration,
+            use_severity_based_durations: false,
+            ..Default::default()
+        };
         Self::with_config(config)
     }
 
@@ -307,7 +295,7 @@ impl PeerQuarantine {
     async fn update_stats(&self, reason: &QuarantineReason) {
         let mut stats = self.stats.write().await;
         stats.total_quarantined += 1;
-        
+
         match reason {
             QuarantineReason::GenesisMismatch { .. } => stats.genesis_mismatch += 1,
             QuarantineReason::ForkDetected { .. } => stats.fork_detected += 1,
@@ -338,7 +326,9 @@ impl PeerQuarantine {
         let mut quarantined = self.quarantined.write().await;
 
         // Check maximum size limit
-        if quarantined.len() >= self.config.max_quarantine_size && !quarantined.contains_key(&peer_ip) {
+        if quarantined.len() >= self.config.max_quarantine_size
+            && !quarantined.contains_key(&peer_ip)
+        {
             warn!(
                 "⚠️  Quarantine list full ({} entries), cannot add {}",
                 self.config.max_quarantine_size, peer_ip
@@ -348,14 +338,14 @@ impl PeerQuarantine {
 
         let severity = reason.severity();
         let now = Instant::now();
-        
+
         let entry = quarantined.entry(peer_ip).or_insert_with(|| {
             let duration = if self.config.use_severity_based_durations {
                 severity.base_duration()
             } else {
                 self.config.default_duration
             };
-            
+
             QuarantineEntry {
                 peer_ip,
                 reason: reason.clone(),
@@ -368,7 +358,7 @@ impl PeerQuarantine {
         entry.attempts += 1;
         entry.quarantined_at = now;
         entry.reason = reason.clone();
-        
+
         // Apply exponential backoff on repeated offenses
         let duration = if self.config.use_severity_based_durations {
             severity.duration_with_backoff(entry.attempts)
@@ -379,9 +369,12 @@ impl PeerQuarantine {
 
         warn!(
             "🚫 Peer {} quarantined: {} (attempt #{}, expires in {}s)",
-            peer_ip, reason, entry.attempts, duration.as_secs()
+            peer_ip,
+            reason,
+            entry.attempts,
+            duration.as_secs()
         );
-        
+
         drop(quarantined);
         self.update_stats(&reason).await;
     }
@@ -455,7 +448,7 @@ impl PeerQuarantine {
                 QuarantineReason::ForkDetected { .. } => true,    // Always exclude
                 QuarantineReason::SuspiciousHeight { .. } => true, // Always exclude
                 QuarantineReason::ConsensusViolation { .. } => true, // Always exclude
-                QuarantineReason::InvalidBlock { .. } => true, // Exclude for invalid blocks
+                QuarantineReason::InvalidBlock { .. } => true,    // Exclude for invalid blocks
                 QuarantineReason::InvalidTransaction { .. } => false, // Don't exclude for tx issues
                 QuarantineReason::ProtocolMismatch { .. } => true, // Exclude for protocol issues
                 QuarantineReason::ConnectionFailures { .. } => false, // Don't exclude for connection issues
@@ -519,10 +512,7 @@ mod tests {
         let peer_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
 
         quarantine
-            .quarantine_peer(
-                peer_ip,
-                QuarantineReason::ConnectionFailures { count: 3 },
-            )
+            .quarantine_peer(peer_ip, QuarantineReason::ConnectionFailures { count: 3 })
             .await;
 
         assert!(quarantine.is_quarantined(&peer_ip).await);
@@ -585,19 +575,13 @@ mod tests {
         let peer2 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2));
 
         quarantine
-            .quarantine_peer(
-                peer1,
-                QuarantineReason::ConnectionFailures { count: 3 },
-            )
+            .quarantine_peer(peer1, QuarantineReason::ConnectionFailures { count: 3 })
             .await;
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         quarantine
-            .quarantine_peer(
-                peer2,
-                QuarantineReason::ConnectionFailures { count: 3 },
-            )
+            .quarantine_peer(peer2, QuarantineReason::ConnectionFailures { count: 3 })
             .await;
 
         assert_eq!(quarantine.count().await, 2);
@@ -641,15 +625,12 @@ mod tests {
 
         // Minor offense
         quarantine
-            .quarantine_peer(
-                peer_ip,
-                QuarantineReason::ConnectionFailures { count: 3 },
-            )
+            .quarantine_peer(peer_ip, QuarantineReason::ConnectionFailures { count: 3 })
             .await;
 
         let entry = quarantine.get_entry(&peer_ip).await.unwrap();
         let duration = entry.expires_at.duration_since(entry.quarantined_at);
-        
+
         // Should be around 5 minutes for minor offense
         assert!(duration.as_secs() >= 250 && duration.as_secs() <= 350);
     }

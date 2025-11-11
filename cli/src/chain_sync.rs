@@ -76,6 +76,7 @@ impl ChainSync {
     }
 
     /// Get the quarantine system (for external access)
+    #[allow(dead_code)]
     pub fn quarantine(&self) -> Arc<PeerQuarantine> {
         self.quarantine.clone()
     }
@@ -340,7 +341,10 @@ impl ChainSync {
                                 )
                                 .await;
                         }
-                        return Err(format!("Block {} validation failed: {}", height, validation_error));
+                        return Err(format!(
+                            "Block {} validation failed: {}",
+                            height, validation_error
+                        ));
                     }
                 }
             } else {
@@ -389,10 +393,7 @@ impl ChainSync {
                         peer_ip
                     );
                     println!("   Our genesis:   {}...", &our_genesis[..16]);
-                    println!(
-                        "   Peer genesis:  {}...",
-                        &peer_genesis_block.hash[..16]
-                    );
+                    println!("   Peer genesis:  {}...", &peer_genesis_block.hash[..16]);
                     println!("   ⚠️  This peer will be quarantined from consensus");
 
                     // Quarantine this peer

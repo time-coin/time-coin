@@ -1,8 +1,6 @@
 use crate::handlers::get_node_wallet;
 use crate::masternode_handlers::{list_masternodes, register_masternode};
-use crate::quarantine_handlers::{
-    get_quarantine_stats, get_quarantined_peers, release_peer,
-};
+use crate::quarantine_handlers::{get_quarantine_stats, get_quarantined_peers, release_peer};
 use crate::rpc_handlers;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;

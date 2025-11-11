@@ -103,7 +103,7 @@ pub mod magic_bytes {
     /// Mainnet magic bytes: 0xC01D7E4D ("COLD TIME" mnemonic - C0 1D 7E 4D)
     /// Represents the frozen time concept of 24-hour blocks
     pub const MAINNET: [u8; 4] = [0xC0, 0x1D, 0x7E, 0x4D];
-    
+
     /// Testnet magic bytes: 0x7E577E4D ("TEST TIME" mnemonic - 7E 57 7E 4D)
     /// Distinct from mainnet to prevent accidental cross-network messages
     pub const TESTNET: [u8; 4] = [0x7E, 0x57, 0x7E, 0x4D];
@@ -214,7 +214,8 @@ impl HandshakeMessage {
         self.validate(expected_network)?;
 
         // Then validate genesis block if both sides provide it
-        if let (Some(their_genesis), Some(our_genesis)) = (&self.genesis_hash, expected_genesis_hash)
+        if let (Some(their_genesis), Some(our_genesis)) =
+            (&self.genesis_hash, expected_genesis_hash)
         {
             if their_genesis != our_genesis {
                 return Err(format!(
