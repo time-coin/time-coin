@@ -1,9 +1,10 @@
 use chrono::{Timelike, Utc};
 use serde::Deserialize;
+use std::net::IpAddr;
 use std::sync::Arc;
 use time_core::block::Block;
 use time_core::state::BlockchainState;
-use time_network::PeerManager;
+use time_network::{PeerManager, PeerQuarantine, QuarantineReason};
 use tokio::sync::RwLock;
 
 #[derive(Deserialize)]
@@ -43,6 +44,7 @@ pub struct ChainSync {
     peer_manager: Arc<PeerManager>,
     midnight_config: Option<MidnightWindowConfig>,
     is_block_producer_active: Arc<RwLock<bool>>,
+    quarantine: Arc<PeerQuarantine>,
 }
 
 impl ChainSync {
@@ -53,6 +55,7 @@ impl ChainSync {
             peer_manager,
             midnight_config: Some(MidnightWindowConfig::default()),
             is_block_producer_active: Arc::new(RwLock::new(false)),
+            quarantine: Arc::new(PeerQuarantine::new()),
         }
     }
 
@@ -68,7 +71,13 @@ impl ChainSync {
             peer_manager,
             midnight_config,
             is_block_producer_active,
+            quarantine: Arc::new(PeerQuarantine::new()),
         }
+    }
+
+    /// Get the quarantine system (for external access)
+    pub fn quarantine(&self) -> Arc<PeerQuarantine> {
+        self.quarantine.clone()
     }
 
     /// Check if current time is within the midnight window
@@ -221,6 +230,20 @@ impl ChainSync {
             );
             println!("      Days since genesis: {}", elapsed_days);
             println!("      This may indicate a fork or imposter chain");
+
+            // Quarantine the peer with suspicious height
+            if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
+                self.quarantine
+                    .quarantine_peer(
+                        peer_addr,
+                        QuarantineReason::SuspiciousHeight {
+                            their_height: *max_height,
+                            max_expected: max_expected_height,
+                        },
+                    )
+                    .await;
+            }
+
             // Don't sync from this peer, find another
             let valid_peers: Vec<_> = peer_heights
                 .iter()
@@ -319,6 +342,17 @@ impl ChainSync {
 
         // Check for genesis block mismatches first
         for (peer_ip, _, _peer_hash) in &peer_heights {
+            // Parse IP address for quarantine
+            let peer_addr: IpAddr = match peer_ip.parse() {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            // Skip if already quarantined
+            if self.quarantine.is_quarantined(&peer_addr).await {
+                continue;
+            }
+
             // Try to get their genesis block (height 0)
             if let Some(peer_genesis_block) = self.download_block(peer_ip, 0).await {
                 if peer_genesis_block.hash != our_genesis {
@@ -332,7 +366,17 @@ impl ChainSync {
                         &peer_genesis_block.hash[..16]
                     );
                     println!("   ⚠️  This peer will be quarantined from consensus");
-                    // In a real implementation, we would mark this peer for quarantine
+
+                    // Quarantine this peer
+                    self.quarantine
+                        .quarantine_peer(
+                            peer_addr,
+                            QuarantineReason::GenesisMismatch {
+                                our_genesis: our_genesis.clone(),
+                                their_genesis: peer_genesis_block.hash.clone(),
+                            },
+                        )
+                        .await;
                     continue;
                 }
             }
