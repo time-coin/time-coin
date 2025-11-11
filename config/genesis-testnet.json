@@ -4,5 +4,10 @@
   "timestamp": 1760227200,
   "message": "TIME Coin Testnet Launch - October 12, 2025 - 24 Hour Blocks, Instant Finality",
   "hash": "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
-  "transactions": []
+  "transactions": [
+    {
+      "amount": 100000000000,
+      "description": "genesis"
+    }
+  ]
 }

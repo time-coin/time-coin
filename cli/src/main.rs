@@ -22,9 +22,8 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_core::block::{Block, BlockHeader};
-
-use chrono::TimeZone;
+use time_core::block::Block;
+use time_core::transaction::TxOutput;
 
 use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
 
@@ -728,20 +727,43 @@ async fn main() {
     };
 
     // Initialize blockchain state with genesis block
-    let genesis_block = Block {
-        header: BlockHeader {
-            block_number: 0,
-            timestamp: chrono::Utc.with_ymd_and_hms(2025, 11, 1, 0, 0, 0).unwrap(),
-            previous_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-                .to_string(),
-            merkle_root: "0000000000000000000000000000000000000000000000000000000000000000"
-                .to_string(),
-            validator_signature: "genesis".to_string(),
-            validator_address: "genesis".to_string(),
-        },
-        transactions: vec![],
-        hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
+    // Parse transactions from genesis JSON or use default
+    let genesis_outputs = if let Some(ref genesis) = _genesis {
+        // Try to parse transactions from genesis JSON
+        if let Some(txs) = genesis.get("transactions").and_then(|v| v.as_array()) {
+            if !txs.is_empty() {
+                // Convert each transaction to TxOutput
+                txs.iter()
+                    .filter_map(|tx| {
+                        let amount = tx.get("amount").and_then(|a| a.as_u64())?;
+                        let address = tx
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("genesis")
+                            .to_string();
+                        Some(TxOutput::new(amount, address))
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                // Empty transactions in genesis JSON, use default
+                vec![TxOutput::new(100_000_000_000, "genesis".to_string())]
+            }
+        } else {
+            // No transactions field in genesis JSON, use default
+            vec![TxOutput::new(100_000_000_000, "genesis".to_string())]
+        }
+    } else {
+        // No genesis JSON loaded, use default
+        vec![TxOutput::new(100_000_000_000, "genesis".to_string())]
     };
+
+    // Create genesis block using Block::new() which automatically creates proper coinbase transaction
+    let genesis_block = Block::new(
+        0,
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        "genesis".to_string(),
+        genesis_outputs,
+    );
 
     // Get data directory from config or use default
     let data_dir = config
