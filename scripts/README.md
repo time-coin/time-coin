@@ -1,5 +1,41 @@
 # TIME Coin Masternode Setup Scripts
 
+## Available Scripts
+
+### reset-blockchain.sh
+Resets the blockchain to a fresh state with the new genesis block (October 12, 2024).
+
+**WARNING:** This will erase all blockchain data! Wallet data will be preserved.
+
+```bash
+# Run with confirmation prompt
+sudo ./scripts/reset-blockchain.sh
+
+# Run without confirmation (automated)
+sudo ./scripts/reset-blockchain.sh --yes
+```
+
+The script will:
+1. Stop the TIME Coin node service
+2. Create a backup of existing data
+3. Clear the blockchain database
+4. Remove the old genesis file
+5. Install the new genesis block
+6. Preserve wallet data and logs
+7. Restart the node service
+
+**What's Preserved:**
+- Wallet data (`/var/lib/time-coin/wallets`)
+- Logs (`/var/lib/time-coin/logs`)
+
+**What's Removed:**
+- Blockchain database (`/var/lib/time-coin/blockchain`)
+- Genesis file (`/var/lib/time-coin/genesis.json`)
+
+**Backups:** Created automatically in `/var/backups/time-coin-YYYYMMDD-HHMMSS/`
+
+---
+
 ## Quick Start
 
 To set up a masternode with a 1000 TIME grant:
