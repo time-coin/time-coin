@@ -161,33 +161,35 @@ impl ChainSync {
     }
 
     /// Validate a block before importing
-    fn validate_block(&self, block: &Block, expected_prev_hash: &str) -> bool {
+    fn validate_block(&self, block: &Block, expected_prev_hash: &str) -> Result<(), String> {
         // Check previous hash matches
         if block.header.previous_hash != expected_prev_hash {
-            println!("   ✗ Invalid previous hash");
-            return false;
+            return Err(format!(
+                "Invalid previous hash: expected {}, got {}",
+                expected_prev_hash, block.header.previous_hash
+            ));
         }
 
         // Check hash is correctly calculated
         let calculated_hash = block.calculate_hash();
         if calculated_hash != block.hash {
-            println!("   ✗ Invalid block hash");
-            return false;
+            return Err(format!(
+                "Invalid block hash: expected {}, calculated {}",
+                block.hash, calculated_hash
+            ));
         }
 
         // Check block has transactions
         if block.transactions.is_empty() {
-            println!("   ✗ Block has no transactions");
-            return false;
+            return Err("Block has no transactions".to_string());
         }
 
         // Check first transaction is coinbase
         if !block.transactions[0].inputs.is_empty() {
-            println!("   ✗ First transaction is not coinbase");
-            return false;
+            return Err("First transaction is not coinbase".to_string());
         }
 
-        true
+        Ok(())
     }
 
     /// Sync blockchain from peers
@@ -298,21 +300,47 @@ impl ChainSync {
                 };
 
                 // Validate block
-                if !self.validate_block(&block, &prev_hash) {
-                    return Err(format!("Block {} validation failed", height));
-                }
-
-                // Import block
-                {
-                    let mut blockchain = self.blockchain.write().await;
-                    match blockchain.add_block(block) {
-                        Ok(_) => {
-                            synced_blocks += 1;
-                            println!("   ✓ Block {} imported", height);
+                match self.validate_block(&block, &prev_hash) {
+                    Ok(_) => {
+                        // Import block
+                        let mut blockchain = self.blockchain.write().await;
+                        match blockchain.add_block(block) {
+                            Ok(_) => {
+                                synced_blocks += 1;
+                                println!("   ✓ Block {} imported", height);
+                            }
+                            Err(e) => {
+                                // Quarantine peer for sending block that failed to import
+                                if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
+                                    self.quarantine
+                                        .quarantine_peer(
+                                            peer_addr,
+                                            QuarantineReason::InvalidBlock {
+                                                height,
+                                                reason: format!("Import failed: {:?}", e),
+                                            },
+                                        )
+                                        .await;
+                                }
+                                return Err(format!("Failed to import block {}: {:?}", height, e));
+                            }
                         }
-                        Err(e) => {
-                            return Err(format!("Failed to import block {}: {:?}", height, e));
+                    }
+                    Err(validation_error) => {
+                        // Quarantine peer for sending invalid block
+                        println!("   ✗ Block validation failed: {}", validation_error);
+                        if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
+                            self.quarantine
+                                .quarantine_peer(
+                                    peer_addr,
+                                    QuarantineReason::InvalidBlock {
+                                        height,
+                                        reason: validation_error.clone(),
+                                    },
+                                )
+                                .await;
                         }
+                        return Err(format!("Block {} validation failed: {}", height, validation_error));
                     }
                 }
             } else {
