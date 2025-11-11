@@ -24,8 +24,6 @@ use time_core::state::BlockchainState;
 
 use time_core::block::{Block, BlockHeader};
 
-use time_core::transaction::{Transaction, TxOutput};
-
 use chrono::TimeZone;
 
 use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
@@ -741,17 +739,7 @@ async fn main() {
             validator_signature: "genesis".to_string(),
             validator_address: "genesis".to_string(),
         },
-        transactions: vec![Transaction {
-            txid: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            version: 1,
-            inputs: vec![],
-            outputs: vec![TxOutput {
-                amount: 500_000_000_000_000,
-                address: "testnet_faucet".to_string(),
-            }],
-            lock_time: 0,
-            timestamp: 1761955200,
-        }],
+        transactions: vec![],
         hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048".to_string(),
     };
 

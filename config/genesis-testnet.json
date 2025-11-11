@@ -4,11 +4,5 @@
   "timestamp": 1761955200,
   "message": "TIME Coin Testnet - 24 Hour Blocks, Instant Finality",
   "hash": "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
-  "transactions": [
-    {
-      "amount": 500000000000000,
-      "address": "testnet_faucet",
-      "description": "Testnet Faucet (5M TIME)"
-    }
-  ]
+  "transactions": []
 }

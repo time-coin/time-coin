@@ -12,7 +12,7 @@ The genesis block is the first block in the TIME Coin blockchain. It defines the
 
 ### Initial Allocations
 
-1. **Testnet Faucet:** 5,000,000 TIME (for testing purposes)
+No pre-allocated funds. All coins are minted on-demand through block rewards.
 
 ### Treasury Model
 
