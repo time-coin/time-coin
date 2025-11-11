@@ -619,6 +619,8 @@ pub mod block_consensus {
         pub merkle_root: String,
         pub previous_hash: String,
         pub timestamp: i64,
+        #[serde(default)]
+        pub is_reward_only: bool,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -482,6 +482,59 @@ pub fn create_coinbase_transaction(
     }
 }
 
+/// Create a deterministic reward-only block (no mempool transactions)
+/// Uses a normalized timestamp (block_number * 86400) to ensure all nodes create identical blocks
+/// This function is specifically designed for empty mempool scenarios to achieve instant consensus
+pub fn create_reward_only_block(
+    block_number: u64,
+    previous_hash: String,
+    validator_address: String,
+    active_masternodes: &[(String, MasternodeTier)],
+    counts: &MasternodeCounts,
+) -> Block {
+    // Use normalized timestamp based on block number (seconds since genesis)
+    // This ensures ALL nodes create the exact same timestamp
+    let normalized_timestamp = (block_number * 86400) as i64;
+    
+    // Sort masternodes by address for complete determinism
+    let mut sorted_masternodes = active_masternodes.to_vec();
+    sorted_masternodes.sort_by(|a, b| a.0.cmp(&b.0));
+    
+    // Create deterministic coinbase transaction
+    let coinbase_tx = create_coinbase_transaction(
+        block_number,
+        "TIME1treasury00000000000000000000000000", // Treasury address constant
+        &sorted_masternodes,
+        counts,
+        0, // No transaction fees in reward-only block
+        normalized_timestamp,
+    );
+    
+    // Create normalized datetime from timestamp
+    let datetime = chrono::DateTime::from_timestamp(normalized_timestamp, 0)
+        .unwrap_or_else(|| Utc::now());
+    
+    // Create block with deterministic values
+    let mut block = Block {
+        header: BlockHeader {
+            block_number,
+            timestamp: datetime,
+            previous_hash,
+            merkle_root: String::new(),
+            validator_signature: String::new(),
+            validator_address,
+        },
+        transactions: vec![coinbase_tx],
+        hash: String::new(),
+    };
+    
+    // Calculate merkle root and hash
+    block.header.merkle_root = block.calculate_merkle_root();
+    block.hash = block.calculate_hash();
+    
+    block
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -779,5 +832,102 @@ mod tests {
         // 10x increase in nodes should NOT be 10x increase in rewards
         assert!(pool_100 < pool_10 * 10);
         assert!(pool_1000 < pool_100 * 10);
+    }
+
+    #[test]
+    fn test_create_reward_only_block_deterministic() {
+        // Test that create_reward_only_block produces identical blocks
+        let block_number = 100;
+        let previous_hash = "test_prev_hash".to_string();
+        let validator_address = "validator1".to_string();
+        
+        let active_masternodes = vec![
+            ("wallet_a".to_string(), MasternodeTier::Bronze),
+            ("wallet_b".to_string(), MasternodeTier::Gold),
+            ("wallet_c".to_string(), MasternodeTier::Silver),
+        ];
+        
+        let counts = MasternodeCounts {
+            free: 10,
+            bronze: 5,
+            silver: 3,
+            gold: 2,
+        };
+        
+        // Create block twice with same inputs
+        let block1 = create_reward_only_block(
+            block_number,
+            previous_hash.clone(),
+            validator_address.clone(),
+            &active_masternodes,
+            &counts,
+        );
+        
+        let block2 = create_reward_only_block(
+            block_number,
+            previous_hash.clone(),
+            validator_address.clone(),
+            &active_masternodes,
+            &counts,
+        );
+        
+        // Blocks should be identical
+        assert_eq!(block1.hash, block2.hash);
+        assert_eq!(block1.header.merkle_root, block2.header.merkle_root);
+        assert_eq!(block1.header.timestamp, block2.header.timestamp);
+        assert_eq!(block1.transactions.len(), 1); // Only coinbase
+        assert!(block1.transactions[0].is_coinbase());
+        
+        // Verify normalized timestamp
+        let expected_timestamp = (block_number * 86400) as i64;
+        assert_eq!(block1.transactions[0].timestamp, expected_timestamp);
+    }
+
+    #[test]
+    fn test_reward_only_block_different_order() {
+        // Test that masternode order doesn't affect the final block
+        let block_number = 100;
+        let previous_hash = "test_prev_hash".to_string();
+        let validator_address = "validator1".to_string();
+        
+        // Same masternodes in different order
+        let masternodes1 = vec![
+            ("wallet_a".to_string(), MasternodeTier::Bronze),
+            ("wallet_b".to_string(), MasternodeTier::Gold),
+            ("wallet_c".to_string(), MasternodeTier::Silver),
+        ];
+        
+        let masternodes2 = vec![
+            ("wallet_c".to_string(), MasternodeTier::Silver),
+            ("wallet_a".to_string(), MasternodeTier::Bronze),
+            ("wallet_b".to_string(), MasternodeTier::Gold),
+        ];
+        
+        let counts = MasternodeCounts {
+            free: 10,
+            bronze: 5,
+            silver: 3,
+            gold: 2,
+        };
+        
+        let block1 = create_reward_only_block(
+            block_number,
+            previous_hash.clone(),
+            validator_address.clone(),
+            &masternodes1,
+            &counts,
+        );
+        
+        let block2 = create_reward_only_block(
+            block_number,
+            previous_hash.clone(),
+            validator_address.clone(),
+            &masternodes2,
+            &counts,
+        );
+        
+        // Blocks should be identical despite different input order
+        assert_eq!(block1.hash, block2.hash);
+        assert_eq!(block1.header.merkle_root, block2.header.merkle_root);
     }
 }
