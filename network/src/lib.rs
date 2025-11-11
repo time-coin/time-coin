@@ -13,7 +13,9 @@ pub use manager::PeerManager;
 pub use manager::Snapshot;
 pub use protocol::{HandshakeMessage, ProtocolVersion, PROTOCOL_VERSION, VERSION};
 pub use protocol::{NetworkMessage, TransactionMessage, TransactionValidation};
-pub use quarantine::{PeerQuarantine, QuarantineReason};
+pub use quarantine::{
+    PeerQuarantine, QuarantineConfig, QuarantineReason, QuarantineSeverity, QuarantineStats,
+};
 
 pub mod peer_exchange;
 

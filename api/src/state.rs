@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use time_core::state::BlockchainState;
-use time_network::{PeerDiscovery, PeerManager};
+use time_network::{PeerDiscovery, PeerManager, PeerQuarantine};
 use tokio::sync::RwLock;
 
 use crate::{ApiError, ApiResult};
@@ -23,6 +23,8 @@ pub struct ApiState {
     pub tx_broadcaster: Option<Arc<time_network::tx_broadcast::TransactionBroadcaster>>,
     /// Track recently processed peer broadcasts to prevent duplicates
     pub recent_broadcasts: Arc<RwLock<HashMap<String, Instant>>>,
+    /// Peer quarantine system
+    pub quarantine: Option<Arc<PeerQuarantine>>,
 }
 
 impl ApiState {
@@ -52,6 +54,7 @@ impl ApiState {
             block_consensus: None,
             tx_broadcaster: None,
             recent_broadcasts: Arc::new(RwLock::new(HashMap::new())),
+            quarantine: None,
         };
 
         // Spawn cleanup task for recent_broadcasts
@@ -101,6 +104,11 @@ impl ApiState {
         self
     }
 
+    pub fn with_quarantine(mut self, quarantine: Arc<PeerQuarantine>) -> Self {
+        self.quarantine = Some(quarantine);
+        self
+    }
+
     pub fn require_admin(&self, token: Option<String>) -> ApiResult<()> {
         if let Some(expected) = &self.admin_token {
             if let Some(provided) = token {
@@ -133,6 +141,7 @@ impl Clone for ApiState {
             block_consensus: self.block_consensus.clone(),
             tx_broadcaster: self.tx_broadcaster.clone(),
             recent_broadcasts: self.recent_broadcasts.clone(),
+            quarantine: self.quarantine.clone(),
         }
     }
 }

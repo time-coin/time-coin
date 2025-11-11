@@ -47,18 +47,18 @@ impl WalletManager {
 
         // Create wallet from mnemonic
         let wallet = Wallet::from_mnemonic(mnemonic, passphrase, network)?;
-        
+
         // Create wallet_dat and add the keypair
         let wallet_path = WalletDat::ensure_data_dir(network)?;
         let mut wallet_dat = WalletDat::new(network);
-        
+
         // Store the mnemonic in wallet_dat
         wallet_dat.mnemonic_phrase = Some(mnemonic.to_string());
-        
+
         // Add the keypair from the mnemonic
         let keypair = Keypair::from_secret_key(&wallet.secret_key())?;
         wallet_dat.add_keypair(keypair, label, true)?;
-        
+
         // Save immediately
         wallet_dat.save(&wallet_path)?;
 

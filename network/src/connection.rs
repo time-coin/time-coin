@@ -159,14 +159,14 @@ impl PeerConnection {
     ) -> Result<(), String> {
         let json = serde_json::to_vec(h).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
-        
+
         // Write magic bytes first
         let magic = network.magic_bytes();
         stream
             .write_all(&magic)
             .await
             .map_err(|e| format!("Failed to write magic bytes: {}", e))?;
-        
+
         // Then write length and payload
         stream
             .write_all(&len.to_be_bytes())
@@ -187,7 +187,7 @@ impl PeerConnection {
             .read_exact(&mut magic_bytes)
             .await
             .map_err(|e| format!("Failed to read magic bytes: {}", e))?;
-        
+
         let expected_magic = network.magic_bytes();
         if magic_bytes != expected_magic {
             return Err(format!(
@@ -195,7 +195,7 @@ impl PeerConnection {
                 expected_magic, magic_bytes
             ));
         }
-        
+
         // Read length
         let mut len_bytes = [0u8; 4];
         stream
@@ -206,7 +206,7 @@ impl PeerConnection {
         if len > 1024 * 1024 {
             return Err("Too large".into());
         }
-        
+
         // Read payload
         let mut buf = vec![0u8; len];
         stream

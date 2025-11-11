@@ -168,23 +168,29 @@ impl BlockchainState {
                 .insert(genesis_block.hash.clone(), genesis_block.clone());
             state.blocks_by_height.insert(0, genesis_block.hash.clone());
             state.db.save_block(&genesis_block)?;
-            eprintln!("✅ Genesis block initialized: {}...", &genesis_block.hash[..16]);
+            eprintln!(
+                "✅ Genesis block initialized: {}...",
+                &genesis_block.hash[..16]
+            );
         } else {
             eprintln!("🔍 Validating blockchain on startup...");
             let validation_start = std::time::Instant::now();
-            
+
             // Perform comprehensive validation
             let mut validated_blocks = Vec::new();
             for block in existing_blocks {
                 validated_blocks.push(block);
             }
-            
+
             // Validate the entire chain
             match Self::validate_blockchain_integrity(&validated_blocks) {
                 Ok(()) => {
-                    eprintln!("✅ Blockchain validation passed ({} blocks verified in {:?})", 
-                        validated_blocks.len(), validation_start.elapsed());
-                    
+                    eprintln!(
+                        "✅ Blockchain validation passed ({} blocks verified in {:?})",
+                        validated_blocks.len(),
+                        validation_start.elapsed()
+                    );
+
                     // Apply validated blocks to state
                     for block in validated_blocks {
                         for tx in &block.transactions {
@@ -201,22 +207,27 @@ impl BlockchainState {
                 Err(e) => {
                     eprintln!("❌ Blockchain validation failed: {}", e);
                     eprintln!("   Rebuilding blockchain from genesis...");
-                    
+
                     // Clear corrupted data
                     state.db.clear_all()?;
-                    
+
                     // Initialize with genesis
                     genesis_block.validate_structure()?;
                     for tx in &genesis_block.transactions {
                         state.utxo_set.apply_transaction(tx)?;
                     }
-                    state.blocks.insert(genesis_block.hash.clone(), genesis_block.clone());
+                    state
+                        .blocks
+                        .insert(genesis_block.hash.clone(), genesis_block.clone());
                     state.blocks_by_height.insert(0, genesis_block.hash.clone());
                     state.db.save_block(&genesis_block)?;
-                    eprintln!("✅ Genesis block re-initialized: {}...", &genesis_block.hash[..16]);
+                    eprintln!(
+                        "✅ Genesis block re-initialized: {}...",
+                        &genesis_block.hash[..16]
+                    );
                 }
             }
-            
+
             eprintln!(
                 "✅ Blockchain ready: {} blocks (genesis: {}...)",
                 state.blocks.len(),
@@ -226,94 +237,91 @@ impl BlockchainState {
 
         Ok(state)
     }
-    
+
     /// Validate the integrity of an entire blockchain
     /// Verifies: block structure, merkle roots, coinbase transactions, block linkage, and hashes
     fn validate_blockchain_integrity(blocks: &[Block]) -> Result<(), StateError> {
         if blocks.is_empty() {
             return Ok(());
         }
-        
+
         eprintln!("   📋 Validating {} blocks...", blocks.len());
-        
+
         // Validate genesis block (block 0)
         let genesis = &blocks[0];
         if genesis.header.block_number != 0 {
             return Err(StateError::ChainValidationFailed(
-                "First block is not genesis (height != 0)".to_string()
+                "First block is not genesis (height != 0)".to_string(),
             ));
         }
-        
+
         genesis.validate_structure()?;
         eprintln!("   ✓ Genesis block valid");
-        
+
         // Validate each subsequent block
         for i in 1..blocks.len() {
             let block = &blocks[i];
             let prev_block = &blocks[i - 1];
-            
+
             // 1. Validate block structure (merkle root, coinbase, hash)
             block.validate_structure().map_err(|e| {
-                StateError::ChainValidationFailed(
-                    format!("Block {} structure invalid: {}", block.header.block_number, e)
-                )
+                StateError::ChainValidationFailed(format!(
+                    "Block {} structure invalid: {}",
+                    block.header.block_number, e
+                ))
             })?;
-            
+
             // 2. Validate block height is sequential
             if block.header.block_number != prev_block.header.block_number + 1 {
-                return Err(StateError::ChainValidationFailed(
-                    format!(
-                        "Block height gap: expected {}, got {}",
-                        prev_block.header.block_number + 1,
-                        block.header.block_number
-                    )
-                ));
+                return Err(StateError::ChainValidationFailed(format!(
+                    "Block height gap: expected {}, got {}",
+                    prev_block.header.block_number + 1,
+                    block.header.block_number
+                )));
             }
-            
+
             // 3. Validate previous hash linkage
             if block.header.previous_hash != prev_block.hash {
-                return Err(StateError::ChainValidationFailed(
-                    format!(
-                        "Block {} previous hash mismatch: expected {}..., got {}...",
-                        block.header.block_number,
-                        &prev_block.hash[..16],
-                        &block.header.previous_hash[..16]
-                    )
-                ));
+                return Err(StateError::ChainValidationFailed(format!(
+                    "Block {} previous hash mismatch: expected {}..., got {}...",
+                    block.header.block_number,
+                    &prev_block.hash[..16],
+                    &block.header.previous_hash[..16]
+                )));
             }
-            
+
             // 4. Validate coinbase transaction exists and is first
             if block.transactions.is_empty() {
-                return Err(StateError::ChainValidationFailed(
-                    format!("Block {} has no transactions", block.header.block_number)
-                ));
+                return Err(StateError::ChainValidationFailed(format!(
+                    "Block {} has no transactions",
+                    block.header.block_number
+                )));
             }
-            
+
             if !block.transactions[0].is_coinbase() {
-                return Err(StateError::ChainValidationFailed(
-                    format!("Block {} first transaction is not coinbase", block.header.block_number)
-                ));
+                return Err(StateError::ChainValidationFailed(format!(
+                    "Block {} first transaction is not coinbase",
+                    block.header.block_number
+                )));
             }
-            
+
             // 5. Verify merkle root
             let calculated_merkle = block.calculate_merkle_root();
             if calculated_merkle != block.header.merkle_root {
-                return Err(StateError::ChainValidationFailed(
-                    format!(
-                        "Block {} merkle root mismatch: expected {}..., got {}...",
-                        block.header.block_number,
-                        &calculated_merkle[..16],
-                        &block.header.merkle_root[..16]
-                    )
-                ));
+                return Err(StateError::ChainValidationFailed(format!(
+                    "Block {} merkle root mismatch: expected {}..., got {}...",
+                    block.header.block_number,
+                    &calculated_merkle[..16],
+                    &block.header.merkle_root[..16]
+                )));
             }
-            
+
             // Log progress every 100 blocks
             if i % 100 == 0 {
                 eprintln!("   ✓ Validated {} blocks...", i);
             }
         }
-        
+
         eprintln!("   ✓ All blocks validated successfully");
         Ok(())
     }

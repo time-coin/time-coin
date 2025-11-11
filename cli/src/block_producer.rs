@@ -1418,10 +1418,7 @@ impl BlockProducer {
                 .collect();
             drop(blockchain);
 
-            time_core::block::distribute_masternode_rewards(
-                &active_masternodes,
-                &masternode_counts,
-            )
+            time_core::block::distribute_masternode_rewards(&active_masternodes, &masternode_counts)
         };
 
         let coinbase_tx = Transaction {
