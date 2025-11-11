@@ -1100,12 +1100,27 @@ pub mod block_consensus {
             blockchain_tip_hash: &str,
             blockchain_height: u64,
         ) -> bool {
+            // Validate previous hash
             if proposal.previous_hash != blockchain_tip_hash {
+                println!("   ❌ REJECT: Previous hash mismatch");
+                println!("      Expected: {}", blockchain_tip_hash);
+                println!("      Got: {}", proposal.previous_hash);
                 return false;
             }
+            
+            // Validate block height
             if proposal.block_height != blockchain_height + 1 {
+                println!("   ❌ REJECT: Block height mismatch");
+                println!("      Expected: {}", blockchain_height + 1);
+                println!("      Got: {}", proposal.block_height);
                 return false;
             }
+            
+            println!("   ✅ Proposal validation passed");
+            println!("      Block height: {}", proposal.block_height);
+            println!("      Previous hash: {}...", &proposal.previous_hash[..16]);
+            println!("      Merkle root: {}...", &proposal.merkle_root[..16]);
+            
             true
         }
 

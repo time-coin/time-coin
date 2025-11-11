@@ -411,20 +411,50 @@ impl BlockProducer {
                     "   💰 Distributing rewards to {} masternodes:",
                     active_masternodes.len()
                 );
+                
+                // Calculate what each tier will receive
+                let total_pool = time_core::block::calculate_total_masternode_reward(&masternode_counts);
+                let total_weight = masternode_counts.total_weight();
+                let per_weight = if total_weight > 0 { total_pool / total_weight } else { 0 };
+                
+                println!("      Total reward pool: {} satoshis ({} TIME)", 
+                    total_pool, total_pool / 100_000_000);
+                println!("      Total weight: {}", total_weight);
+                println!("      Per weight unit: {} satoshis", per_weight);
+                
+                // Show breakdown by tier
+                let mut tier_summary: std::collections::HashMap<time_core::MasternodeTier, (usize, u64)> = 
+                    std::collections::HashMap::new();
+                
                 for (wallet_addr, tier) in &active_masternodes {
-                    println!("      - {:?} tier: {}", tier, wallet_addr);
+                    let reward = per_weight * tier.weight();
+                    let entry = tier_summary.entry(*tier).or_insert((0, 0));
+                    entry.0 += 1;
+                    entry.1 += reward;
+                    
+                    println!("      - {:?} tier ({} weight): {} → {} satoshis ({:.2} TIME)",
+                        tier, tier.weight(), &wallet_addr[..20], reward, reward as f64 / 100_000_000.0);
+                }
+                
+                println!("   📊 Reward Summary:");
+                for (tier, (count, total_reward)) in tier_summary.iter() {
+                    println!("      {:?}: {} nodes, {} satoshis total ({:.2} TIME each)",
+                        tier, count, total_reward, (*total_reward as f64 / *count as f64) / 100_000_000.0);
                 }
             } else {
                 println!("   ⚠️  No active masternodes registered for rewards");
             }
 
             // Create coinbase transaction with all rewards
+            // CRITICAL: Use current time as block timestamp for determinism across all nodes
+            let block_timestamp = now.timestamp();
             let coinbase_tx = time_core::block::create_coinbase_transaction(
                 block_num,
                 TREASURY_ADDRESS,
                 &active_masternodes,
                 &masternode_counts,
                 total_fees,
+                block_timestamp,
             );
 
             // Prepend coinbase to transactions list
@@ -434,6 +464,8 @@ impl BlockProducer {
 
             if mempool_count == 0 {
                 println!("   📦 Block will contain ONLY coinbase transaction (zero regular txs)");
+                println!("   ℹ️  This is NORMAL and EXPECTED for TIME Coin");
+                println!("   ℹ️  Coinbase includes treasury + masternode rewards");
             }
 
             println!(
@@ -441,6 +473,12 @@ impl BlockProducer {
                 all_transactions.len(),
                 mempool_count
             );
+            
+            // Verify coinbase transaction
+            let coinbase_outputs = all_transactions[0].outputs.len();
+            let coinbase_amount: u64 = all_transactions[0].outputs.iter().map(|o| o.amount).sum();
+            println!("   💰 Coinbase: {} outputs, {} satoshis total ({} TIME)", 
+                coinbase_outputs, coinbase_amount, coinbase_amount / 100_000_000);
 
             let merkle_root = self.calc_merkle(&all_transactions);
 
@@ -1264,6 +1302,7 @@ impl BlockProducer {
             &active_masternodes,
             &masternode_counts,
             0,
+            timestamp.timestamp(), // Use block timestamp for determinism
         );
 
         let mut block = Block {
