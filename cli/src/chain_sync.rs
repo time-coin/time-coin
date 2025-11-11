@@ -130,17 +130,20 @@ impl ChainSync {
 
         for peer in peers {
             let peer_ip = peer.address.ip().to_string();
-            
+
             // Skip quarantined peers
             if let Ok(peer_addr) = peer_ip.parse::<IpAddr>() {
                 if self.quarantine.is_quarantined(&peer_addr).await {
                     if let Some(reason) = self.quarantine.get_reason(&peer_addr).await {
-                        println!("   🚫 Skipping quarantined peer {} (reason: {})", peer_ip, reason);
+                        println!(
+                            "   🚫 Skipping quarantined peer {} (reason: {})",
+                            peer_ip, reason
+                        );
                     }
                     continue;
                 }
             }
-            
+
             let url = format!("http://{}:24101/blockchain/info", peer_ip);
 
             match reqwest::get(&url).await {
@@ -230,13 +233,16 @@ impl ChainSync {
         for (peer_ip, height, hash) in peer_heights {
             if let Ok(peer_addr) = peer_ip.parse::<IpAddr>() {
                 if self.quarantine.is_quarantined(&peer_addr).await {
-                    println!("   🚫 Filtering quarantined peer {} from sync candidates", peer_ip);
+                    println!(
+                        "   🚫 Filtering quarantined peer {} from sync candidates",
+                        peer_ip
+                    );
                     continue;
                 }
             }
             filtered_peer_heights.push((peer_ip, height, hash));
         }
-        
+
         if filtered_peer_heights.is_empty() {
             return Err("No non-quarantined peers available for sync".to_string());
         }

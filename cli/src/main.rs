@@ -1080,11 +1080,14 @@ async fn main() {
 
         loop {
             interval.tick().await;
-            
+
             let quarantined_peers = quarantine_logger.get_quarantined_peers().await;
             if !quarantined_peers.is_empty() {
                 println!("\n🛡️  Quarantine Status Report:");
-                println!("   {} peer(s) currently quarantined:", quarantined_peers.len());
+                println!(
+                    "   {} peer(s) currently quarantined:",
+                    quarantined_peers.len()
+                );
                 for entry in quarantined_peers.iter() {
                     println!("   • {} - {}", entry.peer_ip, entry.reason);
                 }
@@ -1344,11 +1347,17 @@ async fn main() {
                         if let Ok(conn) = peer_listener.accept().await {
                             let info = conn.peer_info().await;
                             let peer_addr = info.address;
-                            
+
                             // Check if peer is quarantined
                             if quarantine_clone.is_quarantined(&peer_addr.ip()).await {
-                                if let Some(reason) = quarantine_clone.get_reason(&peer_addr.ip()).await {
-                                    println!("🚫 Rejecting quarantined peer {} (reason: {})", peer_addr.ip(), reason);
+                                if let Some(reason) =
+                                    quarantine_clone.get_reason(&peer_addr.ip()).await
+                                {
+                                    println!(
+                                        "🚫 Rejecting quarantined peer {} (reason: {})",
+                                        peer_addr.ip(),
+                                        reason
+                                    );
                                 }
                                 // Drop the connection without adding the peer
                                 continue;
