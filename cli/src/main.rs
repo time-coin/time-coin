@@ -746,9 +746,10 @@ async fn main() {
                     .collect::<Vec<_>>()
             } else {
                 // Empty transactions in genesis JSON, use default masternode reward
-                // Calculate reward for genesis masternode (1 free tier node)
+                // Calculate total reward for BFT minimum (3 free tier nodes)
+                // This reward will be divided among registered masternodes
                 let genesis_counts = MasternodeCounts {
-                    free: 1,
+                    free: 3,  // Minimum for BFT consensus
                     bronze: 0,
                     silver: 0,
                     gold: 0,
@@ -758,8 +759,9 @@ async fn main() {
             }
         } else {
             // No transactions field in genesis JSON, use default masternode reward
+            // Calculate total reward for BFT minimum (3 free tier nodes)
             let genesis_counts = MasternodeCounts {
-                free: 1,
+                free: 3,  // Minimum for BFT consensus
                 bronze: 0,
                 silver: 0,
                 gold: 0,
@@ -769,8 +771,9 @@ async fn main() {
         }
     } else {
         // No genesis JSON loaded, use default masternode reward
+        // Calculate total reward for BFT minimum (3 free tier nodes)
         let genesis_counts = MasternodeCounts {
-            free: 1,
+            free: 3,  // Minimum for BFT consensus
             bronze: 0,
             silver: 0,
             gold: 0,
