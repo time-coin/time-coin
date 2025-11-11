@@ -22,7 +22,7 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_core::block::Block;
+use time_core::block::{Block, MasternodeCounts, calculate_total_masternode_reward};
 use time_core::transaction::TxOutput;
 
 use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
@@ -727,7 +727,7 @@ async fn main() {
     };
 
     // Initialize blockchain state with genesis block
-    // Parse transactions from genesis JSON or use default
+    // Parse transactions from genesis JSON or use default masternode reward
     let genesis_outputs = if let Some(ref genesis) = _genesis {
         // Try to parse transactions from genesis JSON
         if let Some(txs) = genesis.get("transactions").and_then(|v| v.as_array()) {
@@ -745,16 +745,38 @@ async fn main() {
                     })
                     .collect::<Vec<_>>()
             } else {
-                // Empty transactions in genesis JSON, use default
-                vec![TxOutput::new(100_000_000_000, "genesis".to_string())]
+                // Empty transactions in genesis JSON, use default masternode reward
+                // Calculate reward for genesis masternode (1 free tier node)
+                let genesis_counts = MasternodeCounts {
+                    free: 1,
+                    bronze: 0,
+                    silver: 0,
+                    gold: 0,
+                };
+                let reward = calculate_total_masternode_reward(&genesis_counts);
+                vec![TxOutput::new(reward, "genesis".to_string())]
             }
         } else {
-            // No transactions field in genesis JSON, use default
-            vec![TxOutput::new(100_000_000_000, "genesis".to_string())]
+            // No transactions field in genesis JSON, use default masternode reward
+            let genesis_counts = MasternodeCounts {
+                free: 1,
+                bronze: 0,
+                silver: 0,
+                gold: 0,
+            };
+            let reward = calculate_total_masternode_reward(&genesis_counts);
+            vec![TxOutput::new(reward, "genesis".to_string())]
         }
     } else {
-        // No genesis JSON loaded, use default
-        vec![TxOutput::new(100_000_000_000, "genesis".to_string())]
+        // No genesis JSON loaded, use default masternode reward
+        let genesis_counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let reward = calculate_total_masternode_reward(&genesis_counts);
+        vec![TxOutput::new(reward, "genesis".to_string())]
     };
 
     // Create genesis block using Block::new() which automatically creates proper coinbase transaction
