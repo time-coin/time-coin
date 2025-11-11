@@ -43,12 +43,20 @@ fn main() -> Result<(), eframe::Error> {
 #[derive(PartialEq)]
 enum Screen {
     Welcome,
+    MnemonicSetup,
+    MnemonicConfirm,
     Overview,
     Send,
     Receive,
     Transactions,
     Settings,
     Peers,
+}
+
+#[derive(PartialEq, Clone)]
+enum MnemonicMode {
+    Generate,
+    Import,
 }
 
 struct WalletApp {
@@ -72,6 +80,13 @@ struct WalletApp {
     // Network manager (wrapped for thread safety)
     network_manager: Option<Arc<Mutex<NetworkManager>>>,
     network_status: String,
+
+    // Mnemonic setup fields
+    mnemonic_phrase: String,
+    mnemonic_input: String,
+    mnemonic_mode: MnemonicMode,
+    mnemonic_confirmed: bool,
+    show_mnemonic: bool,
 }
 
 impl Default for WalletApp {
@@ -89,6 +104,11 @@ impl Default for WalletApp {
             config: WalletConfig::default(),
             network_manager: None,
             network_status: "Not connected".to_string(),
+            mnemonic_phrase: String::new(),
+            mnemonic_input: String::new(),
+            mnemonic_mode: MnemonicMode::Generate,
+            mnemonic_confirmed: false,
+            show_mnemonic: false,
         }
     }
 }
@@ -224,98 +244,10 @@ impl WalletApp {
                     ui.add_space(20.0);
 
                     if ui.button(egui::RichText::new("Create Wallet").size(16.0)).clicked() {
-                        match WalletManager::create_new(self.network, "Default".to_string()) {
-                            Ok(manager) => {
-                                self.wallet_manager = Some(manager);
-                                self.current_screen = Screen::Overview;
-                                self.success_message = Some("Wallet created successfully!".to_string());
-
-                                // Load config and initialize network
-                                if let Ok(main_config) = Config::load() {
-                                    let wallet_dir = main_config.wallet_dir();
-                                    if let Ok(wallet_config) = WalletConfig::load(&wallet_dir) {
-                                        self.config = wallet_config.clone();
-                                    }
-                                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
-                                    self.network_manager = Some(network_mgr.clone());
-                                    self.network_status = "Connecting...".to_string();
-
-                                    // Trigger network bootstrap in background
-                                    let bootstrap_nodes = main_config.bootstrap_nodes.clone();
-                                    let ctx_clone = ctx.clone();
-
-                                    tokio::spawn(async move {
-                                        let api_endpoint = {
-                                            let net = network_mgr.lock().unwrap();
-                                            net.api_endpoint().to_string()
-                                        };
-
-                                        let mut temp_net = NetworkManager::new(api_endpoint);
-                                        match temp_net.bootstrap(bootstrap_nodes).await {
-                                            Ok(_) => {
-                                                log::info!("Network bootstrap successful!");
-                                                {
-                                                    let mut net = network_mgr.lock().unwrap();
-                                                    *net = temp_net;
-                                                }
-
-                                                // Start periodic latency refresh task
-                                                let network_refresh = network_mgr.clone();
-                                                tokio::spawn(async move {
-                                                    loop {
-                                                        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                                                        log::info!("Running scheduled latency refresh...");
-                                                        {
-                                                            // Clone peer list to avoid holding lock during async operations
-                                                            let mut peers = {
-                                                                let manager = network_refresh.lock().unwrap();
-                                                                manager.get_connected_peers()
-                                                            };
-
-                                                            log::info!("Pinging {} peers to measure latency", peers.len());
-
-                                                            // Measure latencies without holding the lock
-                                                            for peer in &mut peers {
-                                                                let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
-                                                                let url = format!("http://{}:24101/blockchain/info", peer_ip);
-                                                                let start = std::time::Instant::now();
-
-                                                                let client = reqwest::Client::builder()
-                                                                    .timeout(std::time::Duration::from_secs(5))
-                                                                    .build()
-                                                                    .unwrap();
-
-                                                                match client.get(&url).send().await {
-                                                                    Ok(_) => {
-                                                                        peer.latency_ms = start.elapsed().as_millis() as u64;
-                                                                        log::info!("  Peer {} responded in {}ms", peer.address, peer.latency_ms);
-                                                                    }
-                                                                    Err(_) => {
-                                                                        peer.latency_ms = 9999;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            // Update the network manager with new latencies
-                                                            if let Ok(mut manager) = network_refresh.lock() {
-                                                                manager.set_connected_peers(peers);
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                            }
-                                            Err(e) => {
-                                                log::error!("Network bootstrap failed: {}", e);
-                                            }
-                                        }
-                                        ctx_clone.request_repaint();
-                                    });
-                                }
-                            }
-                            Err(e) => {
-                                self.error_message = Some(format!("Failed to create wallet: {}", e));
-                            }
-                        }
+                        // Transition to mnemonic setup screen
+                        self.current_screen = Screen::MnemonicSetup;
+                        self.mnemonic_mode = MnemonicMode::Generate;
+                        self.error_message = None;
                     }
                 }
 
@@ -325,6 +257,231 @@ impl WalletApp {
                 }
             });
         });
+    }
+
+    fn show_mnemonic_setup_screen(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(50.0);
+                ui.heading(egui::RichText::new("Wallet Recovery Phrase").size(28.0));
+                ui.add_space(30.0);
+
+                // Mode selection
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.mnemonic_mode, MnemonicMode::Generate, "Generate New Phrase");
+                    ui.selectable_value(&mut self.mnemonic_mode, MnemonicMode::Import, "Import Existing Phrase");
+                });
+
+                ui.add_space(30.0);
+
+                if self.mnemonic_mode == MnemonicMode::Generate {
+                    // Generate mode
+                    ui.label(egui::RichText::new("A 12-word recovery phrase will be generated for you.").size(14.0));
+                    ui.add_space(10.0);
+                    ui.label("This phrase is the ONLY way to recover your wallet.");
+                    ui.add_space(20.0);
+
+                    if ui.button(egui::RichText::new("Generate Recovery Phrase").size(16.0)).clicked() {
+                        match WalletManager::generate_mnemonic() {
+                            Ok(mnemonic) => {
+                                self.mnemonic_phrase = mnemonic;
+                                self.current_screen = Screen::MnemonicConfirm;
+                                self.error_message = None;
+                            }
+                            Err(e) => {
+                                self.error_message = Some(format!("Failed to generate mnemonic: {}", e));
+                            }
+                        }
+                    }
+                } else {
+                    // Import mode
+                    ui.label(egui::RichText::new("Enter your 12-word recovery phrase:").size(14.0));
+                    ui.add_space(10.0);
+
+                    let response = ui.add(
+                        egui::TextEdit::multiline(&mut self.mnemonic_input)
+                            .desired_width(500.0)
+                            .desired_rows(3)
+                            .hint_text("word1 word2 word3 ...")
+                    );
+
+                    ui.add_space(10.0);
+
+                    // Real-time validation
+                    if !self.mnemonic_input.is_empty() {
+                        match WalletManager::validate_mnemonic(&self.mnemonic_input) {
+                            Ok(_) => {
+                                ui.colored_label(egui::Color32::GREEN, "✓ Valid recovery phrase");
+                            }
+                            Err(_) => {
+                                ui.colored_label(egui::Color32::RED, "✗ Invalid recovery phrase");
+                            }
+                        }
+                    }
+
+                    ui.add_space(20.0);
+
+                    let can_proceed = !self.mnemonic_input.is_empty() 
+                        && WalletManager::validate_mnemonic(&self.mnemonic_input).is_ok();
+
+                    if ui.add_enabled(can_proceed, egui::Button::new(egui::RichText::new("Import Wallet").size(16.0))).clicked() {
+                        self.mnemonic_phrase = self.mnemonic_input.clone();
+                        self.create_wallet_from_mnemonic(ctx);
+                    }
+                }
+
+                ui.add_space(30.0);
+
+                if ui.button("← Back").clicked() {
+                    self.current_screen = Screen::Welcome;
+                    self.mnemonic_input.clear();
+                    self.error_message = None;
+                }
+
+                if let Some(msg) = &self.error_message {
+                    ui.add_space(20.0);
+                    ui.colored_label(egui::Color32::RED, msg);
+                }
+            });
+        });
+    }
+
+    fn show_mnemonic_confirm_screen(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(30.0);
+                ui.heading(egui::RichText::new("⚠️ Save Your Recovery Phrase").size(28.0).color(egui::Color32::from_rgb(255, 165, 0)));
+                ui.add_space(20.0);
+
+                // Warning messages
+                ui.group(|ui| {
+                    ui.set_max_width(600.0);
+                    ui.colored_label(egui::Color32::RED, "⚠️ Write down these 12 words in order and keep them safe");
+                    ui.colored_label(egui::Color32::RED, "⚠️ Anyone with this phrase can access your funds");
+                    ui.colored_label(egui::Color32::RED, "⚠️ We cannot recover your wallet without this phrase");
+                });
+
+                ui.add_space(30.0);
+
+                // Display mnemonic words in a grid
+                ui.group(|ui| {
+                    ui.set_max_width(600.0);
+                    let words: Vec<&str> = self.mnemonic_phrase.split_whitespace().collect();
+                    
+                    egui::Grid::new("mnemonic_grid")
+                        .spacing([20.0, 10.0])
+                        .show(ui, |ui| {
+                            for (i, word) in words.iter().enumerate() {
+                                ui.label(format!("{}.", i + 1));
+                                ui.monospace(egui::RichText::new(*word).size(16.0).strong());
+                                if (i + 1) % 3 == 0 {
+                                    ui.end_row();
+                                }
+                            }
+                        });
+                });
+
+                ui.add_space(20.0);
+
+                // Copy button
+                if ui.button("📋 Copy to Clipboard").clicked() {
+                    ctx.copy_text(self.mnemonic_phrase.clone());
+                    self.success_message = Some("Recovery phrase copied to clipboard!".to_string());
+                }
+
+                ui.add_space(30.0);
+
+                // Confirmation checkbox
+                ui.checkbox(&mut self.mnemonic_confirmed, "I have written down my recovery phrase in a safe place");
+
+                ui.add_space(20.0);
+
+                // Create wallet button
+                if ui.add_enabled(
+                    self.mnemonic_confirmed,
+                    egui::Button::new(egui::RichText::new("Create Wallet").size(16.0))
+                ).clicked() {
+                    self.create_wallet_from_mnemonic(ctx);
+                }
+
+                ui.add_space(20.0);
+
+                if ui.button("← Back").clicked() {
+                    self.current_screen = Screen::MnemonicSetup;
+                    self.mnemonic_confirmed = false;
+                    self.error_message = None;
+                }
+
+                if let Some(msg) = &self.success_message {
+                    ui.add_space(10.0);
+                    ui.colored_label(egui::Color32::GREEN, msg);
+                }
+
+                if let Some(msg) = &self.error_message {
+                    ui.add_space(10.0);
+                    ui.colored_label(egui::Color32::RED, msg);
+                }
+            });
+        });
+    }
+
+    fn create_wallet_from_mnemonic(&mut self, ctx: &egui::Context) {
+        match WalletManager::create_from_mnemonic(
+            self.network,
+            &self.mnemonic_phrase,
+            "", // No passphrase for now
+            "Default".to_string(),
+        ) {
+            Ok(manager) => {
+                self.wallet_manager = Some(manager);
+                self.current_screen = Screen::Overview;
+                self.success_message = Some("Wallet created successfully!".to_string());
+                
+                // Clear mnemonic from memory after wallet creation
+                self.mnemonic_input.clear();
+                self.mnemonic_confirmed = false;
+
+                // Load config and initialize network
+                if let Ok(main_config) = Config::load() {
+                    let wallet_dir = main_config.wallet_dir();
+                    if let Ok(wallet_config) = WalletConfig::load(&wallet_dir) {
+                        self.config = wallet_config.clone();
+                    }
+                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
+                    self.network_manager = Some(network_mgr.clone());
+                    self.network_status = "Connecting...".to_string();
+
+                    // Trigger network bootstrap in background
+                    let bootstrap_nodes = main_config.bootstrap_nodes.clone();
+                    let ctx_clone = ctx.clone();
+
+                    tokio::spawn(async move {
+                        let api_endpoint = {
+                            let net = network_mgr.lock().unwrap();
+                            net.api_endpoint().to_string()
+                        };
+
+                        let mut temp_net = NetworkManager::new(api_endpoint);
+                        match temp_net.bootstrap(bootstrap_nodes).await {
+                            Ok(_) => {
+                                log::info!("Network bootstrap successful!");
+                                {
+                                    let mut net = network_mgr.lock().unwrap();
+                                    *net = temp_net;
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Network bootstrap failed: {}", e);
+                            }
+                        }
+                        ctx_clone.request_repaint();
+                    });
+                }
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Failed to create wallet: {}", e));
+            }
+        }
     }
 
     fn show_main_screen(&mut self, ctx: &egui::Context) {
@@ -764,6 +921,48 @@ impl WalletApp {
 
             ui.add_space(20.0);
 
+            // Recovery phrase section
+            if let Some(mnemonic) = manager.get_mnemonic() {
+                ui.group(|ui| {
+                    ui.label("Recovery Phrase");
+                    ui.add_space(5.0);
+
+                    ui.checkbox(&mut self.show_mnemonic, "Show Recovery Phrase");
+
+                    if self.show_mnemonic {
+                        ui.add_space(10.0);
+                        ui.colored_label(
+                            egui::Color32::RED,
+                            "⚠️ WARNING: Never share your recovery phrase!",
+                        );
+                        ui.add_space(5.0);
+
+                        ui.group(|ui| {
+                            let words: Vec<&str> = mnemonic.split_whitespace().collect();
+                            egui::Grid::new("settings_mnemonic_grid")
+                                .spacing([15.0, 8.0])
+                                .show(ui, |ui| {
+                                    for (i, word) in words.iter().enumerate() {
+                                        ui.label(format!("{}.", i + 1));
+                                        ui.monospace(egui::RichText::new(*word).size(14.0));
+                                        if (i + 1) % 4 == 0 {
+                                            ui.end_row();
+                                        }
+                                    }
+                                });
+                        });
+
+                        ui.add_space(10.0);
+                        if ui.button("📋 Copy Recovery Phrase").clicked() {
+                            ctx.copy_text(mnemonic);
+                            self.success_message = Some("Recovery phrase copied to clipboard!".to_string());
+                        }
+                    }
+                });
+
+                ui.add_space(20.0);
+            }
+
             // Security section
             ui.group(|ui| {
                 ui.label("Security");
@@ -789,6 +988,11 @@ impl WalletApp {
                     }
                 }
             });
+        }
+
+        if let Some(msg) = &self.success_message {
+            ui.add_space(10.0);
+            ui.colored_label(egui::Color32::GREEN, msg);
         }
     }
 
@@ -856,6 +1060,8 @@ impl eframe::App for WalletApp {
 
         match self.current_screen {
             Screen::Welcome => self.show_welcome_screen(ctx),
+            Screen::MnemonicSetup => self.show_mnemonic_setup_screen(ctx),
+            Screen::MnemonicConfirm => self.show_mnemonic_confirm_screen(ctx),
             _ => self.show_main_screen(ctx),
         }
     }
