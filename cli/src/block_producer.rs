@@ -385,8 +385,7 @@ impl BlockProducer {
             let mut transactions = self.mempool.get_all_transactions().await;
             // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
-            println!("   📋 {} mempool transactions", transactions.len());
-
+            
             // Get blockchain state atomically (all data retrieved while holding read lock)
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
@@ -401,6 +400,81 @@ impl BlockProducer {
                 .collect();
 
             drop(blockchain);
+
+            // Check for empty mempool - use deterministic reward-only block path
+            let is_reward_only = transactions.is_empty();
+            
+            if is_reward_only {
+                println!("   📭 Mempool is empty - creating deterministic reward-only block");
+                println!("   ⚡ This should achieve instant consensus (identical blocks)");
+                
+                // Use deterministic reward-only block creation
+                let block = time_core::block::create_reward_only_block(
+                    block_num,
+                    previous_hash.clone(),
+                    my_id.clone(),
+                    &active_masternodes,
+                    &masternode_counts,
+                );
+                
+                // Create proposal with reward-only flag
+                let proposal = time_consensus::block_consensus::BlockProposal {
+                    block_height: block_num,
+                    proposer: my_id.clone(),
+                    block_hash: block.hash.clone(),
+                    merkle_root: block.header.merkle_root.clone(),
+                    previous_hash: previous_hash.clone(),
+                    timestamp: block.header.timestamp.timestamp(),
+                    is_reward_only: true,
+                };
+                
+                self.block_consensus.store_proposal(proposal.clone()).await;
+                
+                let proposal_json = serde_json::to_value(&proposal).unwrap();
+                self.peer_manager
+                    .broadcast_block_proposal(proposal_json)
+                    .await;
+                
+                println!("   📡 Reward-only proposal broadcast");
+                println!(
+                    "   ▶️ Collecting votes (need {}/{})...",
+                    required_votes,
+                    masternodes.len()
+                );
+
+                // Collect votes for reward-only block
+                let (approved, total) = self
+                    .block_consensus
+                    .collect_votes_with_timeout(block_num, required_votes, 60)
+                    .await;
+
+                println!("   🗳️  Votes: {}/{}", approved, total);
+
+                if approved >= required_votes {
+                    println!("   ✔ Quorum reached! Finalizing reward-only block...");
+                    
+                    // Apply the deterministic block
+                    let mut blockchain_write = self.blockchain.write().await;
+                    match blockchain_write.add_block(block.clone()) {
+                        Ok(_) => {
+                            println!("   ✅ Reward-only block {} finalized", block_num);
+                            // Broadcast to peers
+                            drop(blockchain_write);
+                            self.broadcast_finalized_block(&block, &masternodes).await;
+                        }
+                        Err(e) => {
+                            println!("   ❌ Failed to finalize reward-only block: {:?}", e);
+                        }
+                    }
+                } else {
+                    println!("   ❌ FAILED: Insufficient votes ({}/{})", approved, total);
+                }
+                
+                return;
+            }
+
+            // Regular path: mempool has transactions
+            println!("   📋 {} mempool transactions", transactions.len());
 
             // Calculate total transaction fees (currently 0 as we don't have UTXO validation yet)
             let total_fees: u64 = 0;
@@ -489,6 +563,7 @@ impl BlockProducer {
                 merkle_root: merkle_root.clone(),
                 previous_hash: previous_hash.clone(),
                 timestamp: now.timestamp(),
+                is_reward_only: false,
             };
 
             self.block_consensus.store_proposal(proposal.clone()).await;
@@ -576,12 +651,46 @@ impl BlockProducer {
                 println!("   📨 Received from {}", proposal.proposer);
 
                 let blockchain = self.blockchain.read().await;
-                let is_valid = self.block_consensus.validate_proposal(
-                    &proposal,
-                    blockchain.chain_tip_hash(),
-                    blockchain.chain_tip_height(),
-                );
+                let chain_tip_hash = blockchain.chain_tip_hash().to_string();
+                let chain_tip_height = blockchain.chain_tip_height();
+                let masternode_counts = blockchain.masternode_counts().clone();
+                let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+                    .get_active_masternodes()
+                    .iter()
+                    .map(|mn| (mn.wallet_address.clone(), mn.tier))
+                    .collect();
                 drop(blockchain);
+
+                let mut is_valid = self.block_consensus.validate_proposal(
+                    &proposal,
+                    &chain_tip_hash,
+                    chain_tip_height,
+                );
+
+                // Fast-path validation for reward-only blocks
+                if proposal.is_reward_only {
+                    println!("   🚀 Reward-only block - using fast-path validation");
+                    
+                    // Recreate the deterministic block locally
+                    let expected_block = time_core::block::create_reward_only_block(
+                        block_num,
+                        chain_tip_hash.clone(),
+                        proposal.proposer.clone(),
+                        &active_masternodes,
+                        &masternode_counts,
+                    );
+                    
+                    // Verify the block hash matches
+                    if expected_block.hash == proposal.block_hash {
+                        println!("   ✅ Reward-only block verified - auto-approving");
+                        is_valid = true;
+                    } else {
+                        println!("   ❌ Reward-only block mismatch - rejecting");
+                        println!("      Expected hash: {}", expected_block.hash);
+                        println!("      Received hash: {}", proposal.block_hash);
+                        is_valid = false;
+                    }
+                }
 
                 let vote = time_consensus::block_consensus::BlockVote {
                     block_height: block_num,
@@ -608,27 +717,50 @@ impl BlockProducer {
                     .await;
 
                 if approved >= required_votes {
-                    println!("   ✅ Block approved - fetching finalized block...");
-
-                    // Actively fetch the finalized block from producer
-                    if let Some(producer_id) = selected_producer {
-                        if let Some(block) = self
-                            .fetch_finalized_block(&producer_id, block_num, &proposal.merkle_root)
-                            .await
-                        {
-                            // Apply the finalized block
-                            let mut blockchain = self.blockchain.write().await;
-                            match blockchain.add_block(block) {
-                                Ok(_) => {
-                                    println!("   ✅ Block {} applied from producer", block_num);
-                                }
-                                Err(e) => {
-                                    println!("   ⚠️  Failed to apply fetched block: {:?}", e);
-                                    println!("   ⏳ Falling back to catch-up...");
-                                }
+                    // For reward-only blocks, we can recreate locally instead of fetching
+                    if proposal.is_reward_only {
+                        println!("   ✅ Reward-only block approved - applying locally...");
+                        
+                        let reward_block = time_core::block::create_reward_only_block(
+                            block_num,
+                            chain_tip_hash,
+                            proposal.proposer.clone(),
+                            &active_masternodes,
+                            &masternode_counts,
+                        );
+                        
+                        let mut blockchain = self.blockchain.write().await;
+                        match blockchain.add_block(reward_block) {
+                            Ok(_) => {
+                                println!("   ✅ Reward-only block {} applied locally", block_num);
                             }
-                        } else {
-                            println!("   ⚠️  Failed to fetch block, falling back to catch-up");
+                            Err(e) => {
+                                println!("   ⚠️  Failed to apply reward-only block: {:?}", e);
+                            }
+                        }
+                    } else {
+                        println!("   ✅ Block approved - fetching finalized block...");
+
+                        // Actively fetch the finalized block from producer
+                        if let Some(producer_id) = selected_producer {
+                            if let Some(block) = self
+                                .fetch_finalized_block(&producer_id, block_num, &proposal.merkle_root)
+                                .await
+                            {
+                                // Apply the finalized block
+                                let mut blockchain = self.blockchain.write().await;
+                                match blockchain.add_block(block) {
+                                    Ok(_) => {
+                                        println!("   ✅ Block {} applied from producer", block_num);
+                                    }
+                                    Err(e) => {
+                                        println!("   ⚠️  Failed to apply fetched block: {:?}", e);
+                                        println!("   ⏳ Falling back to catch-up...");
+                                    }
+                                }
+                            } else {
+                                println!("   ⚠️  Failed to fetch block, falling back to catch-up");
+                            }
                         }
                     }
                 } else {
@@ -1041,6 +1173,7 @@ impl BlockProducer {
                     merkle_root: block.header.merkle_root.clone(),
                     previous_hash: block.header.previous_hash.clone(),
                     timestamp: timestamp.timestamp(),
+                    is_reward_only: false, // Catch-up blocks are not marked as reward-only
                 };
 
                 self.block_consensus.propose_block(proposal.clone()).await;
