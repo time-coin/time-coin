@@ -130,6 +130,17 @@ impl ChainSync {
 
         for peer in peers {
             let peer_ip = peer.address.ip().to_string();
+            
+            // Skip quarantined peers
+            if let Ok(peer_addr) = peer_ip.parse::<IpAddr>() {
+                if self.quarantine.is_quarantined(&peer_addr).await {
+                    if let Some(reason) = self.quarantine.get_reason(&peer_addr).await {
+                        println!("   🚫 Skipping quarantined peer {} (reason: {})", peer_ip, reason);
+                    }
+                    continue;
+                }
+            }
+            
             let url = format!("http://{}:24101/blockchain/info", peer_ip);
 
             match reqwest::get(&url).await {
@@ -207,15 +218,31 @@ impl ChainSync {
 
         println!("   Current height: {}", our_height);
 
-        // Query all peers
+        // Query all peers (already filters quarantined peers)
         let peer_heights = self.query_peer_heights().await;
 
         if peer_heights.is_empty() {
             return Err("No peers available for sync".to_string());
         }
 
+        // Double-check: filter out any quarantined peers from results
+        let mut filtered_peer_heights = Vec::new();
+        for (peer_ip, height, hash) in peer_heights {
+            if let Ok(peer_addr) = peer_ip.parse::<IpAddr>() {
+                if self.quarantine.is_quarantined(&peer_addr).await {
+                    println!("   🚫 Filtering quarantined peer {} from sync candidates", peer_ip);
+                    continue;
+                }
+            }
+            filtered_peer_heights.push((peer_ip, height, hash));
+        }
+        
+        if filtered_peer_heights.is_empty() {
+            return Err("No non-quarantined peers available for sync".to_string());
+        }
+
         // Find highest peer
-        let (best_peer, max_height, _) = peer_heights
+        let (best_peer, max_height, _) = filtered_peer_heights
             .iter()
             .max_by_key(|(_, h, _)| h)
             .ok_or("No valid peer heights")?;
@@ -247,7 +274,7 @@ impl ChainSync {
             }
 
             // Don't sync from this peer, find another
-            let valid_peers: Vec<_> = peer_heights
+            let valid_peers: Vec<_> = filtered_peer_heights
                 .iter()
                 .filter(|(_, h, _)| *h <= max_expected_height)
                 .collect();

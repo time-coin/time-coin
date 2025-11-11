@@ -724,9 +724,22 @@ async fn receive_tx_vote(
     Json(vote): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::tx_consensus::TxSetVote;
+    use std::net::IpAddr;
 
     let tx_vote: TxSetVote = serde_json::from_value(vote)
         .map_err(|e| ApiError::Internal(format!("Invalid vote format: {}", e)))?;
+
+    // Check if voter is quarantined
+    if let Some(quarantine) = state.quarantine.as_ref() {
+        if let Ok(voter_ip) = tx_vote.voter.parse::<IpAddr>() {
+            if quarantine.is_quarantined(&voter_ip).await {
+                if let Some(reason) = quarantine.get_reason(&voter_ip).await {
+                    println!("🚫 Rejecting vote from quarantined peer {} (reason: {})", tx_vote.voter, reason);
+                }
+                return Err(ApiError::Internal(format!("Voter {} is quarantined", tx_vote.voter)));
+            }
+        }
+    }
 
     let vote_type = if tx_vote.approve {
         "APPROVE ✓"
@@ -799,9 +812,22 @@ async fn receive_block_vote(
     Json(vote): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     use time_consensus::block_consensus::BlockVote;
+    use std::net::IpAddr;
 
     let block_vote: BlockVote = serde_json::from_value(vote)
         .map_err(|e| ApiError::Internal(format!("Invalid vote format: {}", e)))?;
+
+    // Check if voter is quarantined
+    if let Some(quarantine) = state.quarantine.as_ref() {
+        if let Ok(voter_ip) = block_vote.voter.parse::<IpAddr>() {
+            if quarantine.is_quarantined(&voter_ip).await {
+                if let Some(reason) = quarantine.get_reason(&voter_ip).await {
+                    println!("🚫 Rejecting vote from quarantined peer {} (reason: {})", block_vote.voter, reason);
+                }
+                return Err(ApiError::Internal(format!("Voter {} is quarantined", block_vote.voter)));
+            }
+        }
+    }
 
     let vote_type = if block_vote.approve {
         "APPROVE ✓"
