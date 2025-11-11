@@ -505,9 +505,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_quarantine_expiry() {
-        let mut config = QuarantineConfig::default();
-        config.default_duration = Duration::from_millis(100);
-        config.use_severity_based_durations = false;
+        let config = QuarantineConfig {
+            default_duration: Duration::from_millis(100),
+            use_severity_based_durations: false,
+            ..Default::default()
+        };
         let quarantine = PeerQuarantine::with_config(config);
         let peer_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
 
@@ -567,9 +569,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_expired() {
-        let mut config = QuarantineConfig::default();
-        config.default_duration = Duration::from_millis(100);
-        config.use_severity_based_durations = false;
+        let config = QuarantineConfig {
+            default_duration: Duration::from_millis(100),
+            use_severity_based_durations: false,
+            ..Default::default()
+        };
         let quarantine = PeerQuarantine::with_config(config);
         let peer1 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
         let peer2 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2));
@@ -676,8 +680,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_max_quarantine_size() {
-        let mut config = QuarantineConfig::default();
-        config.max_quarantine_size = 2;
+        let config = QuarantineConfig {
+            max_quarantine_size: 2,
+            ..Default::default()
+        };
         let quarantine = PeerQuarantine::with_config(config);
 
         let peer1 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
