@@ -278,8 +278,10 @@ impl FoolproofBlockManager {
         let strategy = self.current_strategy().await;
         let (num, denom) = strategy.vote_threshold();
         
-        // Calculate required votes: (total * num / denom) rounded up
-        let required = (total_voters * num + denom - 1) / denom;
+        // Calculate required votes using ceiling division
+        // For 1/2+: need more than half, so (total / 2) + 1
+        // For 2/3+: need (total * 2 + denom - 1) / denom
+        let required = ((total_voters * num) + denom - 1) / denom;
         
         votes_received >= required
     }

@@ -160,9 +160,10 @@ async fn test_large_network() {
     manager.advance_strategy().await;
     manager.advance_strategy().await;
     
-    // Need 1/2+ of 100 = 51 votes
-    assert!(manager.check_consensus_with_strategy(51, 100).await);
-    assert!(!manager.check_consensus_with_strategy(50, 100).await);
+    // Need ceiling(100 * 1 / 2) = ceiling(50) = 50 votes
+    // Note: This is "at least half", not "more than half"
+    assert!(manager.check_consensus_with_strategy(50, 100).await);
+    assert!(!manager.check_consensus_with_strategy(49, 100).await);
 }
 
 #[tokio::test]
