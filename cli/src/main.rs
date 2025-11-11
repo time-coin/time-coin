@@ -1294,16 +1294,16 @@ async fn main() {
                             let info = conn.peer_info().await;
                             let peer_addr = info.address;
 
-                            // Register peer version WITH build info for Round 2 filtering
-                            if let (Some(build_time), Some(commits)) =
-                                (&info.build_timestamp, &info.commit_count)
+                            // Register peer version WITH commit info for Round 2 filtering
+                            if let (Some(commit_date), Some(commits)) =
+                                (&info.commit_date, &info.commit_count)
                             {
                                 let commit_num = commits.parse::<u64>().unwrap_or(0);
                                 block_consensus_clone
                                     .register_peer_version_with_build_info(
                                         peer_addr.ip().to_string(),
                                         info.version.clone(),
-                                        build_time.clone(),
+                                        commit_date.clone(),
                                         commit_num,
                                     )
                                     .await;
@@ -1311,13 +1311,13 @@ async fn main() {
 
                             // Check for version updates
                             if time_network::protocol::should_warn_version_update(
-                                info.build_timestamp.as_deref(),
+                                info.commit_date.as_deref(),
                                 info.commit_count.as_deref(),
                             ) {
                                 let warning = time_network::protocol::version_update_warning(
                                     &peer_addr.ip().to_string(),
                                     &info.version,
-                                    info.build_timestamp.as_deref().unwrap_or("unknown"),
+                                    info.commit_date.as_deref().unwrap_or("unknown"),
                                     info.commit_count.as_deref().unwrap_or("0"),
                                 );
                                 eprintln!("{}", warning);
@@ -1326,10 +1326,10 @@ async fn main() {
                             println!(
                                 "{}",
                                 format!(
-                                    "✓ Connected to {} (v{}, built: {})",
+                                    "✓ Connected to {} (v{}, committed: {})",
                                     peer_addr.ip().to_string().bright_blue(),
                                     info.version.bright_black(),
-                                    info.build_timestamp
+                                    info.commit_date
                                         .as_deref()
                                         .unwrap_or("unknown")
                                         .bright_black()
@@ -1669,14 +1669,14 @@ async fn main() {
         if counter % 10 == 0 {
             for peer in peers.iter() {
                 if time_network::protocol::should_warn_version_update(
-                    peer.build_timestamp.as_deref(),
+                    peer.commit_date.as_deref(),
                     peer.commit_count.as_deref(),
                 ) {
                     eprintln!(
                         "\n⚠️  UPDATE REMINDER: Peer {} is running newer version {} (committed: {})",
                         peer.address.ip(),
                         peer.version,
-                        peer.build_timestamp.as_deref().unwrap_or("unknown")
+                        peer.commit_date.as_deref().unwrap_or("unknown")
                     );
                     eprintln!(
                         "   Your version: {} (committed: {})",

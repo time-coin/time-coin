@@ -45,10 +45,10 @@ impl PeerConnection {
         let their_handshake = Self::receive_handshake(&mut stream).await?;
         their_handshake.validate(&network)?;
 
-        // Update peer info with version AND build info for consensus fallback
+        // Update peer info with version AND commit info
         peer.lock().await.update_version_with_build_info(
             their_handshake.version.clone(),
-            their_handshake.build_timestamp.clone(),
+            their_handshake.commit_date.clone(),
             their_handshake.commit_count.clone(),
         );
 
@@ -56,7 +56,6 @@ impl PeerConnection {
         let peer_date = their_handshake
             .commit_date
             .as_deref()
-            .or(their_handshake.build_timestamp.as_deref())
             .unwrap_or("unknown");
         println!(
             "🔗 Connected to peer: {} | Version: {} | Committed: {} | Commits: {}",
@@ -80,10 +79,7 @@ impl PeerConnection {
         }
 
         // Check version and warn ONLY if peer is running a NEWER version
-        let peer_date = their_handshake
-            .commit_date
-            .as_deref()
-            .or(their_handshake.build_timestamp.as_deref());
+        let peer_date = their_handshake.commit_date.as_deref();
         if crate::protocol::should_warn_version_update(
             peer_date,
             their_handshake.commit_count.as_deref(),

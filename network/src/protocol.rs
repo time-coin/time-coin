@@ -106,10 +106,6 @@ pub struct HandshakeMessage {
     #[serde(default)]
     pub commit_date: Option<String>,
 
-    /// Build timestamp (e.g., "2025-11-07 15:09:21") - kept for backward compatibility
-    #[serde(default)]
-    pub build_timestamp: Option<String>,
-
     /// Git commit count
     #[serde(default)]
     pub commit_count: Option<String>,
@@ -142,7 +138,6 @@ impl HandshakeMessage {
         HandshakeMessage {
             version: version_for_handshake(),
             commit_date: Some(GIT_COMMIT_DATE.to_string()),
-            build_timestamp: Some(GIT_COMMIT_DATE.to_string()), // Use commit date for backward compatibility
             commit_count: Some(GIT_COMMIT_COUNT.to_string()),
             protocol_version: PROTOCOL_VERSION,
             network,
@@ -270,25 +265,13 @@ pub fn version_mismatch_message(peer_addr: &str, peer_version: &str) -> String {
 // VERSION COMPARISON AND UPDATE DETECTION
 // ═══════════════════════════════════════════════════════════════
 
-/// Compare two timestamps (supports both ISO 8601 and old format) and return true if remote is newer
+/// Compare two timestamps in ISO 8601 format and return true if remote is newer
 pub fn is_remote_version_newer(local_timestamp: &str, remote_timestamp: &str) -> bool {
-    use chrono::{DateTime, NaiveDateTime};
+    use chrono::DateTime;
 
-    // Try ISO 8601 format first (e.g., "2025-11-07T15:09:21Z")
-    let local_dt = DateTime::parse_from_rfc3339(local_timestamp)
-        .ok()
-        .map(|dt| dt.naive_utc())
-        .or_else(|| {
-            // Fall back to old format (e.g., "2025-11-07 15:09:21")
-            NaiveDateTime::parse_from_str(local_timestamp, "%Y-%m-%d %H:%M:%S").ok()
-        });
-
-    let remote_dt = DateTime::parse_from_rfc3339(remote_timestamp)
-        .ok()
-        .map(|dt| dt.naive_utc())
-        .or_else(|| {
-            NaiveDateTime::parse_from_str(remote_timestamp, "%Y-%m-%d %H:%M:%S").ok()
-        });
+    // Parse ISO 8601 format (e.g., "2025-11-07T15:09:21Z")
+    let local_dt = DateTime::parse_from_rfc3339(local_timestamp).ok();
+    let remote_dt = DateTime::parse_from_rfc3339(remote_timestamp).ok();
 
     match (local_dt, remote_dt) {
         (Some(local), Some(remote)) => remote > local,
@@ -436,6 +419,22 @@ mod tests {
         let msg = version_mismatch_message("127.0.0.1", "0.1.0-abc1234");
         assert!(msg.contains("Peer 127.0.0.1"));
         assert!(msg.contains("0.1.0-abc1234"));
+    }
+
+    #[test]
+    fn test_iso_date_comparison() {
+        // Test ISO 8601 format dates
+        let older_iso = "2025-11-07T15:09:21Z";
+        let newer_iso = "2025-11-08T15:09:21Z";
+        assert!(is_remote_version_newer(older_iso, newer_iso));
+        assert!(!is_remote_version_newer(newer_iso, older_iso));
+    }
+
+    #[test]
+    fn test_same_date_comparison() {
+        // Same commit date should not be considered newer
+        let date = "2025-11-07T15:09:21Z";
+        assert!(!is_remote_version_newer(date, date));
     }
 }
 
