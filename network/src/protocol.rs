@@ -96,6 +96,29 @@ impl BuildInfo {
 /// Protocol version for compatibility checking
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// Magic bytes for network message identification (inspired by Bitcoin)
+/// These 4-byte sequences appear at the start of every network message
+/// to help nodes synchronize and identify valid messages in the data stream
+pub mod magic_bytes {
+    /// Mainnet magic bytes: 0xC01D7E4D ("COLD TIME" mnemonic - C0 1D 7E 4D)
+    /// Represents the frozen time concept of 24-hour blocks
+    pub const MAINNET: [u8; 4] = [0xC0, 0x1D, 0x7E, 0x4D];
+    
+    /// Testnet magic bytes: 0x7E577E4D ("TEST TIME" mnemonic - 7E 57 7E 4D)
+    /// Distinct from mainnet to prevent accidental cross-network messages
+    pub const TESTNET: [u8; 4] = [0x7E, 0x57, 0x7E, 0x4D];
+}
+
+impl crate::discovery::NetworkType {
+    /// Get the magic bytes for this network type
+    pub fn magic_bytes(&self) -> [u8; 4] {
+        match self {
+            crate::discovery::NetworkType::Mainnet => magic_bytes::MAINNET,
+            crate::discovery::NetworkType::Testnet => magic_bytes::TESTNET,
+        }
+    }
+}
+
 /// Handshake message sent when connecting to peers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandshakeMessage {
