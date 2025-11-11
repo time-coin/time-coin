@@ -65,11 +65,6 @@ pub async fn register_masternode(
         .register_wallet(req.node_ip.clone(), req.wallet_address.clone())
         .await;
 
-    println!(
-        "✅ Masternode registered: {} -> {} ({})",
-        req.node_ip, req.wallet_address, req.tier
-    );
-
     Ok(Json(RegisterMasternodeResponse {
         success: true,
         message: format!("Masternode registered successfully as {} tier", req.tier),

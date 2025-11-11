@@ -791,8 +791,6 @@ async fn main() {
     let listen_addr = "0.0.0.0:24100".parse().unwrap();
     let peer_manager = Arc::new(PeerManager::new(network_type.clone(), listen_addr));
 
-    println!("\n{}", "⏳ Starting peer discovery...".yellow());
-
     let discovery_quiet = std::env::var("TIMECOIN_QUIET_DISCOVERY").is_ok();
     let strict_discovery = std::env::var("TIMECOIN_STRICT_DISCOVERY").is_ok();
 
@@ -851,11 +849,11 @@ async fn main() {
                 // Connect to the chosen set (filtered if strict_discovery, otherwise all discovered peers)
                 peer_manager.connect_to_peers(peers_to_connect).await;
 
-                // Give peers time to connect
+                // Give peers time to connect and perform peer exchange
                 if !discovery_quiet {
                     println!("{}", "  ⏳ Waiting for peer connections...".bright_black());
                 }
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
                 let connected = peer_manager.get_connected_peers().await.len();
                 if connected > 0 && !discovery_quiet {
@@ -863,6 +861,55 @@ async fn main() {
                         "{}",
                         format!("  ✓ Connected to {} peer(s)", connected).green()
                     );
+                }
+
+                // Second wave: Connect to newly discovered peers from peer exchange
+                let currently_connected: std::collections::HashSet<String> = peer_manager
+                    .get_connected_peers()
+                    .await
+                    .iter()
+                    .map(|p| p.address.to_string())
+                    .collect();
+
+                let best_peers = peer_manager.get_best_peers(10).await;
+                let new_peers_to_connect: Vec<_> = best_peers
+                    .into_iter()
+                    .filter(|p| !currently_connected.contains(&p.full_address()))
+                    .collect();
+
+                if !new_peers_to_connect.is_empty() {
+                    if !discovery_quiet {
+                        println!(
+                            "{}",
+                            format!(
+                                "  ⏳ Connecting to {} newly discovered peer(s)...",
+                                new_peers_to_connect.len()
+                            )
+                            .bright_black()
+                        );
+                    }
+
+                    // Convert and connect to newly discovered peers
+                    for pex_peer in new_peers_to_connect {
+                        if let Ok(addr) = pex_peer.full_address().parse() {
+                            let peer_info = time_network::PeerInfo::new(addr, network_type.clone());
+                            let mgr = peer_manager.clone();
+                            tokio::spawn(async move {
+                                let _ = mgr.connect_to_peer(peer_info).await;
+                            });
+                        }
+                    }
+
+                    // Give second wave time to connect
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+                    let final_connected = peer_manager.get_connected_peers().await.len();
+                    if final_connected > connected && !discovery_quiet {
+                        println!(
+                            "{}",
+                            format!("  ✓ Total connected: {} peer(s)", final_connected).green()
+                        );
+                    }
                 }
             } else if !discovery_quiet {
                 println!("{}", "  ⚠ No peers discovered (first node?)".yellow());
