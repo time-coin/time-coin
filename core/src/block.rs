@@ -293,8 +293,7 @@ impl Block {
         // First validate structure
         self.validate_structure()?;
 
-        // Calculate expected rewards
-        let treasury_reward = calculate_treasury_reward();
+        // Calculate expected rewards (no treasury pre-allocation)
         let total_masternode_reward = calculate_total_masternode_reward(masternode_counts);
 
         // Validate coinbase reward
@@ -308,8 +307,8 @@ impl Block {
             total_fees += fee;
         }
 
-        // Coinbase should be treasury + masternode rewards + fees
-        let max_coinbase = treasury_reward + total_masternode_reward + total_fees;
+        // Coinbase should be masternode rewards + fees (no treasury)
+        let max_coinbase = total_masternode_reward + total_fees;
         if coinbase_total > max_coinbase {
             return Err(BlockError::InvalidCoinbase);
         }
@@ -394,14 +393,13 @@ pub fn calculate_tier_reward(tier: MasternodeTier, counts: &MasternodeCounts) ->
     per_weight * tier.weight()
 }
 
-/// Calculate total block reward (treasury + masternodes + fees)
+/// Calculate total block reward (masternodes + fees only, no treasury pre-allocation)
 pub fn calculate_total_block_reward(
     masternode_counts: &MasternodeCounts,
     transaction_fees: u64,
 ) -> u64 {
-    let treasury = calculate_treasury_reward();
     let masternodes = calculate_total_masternode_reward(masternode_counts);
-    treasury + masternodes + transaction_fees
+    masternodes + transaction_fees
 }
 
 /// Distribute masternode rewards to all active masternodes
@@ -436,22 +434,15 @@ pub fn distribute_masternode_rewards(
 
 /// Create a complete coinbase transaction with all block rewards
 /// Uses block_timestamp to ensure deterministic transaction across all nodes
+/// Note: Treasury funds are no longer pre-allocated; all rewards go to masternodes
 pub fn create_coinbase_transaction(
     block_number: u64,
-    treasury_address: &str,
     active_masternodes: &[(String, MasternodeTier)],
     counts: &MasternodeCounts,
     transaction_fees: u64,
-    block_timestamp: i64, // NEW: Use block timestamp for determinism
+    block_timestamp: i64, // Use block timestamp for determinism
 ) -> crate::transaction::Transaction {
     let mut outputs = Vec::new();
-
-    // Treasury reward (always 5 TIME)
-    let treasury_reward = calculate_treasury_reward();
-    outputs.push(crate::transaction::TxOutput::new(
-        treasury_reward,
-        treasury_address.to_string(),
-    ));
 
     // Masternode rewards - sorted by address for determinism
     let mut masternode_list: Vec<(String, MasternodeTier)> = active_masternodes.to_vec();
@@ -500,10 +491,9 @@ pub fn create_reward_only_block(
     let mut sorted_masternodes = active_masternodes.to_vec();
     sorted_masternodes.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Create deterministic coinbase transaction
+    // Create deterministic coinbase transaction (no treasury address needed)
     let coinbase_tx = create_coinbase_transaction(
         block_number,
-        "TIME1treasury00000000000000000000000000", // Treasury address constant
         &sorted_masternodes,
         counts,
         0, // No transaction fees in reward-only block
@@ -764,7 +754,6 @@ mod tests {
         let block_timestamp = 1700000000; // Fixed timestamp for testing
         let tx = create_coinbase_transaction(
             100,
-            "treasury_addr",
             &masternodes,
             &counts,
             50_000_000, // 0.5 TIME in fees
@@ -774,16 +763,12 @@ mod tests {
         // Verify it's a coinbase
         assert!(tx.is_coinbase());
 
-        // Should have: 1 treasury + 2 masternodes + 1 fee output = 4 outputs
-        assert_eq!(tx.outputs.len(), 4);
+        // Should have: 2 masternodes + 1 fee output = 3 outputs (no treasury)
+        assert_eq!(tx.outputs.len(), 3);
 
-        // First output is treasury (5 TIME)
-        assert_eq!(tx.outputs[0].amount, 5 * 100_000_000);
-        assert_eq!(tx.outputs[0].address, "treasury_addr");
-
-        // Last output is fees to block producer
-        assert_eq!(tx.outputs[3].amount, 50_000_000);
-        assert_eq!(tx.outputs[3].address, "masternode1");
+        // Last output is fees to block producer (first masternode after sorting)
+        assert_eq!(tx.outputs[2].amount, 50_000_000);
+        assert_eq!(tx.outputs[2].address, "masternode1");
     }
 
     #[test]

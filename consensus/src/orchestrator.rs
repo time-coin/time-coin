@@ -37,7 +37,7 @@ pub struct OrchestratorConfig {
 impl Default for OrchestratorConfig {
     fn default() -> Self {
         Self {
-            genesis_date: NaiveDate::from_ymd_opt(2025, 10, 24).unwrap(),
+            genesis_date: NaiveDate::from_ymd_opt(2025, 11, 1).unwrap(),
             heartbeat_timeout_secs: 30,
             voting_window_secs: 4,
             fallback_config: FallbackConfig::default(),

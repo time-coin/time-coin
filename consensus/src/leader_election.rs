@@ -268,7 +268,7 @@ mod tests {
         let elector = LeaderElector::new(genesis);
         let masternodes = create_test_masternodes();
 
-        let date = NaiveDate::from_ymd_opt(2025, 10, 24).unwrap();
+        let date = NaiveDate::from_ymd_opt(2025, 11, 1).unwrap();
 
         // Same inputs should produce same leader
         let result1 = elector.elect_leader(1, date, &masternodes).unwrap();
@@ -284,7 +284,7 @@ mod tests {
         let elector = LeaderElector::new(genesis);
         let masternodes = create_test_masternodes();
 
-        let date = NaiveDate::from_ymd_opt(2025, 10, 24).unwrap();
+        let date = NaiveDate::from_ymd_opt(2025, 11, 1).unwrap();
 
         let result1 = elector.elect_leader(1, date, &masternodes).unwrap();
         let result2 = elector.elect_leader(2, date, &masternodes).unwrap();
@@ -300,7 +300,7 @@ mod tests {
         let elector = LeaderElector::new(genesis);
         let masternodes = create_test_masternodes();
 
-        let date = NaiveDate::from_ymd_opt(2025, 10, 24).unwrap();
+        let date = NaiveDate::from_ymd_opt(2025, 11, 1).unwrap();
         let result = elector.elect_leader(1, date, &masternodes).unwrap();
 
         // Valid proof should verify
@@ -319,7 +319,7 @@ mod tests {
         let elector = LeaderElector::new(genesis);
         let masternodes = create_test_masternodes();
 
-        let date = NaiveDate::from_ymd_opt(2025, 10, 24).unwrap();
+        let date = NaiveDate::from_ymd_opt(2025, 11, 1).unwrap();
 
         let result1 = elector.elect_leader(1, date, &masternodes).unwrap();
         let result2 = elector
@@ -336,7 +336,7 @@ mod tests {
         let elector = LeaderElector::new(genesis);
         let masternodes = create_test_masternodes();
 
-        let date = NaiveDate::from_ymd_opt(2025, 10, 24).unwrap();
+        let date = NaiveDate::from_ymd_opt(2025, 11, 1).unwrap();
 
         // Run multiple elections and count selections
         let mut selections = std::collections::HashMap::new();

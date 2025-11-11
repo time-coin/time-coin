@@ -11,9 +11,6 @@ use time_core::MasternodeTier;
 use time_network::PeerManager;
 use tokio::sync::RwLock;
 
-/// Treasury address for block rewards
-const TREASURY_ADDRESS: &str = "TIME1treasury00000000000000000000000000";
-
 #[derive(Deserialize)]
 struct BlockchainInfo {
     height: u64,
@@ -144,7 +141,7 @@ impl BlockProducer {
         let now = Utc::now();
         let current_date = now.date_naive();
 
-        let genesis_date = NaiveDate::from_ymd_opt(2025, 10, 24).unwrap();
+        let genesis_date = NaiveDate::from_ymd_opt(2025, 11, 1).unwrap();
         let days_since_genesis = (current_date - genesis_date).num_days();
         let expected_height = days_since_genesis as u64;
 
@@ -545,7 +542,6 @@ impl BlockProducer {
             let block_timestamp = now.timestamp();
             let coinbase_tx = time_core::block::create_coinbase_transaction(
                 block_num,
-                TREASURY_ADDRESS,
                 &active_masternodes,
                 &masternode_counts,
                 total_fees,
@@ -1030,7 +1026,7 @@ impl BlockProducer {
         block_num: u64,
         timestamp: chrono::DateTime<Utc>,
     ) -> bool {
-        use time_core::block::{calculate_tier_reward, calculate_treasury_reward};
+        use time_core::block::calculate_tier_reward;
 
         let mut blockchain = self.blockchain.write().await;
 
@@ -1042,10 +1038,8 @@ impl BlockProducer {
 
         let masternode_counts = blockchain.masternode_counts().clone();
 
-        let mut outputs = vec![TxOutput {
-            amount: calculate_treasury_reward(),
-            address: "TIME1treasury00000000000000000000000000".to_string(),
-        }];
+        // Initialize outputs with masternode rewards only (no treasury pre-allocation)
+        let mut outputs = vec![];
 
         // For catch-up blocks, also filter by participation
         let agreed_tx_set = self.tx_consensus.get_agreed_tx_set(block_num).await;
@@ -1395,7 +1389,7 @@ impl BlockProducer {
         emergency: bool,
     ) -> time_core::block::Block {
         use time_core::block::{Block, BlockHeader};
-        use time_core::transaction::{Transaction, TxOutput};
+        use time_core::transaction::Transaction;
 
         let blockchain = self.blockchain.read().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
@@ -1409,15 +1403,12 @@ impl BlockProducer {
             }
         });
 
-        // Create minimal coinbase with treasury only (emergency) or rewards (reward-only)
+        // Create minimal coinbase with masternode rewards (no treasury pre-allocation)
         let outputs = if emergency {
-            // Emergency: Treasury only
-            vec![TxOutput {
-                amount: time_core::block::calculate_treasury_reward(),
-                address: "TIME1treasury00000000000000000000000000".to_string(),
-            }]
+            // Emergency: No outputs (empty block, should rarely happen)
+            vec![]
         } else {
-            // Reward-only: Treasury + masternode rewards
+            // Reward-only: Masternode rewards only
             let blockchain = self.blockchain.read().await;
             let masternode_counts = blockchain.masternode_counts().clone();
             let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
@@ -1427,17 +1418,10 @@ impl BlockProducer {
                 .collect();
             drop(blockchain);
 
-            let mut outputs = vec![TxOutput {
-                amount: time_core::block::calculate_treasury_reward(),
-                address: "TIME1treasury00000000000000000000000000".to_string(),
-            }];
-
-            let masternode_outputs = time_core::block::distribute_masternode_rewards(
+            time_core::block::distribute_masternode_rewards(
                 &active_masternodes,
                 &masternode_counts,
-            );
-            outputs.extend(masternode_outputs);
-            outputs
+            )
         };
 
         let coinbase_tx = Transaction {
@@ -1508,7 +1492,6 @@ impl BlockProducer {
 
         let coinbase_tx = create_coinbase_transaction(
             block_num,
-            "TIME1treasury00000000000000000000000000",
             &active_masternodes,
             &masternode_counts,
             0,
@@ -1571,9 +1554,9 @@ impl BlockProducer {
         timestamp: chrono::DateTime<Utc>,
         _masternodes: &[String],
     ) -> bool {
-        use time_core::block::{calculate_treasury_reward, distribute_masternode_rewards};
+        use time_core::block::distribute_masternode_rewards;
         use time_core::block::{Block, BlockHeader};
-        use time_core::transaction::{Transaction, TxOutput};
+        use time_core::transaction::Transaction;
 
         let mut blockchain = self.blockchain.write().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
@@ -1587,11 +1570,8 @@ impl BlockProducer {
             }
         });
 
-        // Build outputs with treasury
-        let mut outputs = vec![TxOutput {
-            amount: calculate_treasury_reward(),
-            address: "TIME1treasury00000000000000000000000000".to_string(),
-        }];
+        // Build outputs with masternode rewards only (no treasury pre-allocation)
+        let mut outputs = vec![];
 
         // Pay all registered masternodes (simplified approach)
         let all_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
