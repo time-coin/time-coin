@@ -22,8 +22,7 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_core::block::{calculate_total_masternode_reward, Block, MasternodeCounts};
-use time_core::transaction::TxOutput;
+use time_core::block::Block;
 
 use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
 
@@ -885,50 +884,6 @@ async fn main() {
         }
     };
 
-    // Get genesis block - either from file or create default
-    let genesis_block = if let Some(ref genesis) = _genesis {
-        // Use the block directly from the genesis file to preserve timestamp and hash
-        genesis.block.clone()
-    } else {
-        // No genesis JSON loaded, create default genesis block
-        // Calculate total reward for BFT minimum (3 free tier nodes)
-        let genesis_counts = MasternodeCounts {
-            free: 3, // Minimum for BFT consensus
-            bronze: 0,
-            silver: 0,
-            gold: 0,
-        };
-        let reward = calculate_total_masternode_reward(&genesis_counts);
-        let genesis_outputs = vec![TxOutput::new(reward, "genesis".to_string())];
-
-        Block::new(
-            0,
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            "genesis".to_string(),
-            genesis_outputs,
-        )
-    };
-
-    // Validate genesis block structure before proceeding
-    if let Err(e) = genesis_block.validate_structure() {
-        eprintln!("{}", "❌ Genesis block validation failed!".red().bold());
-        eprintln!("   Error: {}", e);
-        eprintln!("   Transactions count: {}", genesis_block.transactions.len());
-        if genesis_block.transactions.is_empty() {
-            eprintln!("\n{}", "⚠ The genesis block has no transactions!".yellow());
-            eprintln!("   This usually indicates:");
-            eprintln!("   1. A corrupted genesis JSON file ({})", genesis_path);
-            eprintln!("   2. An incompatible genesis file format");
-            eprintln!("\n   Solutions:");
-            eprintln!("   - Verify the genesis file has a valid 'transactions' array");
-            eprintln!("   - Delete the genesis file to use the built-in default genesis");
-            eprintln!("   - Re-download a valid genesis file from the repository");
-        }
-        std::process::exit(1);
-    }
-
-    println!("{}", "✅ Genesis block structure validated".green());
-
     // Get data directory from config or use default
     let data_dir = config
         .node
@@ -945,17 +900,6 @@ async fn main() {
     }
 
     println!("{}\n", format!("Data Directory: {}", data_dir).cyan());
-
-    let blockchain = Arc::new(RwLock::new(
-        BlockchainState::new(genesis_block, &format!("{}/blockchain", data_dir))
-            .expect("Failed to create blockchain state"),
-    ));
-
-    let local_height = get_local_height(&blockchain).await;
-    println!(
-        "{}",
-        format!("📊 Local blockchain height: {}", local_height).cyan()
-    );
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 2: Peer discovery and connection
@@ -1098,21 +1042,77 @@ async fn main() {
     }
 
     // Download genesis if we didn't have it
+    let mut _genesis = _genesis;
     if _genesis.is_none() && !peer_manager.get_peer_ips().await.is_empty() {
         match download_genesis_from_peers(&peer_manager, &genesis_path).await {
             Ok(g) => {
                 display_genesis(&g);
                 println!("{}", "✓ Genesis block downloaded and verified".green());
+                _genesis = Some(g);
             }
             Err(e) => {
-                println!("{} {}", "⚠".yellow(), e);
-                println!(
-                    "  {}",
-                    "Node will continue without genesis verification".yellow()
-                );
+                eprintln!("\n{}", "❌ Failed to obtain genesis block".red().bold());
+                eprintln!("   {}", e);
+                eprintln!("\n{}", "Genesis block is required to start the node.".yellow());
+                eprintln!("   Genesis file: {}", genesis_path);
+                eprintln!("\n{}", "Solutions:".yellow().bold());
+                eprintln!("   1. Ensure the genesis file exists at the specified path");
+                eprintln!("   2. Connect to peers who can provide the genesis block");
+                eprintln!("   3. Download the genesis file from the official repository");
+                std::process::exit(1);
             }
         }
     }
+
+    // Ensure we have a genesis block at this point
+    let genesis_block = if let Some(ref genesis) = _genesis {
+        // Use the block directly from the genesis file to preserve timestamp and hash
+        genesis.block.clone()
+    } else {
+        // No genesis available and no peers to download from
+        eprintln!("\n{}", "❌ Genesis block not found".red().bold());
+        eprintln!("   Genesis file: {}", genesis_path);
+        eprintln!("\n{}", "Genesis block is required to start the node.".yellow());
+        eprintln!("\n{}", "Solutions:".yellow().bold());
+        eprintln!("   1. Ensure the genesis file exists at the specified path");
+        eprintln!("   2. Connect to peers who can provide the genesis block");
+        eprintln!("   3. Download the genesis file from the official repository");
+        std::process::exit(1);
+    };
+
+    // Validate genesis block structure before proceeding
+    if let Err(e) = genesis_block.validate_structure() {
+        eprintln!("{}", "❌ Genesis block validation failed!".red().bold());
+        eprintln!("   Error: {}", e);
+        eprintln!("   Transactions count: {}", genesis_block.transactions.len());
+        if genesis_block.transactions.is_empty() {
+            eprintln!("\n{}", "⚠ The genesis block has no transactions!".yellow());
+            eprintln!("   This usually indicates:");
+            eprintln!("   1. A corrupted genesis JSON file ({})", genesis_path);
+            eprintln!("   2. An incompatible genesis file format");
+            eprintln!("\n   Solutions:");
+            eprintln!("   - Verify the genesis file has a valid 'transactions' array");
+            eprintln!("   - Re-download a valid genesis file from the repository");
+        }
+        std::process::exit(1);
+    }
+
+    println!("{}", "✅ Genesis block structure validated".green());
+
+    // ═══════════════════════════════════════════════════════════════
+    // Initialize blockchain state with validated genesis block
+    // ═══════════════════════════════════════════════════════════════
+
+    let blockchain = Arc::new(RwLock::new(
+        BlockchainState::new(genesis_block, &format!("{}/blockchain", data_dir))
+            .expect("Failed to create blockchain state"),
+    ));
+
+    let local_height = get_local_height(&blockchain).await;
+    println!(
+        "{}",
+        format!("📊 Local blockchain height: {}", local_height).cyan()
+    );
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 3: Check if we need to sync
