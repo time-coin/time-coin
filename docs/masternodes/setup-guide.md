@@ -43,7 +43,7 @@ cd time-coin
 cargo build --release
 
 # Install
-sudo cp target/release/time-node /usr/local/bin/
+sudo cp target/release/timed /usr/local/bin/
 sudo cp target/release/time-cli /usr/local/bin/
 ```
 
@@ -78,7 +78,7 @@ time-cli masternode register \
 ### 5. Start Masternode
 
 ```bash
-time-node masternode start \
+timed masternode start \
     --config config/masternode.toml
 ```
 

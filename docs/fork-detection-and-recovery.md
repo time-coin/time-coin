@@ -120,16 +120,16 @@ Quarantined peers are:
 **Operator actions:**
 ```bash
 # 1. Stop the node
-sudo systemctl stop time-node
+sudo systemctl stop timed
 
 # 2. Update genesis configuration
 # Edit config/genesis-testnet.json with new genesis block
 
 # 3. Restart the node (automatic cleanup happens)
-sudo systemctl start time-node
+sudo systemctl start timed
 
 # 4. Monitor logs for successful rebuild
-sudo journalctl -u time-node -f
+sudo journalctl -u timed -f
 ```
 
 **Expected log output:**
@@ -206,7 +206,7 @@ curl -X POST http://localhost:24101/network/quarantine/release \
 **Operator actions:**
 ```bash
 # 1. Check logs for details
-sudo journalctl -u time-node | grep "SUSPICIOUS HEIGHT"
+sudo journalctl -u timed | grep "SUSPICIOUS HEIGHT"
 
 # 2. Verify your own node is on correct time
 date -u

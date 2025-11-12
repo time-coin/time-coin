@@ -6,10 +6,10 @@
 # This script will:
 # - Install build dependencies (apt)
 # - Install Rust toolchain if missing
-# - Build time-node and time-cli
+# - Build timed and time-cli
 # - Install binaries to /usr/local/bin/
 # - Create config in /root/time-coin-node/config/testnet.toml
-# - Create+enable+start systemd service "time-node"
+# - Create+enable+start systemd service "timed"
 #
 # Usage:
 #   cd ~/time-coin
@@ -60,7 +60,7 @@ print_info() {
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NODE_DIR="/root/time-coin-node"
 CONFIG_DIR="$NODE_DIR/config"
-SERVICE_NAME="time-node"
+SERVICE_NAME="timed"
 
 # Network configuration
 P2P_PORT=24100
@@ -145,16 +145,16 @@ install_rust() {
 build_project() {
     print_header "Building TIME Coin Binaries"
 
-    print_info "Building time-node and time-cli (release mode)..."
+    print_info "Building timed and time-cli (release mode)..."
     cd "$REPO_DIR"
     cargo build --release
 
     print_success "Binaries built successfully"
 
     # Size info
-    if [ -f "$REPO_DIR/target/release/time-node" ]; then
-        NODE_SIZE=$(du -h "$REPO_DIR/target/release/time-node" | cut -f1)
-        print_info "time-node size: $NODE_SIZE"
+    if [ -f "$REPO_DIR/target/release/timed" ]; then
+        NODE_SIZE=$(du -h "$REPO_DIR/target/release/timed" | cut -f1)
+        print_info "timed size: $NODE_SIZE"
     fi
     if [ -f "$REPO_DIR/target/release/time-cli" ]; then
         CLI_SIZE=$(du -h "$REPO_DIR/target/release/time-cli" | cut -f1)
@@ -171,15 +171,15 @@ install_binaries() {
         systemctl stop ${SERVICE_NAME}
     fi
 
-    cp "$REPO_DIR/target/release/time-node" /usr/local/bin/
+    cp "$REPO_DIR/target/release/timed" /usr/local/bin/
     cp "$REPO_DIR/target/release/time-cli" /usr/local/bin/
-    chmod +x /usr/local/bin/time-node
+    chmod +x /usr/local/bin/timed
     chmod +x /usr/local/bin/time-cli
 
     # Verify
-    if command -v time-node >/dev/null 2>&1 && command -v time-cli >/dev/null 2>&1; then
+    if command -v timed >/dev/null 2>&1 && command -v time-cli >/dev/null 2>&1; then
         print_success "Binaries installed to /usr/local/bin"
-        print_info "time-node version: $(time-node --version 2>&1 | head -1 || echo 'unknown')"
+        print_info "timed version: $(timed --version 2>&1 | head -1 || echo 'unknown')"
         print_info "time-cli version:  $(time-cli --version 2>&1 | head -1 || echo 'unknown')"
     else
         print_error "Failed to install binaries"
@@ -257,7 +257,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/time-node --config $CONFIG_DIR/testnet.toml
+ExecStart=/usr/local/bin/timed --config $CONFIG_DIR/testnet.toml
 Restart=always
 RestartSec=10
 StandardOutput=journal

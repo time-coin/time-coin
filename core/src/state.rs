@@ -734,4 +734,49 @@ mod tests {
         assert_eq!(state.get_balance("genesis"), 100_000_000_000);
         assert_eq!(state.get_balance("nonexistent"), 0);
     }
+
+    #[test]
+    fn test_empty_transactions_block_rejected() {
+        use crate::block::BlockHeader;
+        use chrono::Utc;
+
+        // Create a block with no transactions (invalid)
+        let invalid_block = Block {
+            header: BlockHeader {
+                block_number: 0,
+                timestamp: Utc::now(),
+                previous_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+                merkle_root: String::new(),
+                validator_signature: "genesis".to_string(),
+                validator_address: "genesis".to_string(),
+            },
+            transactions: vec![], // Empty transactions - invalid!
+            hash: "invalid".to_string(),
+        };
+
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+
+        // Should fail with BlockError(NoTransactions) converted to StateError
+        let result = BlockchainState::new(invalid_block, &db_path);
+        assert!(result.is_err());
+        
+        // Verify it's the right error
+        if let Err(e) = result {
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("NoTransactions") || error_msg.contains("BlockError"),
+                "Expected NoTransactions error, got: {}",
+                error_msg
+            );
+        }
+    }
 }

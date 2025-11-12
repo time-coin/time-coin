@@ -30,7 +30,7 @@ cargo build --all --release
 cargo build --package time-core --release
 
 # Node binary
-cargo build --package time-node --release
+cargo build --package timed --release
 
 # Consensus
 cargo build --package time-consensus --release
@@ -75,7 +75,7 @@ cargo test --all -- --nocapture
 
 After building:
 ```bash
-sudo cp target/release/time-node /usr/local/bin/
-sudo chmod +x /usr/local/bin/time-node
-time-node --version
+sudo cp target/release/timed /usr/local/bin/
+sudo chmod +x /usr/local/bin/timed
+timed --version
 ```

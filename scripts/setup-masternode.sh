@@ -23,7 +23,7 @@ echo -e "${BLUE}Checking if TIME node is running...${NC}"
 if ! curl -s $API/health > /dev/null 2>&1; then
     echo -e "${RED}✗ TIME node API is not responding${NC}"
     echo "Please ensure the TIME node is running first:"
-    echo "  sudo systemctl start time-node"
+    echo "  sudo systemctl start timed"
     exit 1
 fi
 echo -e "${GREEN}✓ TIME node is running${NC}\n"
@@ -175,7 +175,7 @@ echo -e "${GREEN}✓ Credentials saved to: $CREDS_FILE${NC}"
 
 # Restart node
 echo -e "\n${BLUE}Restarting TIME node...${NC}"
-if sudo systemctl restart time-node 2>/dev/null; then
+if sudo systemctl restart timed 2>/dev/null; then
     echo -e "${GREEN}✓ Node restarted${NC}"
 fi
 

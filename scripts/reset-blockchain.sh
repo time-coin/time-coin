@@ -26,7 +26,7 @@ NC='\033[0m' # No Color
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVICE_NAME="time-node"
+SERVICE_NAME="timed"
 DATA_DIR="/var/lib/time-coin"
 BLOCKCHAIN_DIR="$DATA_DIR/blockchain"
 GENESIS_FILE="$DATA_DIR/genesis.json"
