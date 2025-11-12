@@ -703,13 +703,10 @@ async fn main() {
         .as_ref()
         .map(|p| expand_path(p))
         .unwrap_or_else(|| {
-            let default_data_dir = config
-                .node
-                .data_dir
-                .as_ref()
-                .map(|p| expand_path(p))
-                .unwrap_or_else(|| "/var/lib/time-coin".to_string());
-            format!("{}/genesis.json", default_data_dir)
+            // Make genesis file selection network-aware
+            let network = config.node.network.as_deref().unwrap_or("testnet");
+            let genesis_filename = format!("genesis-{}.json", network);
+            format!("/root/time-coin-node/config/{}", genesis_filename)
         });
 
     std::env::set_var("GENESIS_PATH", &genesis_path);
