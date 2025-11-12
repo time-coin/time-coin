@@ -763,6 +763,26 @@ async fn main() {
         )
     };
 
+    // Validate genesis block structure before proceeding
+    if let Err(e) = genesis_block.validate_structure() {
+        eprintln!("{}", "❌ Genesis block validation failed!".red().bold());
+        eprintln!("   Error: {}", e);
+        eprintln!("   Transactions count: {}", genesis_block.transactions.len());
+        if genesis_block.transactions.is_empty() {
+            eprintln!("\n{}", "⚠ The genesis block has no transactions!".yellow());
+            eprintln!("   This usually indicates:");
+            eprintln!("   1. A corrupted genesis JSON file ({})", genesis_path);
+            eprintln!("   2. An incompatible genesis file format");
+            eprintln!("\n   Solutions:");
+            eprintln!("   - Verify the genesis file has a valid 'transactions' array");
+            eprintln!("   - Delete the genesis file to use the built-in default genesis");
+            eprintln!("   - Re-download a valid genesis file from the repository");
+        }
+        std::process::exit(1);
+    }
+
+    println!("{}", "✅ Genesis block structure validated".green());
+
     // Get data directory from config or use default
     let data_dir = config
         .node
