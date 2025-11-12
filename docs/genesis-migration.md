@@ -177,7 +177,7 @@ The genesis block hash is calculated using double SHA3-256 over:
 
 The new code will:
 - Load new format genesis files directly
-- Fall back to creating a default genesis block if no file is found
+- Require genesis block to be present (from file or downloaded from peers)
 - Verify loaded genesis hashes match the calculated hash
 
 Old format files are no longer supported and must be migrated.

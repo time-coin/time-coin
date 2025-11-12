@@ -100,7 +100,8 @@ This ensures deterministic hash calculation across all nodes.
 
 - Old format genesis files are no longer supported
 - Migration script provided for easy conversion
-- Fallback to default genesis if no file found (for dev/testing)
+- Genesis block is mandatory - node will fail to start without it
+- Genesis can be obtained from file or downloaded from peers
 
 ## Migration Path
 
