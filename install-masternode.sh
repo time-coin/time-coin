@@ -147,7 +147,7 @@ build_project() {
 
     print_info "Building timed and time-cli (release mode)..."
     cd "$REPO_DIR"
-    cargo build --release
+    cargo build --release --workspace --exclude wallet-gui
 
     print_success "Binaries built successfully"
 
