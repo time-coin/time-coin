@@ -143,7 +143,9 @@ impl BlockProducer {
 
         // Get genesis date from blockchain state
         let blockchain = self.blockchain.read().await;
-        let genesis_block = blockchain.get_block_by_height(0).expect("Genesis block must exist");
+        let genesis_block = blockchain
+            .get_block_by_height(0)
+            .expect("Genesis block must exist");
         let genesis_date = genesis_block.header.timestamp.date_naive();
         drop(blockchain);
 
