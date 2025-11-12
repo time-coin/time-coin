@@ -319,7 +319,7 @@ show_summary() {
     echo "Node Directory:    $NODE_DIR"
     echo "Configuration:     $CONFIG_DIR/testnet.toml"
     echo "Data Directory:    $DATA_DIR"
-    echo "Binaries:          /usr/local/bin/time-{node,cli}"
+    echo "Binaries:          /usr/local/bin/time{d,-cli}"
     echo "Service:           ${SERVICE_NAME}.service"
     echo "Network Ports:     ${P2P_PORT} (P2P), ${API_PORT} (API, testnet)"
     echo "────────────────────────────────────────────────"
