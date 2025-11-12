@@ -768,7 +768,7 @@ mod tests {
         // Should fail with BlockError(NoTransactions) converted to StateError
         let result = BlockchainState::new(invalid_block, &db_path);
         assert!(result.is_err());
-        
+
         // Verify it's the right error
         if let Err(e) = result {
             let error_msg = format!("{:?}", e);

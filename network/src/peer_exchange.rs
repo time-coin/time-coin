@@ -1,3 +1,4 @@
+use crate::discovery::NetworkType;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -58,13 +59,15 @@ impl PeerInfo {
 pub struct PeerExchange {
     peers: HashMap<String, PeerInfo>,
     storage_path: String,
+    network: NetworkType,
 }
 
 impl PeerExchange {
-    pub fn new(storage_path: String) -> Self {
+    pub fn new(storage_path: String, network: NetworkType) -> Self {
         let mut exchange = Self {
             peers: HashMap::new(),
             storage_path,
+            network,
         };
         exchange.load_from_disk();
         exchange.cleanup_ephemeral_ports();
@@ -166,16 +169,20 @@ impl PeerExchange {
     /// This prevents peer list bloat from accumulating ephemeral source ports
     fn cleanup_ephemeral_ports(&mut self) {
         let mut updated = false;
-        
+
+        // Choose the network-appropriate default port for mapping ephemeral ports
+        let default_port = match self.network {
+            NetworkType::Mainnet => 24000,
+            NetworkType::Testnet => 24100,
+        };
+
         for peer in self.peers.values_mut() {
             if peer.port >= 49152 {
-                // Replace with standard testnet port (most common)
-                // In production, this could be made network-aware
-                peer.port = 24100;
+                peer.port = default_port;
                 updated = true;
             }
         }
-        
+
         if updated {
             println!("✓ Cleaned up ephemeral ports in peer database");
             self.save_to_disk();
@@ -205,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_peer_uses_ip_only_as_key() {
-        let mut exchange = PeerExchange::new(get_unique_test_path());
+        let mut exchange = PeerExchange::new(get_unique_test_path(), NetworkType::Testnet);
 
         // Add a peer with ephemeral port
         exchange.add_peer("192.168.1.1".to_string(), 55000, "1.0.0".to_string());
@@ -222,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_prefers_non_ephemeral_ports() {
-        let mut exchange = PeerExchange::new(get_unique_test_path());
+        let mut exchange = PeerExchange::new(get_unique_test_path(), NetworkType::Testnet);
 
         // Add peer with ephemeral port first
         exchange.add_peer("192.168.1.1".to_string(), 55000, "1.0.0".to_string());
@@ -244,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_ephemeral_port_detection() {
-        let mut exchange = PeerExchange::new(get_unique_test_path());
+        let mut exchange = PeerExchange::new(get_unique_test_path(), NetworkType::Testnet);
 
         // Ports below 49152 are not ephemeral
         exchange.add_peer("192.168.1.1".to_string(), 24100, "1.0.0".to_string());
@@ -265,44 +272,45 @@ mod tests {
     #[test]
     fn test_cleanup_ephemeral_ports() {
         let path = get_unique_test_path();
-        
+
         // Create exchange and manually add peers with ephemeral ports
         {
             let mut exchange = PeerExchange {
                 peers: HashMap::new(),
                 storage_path: path.clone(),
+                network: NetworkType::Testnet,
             };
-            
+
             // Add peers with various ports including ephemeral ones
             exchange.peers.insert(
                 "192.168.1.1".to_string(),
-                PeerInfo::new("192.168.1.1".to_string(), 49152, "1.0.0".to_string())
+                PeerInfo::new("192.168.1.1".to_string(), 49152, "1.0.0".to_string()),
             );
             exchange.peers.insert(
                 "192.168.1.2".to_string(),
-                PeerInfo::new("192.168.1.2".to_string(), 24100, "1.0.0".to_string())
+                PeerInfo::new("192.168.1.2".to_string(), 24100, "1.0.0".to_string()),
             );
             exchange.peers.insert(
                 "192.168.1.3".to_string(),
-                PeerInfo::new("192.168.1.3".to_string(), 65000, "1.0.0".to_string())
+                PeerInfo::new("192.168.1.3".to_string(), 65000, "1.0.0".to_string()),
             );
-            
+
             exchange.save_to_disk();
         }
-        
+
         // Load and verify cleanup happens automatically
-        let exchange = PeerExchange::new(path);
-        
+        let exchange = PeerExchange::new(path, NetworkType::Testnet);
+
         assert_eq!(exchange.peer_count(), 3);
-        
+
         // Ephemeral ports should be replaced with standard port
         let peer1 = exchange.peers.get("192.168.1.1").unwrap();
         assert_eq!(peer1.port, 24100);
-        
+
         // Standard port should remain unchanged
         let peer2 = exchange.peers.get("192.168.1.2").unwrap();
         assert_eq!(peer2.port, 24100);
-        
+
         // Another ephemeral port should be replaced
         let peer3 = exchange.peers.get("192.168.1.3").unwrap();
         assert_eq!(peer3.port, 24100);

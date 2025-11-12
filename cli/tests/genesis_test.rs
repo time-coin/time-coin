@@ -88,19 +88,19 @@ fn test_multiple_loads_same_hash() {
 fn test_no_default_genesis_creation() {
     // This test verifies that attempting to load a non-existent genesis file
     // results in an error rather than creating a default genesis block
-    
+
     let non_existent_path = "/tmp/non_existent_genesis_12345.json";
-    
+
     // Ensure the file doesn't exist
     let _ = std::fs::remove_file(non_existent_path);
-    
+
     // Attempt to read the file should fail
     let result = std::fs::read_to_string(non_existent_path);
     assert!(
         result.is_err(),
         "Reading non-existent genesis file should fail"
     );
-    
+
     println!("✓ Non-existent genesis file properly returns error");
     println!("  This ensures no default genesis block is created");
 }

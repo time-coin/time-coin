@@ -546,7 +546,7 @@ async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
 
 async fn validate_chain_command(config: &Config, verbose: bool) {
     use time_core::BlockchainState;
-    
+
     println!("{}", "🔍 TIME Coin Blockchain Validator".cyan().bold());
     println!("{}", "═══════════════════════════════════".bright_black());
     println!();
@@ -588,7 +588,10 @@ async fn validate_chain_command(config: &Config, verbose: bool) {
         Err(_) => {
             eprintln!("{}", "❌ Failed to load genesis block".red().bold());
             eprintln!("   Genesis file: {}", genesis_path);
-            eprintln!("\n{}", "Validation cannot proceed without genesis block.".yellow());
+            eprintln!(
+                "\n{}",
+                "Validation cannot proceed without genesis block.".yellow()
+            );
             std::process::exit(1);
         }
     };
@@ -599,7 +602,7 @@ async fn validate_chain_command(config: &Config, verbose: bool) {
         eprintln!("   Error: {}", e);
         std::process::exit(1);
     }
-    
+
     if verbose {
         println!("✓ Genesis block structure: {}", "VALID".green());
     }
@@ -617,14 +620,22 @@ async fn validate_chain_command(config: &Config, verbose: bool) {
     println!();
     println!("{}", "Blockchain Validation Results:".yellow().bold());
     println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
-    
+
     let height = blockchain.chain_tip_height();
     let hash = blockchain.chain_tip_hash();
-    
+
     println!("📏 Chain height: {}", height.to_string().green().bold());
-    println!("🔗 Chain tip hash: {}...", hash[..16].to_string().bright_blue());
-    println!("💰 Total supply: {} TIME", (blockchain.total_supply() as f64 / 100_000_000.0).to_string().green());
-    
+    println!(
+        "🔗 Chain tip hash: {}...",
+        hash[..16].to_string().bright_blue()
+    );
+    println!(
+        "💰 Total supply: {} TIME",
+        (blockchain.total_supply() as f64 / 100_000_000.0)
+            .to_string()
+            .green()
+    );
+
     let masternode_counts = blockchain.masternode_counts();
     println!();
     println!("{}", "Masternodes:".yellow());
@@ -632,9 +643,13 @@ async fn validate_chain_command(config: &Config, verbose: bool) {
     println!("  Bronze tier: {}", masternode_counts.bronze);
     println!("  Silver tier: {}", masternode_counts.silver);
     println!("  Gold tier:   {}", masternode_counts.gold);
-    println!("  Total:       {}", 
-        masternode_counts.free + masternode_counts.bronze + 
-        masternode_counts.silver + masternode_counts.gold);
+    println!(
+        "  Total:       {}",
+        masternode_counts.free
+            + masternode_counts.bronze
+            + masternode_counts.silver
+            + masternode_counts.gold
+    );
 
     if verbose && height > 0 {
         println!();
@@ -642,9 +657,14 @@ async fn validate_chain_command(config: &Config, verbose: bool) {
         for i in (height.saturating_sub(5)..=height).rev() {
             if let Some(block) = blockchain.get_block_by_height(i) {
                 println!(
-                    "  Block {}: {} ({}...)", 
-                    i, 
-                    block.header.timestamp.format("%Y-%m-%d %H:%M:%S").to_string().bright_black(),
+                    "  Block {}: {} ({}...)",
+                    i,
+                    block
+                        .header
+                        .timestamp
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                        .bright_black(),
                     block.hash[..16].to_string().bright_blue()
                 );
             }
@@ -1053,7 +1073,10 @@ async fn main() {
             Err(e) => {
                 eprintln!("\n{}", "❌ Failed to obtain genesis block".red().bold());
                 eprintln!("   {}", e);
-                eprintln!("\n{}", "Genesis block is required to start the node.".yellow());
+                eprintln!(
+                    "\n{}",
+                    "Genesis block is required to start the node.".yellow()
+                );
                 eprintln!("   Genesis file: {}", genesis_path);
                 eprintln!("\n{}", "Solutions:".yellow().bold());
                 eprintln!("   1. Ensure the genesis file exists at the specified path");
@@ -1072,7 +1095,10 @@ async fn main() {
         // No genesis available and no peers to download from
         eprintln!("\n{}", "❌ Genesis block not found".red().bold());
         eprintln!("   Genesis file: {}", genesis_path);
-        eprintln!("\n{}", "Genesis block is required to start the node.".yellow());
+        eprintln!(
+            "\n{}",
+            "Genesis block is required to start the node.".yellow()
+        );
         eprintln!("\n{}", "Solutions:".yellow().bold());
         eprintln!("   1. Ensure the genesis file exists at the specified path");
         eprintln!("   2. Connect to peers who can provide the genesis block");
@@ -1084,7 +1110,10 @@ async fn main() {
     if let Err(e) = genesis_block.validate_structure() {
         eprintln!("{}", "❌ Genesis block validation failed!".red().bold());
         eprintln!("   Error: {}", e);
-        eprintln!("   Transactions count: {}", genesis_block.transactions.len());
+        eprintln!(
+            "   Transactions count: {}",
+            genesis_block.transactions.len()
+        );
         if genesis_block.transactions.is_empty() {
             eprintln!("\n{}", "⚠ The genesis block has no transactions!".yellow());
             eprintln!("   This usually indicates:");

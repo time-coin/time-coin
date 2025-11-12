@@ -39,11 +39,12 @@ pub struct PeerManager {
 impl PeerManager {
     pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
         let manager = PeerManager {
-            network,
+            network: network.clone(),
             listen_addr,
             peers: Arc::new(RwLock::new(HashMap::new())),
             peer_exchange: Arc::new(RwLock::new(crate::peer_exchange::PeerExchange::new(
                 "/root/time-coin-node/data/peers.json".to_string(),
+                network.clone(),
             ))),
             last_seen: Arc::new(RwLock::new(HashMap::new())),
             stale_after: Duration::from_secs(90),
