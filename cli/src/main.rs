@@ -34,8 +34,8 @@ use tokio::time;
 use clap::Subcommand;
 
 #[derive(Parser)]
-#[command(name = "time-node")]
-#[command(about = "TIME Coin Node", long_version = None)]
+#[command(name = "timed")]
+#[command(about = "TIME Coin Daemon", long_version = None)]
 #[command(disable_version_flag = true)]
 struct Cli {
     #[arg(short, long, value_name = "FILE")]
@@ -668,7 +668,7 @@ async fn main() {
     let cli = Cli::parse();
 
     if cli.version {
-        println!("time-node {}", time_network::protocol::full_version());
+        println!("timed {}", time_network::protocol::full_version());
         println!("Committed: {}", time_network::protocol::GIT_COMMIT_DATE);
         return;
     }

@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/time-node /usr/local/bin/
+COPY --from=builder /app/target/release/timed /usr/local/bin/
 
 EXPOSE 8080 8081
 
-CMD ["time-node", "start"]
+CMD ["timed", "start"]

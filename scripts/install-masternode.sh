@@ -30,7 +30,7 @@ NC='\033[0m' # No Color
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_DIR="$HOME/time-coin-node"
 CONFIG_DIR="$NODE_DIR/config"
-SERVICE_NAME="time-node"
+SERVICE_NAME="timed"
 
 #############################################################
 # Helper Functions
@@ -99,13 +99,13 @@ build_project() {
     cd "$REPO_DIR"
     
     # Build the project as the non-root user
-    su - $SUDO_USER -c "cd $REPO_DIR && source \$HOME/.cargo/env && cargo build --release --bin time-node"
+    su - $SUDO_USER -c "cd $REPO_DIR && source \$HOME/.cargo/env && cargo build --release --bin timed"
     
     print_success "TIME Coin built successfully"
     
     # Show the binary info
-    if [ -f "$REPO_DIR/target/release/time-node" ]; then
-        BINARY_SIZE=$(du -h "$REPO_DIR/target/release/time-node" | cut -f1)
+    if [ -f "$REPO_DIR/target/release/timed" ]; then
+        BINARY_SIZE=$(du -h "$REPO_DIR/target/release/timed" | cut -f1)
         print_info "Binary size: $BINARY_SIZE"
     fi
 }
@@ -120,14 +120,14 @@ install_binary() {
     fi
     
     # Copy binary to system path
-    cp "$REPO_DIR/target/release/time-node" /usr/local/bin/
-    chmod +x /usr/local/bin/time-node
+    cp "$REPO_DIR/target/release/timed" /usr/local/bin/
+    chmod +x /usr/local/bin/timed
     
     # Verify installation
-    if command -v time-node &> /dev/null; then
-        print_success "time-node installed to /usr/local/bin/"
+    if command -v timed &> /dev/null; then
+        print_success "timed installed to /usr/local/bin/"
     else
-        print_error "Failed to install time-node binary"
+        print_error "Failed to install timed binary"
         exit 1
     fi
 }
@@ -195,7 +195,7 @@ After=network.target
 Type=simple
 User=$SUDO_USER
 WorkingDirectory=$NODE_DIR
-ExecStart=/usr/local/bin/time-node --config $CONFIG_DIR/testnet.toml
+ExecStart=/usr/local/bin/timed --config $CONFIG_DIR/testnet.toml
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -254,7 +254,7 @@ show_summary() {
     echo "Repository:        $REPO_DIR"
     echo "Node Directory:    $NODE_DIR"
     echo "Configuration:     $CONFIG_DIR/testnet.toml"
-    echo "Binary:            /usr/local/bin/time-node"
+    echo "Binary:            /usr/local/bin/timed"
     echo "Service:           ${SERVICE_NAME}.service"
     echo "Network Ports:     24100 (P2P), 24101 (RPC)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

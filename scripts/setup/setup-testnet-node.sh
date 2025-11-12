@@ -25,7 +25,7 @@ echo -e "${GREEN}\u2713 Configuration created${NC}"
 # Create systemd service
 echo -e "\n${BLUE}Creating systemd service...${NC}"
 
-sudo tee /etc/systemd/system/time-node.service > /dev/null << EOF
+sudo tee /etc/systemd/system/timed.service > /dev/null << EOF
 [Unit]
 Description=TIME Coin Testnet Masternode
 After=network.target
@@ -34,7 +34,7 @@ After=network.target
 Type=simple
 User=$USER
 WorkingDirectory=$HOME/time-coin-node
-ExecStart=/usr/local/bin/time-node --config $HOME/time-coin-node/config/testnet.toml
+ExecStart=/usr/local/bin/timed --config $HOME/time-coin-node/config/testnet.toml
 Restart=always
 RestartSec=10
 
