@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use owo_colors::OwoColorize;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -141,7 +141,12 @@ impl BlockProducer {
         let now = Utc::now();
         let current_date = now.date_naive();
 
-        let genesis_date = NaiveDate::from_ymd_opt(2025, 11, 1).unwrap();
+        // Get genesis date from blockchain state
+        let blockchain = self.blockchain.read().await;
+        let genesis_block = blockchain.get_block_by_height(0).expect("Genesis block must exist");
+        let genesis_date = genesis_block.header.timestamp.date_naive();
+        drop(blockchain);
+
         let days_since_genesis = (current_date - genesis_date).num_days();
         let expected_height = days_since_genesis as u64;
 
