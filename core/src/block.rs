@@ -919,13 +919,13 @@ mod tests {
     #[test]
     fn test_genesis_block_hash() {
         use crate::transaction::TxOutput;
-        
+
         // Create the exact genesis block as specified
         let timestamp = 1760227200i64;
         let datetime = chrono::DateTime::from_timestamp(timestamp, 0).expect("Valid timestamp");
-        
+
         let amount = 11653781624u64;
-        
+
         let coinbase = crate::transaction::Transaction {
             txid: "coinbase_0".to_string(),
             version: 1,
@@ -934,12 +934,13 @@ mod tests {
             lock_time: 0,
             timestamp,
         };
-        
+
         let mut block = Block {
             header: BlockHeader {
                 block_number: 0,
                 timestamp: datetime,
-                previous_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                previous_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
                 merkle_root: String::new(),
                 validator_signature: "genesis".to_string(),
                 validator_address: "genesis".to_string(),
@@ -947,11 +948,11 @@ mod tests {
             transactions: vec![coinbase],
             hash: String::new(),
         };
-        
+
         // Calculate merkle root and hash
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
-        
+
         println!("\n=== Genesis Block ===");
         println!("Block Number: {}", block.header.block_number);
         println!("Timestamp: {}", block.header.timestamp);
@@ -960,7 +961,7 @@ mod tests {
         println!("Validator: {}", block.header.validator_address);
         println!("Hash: {}", block.hash);
         println!("=====================\n");
-        
+
         // Verify structure
         assert_eq!(block.header.block_number, 0);
         assert_eq!(block.transactions.len(), 1);

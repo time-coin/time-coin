@@ -188,10 +188,16 @@ fn display_genesis(genesis: &GenesisFile) {
         genesis.block.hash[..16].to_string().bright_blue()
     );
 
-    let formatted = genesis.block.header.timestamp.format("%Y-%m-%d %H:%M:%S UTC");
+    let formatted = genesis
+        .block
+        .header
+        .timestamp
+        .format("%Y-%m-%d %H:%M:%S UTC");
     println!("{}: {}", "Timestamp".yellow().bold(), formatted);
 
-    let total_supply: u64 = genesis.block.transactions
+    let total_supply: u64 = genesis
+        .block
+        .transactions
         .iter()
         .flat_map(|tx| tx.outputs.iter())
         .map(|output| output.amount)
@@ -712,7 +718,7 @@ async fn main() {
     let _genesis = match load_genesis(&genesis_path) {
         Ok(g) => {
             display_genesis(&g);
-            
+
             // Verify the genesis block hash matches what's calculated
             let calculated_hash = g.block.calculate_hash();
             if calculated_hash != g.block.hash {
@@ -723,7 +729,7 @@ async fn main() {
             } else {
                 println!("{}", "✓ Genesis block hash verified".green());
             }
-            
+
             Some(g)
         }
         Err(_) => {
@@ -751,7 +757,7 @@ async fn main() {
         };
         let reward = calculate_total_masternode_reward(&genesis_counts);
         let genesis_outputs = vec![TxOutput::new(reward, "genesis".to_string())];
-        
+
         Block::new(
             0,
             "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
