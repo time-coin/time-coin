@@ -118,15 +118,26 @@ struct SyncConfig {
     midnight_window_check_consensus: Option<bool>,
 }
 
+/// Genesis file structure
+#[derive(Debug, Deserialize)]
+struct GenesisFile {
+    network: String,
+    #[allow(dead_code)]
+    version: u32,
+    #[serde(default)]
+    message: String,
+    block: Block,
+}
+
 fn load_config(path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
     let contents = std::fs::read_to_string(path)?;
     let config: Config = toml::from_str(&contents)?;
     Ok(config)
 }
 
-fn load_genesis(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+fn load_genesis(path: &str) -> Result<GenesisFile, Box<dyn std::error::Error>> {
     let contents = std::fs::read_to_string(path)?;
-    let genesis: serde_json::Value = serde_json::from_str(&contents)?;
+    let genesis: GenesisFile = serde_json::from_str(&contents)?;
     Ok(genesis)
 }
 
@@ -151,7 +162,7 @@ fn ensure_data_directories(base_dir: &str) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-fn display_genesis(genesis: &serde_json::Value) {
+fn display_genesis(genesis: &GenesisFile) {
     println!("\n{}", "╔══════════════════════════════════════╗".cyan());
     println!(
         "{}",
@@ -159,68 +170,54 @@ fn display_genesis(genesis: &serde_json::Value) {
     );
     println!("{}", "╚══════════════════════════════════════╝".cyan());
 
-    if let Some(network) = genesis.get("network").and_then(|v| v.as_str()) {
-        println!("\n{}: {}", "Network".yellow().bold(), network);
+    println!("\n{}: {}", "Network".yellow().bold(), genesis.network);
+
+    println!(
+        "{}: {}",
+        "Software Version".yellow().bold(),
+        time_network::protocol::full_version()
+    );
+
+    if !genesis.message.is_empty() {
+        println!("{}: {}", "Message".yellow().bold(), genesis.message);
     }
 
-    if let Some(_version) = genesis.get("version").and_then(|v| v.as_u64()) {
-        println!(
-            "{}: {}",
-            "Software Version".yellow().bold(),
-            time_network::protocol::full_version()
-        );
-    }
+    println!(
+        "{}: {}...",
+        "Block Hash".yellow().bold(),
+        genesis.block.hash[..16].to_string().bright_blue()
+    );
 
-    if let Some(message) = genesis.get("message").and_then(|v| v.as_str()) {
-        println!("{}: {}", "Message".yellow().bold(), message);
-    }
+    let formatted = genesis.block.header.timestamp.format("%Y-%m-%d %H:%M:%S UTC");
+    println!("{}: {}", "Timestamp".yellow().bold(), formatted);
 
-    if let Some(hash) = genesis.get("hash").and_then(|v| v.as_str()) {
-        println!(
-            "{}: {}...",
-            "Block Hash".yellow().bold(),
-            hash[..16].to_string().bright_blue()
-        );
-    }
+    let total_supply: u64 = genesis.block.transactions
+        .iter()
+        .flat_map(|tx| tx.outputs.iter())
+        .map(|output| output.amount)
+        .sum();
 
-    if let Some(timestamp) = genesis.get("timestamp").and_then(|v| v.as_i64()) {
-        if let Some(dt) = chrono::DateTime::from_timestamp(timestamp, 0) {
-            let formatted = dt.format("%Y-%m-%d %H:%M:%S UTC");
-            println!("{}: {}", "Timestamp".yellow().bold(), formatted);
-        }
-    }
+    println!(
+        "{}: {} TIME",
+        "Total Supply".yellow().bold(),
+        (total_supply / 100_000_000).to_string().green()
+    );
 
-    if let Some(transactions) = genesis.get("transactions").and_then(|v| v.as_array()) {
-        let total_supply: u64 = transactions
-            .iter()
-            .filter_map(|tx| tx.get("amount").and_then(|v| v.as_u64()))
-            .sum();
+    println!(
+        "\n{} ({})",
+        "Allocations".yellow().bold(),
+        genesis.block.transactions.len()
+    );
 
-        println!(
-            "{}: {} TIME",
-            "Total Supply".yellow().bold(),
-            (total_supply / 100_000_000).to_string().green()
-        );
-
-        println!(
-            "\n{} ({})",
-            "Allocations".yellow().bold(),
-            transactions.len()
-        );
-
-        for (i, tx) in transactions.iter().enumerate() {
-            if let (Some(amount), Some(desc)) = (
-                tx.get("amount").and_then(|v| v.as_u64()),
-                tx.get("description").and_then(|v| v.as_str()),
-            ) {
-                let amount_time = amount / 100_000_000;
-                println!(
-                    "  {}. {} TIME - {}",
-                    i + 1,
-                    amount_time.to_string().green(),
-                    desc.bright_white()
-                );
-            }
+    for (i, tx) in genesis.block.transactions.iter().enumerate() {
+        for output in &tx.outputs {
+            let amount_time = output.amount / 100_000_000;
+            println!(
+                "  {}. {} TIME - {}",
+                i + 1,
+                amount_time.to_string().green(),
+                output.address.bright_white()
+            );
         }
     }
 
@@ -230,7 +227,7 @@ fn display_genesis(genesis: &serde_json::Value) {
 async fn download_genesis_from_peers(
     peer_manager: &Arc<PeerManager>,
     genesis_path: &str,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+) -> Result<GenesisFile, Box<dyn std::error::Error>> {
     println!("{}", "📥 Genesis block not found locally".yellow());
     println!(
         "{}",
@@ -260,7 +257,9 @@ async fn download_genesis_from_peers(
 
                 println!("   ✓ Saved to: {}", genesis_path.bright_black());
 
-                return Ok(genesis);
+                // Parse the downloaded genesis into our structure
+                let genesis_file: GenesisFile = serde_json::from_value(genesis)?;
+                return Ok(genesis_file);
             }
             Err(e) => {
                 println!("   ✗ Failed: {}", e.to_string().bright_black());
@@ -713,7 +712,18 @@ async fn main() {
     let _genesis = match load_genesis(&genesis_path) {
         Ok(g) => {
             display_genesis(&g);
-            println!("{}", "✓ Genesis block verified".green());
+            
+            // Verify the genesis block hash matches what's calculated
+            let calculated_hash = g.block.calculate_hash();
+            if calculated_hash != g.block.hash {
+                println!("{}", "⚠ Warning: Genesis block hash mismatch!".yellow());
+                println!("  Expected: {}", g.block.hash);
+                println!("  Calculated: {}", calculated_hash);
+                println!("  Using hash from file (ensure all nodes use same genesis file)");
+            } else {
+                println!("{}", "✓ Genesis block hash verified".green());
+            }
+            
             Some(g)
         }
         Err(_) => {
@@ -726,51 +736,12 @@ async fn main() {
         }
     };
 
-    // Initialize blockchain state with genesis block
-    // Parse transactions from genesis JSON or use default masternode reward
-    let genesis_outputs = if let Some(ref genesis) = _genesis {
-        // Try to parse transactions from genesis JSON
-        if let Some(txs) = genesis.get("transactions").and_then(|v| v.as_array()) {
-            if !txs.is_empty() {
-                // Convert each transaction to TxOutput
-                txs.iter()
-                    .filter_map(|tx| {
-                        let amount = tx.get("amount").and_then(|a| a.as_u64())?;
-                        let address = tx
-                            .get("description")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("genesis")
-                            .to_string();
-                        Some(TxOutput::new(amount, address))
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                // Empty transactions in genesis JSON, use default masternode reward
-                // Calculate total reward for BFT minimum (3 free tier nodes)
-                // This reward will be divided among registered masternodes
-                let genesis_counts = MasternodeCounts {
-                    free: 3, // Minimum for BFT consensus
-                    bronze: 0,
-                    silver: 0,
-                    gold: 0,
-                };
-                let reward = calculate_total_masternode_reward(&genesis_counts);
-                vec![TxOutput::new(reward, "genesis".to_string())]
-            }
-        } else {
-            // No transactions field in genesis JSON, use default masternode reward
-            // Calculate total reward for BFT minimum (3 free tier nodes)
-            let genesis_counts = MasternodeCounts {
-                free: 3, // Minimum for BFT consensus
-                bronze: 0,
-                silver: 0,
-                gold: 0,
-            };
-            let reward = calculate_total_masternode_reward(&genesis_counts);
-            vec![TxOutput::new(reward, "genesis".to_string())]
-        }
+    // Get genesis block - either from file or create default
+    let genesis_block = if let Some(ref genesis) = _genesis {
+        // Use the block directly from the genesis file to preserve timestamp and hash
+        genesis.block.clone()
     } else {
-        // No genesis JSON loaded, use default masternode reward
+        // No genesis JSON loaded, create default genesis block
         // Calculate total reward for BFT minimum (3 free tier nodes)
         let genesis_counts = MasternodeCounts {
             free: 3, // Minimum for BFT consensus
@@ -779,16 +750,15 @@ async fn main() {
             gold: 0,
         };
         let reward = calculate_total_masternode_reward(&genesis_counts);
-        vec![TxOutput::new(reward, "genesis".to_string())]
+        let genesis_outputs = vec![TxOutput::new(reward, "genesis".to_string())];
+        
+        Block::new(
+            0,
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            "genesis".to_string(),
+            genesis_outputs,
+        )
     };
-
-    // Create genesis block using Block::new() which automatically creates proper coinbase transaction
-    let genesis_block = Block::new(
-        0,
-        "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        "genesis".to_string(),
-        genesis_outputs,
-    );
 
     // Get data directory from config or use default
     let data_dir = config
