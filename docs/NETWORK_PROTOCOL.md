@@ -319,7 +319,7 @@ Nodes display warnings when connecting to peers running newer versions:
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║  ⚠️  UPDATE AVAILABLE - NEWER VERSION DETECTED              ║
+║  ⚠️  UPDATE AVAILABLE - NEWER VERSION DETECTED               ║
 ╚══════════════════════════════════════════════════════════════╝
 
 Peer 192.168.1.100:24000 is running a NEWER version:
