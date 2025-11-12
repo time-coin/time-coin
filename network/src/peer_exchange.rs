@@ -67,6 +67,7 @@ impl PeerExchange {
             storage_path,
         };
         exchange.load_from_disk();
+        exchange.cleanup_ephemeral_ports();
         exchange
     }
 
@@ -161,6 +162,26 @@ impl PeerExchange {
         }
     }
 
+    /// Clean up peers with ephemeral ports (>= 49152) by updating them to standard ports
+    /// This prevents peer list bloat from accumulating ephemeral source ports
+    fn cleanup_ephemeral_ports(&mut self) {
+        let mut updated = false;
+        
+        for peer in self.peers.values_mut() {
+            if peer.port >= 49152 {
+                // Replace with standard testnet port (most common)
+                // In production, this could be made network-aware
+                peer.port = 24100;
+                updated = true;
+            }
+        }
+        
+        if updated {
+            println!("✓ Cleaned up ephemeral ports in peer database");
+            self.save_to_disk();
+        }
+    }
+
     pub fn peer_count(&self) -> usize {
         self.peers.len()
     }
@@ -239,5 +260,51 @@ mod tests {
         exchange.add_peer("192.168.1.1".to_string(), 8080, "1.0.2".to_string());
         let peer = exchange.peers.get("192.168.1.1").unwrap();
         assert_eq!(peer.port, 24100); // Should keep the first standard port
+    }
+
+    #[test]
+    fn test_cleanup_ephemeral_ports() {
+        let path = get_unique_test_path();
+        
+        // Create exchange and manually add peers with ephemeral ports
+        {
+            let mut exchange = PeerExchange {
+                peers: HashMap::new(),
+                storage_path: path.clone(),
+            };
+            
+            // Add peers with various ports including ephemeral ones
+            exchange.peers.insert(
+                "192.168.1.1".to_string(),
+                PeerInfo::new("192.168.1.1".to_string(), 49152, "1.0.0".to_string())
+            );
+            exchange.peers.insert(
+                "192.168.1.2".to_string(),
+                PeerInfo::new("192.168.1.2".to_string(), 24100, "1.0.0".to_string())
+            );
+            exchange.peers.insert(
+                "192.168.1.3".to_string(),
+                PeerInfo::new("192.168.1.3".to_string(), 65000, "1.0.0".to_string())
+            );
+            
+            exchange.save_to_disk();
+        }
+        
+        // Load and verify cleanup happens automatically
+        let exchange = PeerExchange::new(path);
+        
+        assert_eq!(exchange.peer_count(), 3);
+        
+        // Ephemeral ports should be replaced with standard port
+        let peer1 = exchange.peers.get("192.168.1.1").unwrap();
+        assert_eq!(peer1.port, 24100);
+        
+        // Standard port should remain unchanged
+        let peer2 = exchange.peers.get("192.168.1.2").unwrap();
+        assert_eq!(peer2.port, 24100);
+        
+        // Another ephemeral port should be replaced
+        let peer3 = exchange.peers.get("192.168.1.3").unwrap();
+        assert_eq!(peer3.port, 24100);
     }
 }

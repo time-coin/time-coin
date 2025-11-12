@@ -80,7 +80,7 @@ If you're running a node with the old genesis format:
 
 1. **Stop your node**:
    ```bash
-   sudo systemctl stop time-node
+   sudo systemctl stop timed
    ```
 
 2. **Run the migration script**:
@@ -97,12 +97,12 @@ If you're running a node with the old genesis format:
 
 4. **Start your node**:
    ```bash
-   sudo systemctl start time-node
+   sudo systemctl start timed
    ```
 
 5. **Verify genesis hash**:
    ```bash
-   journalctl -u time-node -f
+   journalctl -u timed -f
    # Look for "✓ Genesis block hash verified"
    # Hash should be: 9a81c7599d8eed97...
    ```
@@ -125,7 +125,7 @@ After migration, verify your node loads the genesis correctly:
 
 ```bash
 # Check the logs
-journalctl -u time-node -n 100 | grep -A 10 "GENESIS BLOCK LOADED"
+journalctl -u timed -n 100 | grep -A 10 "GENESIS BLOCK LOADED"
 ```
 
 You should see:
@@ -160,7 +160,7 @@ Solution: Re-run the migration script or copy the canonical genesis file from th
 
 1. Check the genesis file is valid JSON: `jq . config/genesis-testnet.json`
 2. Verify file permissions: `ls -l config/genesis-testnet.json`
-3. Check node logs: `journalctl -u time-node -n 50`
+3. Check node logs: `journalctl -u timed -n 50`
 
 ## Technical Details
 
@@ -186,7 +186,7 @@ Old format files are no longer supported and must be migrated.
 
 If you encounter issues during migration:
 1. Check your backup: `ls -la config/*.backup.*`
-2. Review logs: `journalctl -u time-node -n 100`
+2. Review logs: `journalctl -u timed -n 100`
 3. Report issues on GitHub with:
    - Your genesis file (redacted if needed)
    - Error messages from logs

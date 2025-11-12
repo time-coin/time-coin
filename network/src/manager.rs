@@ -269,9 +269,21 @@ impl PeerManager {
         // mark last-seen on add
         self.peer_seen(peer.address).await;
 
+        // Use standard listening port for peer exchange to avoid ephemeral port duplication
+        // Ephemeral ports (>=49152) indicate outgoing connections, not listening addresses
+        let port_to_save = if peer.address.port() >= 49152 {
+            // Use default network port based on network type
+            match self.network {
+                NetworkType::Mainnet => 24000,
+                NetworkType::Testnet => 24100,
+            }
+        } else {
+            peer.address.port()
+        };
+
         self.add_discovered_peer(
             peer.address.ip().to_string(),
-            peer.address.port(),
+            port_to_save,
             peer.version.clone(),
         )
         .await;
