@@ -28,6 +28,11 @@ Welcome to the TIME Coin documentation repository.
 - `api/governance-api.md` - Voting endpoints
 - `api/proposal-api.md` - Proposal submission
 
+### Technical Documentation
+- `NETWORK_PROTOCOL.md` - Network protocol and magic bytes
+- `GENESIS.md` - Genesis block configuration
+- `architecture/` - System architecture documents
+
 ## Contributing
 
 See CONTRIBUTING.md in the project root.
