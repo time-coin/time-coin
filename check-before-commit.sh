@@ -56,6 +56,13 @@ else
 fi
 echo ""
 
+if cargo deny check --hide-inclusion-graph; then
+    echo -e "${GREEN}✓ Cargo Deny check passed${NC}"
+else
+    echo -e "${RED}✗ Cargo Deny Tests failed${NC}"
+    ERRORS=$((ERRORS + 1))
+fi
+
 # Summary
 echo "═══════════════════════════════════════════════════════════"
 if [ $ERRORS -eq 0 ]; then
