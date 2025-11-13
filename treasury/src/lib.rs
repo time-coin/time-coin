@@ -7,12 +7,17 @@
 //! Funds are distributed through approved governance proposals.
 
 pub mod error;
+pub mod governance;
 pub mod pool;
 
 pub use pool::{
     CollateralLock, CollateralLockStatus, TreasuryPool, TreasuryReport, TreasurySource,
     TreasuryStats, TreasuryTransaction, TreasuryWithdrawal, DEFAULT_LOCK_PERIOD,
     MASTERNODE_BLOCK_REWARD, TIME_UNIT, TREASURY_BLOCK_REWARD, TREASURY_FEE_PERCENTAGE,
+};
+
+pub use governance::{
+    ProposalStatus, TreasuryProposal, Vote, VoteChoice, VotingResults,
 };
 
 pub use error::{Result, TreasuryError};
