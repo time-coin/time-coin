@@ -316,11 +316,8 @@ mod tests {
     fn test_peer_info_preserves_build_info() {
         // Test that PeerInfo correctly stores commit_date and commit_count
         let addr: SocketAddr = "127.0.0.1:24100".parse().unwrap();
-        let mut peer_info = PeerInfo::with_version(
-            addr,
-            NetworkType::Testnet,
-            "0.1.0-abc1234".to_string(),
-        );
+        let mut peer_info =
+            PeerInfo::with_version(addr, NetworkType::Testnet, "0.1.0-abc1234".to_string());
 
         // Initially, commit info should be None
         assert_eq!(peer_info.commit_date, None);
