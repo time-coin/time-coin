@@ -4,7 +4,7 @@
 
 TIME Coin uses BFT consensus for instant transaction finality with masternode voting.
 
-**Current Implementation**: The system uses simple one-node-one-vote counting with a 67% threshold and deterministic round-robin quorum selection by block height. Weighted voting based on tier, longevity, and reputation is planned for future releases.
+**Current Implementation**: The system uses VRF-based (Verifiable Random Function) leader selection with SHA256-based weighted random selection. Each block's leader is selected unpredictably but verifiably using a cryptographic seed derived from the block height and previous block hash. Weighted voting based on tier, longevity, and reputation is implemented in the phased protocol module.
 
 ## How It Works
 
@@ -15,8 +15,9 @@ User → Transaction → Network
 
 ### 2. Quorum Selection
 - Calculate quorum size (minimum 3 nodes)
-- **Current**: Deterministic round-robin selection by block height
-- **Future**: VRF-based weighted selection by tier, longevity, and reputation
+- **Current**: VRF-based weighted selection using SHA256 for unpredictable but verifiable randomness
+- Seed generated from: block height + previous block hash
+- Selection includes cryptographic proof for verification
 
 ### 3. Voting Round
 - Transaction broadcast to quorum
@@ -129,14 +130,29 @@ Examples:
 
 ### Sybil Resistance
 - High collateral requirements
-- **Future**: Weighted by tier
-- **Future**: Long-term reputation matters
+- Weighted by tier (implemented in phased protocol)
+- Long-term reputation matters (implemented in phased protocol)
 
-### Deterministic Selection
-- **Current**: Round-robin selection by block height
-- **Future**: VRF ensures fairness
-- Same transaction = same quorum
-- No favoritism possible
+### VRF Security Properties
+- **Unpredictability**: Attacker cannot predict which nodes will be selected in future rounds
+- **Verifiability**: Any node can verify that leader selection was done correctly
+- **Uniqueness**: Given same inputs, VRF produces same output (deterministic)
+- **Pseudo-randomness**: Output is indistinguishable from true random
+- **Manipulation resistance**: Cannot manipulate selection without controlling previous block hash
+- **Fair distribution**: All eligible nodes have fair chance proportional to their weight
+
+### Attack Resistance
+- **Targeted attacks**: VRF prevents attackers from predicting and targeting future validators
+- **Grinding attacks**: Using previous block hash prevents attackers from grinding for favorable selections
+- **Eclipse attacks**: Random selection makes it harder to isolate specific validators
+- **Collusion**: Distributed randomness source (previous block) prevents coordinated manipulation
+
+### Deterministic Yet Unpredictable Selection
+- **VRF-based selection**: Uses SHA256-based Verifiable Random Function
+- Same inputs (block height + previous hash) = same leader (deterministic)
+- Cannot predict future leaders without knowing future block hashes (unpredictable)
+- Selection includes cryptographic proof for verification
+- No favoritism possible - selection is mathematically fair
 
 ## Performance
 
