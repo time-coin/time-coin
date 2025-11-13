@@ -547,7 +547,7 @@ mod tests {
         let coinbase_tx = Transaction {
             txid: "coinbase_tx_1".to_string(),
             version: 1,
-            inputs: vec![],  // Coinbase = no inputs
+            inputs: vec![], // Coinbase = no inputs
             outputs: vec![TxOutput {
                 amount: 1000,
                 address: "addr1".to_string(),
@@ -571,7 +571,7 @@ mod tests {
         let coinbase_tx = Transaction {
             txid: "coinbase_tx_1".to_string(),
             version: 1,
-            inputs: vec![],  // Coinbase = no inputs
+            inputs: vec![], // Coinbase = no inputs
             outputs: vec![TxOutput {
                 amount: 1000,
                 address: "addr1".to_string(),

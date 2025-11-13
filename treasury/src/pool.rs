@@ -518,10 +518,9 @@ impl TreasuryPool {
     /// Start cooldown period for collateral unlock
     /// This initiates the waiting period before collateral can be withdrawn
     pub fn start_collateral_cooldown(&mut self, lock_id: &str, timestamp: u64) -> Result<()> {
-        let lock = self
-            .collateral_locks
-            .get_mut(lock_id)
-            .ok_or_else(|| TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id)))?;
+        let lock = self.collateral_locks.get_mut(lock_id).ok_or_else(|| {
+            TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id))
+        })?;
 
         lock.start_cooldown(timestamp)?;
 
@@ -531,10 +530,9 @@ impl TreasuryPool {
     /// Unlock and withdraw collateral after cooldown period
     /// Returns the unlocked amount back to the owner
     pub fn unlock_collateral(&mut self, lock_id: &str, timestamp: u64) -> Result<u64> {
-        let lock = self
-            .collateral_locks
-            .get_mut(lock_id)
-            .ok_or_else(|| TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id)))?;
+        let lock = self.collateral_locks.get_mut(lock_id).ok_or_else(|| {
+            TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id))
+        })?;
 
         // Check if cooldown period has elapsed
         if !lock.can_unlock(timestamp) {
@@ -566,10 +564,9 @@ impl TreasuryPool {
 
     /// Check if a collateral lock can be unlocked
     pub fn can_unlock_collateral(&self, lock_id: &str, timestamp: u64) -> Result<bool> {
-        let lock = self
-            .collateral_locks
-            .get(lock_id)
-            .ok_or_else(|| TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id)))?;
+        let lock = self.collateral_locks.get(lock_id).ok_or_else(|| {
+            TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id))
+        })?;
 
         Ok(lock.can_unlock(timestamp))
     }

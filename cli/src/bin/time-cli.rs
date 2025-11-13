@@ -415,7 +415,7 @@ async fn handle_testnet_mint(
     json_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let amount_satoshis = (amount * 100_000_000.0) as u64;
-    
+
     let request = json!({
         "address": address,
         "amount": amount_satoshis,
@@ -613,7 +613,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_validate_chain(&client, &rpc_url, verbose, cli.json).await?;
         }
 
-        Commands::TestnetMint { address, amount, reason, rpc_url } => {
+        Commands::TestnetMint {
+            address,
+            amount,
+            reason,
+            rpc_url,
+        } => {
             handle_testnet_mint(&client, &rpc_url, address, amount, reason, cli.json).await?;
         }
     }

@@ -264,13 +264,13 @@ impl ConsensusEngine {
     }
 
     /// Vote on a proposed block
-    /// 
+    ///
     /// # Maturity Check Required
     /// **IMPORTANT**: Callers should validate that the masternode has reached vote maturity
     /// before calling this function. Use the masternode module's `MasternodeStatus::can_vote_at_height()`
     /// to check if the masternode has waited the required number of blocks since registration.
     /// This prevents instant takeover by newly coordinated malicious nodes.
-    /// 
+    ///
     /// Example:
     /// ```ignore
     /// // Before voting, check maturity:
@@ -463,9 +463,14 @@ impl ConsensusEngine {
     }
 
     /// Generate VRF proof for selected leader (for verification)
-    pub fn generate_vrf_proof(&self, block_height: u64, previous_hash: &str, leader: &str) -> Vec<u8> {
+    pub fn generate_vrf_proof(
+        &self,
+        block_height: u64,
+        previous_hash: &str,
+        leader: &str,
+    ) -> Vec<u8> {
         let seed = self.generate_vrf_seed(block_height, previous_hash);
-        
+
         let mut hasher = Sha256::new();
         hasher.update(&seed);
         hasher.update(b"VRF_PROOF");
@@ -650,7 +655,7 @@ pub mod tx_consensus {
         }
 
         /// Vote on a transaction set
-        /// 
+        ///
         /// # Maturity Check Required
         /// **IMPORTANT**: Callers should validate that the masternode has reached vote maturity
         /// before calling this function. Use the masternode module's `MasternodeStatus::can_vote_at_height()`
@@ -820,7 +825,7 @@ pub mod block_consensus {
         }
 
         /// Vote on a proposed block
-        /// 
+        ///
         /// # Maturity Check Required
         /// **IMPORTANT**: Callers should validate that the masternode has reached vote maturity
         /// before calling this function. Use the masternode module's `MasternodeStatus::can_vote_at_height()`
@@ -1688,7 +1693,7 @@ mod tests {
     #[tokio::test]
     async fn test_vrf_selection_deterministic() {
         let engine = ConsensusEngine::new(false);
-        
+
         // Add masternodes
         engine.add_masternode("192.168.1.1".to_string()).await;
         engine.add_masternode("192.168.1.2".to_string()).await;
@@ -1697,14 +1702,14 @@ mod tests {
         // Same block height and previous hash should give same leader
         let leader1 = engine.get_leader(100).await.unwrap();
         let leader2 = engine.get_leader(100).await.unwrap();
-        
+
         assert_eq!(leader1, leader2, "VRF selection should be deterministic");
     }
 
     #[tokio::test]
     async fn test_vrf_selection_different_blocks() {
         let engine = ConsensusEngine::new(false);
-        
+
         // Add masternodes
         engine.add_masternode("192.168.1.1".to_string()).await;
         engine.add_masternode("192.168.1.2".to_string()).await;
@@ -1714,7 +1719,7 @@ mod tests {
         // Different block heights can produce different leaders
         let leader1 = engine.get_leader(100).await.unwrap();
         let leader2 = engine.get_leader(101).await.unwrap();
-        
+
         // With 4 nodes, there's a good chance leaders will differ
         // Just verify both are valid masternodes
         let masternodes = engine.get_masternodes().await;
@@ -1725,7 +1730,7 @@ mod tests {
     #[tokio::test]
     async fn test_vrf_selection_distribution() {
         let engine = ConsensusEngine::new(false);
-        
+
         // Add masternodes
         engine.add_masternode("192.168.1.1".to_string()).await;
         engine.add_masternode("192.168.1.2".to_string()).await;
@@ -1754,14 +1759,14 @@ mod tests {
     #[tokio::test]
     async fn test_vrf_proof_generation_and_verification() {
         let engine = ConsensusEngine::new(false);
-        
+
         let block_height = 100u64;
         let previous_hash = "test_hash_12345";
         let leader = "192.168.1.1";
 
         // Generate proof
         let proof = engine.generate_vrf_proof(block_height, previous_hash, leader);
-        
+
         // Verify correct proof
         assert!(
             engine.verify_vrf_proof(block_height, previous_hash, leader, &proof),
@@ -1791,18 +1796,21 @@ mod tests {
     #[tokio::test]
     async fn test_vrf_seed_changes_with_previous_hash() {
         let engine = ConsensusEngine::new(false);
-        
+
         // Same block height but different previous hashes should produce different seeds
         let seed1 = engine.generate_vrf_seed(100, "hash1");
         let seed2 = engine.generate_vrf_seed(100, "hash2");
-        
-        assert_ne!(seed1, seed2, "Different previous hashes should produce different VRF seeds");
+
+        assert_ne!(
+            seed1, seed2,
+            "Different previous hashes should produce different VRF seeds"
+        );
     }
 
     #[tokio::test]
     async fn test_vrf_unpredictable_selection() {
         let engine = ConsensusEngine::new(false);
-        
+
         // Add masternodes
         for i in 1..=10 {
             engine.add_masternode(format!("192.168.1.{}", i)).await;
@@ -1819,13 +1827,16 @@ mod tests {
         // Check that selections vary (not all the same)
         let first_leader = &leaders[0];
         let all_same = leaders.iter().all(|l| l == first_leader);
-        assert!(!all_same, "VRF should produce varied selections, not all the same leader");
+        assert!(
+            !all_same,
+            "VRF should produce varied selections, not all the same leader"
+        );
     }
 
     #[tokio::test]
     async fn test_is_my_turn_with_vrf() {
         let engine = ConsensusEngine::new(false);
-        
+
         // Add masternodes
         engine.add_masternode("192.168.1.1".to_string()).await;
         engine.add_masternode("192.168.1.2".to_string()).await;
@@ -1834,9 +1845,9 @@ mod tests {
         // Check that exactly one node is selected per block
         let block_height = 100u64;
         let leader = engine.get_leader(block_height).await.unwrap();
-        
+
         assert!(engine.is_my_turn(block_height, &leader).await);
-        
+
         // Other nodes should not be the leader
         let masternodes = engine.get_masternodes().await;
         for mn in masternodes {
@@ -1849,7 +1860,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_block_producer_with_vrf() {
         let engine = ConsensusEngine::new(false);
-        
+
         // Add masternodes
         engine.add_masternode("192.168.1.1".to_string()).await;
         engine.add_masternode("192.168.1.2".to_string()).await;
@@ -1857,7 +1868,7 @@ mod tests {
         // Test block producer selection
         let producer = engine.get_block_producer(100).await;
         assert!(producer.is_some());
-        
+
         let masternodes = engine.get_masternodes().await;
         assert!(masternodes.contains(&producer.unwrap()));
     }

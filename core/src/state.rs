@@ -112,25 +112,25 @@ pub struct TreasuryWithdrawal {
 pub struct Treasury {
     /// Current treasury balance (tracked in state, not UTXOs)
     balance: u64,
-    
+
     /// Total amount ever allocated to treasury
     total_allocated: u64,
-    
+
     /// Total amount distributed from treasury
     total_distributed: u64,
-    
+
     /// History of all allocations
     allocations: Vec<TreasuryAllocation>,
-    
+
     /// History of all withdrawals
     withdrawals: Vec<TreasuryWithdrawal>,
-    
+
     /// Approved proposals that can withdraw funds
     approved_proposals: HashMap<String, u64>, // proposal_id -> approved_amount
-    
+
     /// Percentage of block rewards allocated to treasury (default 5%)
     block_reward_percentage: u64,
-    
+
     /// Percentage of transaction fees allocated to treasury (default 50%)
     fee_percentage: u64,
 }
@@ -146,35 +146,35 @@ impl Treasury {
             withdrawals: Vec::new(),
             approved_proposals: HashMap::new(),
             block_reward_percentage: 5, // 5% of block rewards
-            fee_percentage: 50,          // 50% of transaction fees
+            fee_percentage: 50,         // 50% of transaction fees
         }
     }
-    
+
     /// Get current balance
     pub fn balance(&self) -> u64 {
         self.balance
     }
-    
+
     /// Get total allocated
     pub fn total_allocated(&self) -> u64 {
         self.total_allocated
     }
-    
+
     /// Get total distributed
     pub fn total_distributed(&self) -> u64 {
         self.total_distributed
     }
-    
+
     /// Get allocation history
     pub fn allocations(&self) -> &[TreasuryAllocation] {
         &self.allocations
     }
-    
+
     /// Get withdrawal history
     pub fn withdrawals(&self) -> &[TreasuryWithdrawal] {
         &self.withdrawals
     }
-    
+
     /// Allocate funds from block reward
     pub fn allocate_from_block_reward(
         &mut self,
@@ -183,23 +183,27 @@ impl Treasury {
         timestamp: i64,
     ) -> Result<u64, StateError> {
         let allocation = (block_reward * self.block_reward_percentage) / 100;
-        
-        self.balance = self.balance.checked_add(allocation)
+
+        self.balance = self
+            .balance
+            .checked_add(allocation)
             .ok_or_else(|| StateError::IoError("Treasury balance overflow".to_string()))?;
-        
-        self.total_allocated = self.total_allocated.checked_add(allocation)
+
+        self.total_allocated = self
+            .total_allocated
+            .checked_add(allocation)
             .ok_or_else(|| StateError::IoError("Treasury total allocation overflow".to_string()))?;
-        
+
         self.allocations.push(TreasuryAllocation {
             block_number,
             amount: allocation,
             source: TreasurySource::BlockReward,
             timestamp,
         });
-        
+
         Ok(allocation)
     }
-    
+
     /// Allocate funds from transaction fees
     pub fn allocate_from_fees(
         &mut self,
@@ -210,25 +214,29 @@ impl Treasury {
         if total_fees == 0 {
             return Ok(0);
         }
-        
+
         let allocation = (total_fees * self.fee_percentage) / 100;
-        
-        self.balance = self.balance.checked_add(allocation)
+
+        self.balance = self
+            .balance
+            .checked_add(allocation)
             .ok_or_else(|| StateError::IoError("Treasury balance overflow".to_string()))?;
-        
-        self.total_allocated = self.total_allocated.checked_add(allocation)
+
+        self.total_allocated = self
+            .total_allocated
+            .checked_add(allocation)
             .ok_or_else(|| StateError::IoError("Treasury total allocation overflow".to_string()))?;
-        
+
         self.allocations.push(TreasuryAllocation {
             block_number,
             amount: allocation,
             source: TreasurySource::TransactionFees,
             timestamp,
         });
-        
+
         Ok(allocation)
     }
-    
+
     /// Approve a proposal for spending (called by governance)
     pub fn approve_proposal(&mut self, proposal_id: String, amount: u64) -> Result<(), StateError> {
         if amount > self.balance {
@@ -237,11 +245,11 @@ impl Treasury {
                 amount, self.balance
             )));
         }
-        
+
         self.approved_proposals.insert(proposal_id, amount);
         Ok(())
     }
-    
+
     /// Distribute funds for an approved proposal
     pub fn distribute(
         &mut self,
@@ -252,30 +260,35 @@ impl Treasury {
         timestamp: i64,
     ) -> Result<(), StateError> {
         // Check if proposal is approved
-        let approved_amount = self.approved_proposals.get(&proposal_id)
+        let approved_amount = self
+            .approved_proposals
+            .get(&proposal_id)
             .ok_or_else(|| StateError::IoError(format!("Proposal {} not approved", proposal_id)))?;
-        
+
         if amount > *approved_amount {
             return Err(StateError::IoError(format!(
                 "Requested amount {} exceeds approved amount {}",
                 amount, approved_amount
             )));
         }
-        
+
         if amount > self.balance {
             return Err(StateError::IoError(format!(
                 "Insufficient treasury balance: requested {}, available {}",
                 amount, self.balance
             )));
         }
-        
+
         // Deduct from balance
-        self.balance = self.balance.checked_sub(amount)
+        self.balance = self
+            .balance
+            .checked_sub(amount)
             .ok_or_else(|| StateError::IoError("Treasury balance underflow".to_string()))?;
-        
-        self.total_distributed = self.total_distributed.checked_add(amount)
-            .ok_or_else(|| StateError::IoError("Treasury total distribution overflow".to_string()))?;
-        
+
+        self.total_distributed = self.total_distributed.checked_add(amount).ok_or_else(|| {
+            StateError::IoError("Treasury total distribution overflow".to_string())
+        })?;
+
         // Record withdrawal
         self.withdrawals.push(TreasuryWithdrawal {
             proposal_id: proposal_id.clone(),
@@ -284,20 +297,21 @@ impl Treasury {
             block_number,
             timestamp,
         });
-        
+
         // Update or remove approved amount
-        let remaining = approved_amount.checked_sub(amount)
+        let remaining = approved_amount
+            .checked_sub(amount)
             .ok_or_else(|| StateError::IoError("Approved amount underflow".to_string()))?;
-        
+
         if remaining == 0 {
             self.approved_proposals.remove(&proposal_id);
         } else {
             self.approved_proposals.insert(proposal_id, remaining);
         }
-        
+
         Ok(())
     }
-    
+
     /// Get statistics
     pub fn get_stats(&self) -> TreasuryStats {
         TreasuryStats {
@@ -309,20 +323,24 @@ impl Treasury {
             pending_proposals: self.approved_proposals.len(),
         }
     }
-    
+
     /// Set block reward percentage (for governance parameter changes)
     pub fn set_block_reward_percentage(&mut self, percentage: u64) -> Result<(), StateError> {
         if percentage > 100 {
-            return Err(StateError::IoError("Percentage cannot exceed 100".to_string()));
+            return Err(StateError::IoError(
+                "Percentage cannot exceed 100".to_string(),
+            ));
         }
         self.block_reward_percentage = percentage;
         Ok(())
     }
-    
+
     /// Set fee percentage (for governance parameter changes)
     pub fn set_fee_percentage(&mut self, percentage: u64) -> Result<(), StateError> {
         if percentage > 100 {
-            return Err(StateError::IoError("Percentage cannot exceed 100".to_string()));
+            return Err(StateError::IoError(
+                "Percentage cannot exceed 100".to_string(),
+            ));
         }
         self.fee_percentage = percentage;
         Ok(())
@@ -677,27 +695,26 @@ impl BlockchainState {
                 // Allocate treasury funds from block reward and fees
                 let timestamp = block.header.timestamp.timestamp();
                 let block_number = block.header.block_number;
-                
+
                 // Calculate total masternode reward to derive treasury allocation
-                let masternode_reward = crate::block::calculate_total_masternode_reward(&self.masternode_counts);
-                
+                let masternode_reward =
+                    crate::block::calculate_total_masternode_reward(&self.masternode_counts);
+
                 // Allocate from block reward (5% of masternode reward pool)
                 let _ = self.treasury.allocate_from_block_reward(
                     block_number,
                     masternode_reward,
                     timestamp,
                 )?;
-                
+
                 // Allocate from transaction fees (50% of total fees)
                 let total_fees = block.total_fees(&self.utxo_set)?;
                 if total_fees > 0 {
-                    let _ = self.treasury.allocate_from_fees(
-                        block_number,
-                        total_fees,
-                        timestamp,
-                    )?;
+                    let _ =
+                        self.treasury
+                            .allocate_from_fees(block_number, total_fees, timestamp)?;
                 }
-                
+
                 self.db.save_block(&block)?;
                 self.blocks_by_height
                     .insert(block.header.block_number, block.hash.clone());
@@ -1129,7 +1146,7 @@ mod tests {
         let db_path = db_dir.to_str().unwrap().to_string();
         let _ = std::fs::remove_dir_all(&db_path);
         let state = BlockchainState::new(genesis, &db_path).unwrap();
-        
+
         // Treasury should be initialized with zero balance
         assert_eq!(state.treasury().balance(), 0);
         assert_eq!(state.treasury().total_allocated(), 0);
@@ -1172,7 +1189,7 @@ mod tests {
         // Create block
         let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
-        
+
         state.add_block(block1).unwrap();
 
         // Check treasury received allocation (5% of masternode reward)
@@ -1237,7 +1254,10 @@ mod tests {
             .unwrap();
 
         // Check treasury balance decreased
-        assert_eq!(state.treasury().balance(), treasury_balance - proposal_amount);
+        assert_eq!(
+            state.treasury().balance(),
+            treasury_balance - proposal_amount
+        );
         assert_eq!(state.treasury().total_distributed(), proposal_amount);
         assert_eq!(state.treasury().withdrawals().len(), 1);
     }
