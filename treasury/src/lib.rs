@@ -10,9 +10,9 @@ pub mod error;
 pub mod pool;
 
 pub use pool::{
-    TreasuryPool, TreasuryReport, TreasurySource, TreasuryStats, TreasuryTransaction,
-    TreasuryWithdrawal, MASTERNODE_BLOCK_REWARD, TIME_UNIT, TREASURY_BLOCK_REWARD,
-    TREASURY_FEE_PERCENTAGE,
+    CollateralLock, CollateralLockStatus, TreasuryPool, TreasuryReport, TreasurySource,
+    TreasuryStats, TreasuryTransaction, TreasuryWithdrawal, DEFAULT_LOCK_PERIOD,
+    MASTERNODE_BLOCK_REWARD, TIME_UNIT, TREASURY_BLOCK_REWARD, TREASURY_FEE_PERCENTAGE,
 };
 
 pub use error::{Result, TreasuryError};

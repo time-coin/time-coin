@@ -4878,6 +4878,7 @@ dependencies = [
  "thiserror 2.0.17",
  "time-core",
  "tokio",
+ "treasury",
  "uuid",
  "wallet",
 ]
@@ -5184,6 +5185,16 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "treasury"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]

@@ -105,6 +105,110 @@ pub struct TreasuryReport {
     pub largest_withdrawal: u64,
 }
 
+/// Default collateral lock period in seconds (30 days)
+pub const DEFAULT_LOCK_PERIOD: u64 = 30 * 24 * 60 * 60;
+
+/// Status of a collateral lock
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CollateralLockStatus {
+    /// Collateral is locked and cannot be withdrawn
+    Locked,
+    /// Cooldown period started, will be unlockable after cooldown_ends_at
+    Cooldown,
+    /// Collateral has been unlocked and returned
+    Unlocked,
+}
+
+/// Collateral lock for a masternode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollateralLock {
+    /// Unique identifier for this lock
+    pub id: String,
+    /// Masternode ID
+    pub masternode_id: String,
+    /// Owner address
+    pub owner: String,
+    /// Amount of collateral locked
+    pub amount: u64,
+    /// Timestamp when lock was created
+    pub locked_at: u64,
+    /// Lock period in seconds (e.g., 30 days)
+    pub lock_period: u64,
+    /// Timestamp when cooldown was initiated (None if not started)
+    pub cooldown_started_at: Option<u64>,
+    /// Timestamp when cooldown ends and withdrawal is allowed (None if not in cooldown)
+    pub cooldown_ends_at: Option<u64>,
+    /// Current status
+    pub status: CollateralLockStatus,
+}
+
+impl CollateralLock {
+    /// Create a new collateral lock
+    pub fn new(
+        id: String,
+        masternode_id: String,
+        owner: String,
+        amount: u64,
+        locked_at: u64,
+        lock_period: u64,
+    ) -> Self {
+        Self {
+            id,
+            masternode_id,
+            owner,
+            amount,
+            locked_at,
+            lock_period,
+            cooldown_started_at: None,
+            cooldown_ends_at: None,
+            status: CollateralLockStatus::Locked,
+        }
+    }
+
+    /// Check if the collateral can be unlocked at the given timestamp
+    pub fn can_unlock(&self, current_timestamp: u64) -> bool {
+        match self.status {
+            CollateralLockStatus::Locked => false,
+            CollateralLockStatus::Cooldown => {
+                if let Some(cooldown_ends) = self.cooldown_ends_at {
+                    current_timestamp >= cooldown_ends
+                } else {
+                    false
+                }
+            }
+            CollateralLockStatus::Unlocked => false,
+        }
+    }
+
+    /// Start the cooldown period for unlocking
+    pub fn start_cooldown(&mut self, current_timestamp: u64) -> Result<()> {
+        if self.status != CollateralLockStatus::Locked {
+            return Err(TreasuryError::InvalidAmount(format!(
+                "Cannot start cooldown: collateral is in {:?} state",
+                self.status
+            )));
+        }
+
+        self.cooldown_started_at = Some(current_timestamp);
+        self.cooldown_ends_at = Some(current_timestamp + self.lock_period);
+        self.status = CollateralLockStatus::Cooldown;
+        Ok(())
+    }
+
+    /// Mark as unlocked
+    pub fn mark_unlocked(&mut self) -> Result<()> {
+        if self.status != CollateralLockStatus::Cooldown {
+            return Err(TreasuryError::InvalidAmount(format!(
+                "Cannot unlock: collateral is in {:?} state",
+                self.status
+            )));
+        }
+
+        self.status = CollateralLockStatus::Unlocked;
+        Ok(())
+    }
+}
+
 /// Main treasury pool manager
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreasuryPool {
@@ -116,6 +220,9 @@ pub struct TreasuryPool {
 
     /// Scheduled withdrawals
     scheduled_withdrawals: HashMap<String, TreasuryWithdrawal>,
+
+    /// Collateral locks for masternodes
+    collateral_locks: HashMap<String, CollateralLock>,
 
     /// Statistics tracking
     stats: TreasuryStats,
@@ -131,6 +238,7 @@ impl TreasuryPool {
             balance: 0,
             transactions: Vec::new(),
             scheduled_withdrawals: HashMap::new(),
+            collateral_locks: HashMap::new(),
             stats: TreasuryStats {
                 total_deposits: 0,
                 total_withdrawals: 0,
@@ -360,6 +468,131 @@ impl TreasuryPool {
         Ok(())
     }
 
+    /// Lock collateral for a masternode
+    /// This locks the specified amount in the treasury and creates a lock record
+    pub fn lock_collateral(
+        &mut self,
+        lock_id: String,
+        masternode_id: String,
+        owner: String,
+        amount: u64,
+        timestamp: u64,
+    ) -> Result<()> {
+        if amount == 0 {
+            return Err(TreasuryError::InvalidAmount(
+                "Collateral amount cannot be zero".to_string(),
+            ));
+        }
+
+        // Check if there's enough balance to lock
+        if amount > self.balance {
+            return Err(TreasuryError::InsufficientBalance {
+                requested: amount,
+                available: self.balance,
+            });
+        }
+
+        // Check if lock already exists
+        if self.collateral_locks.contains_key(&lock_id) {
+            return Err(TreasuryError::InvalidAmount(format!(
+                "Collateral lock {} already exists",
+                lock_id
+            )));
+        }
+
+        // Create the lock with default period
+        let lock = CollateralLock::new(
+            lock_id.clone(),
+            masternode_id,
+            owner,
+            amount,
+            timestamp,
+            DEFAULT_LOCK_PERIOD,
+        );
+
+        self.collateral_locks.insert(lock_id, lock);
+
+        Ok(())
+    }
+
+    /// Start cooldown period for collateral unlock
+    /// This initiates the waiting period before collateral can be withdrawn
+    pub fn start_collateral_cooldown(&mut self, lock_id: &str, timestamp: u64) -> Result<()> {
+        let lock = self
+            .collateral_locks
+            .get_mut(lock_id)
+            .ok_or_else(|| TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id)))?;
+
+        lock.start_cooldown(timestamp)?;
+
+        Ok(())
+    }
+
+    /// Unlock and withdraw collateral after cooldown period
+    /// Returns the unlocked amount back to the owner
+    pub fn unlock_collateral(&mut self, lock_id: &str, timestamp: u64) -> Result<u64> {
+        let lock = self
+            .collateral_locks
+            .get_mut(lock_id)
+            .ok_or_else(|| TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id)))?;
+
+        // Check if cooldown period has elapsed
+        if !lock.can_unlock(timestamp) {
+            if lock.status == CollateralLockStatus::Locked {
+                return Err(TreasuryError::InvalidAmount(
+                    "Cooldown period not started. Call start_collateral_cooldown first".to_string(),
+                ));
+            } else if lock.status == CollateralLockStatus::Cooldown {
+                let cooldown_ends = lock.cooldown_ends_at.unwrap_or(0);
+                return Err(TreasuryError::InvalidAmount(format!(
+                    "Cooldown period not complete. Unlockable at timestamp {}",
+                    cooldown_ends
+                )));
+            } else {
+                return Err(TreasuryError::InvalidAmount(
+                    "Collateral already unlocked".to_string(),
+                ));
+            }
+        }
+
+        let amount = lock.amount;
+        lock.mark_unlocked()?;
+
+        // The balance doesn't change as the collateral was already part of the treasury balance
+        // We just mark it as unlocked and available for the owner to withdraw
+
+        Ok(amount)
+    }
+
+    /// Check if a collateral lock can be unlocked
+    pub fn can_unlock_collateral(&self, lock_id: &str, timestamp: u64) -> Result<bool> {
+        let lock = self
+            .collateral_locks
+            .get(lock_id)
+            .ok_or_else(|| TreasuryError::ProposalNotFound(format!("Collateral lock {}", lock_id)))?;
+
+        Ok(lock.can_unlock(timestamp))
+    }
+
+    /// Get a collateral lock by ID
+    pub fn get_collateral_lock(&self, lock_id: &str) -> Option<&CollateralLock> {
+        self.collateral_locks.get(lock_id)
+    }
+
+    /// Get all collateral locks
+    pub fn collateral_locks(&self) -> &HashMap<String, CollateralLock> {
+        &self.collateral_locks
+    }
+
+    /// Get total locked collateral amount
+    pub fn total_locked_collateral(&self) -> u64 {
+        self.collateral_locks
+            .values()
+            .filter(|lock| lock.status != CollateralLockStatus::Unlocked)
+            .map(|lock| lock.amount)
+            .sum()
+    }
+
     /// Get all transactions
     pub fn transactions(&self) -> &[TreasuryTransaction] {
         &self.transactions
@@ -585,5 +818,270 @@ mod tests {
 
         assert_eq!(txs[0].amount, TREASURY_BLOCK_REWARD);
         assert_eq!(txs[1].amount, 10 * TIME_UNIT);
+    }
+
+    // Collateral locking tests
+
+    #[test]
+    fn test_lock_collateral() {
+        let mut pool = TreasuryPool::new();
+
+        // Add funds to treasury first
+        pool.deposit_block_reward(1, 1000).unwrap();
+        pool.deposit_block_reward(2, 2000).unwrap();
+
+        let lock_amount = 5 * TIME_UNIT;
+
+        // Lock collateral
+        let result = pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            lock_amount,
+            1000,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(pool.total_locked_collateral(), lock_amount);
+
+        // Verify lock exists
+        let lock = pool.get_collateral_lock("lock1").unwrap();
+        assert_eq!(lock.amount, lock_amount);
+        assert_eq!(lock.status, CollateralLockStatus::Locked);
+        assert_eq!(lock.owner, "owner1");
+    }
+
+    #[test]
+    fn test_lock_collateral_insufficient_balance() {
+        let mut pool = TreasuryPool::new();
+
+        // Try to lock more than available
+        let result = pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            100 * TIME_UNIT,
+            1000,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_lock_collateral_duplicate_lock_id() {
+        let mut pool = TreasuryPool::new();
+
+        // Add funds
+        pool.deposit_block_reward(1, 1000).unwrap();
+        pool.deposit_block_reward(2, 2000).unwrap();
+
+        // Lock collateral
+        pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            5 * TIME_UNIT,
+            1000,
+        )
+        .unwrap();
+
+        // Try to create another lock with the same ID
+        let result = pool.lock_collateral(
+            "lock1".to_string(),
+            "mn2".to_string(),
+            "owner2".to_string(),
+            3 * TIME_UNIT,
+            1000,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_collateral_cooldown_flow() {
+        let mut pool = TreasuryPool::new();
+
+        // Add funds and lock collateral
+        pool.deposit_block_reward(1, 1000).unwrap();
+        pool.deposit_block_reward(2, 2000).unwrap();
+
+        pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            5 * TIME_UNIT,
+            1000,
+        )
+        .unwrap();
+
+        // Cannot unlock without starting cooldown
+        let can_unlock = pool.can_unlock_collateral("lock1", 1000).unwrap();
+        assert!(!can_unlock);
+
+        // Start cooldown
+        pool.start_collateral_cooldown("lock1", 2000).unwrap();
+
+        let lock = pool.get_collateral_lock("lock1").unwrap();
+        assert_eq!(lock.status, CollateralLockStatus::Cooldown);
+        assert_eq!(lock.cooldown_started_at, Some(2000));
+        assert_eq!(lock.cooldown_ends_at, Some(2000 + DEFAULT_LOCK_PERIOD));
+
+        // Cannot unlock before cooldown ends
+        let can_unlock = pool
+            .can_unlock_collateral("lock1", 2000 + DEFAULT_LOCK_PERIOD - 1)
+            .unwrap();
+        assert!(!can_unlock);
+
+        // Can unlock after cooldown ends
+        let can_unlock = pool
+            .can_unlock_collateral("lock1", 2000 + DEFAULT_LOCK_PERIOD)
+            .unwrap();
+        assert!(can_unlock);
+    }
+
+    #[test]
+    fn test_unlock_collateral_success() {
+        let mut pool = TreasuryPool::new();
+
+        // Add funds and lock collateral
+        pool.deposit_block_reward(1, 1000).unwrap();
+        pool.deposit_block_reward(2, 2000).unwrap();
+
+        let lock_amount = 5 * TIME_UNIT;
+        pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            lock_amount,
+            1000,
+        )
+        .unwrap();
+
+        // Start cooldown
+        pool.start_collateral_cooldown("lock1", 2000).unwrap();
+
+        // Try to unlock before cooldown ends
+        let result = pool.unlock_collateral("lock1", 2000 + DEFAULT_LOCK_PERIOD - 1);
+        assert!(result.is_err());
+
+        // Unlock after cooldown period
+        let unlocked_amount = pool
+            .unlock_collateral("lock1", 2000 + DEFAULT_LOCK_PERIOD)
+            .unwrap();
+
+        assert_eq!(unlocked_amount, lock_amount);
+
+        let lock = pool.get_collateral_lock("lock1").unwrap();
+        assert_eq!(lock.status, CollateralLockStatus::Unlocked);
+    }
+
+    #[test]
+    fn test_unlock_collateral_without_cooldown() {
+        let mut pool = TreasuryPool::new();
+
+        // Add funds and lock collateral
+        pool.deposit_block_reward(1, 1000).unwrap();
+        pool.deposit_block_reward(2, 2000).unwrap();
+
+        pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            5 * TIME_UNIT,
+            1000,
+        )
+        .unwrap();
+
+        // Try to unlock without starting cooldown
+        let result = pool.unlock_collateral("lock1", 3000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multiple_collateral_locks() {
+        let mut pool = TreasuryPool::new();
+
+        // Add sufficient funds
+        for i in 1..=5 {
+            pool.deposit_block_reward(i, (i as u64) * 1000).unwrap();
+        }
+
+        // Lock multiple collaterals
+        pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            5 * TIME_UNIT,
+            1000,
+        )
+        .unwrap();
+
+        pool.lock_collateral(
+            "lock2".to_string(),
+            "mn2".to_string(),
+            "owner2".to_string(),
+            10 * TIME_UNIT,
+            2000,
+        )
+        .unwrap();
+
+        pool.lock_collateral(
+            "lock3".to_string(),
+            "mn3".to_string(),
+            "owner3".to_string(),
+            8 * TIME_UNIT,
+            3000,
+        )
+        .unwrap();
+
+        // Check total locked
+        assert_eq!(pool.total_locked_collateral(), 23 * TIME_UNIT);
+        assert_eq!(pool.collateral_locks().len(), 3);
+    }
+
+    #[test]
+    fn test_start_cooldown_twice() {
+        let mut pool = TreasuryPool::new();
+
+        pool.deposit_block_reward(1, 1000).unwrap();
+        pool.deposit_block_reward(2, 2000).unwrap();
+
+        pool.lock_collateral(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            5 * TIME_UNIT,
+            1000,
+        )
+        .unwrap();
+
+        // Start cooldown
+        pool.start_collateral_cooldown("lock1", 2000).unwrap();
+
+        // Try to start cooldown again
+        let result = pool.start_collateral_cooldown("lock1", 3000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_collateral_lock_creation() {
+        let lock = CollateralLock::new(
+            "lock1".to_string(),
+            "mn1".to_string(),
+            "owner1".to_string(),
+            10 * TIME_UNIT,
+            1000,
+            DEFAULT_LOCK_PERIOD,
+        );
+
+        assert_eq!(lock.id, "lock1");
+        assert_eq!(lock.masternode_id, "mn1");
+        assert_eq!(lock.owner, "owner1");
+        assert_eq!(lock.amount, 10 * TIME_UNIT);
+        assert_eq!(lock.locked_at, 1000);
+        assert_eq!(lock.lock_period, DEFAULT_LOCK_PERIOD);
+        assert_eq!(lock.status, CollateralLockStatus::Locked);
+        assert!(lock.cooldown_started_at.is_none());
+        assert!(lock.cooldown_ends_at.is_none());
     }
 }

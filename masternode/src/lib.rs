@@ -231,6 +231,14 @@ pub struct MasternodeCounts {
 // Optional status module
 pub mod status;
 
+// Module declarations for the new registry implementation
+pub mod types;
+pub mod collateral;
+pub mod rewards;
+pub mod registry;
+
+pub use registry::MasternodeRegistry;
+
 // --- Tests
 #[cfg(test)]
 mod tests {

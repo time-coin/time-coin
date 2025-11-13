@@ -6,6 +6,11 @@ use time_masternode::*;
 fn test_masternode_lifecycle() {
     let mut registry = MasternodeRegistry::new();
 
+    // Fund treasury first
+    registry.treasury_mut().deposit_block_reward(1, 1000).unwrap();
+    registry.treasury_mut().deposit_block_reward(2, 2000).unwrap();
+    registry.treasury_mut().deposit_block_reward(3, 3000).unwrap();
+
     // Register Verified tier masternode
     let id = registry
         .register(
@@ -18,6 +23,7 @@ fn test_masternode_lifecycle() {
                 public_key: "pubkey123".to_string(),
             },
             1000,
+            1000, // timestamp
         )
         .unwrap();
 
@@ -80,6 +86,10 @@ fn test_voting_power_scaling() {
 fn test_tier_upgrade() {
     let mut registry = MasternodeRegistry::new();
 
+    // Fund treasury first
+    registry.treasury_mut().deposit_block_reward(1, 1000).unwrap();
+    registry.treasury_mut().deposit_block_reward(2, 2000).unwrap();
+
     // Start with Community tier
     let id = registry
         .register(
@@ -92,6 +102,7 @@ fn test_tier_upgrade() {
                 public_key: "pubkey".to_string(),
             },
             100,
+            1000, // timestamp
         )
         .unwrap();
 
