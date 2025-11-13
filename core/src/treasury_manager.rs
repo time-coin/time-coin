@@ -54,6 +54,19 @@ pub enum VoteChoice {
     Abstain,
 }
 
+/// Parameters for creating a new treasury proposal
+#[derive(Debug, Clone)]
+pub struct CreateProposalParams {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub recipient: String,
+    pub amount: u64,
+    pub submitter: String,
+    pub submission_time: u64,
+    pub voting_period_days: u64,
+}
+
 /// Treasury manager that handles proposals and voting
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreasuryManager {
@@ -80,40 +93,33 @@ impl TreasuryManager {
     /// Create a new proposal
     pub fn create_proposal(
         &mut self,
-        id: String,
-        title: String,
-        description: String,
-        recipient: String,
-        amount: u64,
-        submitter: String,
-        submission_time: u64,
-        voting_period_days: u64,
+        params: CreateProposalParams,
     ) -> Result<(), StateError> {
         // Check if proposal ID already exists
-        if self.proposals.contains_key(&id) {
+        if self.proposals.contains_key(&params.id) {
             return Err(StateError::IoError(format!(
                 "Proposal {} already exists",
-                id
+                params.id
             )));
         }
 
         // Create the proposal
         let proposal = TreasuryProposal {
-            id: id.clone(),
-            title,
-            description,
-            recipient,
-            amount,
-            submitter,
-            submission_time,
-            voting_deadline: submission_time + (voting_period_days * 86400),
-            execution_deadline: submission_time + ((voting_period_days + 30) * 86400),
+            id: params.id.clone(),
+            title: params.title,
+            description: params.description,
+            recipient: params.recipient,
+            amount: params.amount,
+            submitter: params.submitter,
+            submission_time: params.submission_time,
+            voting_deadline: params.submission_time + (params.voting_period_days * 86400),
+            execution_deadline: params.submission_time + ((params.voting_period_days + 30) * 86400),
             status: ProposalStatus::Active,
             votes: HashMap::new(),
             total_voting_power: self.total_voting_power,
         };
 
-        self.proposals.insert(id, proposal);
+        self.proposals.insert(params.id, proposal);
         Ok(())
     }
 
@@ -343,16 +349,16 @@ mod tests {
         let mut manager = TreasuryManager::new();
 
         manager
-            .create_proposal(
-                "prop-1".to_string(),
-                "Test Proposal".to_string(),
-                "Description".to_string(),
-                "recipient123".to_string(),
-                1000000,
-                "submitter123".to_string(),
-                1000,
-                14,
-            )
+            .create_proposal(CreateProposalParams {
+                id: "prop-1".to_string(),
+                title: "Test Proposal".to_string(),
+                description: "Description".to_string(),
+                recipient: "recipient123".to_string(),
+                amount: 1000000,
+                submitter: "submitter123".to_string(),
+                submission_time: 1000,
+                voting_period_days: 14,
+            })
             .unwrap();
 
         let proposal = manager.get_proposal("prop-1").unwrap();
@@ -366,16 +372,16 @@ mod tests {
         manager.set_total_voting_power(300);
 
         manager
-            .create_proposal(
-                "prop-1".to_string(),
-                "Test".to_string(),
-                "Desc".to_string(),
-                "recipient".to_string(),
-                1000000,
-                "submitter".to_string(),
-                1000,
-                14,
-            )
+            .create_proposal(CreateProposalParams {
+                id: "prop-1".to_string(),
+                title: "Test".to_string(),
+                description: "Desc".to_string(),
+                recipient: "recipient".to_string(),
+                amount: 1000000,
+                submitter: "submitter".to_string(),
+                submission_time: 1000,
+                voting_period_days: 14,
+            })
             .unwrap();
 
         // Add votes
@@ -397,16 +403,16 @@ mod tests {
         manager.set_total_voting_power(300);
 
         manager
-            .create_proposal(
-                "prop-1".to_string(),
-                "Test".to_string(),
-                "Desc".to_string(),
-                "recipient".to_string(),
-                1000000,
-                "submitter".to_string(),
-                1000,
-                14,
-            )
+            .create_proposal(CreateProposalParams {
+                id: "prop-1".to_string(),
+                title: "Test".to_string(),
+                description: "Desc".to_string(),
+                recipient: "recipient".to_string(),
+                amount: 1000000,
+                submitter: "submitter".to_string(),
+                submission_time: 1000,
+                voting_period_days: 14,
+            })
             .unwrap();
 
         // Add 67% YES votes
