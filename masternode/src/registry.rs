@@ -48,7 +48,7 @@ impl MasternodeRegistry {
             .map_err(|e| format!("Failed to lock collateral: {}", e))?;
         
         self.masternodes.insert(id.clone(), masternode);
-        self.by_owner.entry(owner).or_insert_with(Vec::new).push(id.clone());
+        self.by_owner.entry(owner).or_default().push(id.clone());
         self.total_collateral += collateral;
 
         Ok(id)
