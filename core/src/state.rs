@@ -81,6 +81,271 @@ pub struct TxInvalidationEvent {
     pub affected_addresses: Vec<String>,
 }
 
+/// Treasury allocation record
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreasuryAllocation {
+    pub block_number: u64,
+    pub amount: u64,
+    pub source: TreasurySource,
+    pub timestamp: i64,
+}
+
+/// Source of treasury funds
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TreasurySource {
+    BlockReward,
+    TransactionFees,
+}
+
+/// Treasury withdrawal record
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreasuryWithdrawal {
+    pub proposal_id: String,
+    pub amount: u64,
+    pub recipient: String,
+    pub block_number: u64,
+    pub timestamp: i64,
+}
+
+/// Protocol-managed treasury state (no wallet address or private key)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Treasury {
+    /// Current treasury balance (tracked in state, not UTXOs)
+    balance: u64,
+    
+    /// Total amount ever allocated to treasury
+    total_allocated: u64,
+    
+    /// Total amount distributed from treasury
+    total_distributed: u64,
+    
+    /// History of all allocations
+    allocations: Vec<TreasuryAllocation>,
+    
+    /// History of all withdrawals
+    withdrawals: Vec<TreasuryWithdrawal>,
+    
+    /// Approved proposals that can withdraw funds
+    approved_proposals: HashMap<String, u64>, // proposal_id -> approved_amount
+    
+    /// Percentage of block rewards allocated to treasury (default 5%)
+    block_reward_percentage: u64,
+    
+    /// Percentage of transaction fees allocated to treasury (default 50%)
+    fee_percentage: u64,
+}
+
+impl Treasury {
+    /// Create a new empty treasury
+    pub fn new() -> Self {
+        Self {
+            balance: 0,
+            total_allocated: 0,
+            total_distributed: 0,
+            allocations: Vec::new(),
+            withdrawals: Vec::new(),
+            approved_proposals: HashMap::new(),
+            block_reward_percentage: 5, // 5% of block rewards
+            fee_percentage: 50,          // 50% of transaction fees
+        }
+    }
+    
+    /// Get current balance
+    pub fn balance(&self) -> u64 {
+        self.balance
+    }
+    
+    /// Get total allocated
+    pub fn total_allocated(&self) -> u64 {
+        self.total_allocated
+    }
+    
+    /// Get total distributed
+    pub fn total_distributed(&self) -> u64 {
+        self.total_distributed
+    }
+    
+    /// Get allocation history
+    pub fn allocations(&self) -> &[TreasuryAllocation] {
+        &self.allocations
+    }
+    
+    /// Get withdrawal history
+    pub fn withdrawals(&self) -> &[TreasuryWithdrawal] {
+        &self.withdrawals
+    }
+    
+    /// Allocate funds from block reward
+    pub fn allocate_from_block_reward(
+        &mut self,
+        block_number: u64,
+        block_reward: u64,
+        timestamp: i64,
+    ) -> Result<u64, StateError> {
+        let allocation = (block_reward * self.block_reward_percentage) / 100;
+        
+        self.balance = self.balance.checked_add(allocation)
+            .ok_or_else(|| StateError::IoError("Treasury balance overflow".to_string()))?;
+        
+        self.total_allocated = self.total_allocated.checked_add(allocation)
+            .ok_or_else(|| StateError::IoError("Treasury total allocation overflow".to_string()))?;
+        
+        self.allocations.push(TreasuryAllocation {
+            block_number,
+            amount: allocation,
+            source: TreasurySource::BlockReward,
+            timestamp,
+        });
+        
+        Ok(allocation)
+    }
+    
+    /// Allocate funds from transaction fees
+    pub fn allocate_from_fees(
+        &mut self,
+        block_number: u64,
+        total_fees: u64,
+        timestamp: i64,
+    ) -> Result<u64, StateError> {
+        if total_fees == 0 {
+            return Ok(0);
+        }
+        
+        let allocation = (total_fees * self.fee_percentage) / 100;
+        
+        self.balance = self.balance.checked_add(allocation)
+            .ok_or_else(|| StateError::IoError("Treasury balance overflow".to_string()))?;
+        
+        self.total_allocated = self.total_allocated.checked_add(allocation)
+            .ok_or_else(|| StateError::IoError("Treasury total allocation overflow".to_string()))?;
+        
+        self.allocations.push(TreasuryAllocation {
+            block_number,
+            amount: allocation,
+            source: TreasurySource::TransactionFees,
+            timestamp,
+        });
+        
+        Ok(allocation)
+    }
+    
+    /// Approve a proposal for spending (called by governance)
+    pub fn approve_proposal(&mut self, proposal_id: String, amount: u64) -> Result<(), StateError> {
+        if amount > self.balance {
+            return Err(StateError::IoError(format!(
+                "Insufficient treasury balance: requested {}, available {}",
+                amount, self.balance
+            )));
+        }
+        
+        self.approved_proposals.insert(proposal_id, amount);
+        Ok(())
+    }
+    
+    /// Distribute funds for an approved proposal
+    pub fn distribute(
+        &mut self,
+        proposal_id: String,
+        recipient: String,
+        amount: u64,
+        block_number: u64,
+        timestamp: i64,
+    ) -> Result<(), StateError> {
+        // Check if proposal is approved
+        let approved_amount = self.approved_proposals.get(&proposal_id)
+            .ok_or_else(|| StateError::IoError(format!("Proposal {} not approved", proposal_id)))?;
+        
+        if amount > *approved_amount {
+            return Err(StateError::IoError(format!(
+                "Requested amount {} exceeds approved amount {}",
+                amount, approved_amount
+            )));
+        }
+        
+        if amount > self.balance {
+            return Err(StateError::IoError(format!(
+                "Insufficient treasury balance: requested {}, available {}",
+                amount, self.balance
+            )));
+        }
+        
+        // Deduct from balance
+        self.balance = self.balance.checked_sub(amount)
+            .ok_or_else(|| StateError::IoError("Treasury balance underflow".to_string()))?;
+        
+        self.total_distributed = self.total_distributed.checked_add(amount)
+            .ok_or_else(|| StateError::IoError("Treasury total distribution overflow".to_string()))?;
+        
+        // Record withdrawal
+        self.withdrawals.push(TreasuryWithdrawal {
+            proposal_id: proposal_id.clone(),
+            amount,
+            recipient,
+            block_number,
+            timestamp,
+        });
+        
+        // Update or remove approved amount
+        let remaining = approved_amount.checked_sub(amount)
+            .ok_or_else(|| StateError::IoError("Approved amount underflow".to_string()))?;
+        
+        if remaining == 0 {
+            self.approved_proposals.remove(&proposal_id);
+        } else {
+            self.approved_proposals.insert(proposal_id, remaining);
+        }
+        
+        Ok(())
+    }
+    
+    /// Get statistics
+    pub fn get_stats(&self) -> TreasuryStats {
+        TreasuryStats {
+            balance: self.balance,
+            total_allocated: self.total_allocated,
+            total_distributed: self.total_distributed,
+            allocation_count: self.allocations.len(),
+            withdrawal_count: self.withdrawals.len(),
+            pending_proposals: self.approved_proposals.len(),
+        }
+    }
+    
+    /// Set block reward percentage (for governance parameter changes)
+    pub fn set_block_reward_percentage(&mut self, percentage: u64) -> Result<(), StateError> {
+        if percentage > 100 {
+            return Err(StateError::IoError("Percentage cannot exceed 100".to_string()));
+        }
+        self.block_reward_percentage = percentage;
+        Ok(())
+    }
+    
+    /// Set fee percentage (for governance parameter changes)
+    pub fn set_fee_percentage(&mut self, percentage: u64) -> Result<(), StateError> {
+        if percentage > 100 {
+            return Err(StateError::IoError("Percentage cannot exceed 100".to_string()));
+        }
+        self.fee_percentage = percentage;
+        Ok(())
+    }
+}
+
+impl Default for Treasury {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Treasury statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreasuryStats {
+    pub balance: u64,
+    pub total_allocated: u64,
+    pub total_distributed: u64,
+    pub allocation_count: usize,
+    pub withdrawal_count: usize,
+    pub pending_proposals: usize,
+}
+
 /// Main blockchain state
 #[derive(Debug, Clone)]
 pub struct BlockchainState {
@@ -113,6 +378,9 @@ pub struct BlockchainState {
 
     /// Genesis block hash
     genesis_hash: String,
+
+    /// Protocol-managed treasury (no wallet/private key)
+    treasury: Treasury,
 }
 
 impl BlockchainState {
@@ -153,6 +421,7 @@ impl BlockchainState {
             genesis_hash: genesis_block.hash.clone(),
             db,
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
+            treasury: Treasury::new(),
         };
 
         // Load blocks from disk if they match the genesis
@@ -405,6 +674,30 @@ impl BlockchainState {
 
         match block.validate_and_apply(&mut self.utxo_set, &self.masternode_counts) {
             Ok(_) => {
+                // Allocate treasury funds from block reward and fees
+                let timestamp = block.header.timestamp.timestamp();
+                let block_number = block.header.block_number;
+                
+                // Calculate total masternode reward to derive treasury allocation
+                let masternode_reward = crate::block::calculate_total_masternode_reward(&self.masternode_counts);
+                
+                // Allocate from block reward (5% of masternode reward pool)
+                let _ = self.treasury.allocate_from_block_reward(
+                    block_number,
+                    masternode_reward,
+                    timestamp,
+                )?;
+                
+                // Allocate from transaction fees (50% of total fees)
+                let total_fees = block.total_fees(&self.utxo_set)?;
+                if total_fees > 0 {
+                    let _ = self.treasury.allocate_from_fees(
+                        block_number,
+                        total_fees,
+                        timestamp,
+                    )?;
+                }
+                
                 self.db.save_block(&block)?;
                 self.blocks_by_height
                     .insert(block.header.block_number, block.hash.clone());
@@ -536,6 +829,9 @@ impl BlockchainState {
             bronze_masternodes: self.masternode_counts.bronze,
             silver_masternodes: self.masternode_counts.silver,
             gold_masternodes: self.masternode_counts.gold,
+            treasury_balance: self.treasury.balance(),
+            treasury_total_allocated: self.treasury.total_allocated(),
+            treasury_total_distributed: self.treasury.total_distributed(),
         }
     }
 
@@ -605,6 +901,43 @@ impl BlockchainState {
             .cloned()
             .collect()
     }
+
+    /// Get treasury reference
+    pub fn treasury(&self) -> &Treasury {
+        &self.treasury
+    }
+
+    /// Get treasury statistics
+    pub fn treasury_stats(&self) -> TreasuryStats {
+        self.treasury.get_stats()
+    }
+
+    /// Approve a governance proposal for treasury spending
+    pub fn approve_treasury_proposal(
+        &mut self,
+        proposal_id: String,
+        amount: u64,
+    ) -> Result<(), StateError> {
+        self.treasury.approve_proposal(proposal_id, amount)
+    }
+
+    /// Distribute treasury funds for an approved proposal
+    /// This should only be called after governance consensus is reached
+    pub fn distribute_treasury_funds(
+        &mut self,
+        proposal_id: String,
+        recipient: String,
+        amount: u64,
+    ) -> Result<(), StateError> {
+        let timestamp = chrono::Utc::now().timestamp();
+        self.treasury.distribute(
+            proposal_id,
+            recipient,
+            amount,
+            self.chain_tip_height,
+            timestamp,
+        )
+    }
 }
 
 /// Chain statistics
@@ -619,6 +952,9 @@ pub struct ChainStats {
     pub bronze_masternodes: u64,
     pub silver_masternodes: u64,
     pub gold_masternodes: u64,
+    pub treasury_balance: u64,
+    pub treasury_total_allocated: u64,
+    pub treasury_total_distributed: u64,
 }
 
 /// Test module
@@ -778,5 +1114,222 @@ mod tests {
                 error_msg
             );
         }
+    }
+
+    #[test]
+    fn test_treasury_initialization() {
+        let genesis = create_genesis_block();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let state = BlockchainState::new(genesis, &db_path).unwrap();
+        
+        // Treasury should be initialized with zero balance
+        assert_eq!(state.treasury().balance(), 0);
+        assert_eq!(state.treasury().total_allocated(), 0);
+        assert_eq!(state.treasury().total_distributed(), 0);
+    }
+
+    #[test]
+    fn test_treasury_allocation_from_block() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register a Free tier masternode
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral_tx_1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
+
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+
+        // Create block
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        
+        state.add_block(block1).unwrap();
+
+        // Check treasury received allocation (5% of masternode reward)
+        let expected_allocation = (masternode_reward * 5) / 100;
+        assert_eq!(state.treasury().balance(), expected_allocation);
+        assert_eq!(state.treasury().total_allocated(), expected_allocation);
+        assert_eq!(state.treasury().allocations().len(), 1);
+    }
+
+    #[test]
+    fn test_treasury_proposal_approval_and_distribution() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register masternode and add block to fund treasury
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral_tx_1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
+
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        let treasury_balance = state.treasury().balance();
+        assert!(treasury_balance > 0);
+
+        // Approve a proposal
+        let proposal_amount = treasury_balance / 2;
+        state
+            .approve_treasury_proposal("proposal-1".to_string(), proposal_amount)
+            .unwrap();
+
+        // Distribute funds
+        state
+            .distribute_treasury_funds(
+                "proposal-1".to_string(),
+                "recipient".to_string(),
+                proposal_amount,
+            )
+            .unwrap();
+
+        // Check treasury balance decreased
+        assert_eq!(state.treasury().balance(), treasury_balance - proposal_amount);
+        assert_eq!(state.treasury().total_distributed(), proposal_amount);
+        assert_eq!(state.treasury().withdrawals().len(), 1);
+    }
+
+    #[test]
+    fn test_treasury_insufficient_balance() {
+        let genesis = create_genesis_block();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Try to approve proposal with more than treasury balance
+        let result = state.approve_treasury_proposal("proposal-1".to_string(), 1_000_000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_treasury_unapproved_distribution() {
+        let genesis = create_genesis_block();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Try to distribute funds without approval
+        let result = state.distribute_treasury_funds(
+            "unapproved-proposal".to_string(),
+            "recipient".to_string(),
+            1000,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_treasury_stats() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register masternode and add block
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral_tx_1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
+
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        // Check stats
+        let stats = state.treasury_stats();
+        assert!(stats.balance > 0);
+        assert_eq!(stats.allocation_count, 1);
+        assert_eq!(stats.withdrawal_count, 0);
+        assert_eq!(stats.pending_proposals, 0);
+
+        // Check chain stats include treasury info
+        let chain_stats = state.get_stats();
+        assert_eq!(chain_stats.treasury_balance, stats.balance);
+        assert_eq!(chain_stats.treasury_total_allocated, stats.total_allocated);
     }
 }
