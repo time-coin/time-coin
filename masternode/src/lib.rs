@@ -2,13 +2,13 @@
 //!
 //! 3-tier masternode system with performance-based rewards
 
+pub use time_core::constants::{COIN, MASTERNODE_REWARD};
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use time_core::Transaction;
 use wallet::Address;
-
-const COIN: u64 = 100_000_000; // 1 TIME = 100,000,000 satoshis
 
 /// Masternode collateral tiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -228,8 +228,20 @@ pub struct MasternodeCounts {
     pub professional: usize,
 }
 
-// Optional status module
+// Public modules
+pub mod collateral;
+pub mod error;
+pub mod heartbeat;
+pub mod node;
+pub mod registry;
+pub mod reputation;
+pub mod rewards;
+pub mod selection;
 pub mod status;
+pub mod types;
+pub mod voting;
+pub mod violations;
+pub mod detector;
 
 // --- Tests
 #[cfg(test)]

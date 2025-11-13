@@ -36,6 +36,12 @@ pub enum MasternodeError {
 
     #[error("Serialization error: {0}")]
     SerializationError(String),
+
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+
+    #[error("Violation detected: {0}")]
+    ViolationDetected(String),
 }
 
 pub type Result<T> = std::result::Result<T, MasternodeError>;

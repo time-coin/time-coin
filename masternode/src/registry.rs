@@ -91,7 +91,7 @@ impl Default for MasternodeRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use time_core::COIN;
+    use time_core::constants::COIN;
 
     #[test]
     fn test_register_masternode() {

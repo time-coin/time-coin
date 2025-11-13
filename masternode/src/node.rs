@@ -186,14 +186,14 @@ mod tests {
         let mn = Masternode::new(
             "mn1".to_string(),
             "pubkey123".to_string(),
-            CollateralTier::Gold,
+            CollateralTier::Professional,
             "127.0.0.1".to_string(),
             9999,
             1000,
         );
 
         assert_eq!(mn.status, MasternodeStatus::Pending);
-        assert_eq!(mn.tier, CollateralTier::Gold);
+        assert_eq!(mn.tier, CollateralTier::Professional);
     }
 
     #[test]
@@ -201,7 +201,7 @@ mod tests {
         let mut mn = Masternode::new(
             "mn1".to_string(),
             "pubkey123".to_string(),
-            CollateralTier::Gold,
+            CollateralTier::Professional,
             "127.0.0.1".to_string(),
             9999,
             1000,
@@ -216,7 +216,7 @@ mod tests {
         let mut mn = Masternode::new(
             "mn1".to_string(),
             "pubkey123".to_string(),
-            CollateralTier::Gold,
+            CollateralTier::Professional,
             "127.0.0.1".to_string(),
             9999,
             1000,
