@@ -1287,6 +1287,7 @@ async fn main() {
     let mempool = Arc::new(time_mempool::Mempool::with_blockchain(
         10000,
         blockchain.clone(),
+        network_name.clone(),
     ));
 
     // Load mempool from disk

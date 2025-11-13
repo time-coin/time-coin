@@ -148,7 +148,7 @@ async fn main() {
     println!("   (Signature format differences between wallet & mempool)\n");
 
     // Create REAL mempool with 10k transaction capacity
-    let mempool = Arc::new(Mempool::new(10_000));
+    let mempool = Arc::new(Mempool::new(10_000, "testnet".to_string()));
     println!("✅ Real mempool initialized (capacity: 10,000 txs)\n");
 
     let blockchain = BlockchainSimulator::new(mempool.clone());

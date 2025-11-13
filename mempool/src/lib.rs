@@ -24,6 +24,8 @@ pub struct Mempool {
     blockchain: Option<Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
     /// Track UTXOs being spent by transactions in mempool (to prevent double-spends)
     spent_utxos: Arc<RwLock<std::collections::HashSet<time_core::OutPoint>>>,
+    /// Network type (testnet or mainnet) - used to determine if coinbase transactions are allowed
+    network: String,
 }
 
 /// Entry in the mempool with metadata
@@ -39,12 +41,13 @@ pub struct MempoolEntry {
 
 impl Mempool {
     /// Create a new mempool
-    pub fn new(max_size: usize) -> Self {
+    pub fn new(max_size: usize, network: String) -> Self {
         Self {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             max_size,
             blockchain: None,
             spent_utxos: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            network,
         }
     }
 
@@ -52,12 +55,14 @@ impl Mempool {
     pub fn with_blockchain(
         max_size: usize,
         blockchain: Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
+        network: String,
     ) -> Self {
         Self {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             max_size,
             blockchain: Some(blockchain),
             spent_utxos: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            network,
         }
     }
 
@@ -235,10 +240,16 @@ impl Mempool {
         blockchain: &Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
     ) -> Result<(), MempoolError> {
         // Coinbase transactions should ONLY be created by block producers
+        // EXCEPTION: Allow in testnet mode for minting test coins
         if tx.is_coinbase() {
-            return Err(MempoolError::InvalidTransaction(
-                time_core::TransactionError::InvalidInput,
-            ));
+            let is_testnet = self.network.to_uppercase() == "TESTNET";
+            if !is_testnet {
+                return Err(MempoolError::InvalidTransaction(
+                    time_core::TransactionError::InvalidInput,
+                ));
+            }
+            // In testnet mode, allow coinbase transactions (for minting)
+            return Ok(());
         }
 
         let chain = blockchain.read().await;
@@ -480,7 +491,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_add_and_get() {
-        let mempool = Mempool::new(100);
+        let mempool = Mempool::new(100, "testnet".to_string());
 
         let tx = Transaction {
             txid: "test_tx_1".to_string(),
@@ -505,7 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_priority_selection() {
-        let mempool = Mempool::new(100);
+        let mempool = Mempool::new(100, "testnet".to_string());
 
         // Add transactions with different priorities
         for i in 0..5 {
@@ -525,5 +536,54 @@ mod tests {
 
         let selected = mempool.select_transactions(3).await;
         assert_eq!(selected.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_coinbase_rejected_in_mainnet() {
+        // Create mempool for mainnet (without blockchain, so it won't validate UTXO)
+        let mempool = Mempool::new(100, "mainnet".to_string());
+
+        // Create a coinbase transaction (no inputs)
+        let coinbase_tx = Transaction {
+            txid: "coinbase_tx_1".to_string(),
+            version: 1,
+            inputs: vec![],  // Coinbase = no inputs
+            outputs: vec![TxOutput {
+                amount: 1000,
+                address: "addr1".to_string(),
+            }],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+
+        // Should be accepted without blockchain validation (no UTXO check)
+        // The coinbase check only happens when blockchain is present
+        let result = mempool.add_transaction(coinbase_tx).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_coinbase_accepted_in_testnet() {
+        // Create mempool for testnet (without blockchain, so it won't validate UTXO)
+        let mempool = Mempool::new(100, "testnet".to_string());
+
+        // Create a coinbase transaction (no inputs)
+        let coinbase_tx = Transaction {
+            txid: "coinbase_tx_1".to_string(),
+            version: 1,
+            inputs: vec![],  // Coinbase = no inputs
+            outputs: vec![TxOutput {
+                amount: 1000,
+                address: "addr1".to_string(),
+            }],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+
+        // Should be accepted in testnet
+        let result = mempool.add_transaction(coinbase_tx.clone()).await;
+        assert!(result.is_ok());
+        assert_eq!(mempool.size().await, 1);
+        assert!(mempool.contains("coinbase_tx_1").await);
     }
 }
