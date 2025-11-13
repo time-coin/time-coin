@@ -3,7 +3,7 @@
 //! Tests various attack scenarios and violation detection mechanisms
 
 use time_masternode::{
-    detector::{DetectorConfig, ViolationDetector},
+    detector::{DetectorConfig, InvalidBlockParams, ViolationDetector},
     violations::*,
 };
 
@@ -48,15 +48,15 @@ fn test_invalid_merkle_root_attack() {
     let mut detector = ViolationDetector::new();
 
     // Node proposes a block with invalid merkle root
-    let violation = detector.record_invalid_block(
-        "bad_node".to_string(),
-        5000,
-        "invalid_block_hash".to_string(),
-        "Merkle root mismatch".to_string(),
-        Some("expected_merkle_root".to_string()),
-        Some("actual_merkle_root".to_string()),
-        10000,
-    );
+    let violation = detector.record_invalid_block(InvalidBlockParams {
+        masternode_id: "bad_node".to_string(),
+        block_height: 5000,
+        block_hash: "invalid_block_hash".to_string(),
+        reason: "Merkle root mismatch".to_string(),
+        expected_merkle_root: Some("expected_merkle_root".to_string()),
+        actual_merkle_root: Some("actual_merkle_root".to_string()),
+        timestamp: 10000,
+    });
 
     assert_eq!(violation.severity(), ViolationSeverity::Moderate);
     assert_eq!(
@@ -273,15 +273,15 @@ fn test_multiple_violations_same_node() {
     // Node commits multiple violations
 
     // 1. Invalid block
-    detector.record_invalid_block(
-        "bad_actor".to_string(),
-        1000,
-        "hash1".to_string(),
-        "Invalid transaction".to_string(),
-        None,
-        None,
-        5000,
-    );
+    detector.record_invalid_block(InvalidBlockParams {
+        masternode_id: "bad_actor".to_string(),
+        block_height: 1000,
+        block_hash: "hash1".to_string(),
+        reason: "Invalid transaction".to_string(),
+        expected_merkle_root: None,
+        actual_merkle_root: None,
+        timestamp: 5000,
+    });
 
     // 2. Data withholding (triggers at 5th failure)
     for i in 0..5 {
@@ -295,15 +295,15 @@ fn test_multiple_violations_same_node() {
     }
 
     // 3. Another invalid block
-    detector.record_invalid_block(
-        "bad_actor".to_string(),
-        1100,
-        "hash2".to_string(),
-        "Invalid signature".to_string(),
-        None,
-        None,
-        5100,
-    );
+    detector.record_invalid_block(InvalidBlockParams {
+        masternode_id: "bad_actor".to_string(),
+        block_height: 1100,
+        block_hash: "hash2".to_string(),
+        reason: "Invalid signature".to_string(),
+        expected_merkle_root: None,
+        actual_merkle_root: None,
+        timestamp: 5100,
+    });
 
     let violations = detector.get_violations_for_masternode("bad_actor");
     // Should have: 1 invalid block + 1 data withholding + 1 invalid block = 3 violations
@@ -316,15 +316,15 @@ fn test_violation_penalties_accumulate() {
 
     // Multiple minor violations
     for i in 0..3 {
-        detector.record_invalid_block(
-            "serial_offender".to_string(),
-            1000 + i,
-            format!("hash{}", i),
-            "Minor issue".to_string(),
-            None,
-            None,
-            5000 + i,
-        );
+        detector.record_invalid_block(InvalidBlockParams {
+            masternode_id: "serial_offender".to_string(),
+            block_height: 1000 + i,
+            block_hash: format!("hash{}", i),
+            reason: "Minor issue".to_string(),
+            expected_merkle_root: None,
+            actual_merkle_root: None,
+            timestamp: 5000 + i,
+        });
     }
 
     let violations = detector.get_violations_for_masternode("serial_offender");
