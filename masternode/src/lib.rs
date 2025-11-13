@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use time_core::Transaction;
 use wallet::Address;
 
-const COIN: u64 = 100_000_000; // 1 TIME = 100,000,000 satoshis
+pub const COIN: u64 = 100_000_000; // 1 TIME = 100,000,000 satoshis
 
 /// Masternode collateral tiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -78,6 +78,16 @@ impl CollateralTier {
             CollateralTier::Professional => 50,
         }
     }
+
+    /// Vote maturity period in blocks before a newly registered masternode can vote
+    /// This prevents instant takeover by newly coordinated malicious nodes
+    pub fn vote_maturity_blocks(&self) -> u64 {
+        match self {
+            CollateralTier::Community => 1,      // 1 block for Community tier
+            CollateralTier::Verified => 3,       // 3 blocks for Verified tier
+            CollateralTier::Professional => 10,  // 10 blocks for Professional tier
+        }
+    }
 }
 
 /// Masternode configuration and state
@@ -91,6 +101,8 @@ pub struct Masternode {
     pub last_seen: i64,
     pub uptime_score: f64,
     pub kyc_verified: bool,
+    pub is_slashed: bool,
+    pub slashing_history: Vec<slashing::SlashingRecord>,
 }
 
 impl Masternode {
@@ -110,6 +122,8 @@ impl Masternode {
             last_seen: now,
             uptime_score: 1.0,
             kyc_verified: false,
+            is_slashed: false,
+            slashing_history: Vec::new(),
         })
     }
 
@@ -140,6 +154,58 @@ impl Masternode {
 
     pub fn meets_requirements(&self) -> bool {
         self.uptime_score >= self.tier.min_uptime() && self.is_active()
+    }
+
+    /// Execute slashing for a violation
+    /// Returns the slash amount and updates the masternode state
+    pub fn execute_slash(
+        &mut self,
+        violation: slashing::Violation,
+        timestamp: i64,
+        block_height: u64,
+    ) -> Result<slashing::SlashingRecord, String> {
+        if self.is_slashed {
+            return Err("Masternode is already slashed".to_string());
+        }
+
+        // Calculate slash amount
+        let slash_amount = slashing::calculate_slash_amount(&violation, self.collateral_amount);
+
+        // Deduct collateral
+        if slash_amount > self.collateral_amount {
+            return Err("Slash amount exceeds collateral".to_string());
+        }
+
+        self.collateral_amount -= slash_amount;
+
+        // Update tier based on remaining collateral and mark as slashed if below minimum
+        match CollateralTier::from_amount(self.collateral_amount) {
+            Ok(new_tier) => {
+                self.tier = new_tier;
+                // Node can continue with lower tier
+            }
+            Err(_) => {
+                // Collateral below minimum tier requirement (1,000 COIN)
+                self.is_slashed = true;
+            }
+        }
+
+        // Create slashing record
+        let record_id = format!("slash-{}-{}", self.address, timestamp);
+        let record = slashing::SlashingRecord::new(
+            record_id,
+            self.address.to_string(),
+            violation,
+            slash_amount,
+            self.collateral_amount,
+            timestamp as u64,
+            block_height,
+        );
+
+        // Add to history
+        self.slashing_history.push(record.clone());
+
+        Ok(record)
     }
 }
 
@@ -212,6 +278,50 @@ impl MasternodeNetwork {
         }
         dist
     }
+
+    /// Execute slashing on a masternode
+    /// Returns the slashing record and the amount to be transferred to treasury
+    pub fn slash_masternode(
+        &mut self,
+        address: &Address,
+        violation: slashing::Violation,
+        timestamp: i64,
+        block_height: u64,
+    ) -> Result<slashing::SlashingRecord, String> {
+        let node = self
+            .nodes
+            .get_mut(address)
+            .ok_or_else(|| "Masternode not found".to_string())?;
+
+        // Execute the slash on the masternode
+        let record = node.execute_slash(violation, timestamp, block_height)?;
+
+        Ok(record)
+    }
+
+    /// Get all slashing records across all masternodes
+    pub fn get_all_slashing_records(&self) -> Vec<&slashing::SlashingRecord> {
+        self.nodes
+            .values()
+            .flat_map(|node| &node.slashing_history)
+            .collect()
+    }
+
+    /// Get slashing records for a specific masternode
+    pub fn get_slashing_records(&self, address: &Address) -> Vec<&slashing::SlashingRecord> {
+        self.nodes
+            .get(address)
+            .map(|node| node.slashing_history.iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Check if a masternode is slashed
+    pub fn is_slashed(&self, address: &Address) -> bool {
+        self.nodes
+            .get(address)
+            .map(|node| node.is_slashed)
+            .unwrap_or(false)
+    }
 }
 
 impl Default for MasternodeNetwork {
@@ -230,6 +340,12 @@ pub struct MasternodeCounts {
 
 // Optional status module
 pub mod status;
+
+// Slashing module
+pub mod slashing;
+
+// Slashing executor module
+pub mod slashing_executor;
 
 // Module declarations for the new registry implementation
 pub mod types;
