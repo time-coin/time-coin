@@ -51,7 +51,9 @@ pub async fn mint_coins(
 
     // Validate amount
     if request.amount == 0 {
-        return Err(ApiError::BadRequest("Amount must be greater than 0".to_string()));
+        return Err(ApiError::BadRequest(
+            "Amount must be greater than 0".to_string(),
+        ));
     }
 
     // Validate address format (basic check)
@@ -63,14 +65,21 @@ pub async fn mint_coins(
     let reason = request.reason.as_deref().unwrap_or("Testing");
     println!("🪙 TESTNET MINT REQUEST:");
     println!("   Address: {}", request.address);
-    println!("   Amount: {} satoshis ({} TIME)", request.amount, request.amount as f64 / 100_000_000.0);
+    println!(
+        "   Amount: {} satoshis ({} TIME)",
+        request.amount,
+        request.amount as f64 / 100_000_000.0
+    );
     println!("   Reason: {}", reason);
 
     // Create a special minting transaction (coinbase-style with no inputs)
     let output = TxOutput::new(request.amount, request.address.clone());
-    
+
     let mut tx = Transaction {
-        txid: format!("testnet_mint_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+        txid: format!(
+            "testnet_mint_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ),
         version: 1,
         inputs: vec![], // No inputs = minting new coins
         outputs: vec![output],
@@ -83,11 +92,13 @@ pub async fn mint_coins(
 
     // Add to mempool for inclusion in next block
     if let Some(mempool) = state.mempool.as_ref() {
-        mempool
-            .add_transaction(tx.clone())
-            .await
-            .map_err(|e| ApiError::Internal(format!("Failed to add minting transaction to mempool: {}", e)))?;
-        
+        mempool.add_transaction(tx.clone()).await.map_err(|e| {
+            ApiError::Internal(format!(
+                "Failed to add minting transaction to mempool: {}",
+                e
+            ))
+        })?;
+
         println!("   ✅ Minting transaction added to mempool");
         println!("   TX ID: {}", tx.txid);
     } else {
@@ -125,7 +136,7 @@ pub struct MintInfoResponse {
 /// Get information about testnet minting capabilities
 pub async fn get_mint_info(State(state): State<ApiState>) -> ApiResult<Json<MintInfoResponse>> {
     let is_testnet = state.network == "testnet";
-    
+
     Ok(Json(MintInfoResponse {
         network: state.network.clone(),
         minting_enabled: is_testnet,
@@ -145,11 +156,11 @@ mod tests {
     fn test_mint_request_validation() {
         let valid_request = MintCoinsRequest {
             address: "test_address_123".to_string(),
-            amount: 1000_000_000, // 10 TIME
+            amount: 1_000_000_000, // 10 TIME
             reason: Some("Testing".to_string()),
         };
 
-        assert_eq!(valid_request.amount, 1000_000_000);
+        assert_eq!(valid_request.amount, 1_000_000_000);
         assert!(!valid_request.address.is_empty());
     }
 

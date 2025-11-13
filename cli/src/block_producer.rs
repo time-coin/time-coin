@@ -485,7 +485,7 @@ impl BlockProducer {
             {
                 let blockchain = self.blockchain.read().await;
                 let utxo_map = blockchain.utxo_set().utxos();
-                
+
                 for tx in &transactions {
                     match tx.fee(utxo_map) {
                         Ok(fee) => {
@@ -493,17 +493,22 @@ impl BlockProducer {
                             println!("      📊 TX {} fee: {} satoshis", &tx.txid[..8], fee);
                         }
                         Err(e) => {
-                            println!("      ⚠️  Could not calculate fee for {}: {:?}", &tx.txid[..8], e);
+                            println!(
+                                "      ⚠️  Could not calculate fee for {}: {:?}",
+                                &tx.txid[..8],
+                                e
+                            );
                             // Skip transaction if fee can't be calculated
                         }
                     }
                 }
                 drop(blockchain);
             }
-            
+
             if total_fees > 0 {
-                println!("   💵 Total transaction fees: {} satoshis ({} TIME)", 
-                    total_fees, 
+                println!(
+                    "   💵 Total transaction fees: {} satoshis ({} TIME)",
+                    total_fees,
                     total_fees as f64 / 100_000_000.0
                 );
             }

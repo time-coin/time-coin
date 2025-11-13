@@ -715,7 +715,11 @@ async fn testnet_mint_command(
 
     println!("📋 Mint Request:");
     println!("   Address: {}", address.bright_blue());
-    println!("   Amount: {} TIME ({} satoshis)", amount.to_string().green().bold(), amount_satoshis);
+    println!(
+        "   Amount: {} TIME ({} satoshis)",
+        amount.to_string().green().bold(),
+        amount_satoshis
+    );
     if let Some(ref r) = reason {
         println!("   Reason: {}", r.bright_black());
     }
@@ -745,9 +749,9 @@ async fn testnet_mint_command(
     };
 
     let url = format!("{}/testnet/mint", rpc_url);
-    
+
     println!("📡 Sending mint request...");
-    
+
     match reqwest::Client::new()
         .post(&url)
         .json(&request)
@@ -766,7 +770,11 @@ async fn testnet_mint_command(
                             println!();
                             println!("Transaction Details:");
                             println!("  • TX ID: {}", mint_resp.txid.bright_blue());
-                            println!("  • Amount: {} satoshis ({} TIME)", mint_resp.amount, mint_resp.amount as f64 / 100_000_000.0);
+                            println!(
+                                "  • Amount: {} satoshis ({} TIME)",
+                                mint_resp.amount,
+                                mint_resp.amount as f64 / 100_000_000.0
+                            );
                             println!("  • Recipient: {}", mint_resp.address);
                             println!();
                             println!("💡 The minted coins will appear in the next block.");
@@ -797,7 +805,10 @@ async fn testnet_mint_command(
             eprintln!("{}", "❌ Connection failed!".red().bold());
             eprintln!("   Error: {}", e);
             eprintln!();
-            eprintln!("{}",  "Make sure the TIME Coin node is running and accessible at:".yellow());
+            eprintln!(
+                "{}",
+                "Make sure the TIME Coin node is running and accessible at:".yellow()
+            );
             eprintln!("   {}", rpc_url);
             std::process::exit(1);
         }

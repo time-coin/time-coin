@@ -2,10 +2,10 @@ mod error;
 mod handlers;
 pub mod masternode_handlers;
 pub mod quarantine_handlers;
-pub mod testnet_handlers;
 mod routes;
 mod rpc_handlers;
 mod state;
+pub mod testnet_handlers;
 
 pub use error::{ApiError, ApiResult};
 pub use state::ApiState;
