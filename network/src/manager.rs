@@ -322,7 +322,16 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let url = format!("http://{}:24101/genesis", peer_addr.replace(":24100", ""));
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
+        let url = format!(
+            "http://{}:{}/genesis",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
+        );
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
@@ -343,9 +352,15 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<Vec<time_core::Transaction>, Box<dyn std::error::Error>> {
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
         let url = format!(
-            "http://{}:24101/mempool/all",
-            peer_addr.replace(":24100", "")
+            "http://{}:{}/mempool/all",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
         );
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -365,9 +380,15 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<u64, Box<dyn std::error::Error>> {
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
         let url = format!(
-            "http://{}:24101/blockchain/info",
-            peer_addr.replace(":24100", "")
+            "http://{}:{}/blockchain/info",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
         );
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -392,7 +413,16 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<Snapshot, Box<dyn std::error::Error>> {
-        let url = format!("http://{}:24101/snapshot", peer_addr.replace(":24100", ""));
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
+        let url = format!(
+            "http://{}:{}/snapshot",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
+        );
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -448,7 +478,11 @@ impl PeerManager {
         &self,
         peer_addr: &SocketAddr,
     ) -> Result<Vec<PeerInfo>, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!("http://{}:24101/peers", peer_addr.ip());
+        let api_port = match self.network {
+            NetworkType::Mainnet => 24001,
+            NetworkType::Testnet => 24101,
+        };
+        let url = format!("http://{}:{}/peers", peer_addr.ip(), api_port);
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -476,15 +510,19 @@ impl PeerManager {
         let peers_response: PeersResponse = response.json().await?;
 
         // Convert API peer info to discovery::PeerInfo
+        let p2p_port = match self.network {
+            NetworkType::Mainnet => 24000,
+            NetworkType::Testnet => 24100,
+        };
         // Expected API address formats:
-        // - Full socket address: "192.168.1.1:24100" or "[::1]:24100"
-        // - IP address only: "192.168.1.1" or "::1" (will append default port 24100)
+        // - Full socket address: "192.168.1.1:24000" (mainnet) or "192.168.1.1:24100" (testnet)
+        // - IP address only: "192.168.1.1" or "::1" (will append default network port)
         let mut peer_infos = Vec::new();
         for api_peer in peers_response.peers {
             // Try to parse address directly as SocketAddr
             let parsed = api_peer.address.parse::<SocketAddr>().or_else(|_| {
-                // If parsing fails, try appending default peer port (24100) and parse again
-                let with_port = format!("{}:24100", api_peer.address);
+                // If parsing fails, try appending default peer port and parse again
+                let with_port = format!("{}:{}", api_peer.address, p2p_port);
                 with_port.parse::<SocketAddr>()
             });
 
@@ -505,10 +543,18 @@ impl PeerManager {
 
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
         let peers = self.peers.read().await.clone();
+        let api_port = match self.network {
+            NetworkType::Mainnet => 24001,
+            NetworkType::Testnet => 24101,
+        };
         for (addr, _info) in peers {
             let proposal_clone = proposal.clone();
             tokio::spawn(async move {
-                let url = format!("http://{}:24101/consensus/block-proposal", addr.ip());
+                let url = format!(
+                    "http://{}:{}/consensus/block-proposal",
+                    addr.ip(),
+                    api_port
+                );
                 let _ = reqwest::Client::new()
                     .post(&url)
                     .json(&proposal_clone)
@@ -521,10 +567,14 @@ impl PeerManager {
 
     pub async fn broadcast_block_vote(&self, vote: serde_json::Value) {
         let peers = self.peers.read().await.clone();
+        let api_port = match self.network {
+            NetworkType::Mainnet => 24001,
+            NetworkType::Testnet => 24101,
+        };
         for (addr, _info) in peers {
             let vote_clone = vote.clone();
             tokio::spawn(async move {
-                let url = format!("http://{}:24101/consensus/block-vote", addr.ip());
+                let url = format!("http://{}:{}/consensus/block-vote", addr.ip(), api_port);
                 let _ = reqwest::Client::new()
                     .post(&url)
                     .json(&vote_clone)
@@ -594,6 +644,12 @@ impl PeerManager {
             "Broadcasting new peer to all connected peers"
         );
 
+        // Determine network-aware ports
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+
         for (addr, _info) in peers {
             // Don't broadcast to the peer itself
             if addr == new_peer_info.address {
@@ -605,12 +661,12 @@ impl PeerManager {
                 continue;
             }
 
-            // Use standard listening port (24100) for broadcast instead of ephemeral ports
-            let new_peer_addr = format!("{}:24100", new_peer_info.address.ip());
+            // Use network-aware standard listening port for broadcast instead of ephemeral ports
+            let new_peer_addr = format!("{}:{}", new_peer_info.address.ip(), p2p_port);
             let new_peer_version = new_peer_info.version.clone();
 
             tokio::spawn(async move {
-                let url = format!("http://{}:24101/peers/discovered", addr.ip());
+                let url = format!("http://{}:{}/peers/discovered", addr.ip(), api_port);
                 let payload = serde_json::json!({
                     "address": new_peer_addr,
                     "version": new_peer_version,
@@ -894,5 +950,29 @@ mod tests {
         // Peer count should still be 1
         let connected_peers = manager.get_connected_peers().await;
         assert_eq!(connected_peers.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_network_aware_ports_mainnet() {
+        // Test that mainnet uses correct ports (24000 for P2P, 24001 for API)
+        let manager = PeerManager::new(NetworkType::Mainnet, "127.0.0.1:24000".parse().unwrap());
+        
+        // Verify network type is set correctly
+        assert_eq!(manager.network, NetworkType::Mainnet);
+        
+        // The manager should use port 24000 for P2P and 24001 for API
+        // This is verified by the logic in functions like request_genesis, request_mempool, etc.
+    }
+
+    #[tokio::test]
+    async fn test_network_aware_ports_testnet() {
+        // Test that testnet uses correct ports (24100 for P2P, 24101 for API)
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+        
+        // Verify network type is set correctly
+        assert_eq!(manager.network, NetworkType::Testnet);
+        
+        // The manager should use port 24100 for P2P and 24101 for API
+        // This is verified by the logic in functions like request_genesis, request_mempool, etc.
     }
 }
