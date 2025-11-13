@@ -11,6 +11,7 @@ pub mod snapshot;
 pub mod snapshot_service;
 pub mod state;
 pub mod transaction;
+pub mod treasury_manager;
 pub mod utxo_set;
 
 // Re-export commonly used types
