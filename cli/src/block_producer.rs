@@ -480,8 +480,33 @@ impl BlockProducer {
             // Regular path: mempool has transactions
             println!("   📋 {} mempool transactions", transactions.len());
 
-            // Calculate total transaction fees (currently 0 as we don't have UTXO validation yet)
-            let total_fees: u64 = 0;
+            // Calculate total transaction fees from mempool transactions
+            let mut total_fees: u64 = 0;
+            {
+                let blockchain = self.blockchain.read().await;
+                let utxo_map = blockchain.utxo_set().utxos();
+                
+                for tx in &transactions {
+                    match tx.fee(utxo_map) {
+                        Ok(fee) => {
+                            total_fees += fee;
+                            println!("      📊 TX {} fee: {} satoshis", &tx.txid[..8], fee);
+                        }
+                        Err(e) => {
+                            println!("      ⚠️  Could not calculate fee for {}: {:?}", &tx.txid[..8], e);
+                            // Skip transaction if fee can't be calculated
+                        }
+                    }
+                }
+                drop(blockchain);
+            }
+            
+            if total_fees > 0 {
+                println!("   💵 Total transaction fees: {} satoshis ({} TIME)", 
+                    total_fees, 
+                    total_fees as f64 / 100_000_000.0
+                );
+            }
 
             // Log masternode reward distribution
             if !active_masternodes.is_empty() {
