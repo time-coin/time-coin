@@ -322,7 +322,16 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let url = format!("http://{}:24101/genesis", peer_addr.replace(":24100", ""));
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
+        let url = format!(
+            "http://{}:{}/genesis",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
+        );
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
@@ -343,9 +352,15 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<Vec<time_core::Transaction>, Box<dyn std::error::Error>> {
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
         let url = format!(
-            "http://{}:24101/mempool/all",
-            peer_addr.replace(":24100", "")
+            "http://{}:{}/mempool/all",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
         );
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -365,9 +380,15 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<u64, Box<dyn std::error::Error>> {
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
         let url = format!(
-            "http://{}:24101/blockchain/info",
-            peer_addr.replace(":24100", "")
+            "http://{}:{}/blockchain/info",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
         );
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -392,7 +413,16 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<Snapshot, Box<dyn std::error::Error>> {
-        let url = format!("http://{}:24101/snapshot", peer_addr.replace(":24100", ""));
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+        let p2p_port_str = format!(":{}", p2p_port);
+        let url = format!(
+            "http://{}:{}/snapshot",
+            peer_addr.replace(&p2p_port_str, ""),
+            api_port
+        );
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -448,7 +478,11 @@ impl PeerManager {
         &self,
         peer_addr: &SocketAddr,
     ) -> Result<Vec<PeerInfo>, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!("http://{}:24101/peers", peer_addr.ip());
+        let api_port = match self.network {
+            NetworkType::Mainnet => 24001,
+            NetworkType::Testnet => 24101,
+        };
+        let url = format!("http://{}:{}/peers", peer_addr.ip(), api_port);
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -594,6 +628,12 @@ impl PeerManager {
             "Broadcasting new peer to all connected peers"
         );
 
+        // Determine network-aware ports
+        let (p2p_port, api_port) = match self.network {
+            NetworkType::Mainnet => (24000, 24001),
+            NetworkType::Testnet => (24100, 24101),
+        };
+
         for (addr, _info) in peers {
             // Don't broadcast to the peer itself
             if addr == new_peer_info.address {
@@ -605,12 +645,12 @@ impl PeerManager {
                 continue;
             }
 
-            // Use standard listening port (24100) for broadcast instead of ephemeral ports
-            let new_peer_addr = format!("{}:24100", new_peer_info.address.ip());
+            // Use network-aware standard listening port for broadcast instead of ephemeral ports
+            let new_peer_addr = format!("{}:{}", new_peer_info.address.ip(), p2p_port);
             let new_peer_version = new_peer_info.version.clone();
 
             tokio::spawn(async move {
-                let url = format!("http://{}:24101/peers/discovered", addr.ip());
+                let url = format!("http://{}:{}/peers/discovered", addr.ip(), api_port);
                 let payload = serde_json::json!({
                     "address": new_peer_addr,
                     "version": new_peer_version,

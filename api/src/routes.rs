@@ -279,9 +279,19 @@ async fn handle_peer_discovered(
         .parse()
         .map_err(|e| ApiError::BadRequest(format!("Invalid peer address: {}", e)))?;
 
-    // Detect ephemeral ports (49152-65535) and replace with standard port 24100
+    let network = if state.network == "mainnet" {
+        time_network::NetworkType::Mainnet
+    } else {
+        time_network::NetworkType::Testnet
+    };
+
+    // Detect ephemeral ports (49152-65535) and replace with network-aware standard port
     if peer_addr.port() >= 49152 {
-        peer_addr.set_port(24100);
+        let standard_port = match network {
+            time_network::NetworkType::Mainnet => 24000,
+            time_network::NetworkType::Testnet => 24100,
+        };
+        peer_addr.set_port(standard_port);
     }
 
     {
@@ -302,12 +312,6 @@ async fn handle_peer_discovered(
 
         broadcasts.insert(peer_key, now);
     }
-
-    let network = if state.network == "mainnet" {
-        time_network::NetworkType::Mainnet
-    } else {
-        time_network::NetworkType::Testnet
-    };
 
     let peer_info = NetworkPeerInfo::with_version(peer_addr, network, req.version.clone());
 
