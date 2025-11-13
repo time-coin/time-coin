@@ -1998,4 +1998,105 @@ mod tests {
         let masternodes = engine.get_masternodes().await;
         assert!(masternodes.contains(&producer.unwrap()));
     }
+
+    #[tokio::test]
+    async fn test_transaction_voting() {
+        use time_core::transaction::{Transaction, TxOutput};
+
+        let engine = ConsensusEngine::new(false);
+
+        // Add masternodes
+        engine.add_masternode("mn1".to_string()).await;
+        engine.add_masternode("mn2".to_string()).await;
+        engine.add_masternode("mn3".to_string()).await;
+
+        let tx = Transaction {
+            txid: "test_tx_1".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![TxOutput {
+                amount: 1000,
+                address: "addr1".to_string(),
+            }],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+
+        // Vote from all masternodes
+        engine.vote_on_transaction(&tx.txid, "mn1".to_string(), true).await.unwrap();
+        engine.vote_on_transaction(&tx.txid, "mn2".to_string(), true).await.unwrap();
+        engine.vote_on_transaction(&tx.txid, "mn3".to_string(), true).await.unwrap();
+
+        // Check vote counts
+        let (approvals, rejections) = engine.get_transaction_vote_count(&tx.txid).await;
+        assert_eq!(approvals, 3);
+        assert_eq!(rejections, 0);
+
+        // Check consensus (should have 3/3 = 100% approval)
+        assert!(engine.has_transaction_consensus(&tx.txid).await);
+    }
+
+    #[tokio::test]
+    async fn test_transaction_consensus_threshold() {
+        use time_core::transaction::{Transaction, TxOutput};
+
+        let engine = ConsensusEngine::new(false);
+
+        // Add masternodes
+        engine.add_masternode("mn1".to_string()).await;
+        engine.add_masternode("mn2".to_string()).await;
+        engine.add_masternode("mn3".to_string()).await;
+
+        let tx = Transaction {
+            txid: "test_tx_2".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![TxOutput {
+                amount: 1000,
+                address: "addr1".to_string(),
+            }],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+
+        // Only 2 out of 3 approve (66.7%)
+        engine.vote_on_transaction(&tx.txid, "mn1".to_string(), true).await.unwrap();
+        engine.vote_on_transaction(&tx.txid, "mn2".to_string(), true).await.unwrap();
+        engine.vote_on_transaction(&tx.txid, "mn3".to_string(), false).await.unwrap();
+
+        // Should reach consensus (2/3 = 67% meets the 2/3 threshold)
+        assert!(engine.has_transaction_consensus(&tx.txid).await);
+    }
+
+    #[tokio::test]
+    async fn test_transaction_consensus_not_reached() {
+        use time_core::transaction::{Transaction, TxOutput};
+
+        let engine = ConsensusEngine::new(false);
+
+        // Add masternodes
+        engine.add_masternode("mn1".to_string()).await;
+        engine.add_masternode("mn2".to_string()).await;
+        engine.add_masternode("mn3".to_string()).await;
+
+        let tx = Transaction {
+            txid: "test_tx_3".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![TxOutput {
+                amount: 1000,
+                address: "addr1".to_string(),
+            }],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+
+        // Only 1 out of 3 approves (33.3%)
+        engine.vote_on_transaction(&tx.txid, "mn1".to_string(), true).await.unwrap();
+        engine.vote_on_transaction(&tx.txid, "mn2".to_string(), false).await.unwrap();
+        engine.vote_on_transaction(&tx.txid, "mn3".to_string(), false).await.unwrap();
+
+        // Should NOT reach consensus (1/3 = 33% below the 67% threshold)
+        assert!(!engine.has_transaction_consensus(&tx.txid).await);
+    }
 }

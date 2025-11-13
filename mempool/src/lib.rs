@@ -637,4 +637,66 @@ mod tests {
         assert_eq!(mempool.size().await, 1);
         assert!(mempool.contains("coinbase_tx_1").await);
     }
+
+    #[tokio::test]
+    async fn test_transaction_finalization() {
+        let mempool = Mempool::new(100, "testnet".to_string());
+
+        let tx = Transaction {
+            txid: "test_tx_finalize".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![TxOutput {
+                amount: 1000,
+                address: "addr1".to_string(),
+            }],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+
+        // Add transaction to mempool
+        mempool.add_transaction(tx.clone()).await.unwrap();
+
+        // Initially should not be finalized
+        assert!(!mempool.is_finalized("test_tx_finalize").await);
+
+        // Finalize the transaction
+        mempool.finalize_transaction("test_tx_finalize").await.unwrap();
+
+        // Now should be finalized
+        assert!(mempool.is_finalized("test_tx_finalize").await);
+    }
+
+    #[tokio::test]
+    async fn test_get_finalized_transactions() {
+        let mempool = Mempool::new(100, "testnet".to_string());
+
+        // Add multiple transactions
+        for i in 0..3 {
+            let tx = Transaction {
+                txid: format!("tx_{}", i),
+                version: 1,
+                inputs: vec![],
+                outputs: vec![TxOutput {
+                    amount: 1000,
+                    address: "addr".to_string(),
+                }],
+                lock_time: 0,
+                timestamp: 1234567890 + i as i64,
+            };
+            mempool.add_transaction(tx).await.unwrap();
+        }
+
+        // Finalize first two
+        mempool.finalize_transaction("tx_0").await.unwrap();
+        mempool.finalize_transaction("tx_1").await.unwrap();
+
+        // Check counts
+        let finalized = mempool.get_finalized_transactions().await;
+        let pending = mempool.get_pending_transactions().await;
+
+        assert_eq!(finalized.len(), 2);
+        assert_eq!(pending.len(), 1);
+    }
 }
+
