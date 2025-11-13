@@ -51,7 +51,7 @@ echo "🧪 Running tests..."
 if cargo test --all-features; then
     echo -e "${GREEN}✓ Cargo tests passed${NC}"
 else
-    echo -e "${RED}✗ Cargo Tests failed${NC}"
+    echo -e "${RED}✗ Cargo tests failed${NC}"
     ERRORS=$((ERRORS + 1))
 fi
 echo ""
