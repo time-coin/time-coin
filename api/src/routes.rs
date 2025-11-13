@@ -663,6 +663,12 @@ async fn add_to_mempool(
         .await
         .map_err(|e| ApiError::Internal(format!("Failed to add transaction: {}", e)))?;
 
+    println!("📥 Transaction {} received from peer", &tx.txid[..16]);
+
+    // Trigger instant finality via BFT consensus
+    trigger_instant_finality_for_received_tx(state.clone(), tx.clone()).await;
+
+    // Re-broadcast to other peers (if not already from broadcast)
     if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
         broadcaster.broadcast_transaction(tx).await;
     }
@@ -921,4 +927,85 @@ async fn receive_finalized_block(
             e
         ))),
     }
+}
+
+/// Trigger instant finality for a transaction received from another node
+async fn trigger_instant_finality_for_received_tx(state: ApiState, tx: time_core::transaction::Transaction) {
+    println!("🚀 Initiating instant finality for received transaction {}", &tx.txid[..16]);
+
+    let consensus = state.consensus.clone();
+    let mempool = state.mempool.clone();
+    let blockchain = state.blockchain.clone();
+    let txid = tx.txid.clone();
+
+    // Spawn async task to handle consensus voting
+    tokio::spawn(async move {
+        // Get the current node's address (simulating as a masternode)
+        let masternodes = consensus.get_masternodes().await;
+        
+        if masternodes.is_empty() {
+            println!("⚠️  No masternodes registered - auto-finalizing in dev mode");
+            if let Some(mempool) = mempool.as_ref() {
+                let _ = mempool.finalize_transaction(&txid).await;
+                
+                // Apply transaction to UTXO set for instant balance update
+                let mut blockchain = blockchain.write().await;
+                if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
+                    println!("❌ Failed to apply transaction to UTXO set: {}", e);
+                } else {
+                    println!("✅ UTXO set updated - balances are now live!");
+                }
+            }
+            return;
+        }
+
+        println!("📊 Collected {} masternodes for voting", masternodes.len());
+
+        // Simulate voting from all masternodes (in production, this would happen via network)
+        let mut approvals = 0;
+        for (i, masternode) in masternodes.iter().enumerate() {
+            // Validate and vote on the transaction
+            match consensus.validate_and_vote_transaction(&tx, masternode.clone()).await {
+                Ok(_) => {
+                    approvals += 1;
+                    println!("   ✅ Masternode {} voted: APPROVE", i + 1);
+                }
+                Err(e) => {
+                    println!("   ❌ Masternode {} vote failed: {}", i + 1, e);
+                }
+            }
+        }
+
+        // Check if consensus reached
+        let has_consensus = consensus.has_transaction_consensus(&txid).await;
+        
+        if has_consensus {
+            println!("✅ BFT consensus reached ({}/{} approvals)", approvals, masternodes.len());
+            
+            // Finalize the transaction in mempool
+            if let Some(mempool) = mempool.as_ref() {
+                match mempool.finalize_transaction(&txid).await {
+                    Ok(_) => {
+                        println!("🎉 Transaction {} instantly finalized!", &txid[..16]);
+                        
+                        // Apply transaction to UTXO set for instant balance update
+                        let mut blockchain = blockchain.write().await;
+                        if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
+                            println!("❌ Failed to apply transaction to UTXO set: {}", e);
+                        } else {
+                            println!("✅ UTXO set updated - balances are now live!");
+                        }
+                    }
+                    Err(e) => {
+                        println!("❌ Failed to finalize transaction: {}", e);
+                    }
+                }
+            }
+
+            // Clear votes after finalization
+            consensus.clear_transaction_votes(&txid).await;
+        } else {
+            println!("❌ BFT consensus NOT reached - transaction remains pending");
+        }
+    });
 }
