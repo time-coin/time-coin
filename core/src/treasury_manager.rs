@@ -72,10 +72,10 @@ pub struct CreateProposalParams {
 pub struct TreasuryManager {
     /// Active and historical proposals
     proposals: HashMap<String, TreasuryProposal>,
-    
+
     /// Underlying treasury state
     treasury: Treasury,
-    
+
     /// Total voting power of all active masternodes
     total_voting_power: u64,
 }
@@ -91,10 +91,7 @@ impl TreasuryManager {
     }
 
     /// Create a new proposal
-    pub fn create_proposal(
-        &mut self,
-        params: CreateProposalParams,
-    ) -> Result<(), StateError> {
+    pub fn create_proposal(&mut self, params: CreateProposalParams) -> Result<(), StateError> {
         // Check if proposal ID already exists
         if self.proposals.contains_key(&params.id) {
             return Err(StateError::IoError(format!(
@@ -147,9 +144,7 @@ impl TreasuryManager {
 
         // Check if voting period has ended
         if timestamp > proposal.voting_deadline {
-            return Err(StateError::IoError(
-                "Voting period has ended".to_string(),
-            ));
+            return Err(StateError::IoError("Voting period has ended".to_string()));
         }
 
         // Check if masternode has already voted
@@ -178,7 +173,7 @@ impl TreasuryManager {
     pub fn update_proposals(&mut self, current_time: u64) {
         // First collect proposal IDs and their voting results
         let mut updates = Vec::new();
-        
+
         for (id, proposal) in &self.proposals {
             if proposal.status != ProposalStatus::Active {
                 continue;

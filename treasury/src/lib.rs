@@ -16,9 +16,7 @@ pub use pool::{
     MASTERNODE_BLOCK_REWARD, TIME_UNIT, TREASURY_BLOCK_REWARD, TREASURY_FEE_PERCENTAGE,
 };
 
-pub use governance::{
-    ProposalStatus, TreasuryProposal, Vote, VoteChoice, VotingResults,
-};
+pub use governance::{ProposalStatus, TreasuryProposal, Vote, VoteChoice, VotingResults};
 
 pub use error::{Result, TreasuryError};
 

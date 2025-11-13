@@ -171,7 +171,7 @@ impl TreasuryProposal {
 
         // Calculate percentage of YES votes
         let yes_percentage = (results.yes_power * 100) / results.total_votes;
-        
+
         // Require at least 67% YES votes
         yes_percentage >= 67
     }
