@@ -57,29 +57,33 @@ pub enum VoteChoice {
     Abstain,
 }
 
+/// Parameters for creating a new treasury proposal
+#[derive(Debug, Clone)]
+pub struct ProposalParams {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub recipient: String,
+    pub amount: u64,
+    pub submitter: String,
+    pub submission_time: u64,
+    pub voting_period_days: u64,
+}
+
 impl TreasuryProposal {
     /// Create a new treasury proposal
-    pub fn new(
-        id: String,
-        title: String,
-        description: String,
-        recipient: String,
-        amount: u64,
-        submitter: String,
-        submission_time: u64,
-        voting_period_days: u64,
-    ) -> Self {
-        let voting_deadline = submission_time + (voting_period_days * 86400);
+    pub fn new(params: ProposalParams) -> Self {
+        let voting_deadline = params.submission_time + (params.voting_period_days * 86400);
         let execution_deadline = voting_deadline + (30 * 86400); // 30 days to execute
 
         Self {
-            id,
-            title,
-            description,
-            recipient,
-            amount,
-            submitter,
-            submission_time,
+            id: params.id,
+            title: params.title,
+            description: params.description,
+            recipient: params.recipient,
+            amount: params.amount,
+            submitter: params.submitter,
+            submission_time: params.submission_time,
             voting_deadline,
             execution_deadline,
             status: ProposalStatus::Active,
@@ -243,16 +247,16 @@ mod tests {
 
     #[test]
     fn test_create_proposal() {
-        let proposal = TreasuryProposal::new(
-            "prop-1".to_string(),
-            "Test Proposal".to_string(),
-            "A test proposal".to_string(),
-            "recipient123".to_string(),
-            1000000,
-            "submitter123".to_string(),
-            1000,
-            14, // 14 days voting period
-        );
+        let proposal = TreasuryProposal::new(ProposalParams {
+            id: "prop-1".to_string(),
+            title: "Test Proposal".to_string(),
+            description: "A test proposal".to_string(),
+            recipient: "recipient123".to_string(),
+            amount: 1000000,
+            submitter: "submitter123".to_string(),
+            submission_time: 1000,
+            voting_period_days: 14, // 14 days voting period
+        });
 
         assert_eq!(proposal.status, ProposalStatus::Active);
         assert_eq!(proposal.votes.len(), 0);
@@ -261,16 +265,16 @@ mod tests {
 
     #[test]
     fn test_add_vote() {
-        let mut proposal = TreasuryProposal::new(
-            "prop-1".to_string(),
-            "Test".to_string(),
-            "Desc".to_string(),
-            "recipient".to_string(),
-            1000000,
-            "submitter".to_string(),
-            1000,
-            14,
-        );
+        let mut proposal = TreasuryProposal::new(ProposalParams {
+            id: "prop-1".to_string(),
+            title: "Test".to_string(),
+            description: "Desc".to_string(),
+            recipient: "recipient".to_string(),
+            amount: 1000000,
+            submitter: "submitter".to_string(),
+            submission_time: 1000,
+            voting_period_days: 14,
+        });
 
         // Add a vote
         let result = proposal.add_vote("mn1".to_string(), VoteChoice::Yes, 100, 2000);
@@ -284,16 +288,16 @@ mod tests {
 
     #[test]
     fn test_voting_results() {
-        let mut proposal = TreasuryProposal::new(
-            "prop-1".to_string(),
-            "Test".to_string(),
-            "Desc".to_string(),
-            "recipient".to_string(),
-            1000000,
-            "submitter".to_string(),
-            1000,
-            14,
-        );
+        let mut proposal = TreasuryProposal::new(ProposalParams {
+            id: "prop-1".to_string(),
+            title: "Test".to_string(),
+            description: "Desc".to_string(),
+            recipient: "recipient".to_string(),
+            amount: 1000000,
+            submitter: "submitter".to_string(),
+            submission_time: 1000,
+            voting_period_days: 14,
+        });
 
         proposal.set_total_voting_power(300);
 
@@ -319,16 +323,16 @@ mod tests {
 
     #[test]
     fn test_approval_threshold() {
-        let mut proposal = TreasuryProposal::new(
-            "prop-1".to_string(),
-            "Test".to_string(),
-            "Desc".to_string(),
-            "recipient".to_string(),
-            1000000,
-            "submitter".to_string(),
-            1000,
-            14,
-        );
+        let mut proposal = TreasuryProposal::new(ProposalParams {
+            id: "prop-1".to_string(),
+            title: "Test".to_string(),
+            description: "Desc".to_string(),
+            recipient: "recipient".to_string(),
+            amount: 1000000,
+            submitter: "submitter".to_string(),
+            submission_time: 1000,
+            voting_period_days: 14,
+        });
 
         proposal.set_total_voting_power(300);
 
@@ -357,16 +361,16 @@ mod tests {
 
         // Now 69/103 = 66.99% - still not 67%
         // Let's use better numbers: 67 YES out of 100 total
-        let mut proposal2 = TreasuryProposal::new(
-            "prop-2".to_string(),
-            "Test".to_string(),
-            "Desc".to_string(),
-            "recipient".to_string(),
-            1000000,
-            "submitter".to_string(),
-            1000,
-            14,
-        );
+        let mut proposal2 = TreasuryProposal::new(ProposalParams {
+            id: "prop-2".to_string(),
+            title: "Test".to_string(),
+            description: "Desc".to_string(),
+            recipient: "recipient".to_string(),
+            amount: 1000000,
+            submitter: "submitter".to_string(),
+            submission_time: 1000,
+            voting_period_days: 14,
+        });
 
         // 67 YES, 33 NO = exactly 67%
         proposal2
@@ -381,16 +385,16 @@ mod tests {
 
     #[test]
     fn test_status_update() {
-        let mut proposal = TreasuryProposal::new(
-            "prop-1".to_string(),
-            "Test".to_string(),
-            "Desc".to_string(),
-            "recipient".to_string(),
-            1000000,
-            "submitter".to_string(),
-            1000,
-            14,
-        );
+        let mut proposal = TreasuryProposal::new(ProposalParams {
+            id: "prop-1".to_string(),
+            title: "Test".to_string(),
+            description: "Desc".to_string(),
+            recipient: "recipient".to_string(),
+            amount: 1000000,
+            submitter: "submitter".to_string(),
+            submission_time: 1000,
+            voting_period_days: 14,
+        });
 
         // Add enough votes for approval
         proposal
@@ -411,16 +415,16 @@ mod tests {
 
     #[test]
     fn test_proposal_expiration() {
-        let mut proposal = TreasuryProposal::new(
-            "prop-1".to_string(),
-            "Test".to_string(),
-            "Desc".to_string(),
-            "recipient".to_string(),
-            1000000,
-            "submitter".to_string(),
-            1000,
-            14,
-        );
+        let mut proposal = TreasuryProposal::new(ProposalParams {
+            id: "prop-1".to_string(),
+            title: "Test".to_string(),
+            description: "Desc".to_string(),
+            recipient: "recipient".to_string(),
+            amount: 1000000,
+            submitter: "submitter".to_string(),
+            submission_time: 1000,
+            voting_period_days: 14,
+        });
 
         proposal.status = ProposalStatus::Approved;
 
