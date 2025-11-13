@@ -8,7 +8,7 @@ use time_masternode::collateral::CollateralTier;
 use time_masternode::detector::{BlockSignature, DetectorConfig, ViolationDetector};
 use time_masternode::node::{Masternode, MasternodeStatus};
 use time_masternode::reputation::Reputation;
-use time_masternode::violations::{ViolationType, ViolationSeverity};
+use time_masternode::violations::{ViolationSeverity, ViolationType};
 
 /// Helper to create a test masternode
 fn create_test_masternode(id: &str, last_heartbeat: u64, tier: CollateralTier) -> Masternode {
@@ -45,7 +45,10 @@ fn test_double_signing_attack_detection() {
 
     // Attacker signs the first block - should be OK
     let result = detector.check_double_signing(sig1, 10000).unwrap();
-    assert!(result.is_none(), "First signature should not trigger violation");
+    assert!(
+        result.is_none(),
+        "First signature should not trigger violation"
+    );
 
     // Attacker tries to sign a different block at the same height - attack!
     let sig2 = BlockSignature {
@@ -63,7 +66,10 @@ fn test_double_signing_attack_detection() {
     assert_eq!(violation.violation_type, ViolationType::DoubleSigning);
     assert_eq!(violation.masternode_id, attacker_id);
     assert_eq!(violation.severity(), ViolationSeverity::Critical);
-    assert!(violation.should_auto_ban(), "Double-signing should result in auto-ban");
+    assert!(
+        violation.should_auto_ban(),
+        "Double-signing should result in auto-ban"
+    );
 
     // Verify the violation was recorded
     let violations = detector.get_violations_for_masternode(attacker_id);
@@ -86,7 +92,10 @@ fn test_multiple_masternodes_same_height_no_violation() {
         };
 
         let result = detector.check_double_signing(sig, 10000 + i).unwrap();
-        assert!(result.is_none(), "Different masternodes signing different blocks should be OK");
+        assert!(
+            result.is_none(),
+            "Different masternodes signing different blocks should be OK"
+        );
     }
 
     // No violations should be detected
@@ -172,7 +181,10 @@ fn test_downtime_within_threshold_no_violation() {
         .check_extended_downtime(&masternode, current_time)
         .unwrap();
 
-    assert!(result.is_none(), "Downtime under threshold should not trigger violation");
+    assert!(
+        result.is_none(),
+        "Downtime under threshold should not trigger violation"
+    );
 }
 
 #[test]
@@ -246,7 +258,10 @@ fn test_data_withholding_intermittent_failures_no_violation() {
 
     // Should not trigger violation (only ~7 failures out of 20)
     let result = detector.check_data_withholding(mn_id, 2000).unwrap();
-    assert!(result.is_none(), "Intermittent failures under threshold should be OK");
+    assert!(
+        result.is_none(),
+        "Intermittent failures under threshold should be OK"
+    );
 }
 
 #[test]
@@ -267,7 +282,10 @@ fn test_network_manipulation_coordinated_attack() {
 
     assert_eq!(violation.violation_type, ViolationType::NetworkManipulation);
     assert_eq!(violation.severity(), ViolationSeverity::Critical);
-    assert!(violation.should_auto_ban(), "Network manipulation should result in auto-ban");
+    assert!(
+        violation.should_auto_ban(),
+        "Network manipulation should result in auto-ban"
+    );
     assert!(violation.evidence.contains("coordinated votes"));
 }
 
@@ -282,7 +300,8 @@ fn test_sybil_attack_detection() {
         .check_network_manipulation(
             attacker_id.to_string(),
             "sybil_attack".to_string(),
-            "Multiple masternodes controlled by single entity detected through IP analysis".to_string(),
+            "Multiple masternodes controlled by single entity detected through IP analysis"
+                .to_string(),
             1000,
         )
         .unwrap();
@@ -312,7 +331,7 @@ fn test_penalty_application() {
 
     assert!(violation.penalty_applied);
     assert_eq!(violation.reputation_penalty, -500);
-    
+
     // 10% slash for invalid block
     let expected_slash = (collateral as f64 * 0.10) as u64;
     assert_eq!(violation.collateral_slashed, expected_slash);

@@ -230,6 +230,7 @@ pub struct MasternodeCounts {
 
 // Public modules
 pub mod collateral;
+pub mod detector;
 pub mod error;
 pub mod heartbeat;
 pub mod node;
@@ -239,9 +240,8 @@ pub mod rewards;
 pub mod selection;
 pub mod status;
 pub mod types;
-pub mod voting;
 pub mod violations;
-pub mod detector;
+pub mod voting;
 
 // --- Tests
 #[cfg(test)]

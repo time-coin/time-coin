@@ -47,10 +47,10 @@ impl ViolationType {
     /// Get the collateral slash percentage (0.0 to 1.0)
     pub fn slash_percentage(&self) -> f64 {
         match self {
-            ViolationType::DoubleSigning => 1.0, // 100% slash
-            ViolationType::InvalidBlock => 0.10, // 10% slash
-            ViolationType::ExtendedDowntime => 0.05, // 5% slash
-            ViolationType::DataWithholding => 0.20, // 20% slash
+            ViolationType::DoubleSigning => 1.0,       // 100% slash
+            ViolationType::InvalidBlock => 0.10,       // 10% slash
+            ViolationType::ExtendedDowntime => 0.05,   // 5% slash
+            ViolationType::DataWithholding => 0.20,    // 20% slash
             ViolationType::NetworkManipulation => 1.0, // 100% slash
         }
     }

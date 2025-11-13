@@ -105,7 +105,7 @@ impl ViolationDetector {
         let masternode_id = &signature.masternode_id;
 
         // Get or create list of signatures at this height
-        let signatures_at_height = self.block_signatures.entry(height).or_insert_with(Vec::new);
+        let signatures_at_height = self.block_signatures.entry(height).or_default();
 
         // Check if this masternode has already signed a different block at this height
         for existing_sig in signatures_at_height.iter() {
@@ -559,10 +559,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            violation.violation_type,
-            ViolationType::NetworkManipulation
-        );
+        assert_eq!(violation.violation_type, ViolationType::NetworkManipulation);
         assert_eq!(violation.masternode_id, "mn1");
     }
 

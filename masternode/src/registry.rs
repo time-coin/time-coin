@@ -1,7 +1,7 @@
 //! Masternode registry for tracking all masternodes
 
-use crate::types::*;
 use crate::collateral::CollateralTier;
+use crate::types::*;
 use std::collections::HashMap;
 
 pub struct MasternodeRegistry {
@@ -29,10 +29,10 @@ impl MasternodeRegistry {
         let tier = CollateralTier::from_amount(collateral)?;
         let mut masternode = Masternode::new(owner.clone(), collateral, tier, network_info);
         masternode.reputation = reputation;
-        
+
         let id = masternode.id.clone();
         self.masternodes.insert(id.clone(), masternode);
-        self.by_owner.entry(owner).or_insert_with(Vec::new).push(id.clone());
+        self.by_owner.entry(owner).or_default().push(id.clone());
         self.total_collateral += collateral;
 
         Ok(id)
@@ -47,21 +47,20 @@ impl MasternodeRegistry {
     }
 
     pub fn activate(&mut self, id: &str) -> Result<(), String> {
-        let masternode = self.masternodes.get_mut(id)
-            .ok_or("Masternode not found")?;
+        let masternode = self.masternodes.get_mut(id).ok_or("Masternode not found")?;
         masternode.activate();
         Ok(())
     }
 
     pub fn deactivate(&mut self, id: &str) -> Result<(), String> {
-        let masternode = self.masternodes.get_mut(id)
-            .ok_or("Masternode not found")?;
+        let masternode = self.masternodes.get_mut(id).ok_or("Masternode not found")?;
         masternode.deactivate();
         Ok(())
     }
 
     pub fn get_active_masternodes(&self) -> Vec<&Masternode> {
-        self.masternodes.values()
+        self.masternodes
+            .values()
             .filter(|mn| mn.is_active())
             .collect()
     }
@@ -96,18 +95,20 @@ mod tests {
     #[test]
     fn test_register_masternode() {
         let mut registry = MasternodeRegistry::new();
-        
-        let id = registry.register(
-            "owner1".to_string(),
-            10_000 * COIN,
-            NetworkInfo {
-                ip_address: "127.0.0.1".to_string(),
-                port: 9000,
-                protocol_version: 1,
-                public_key: "pubkey".to_string(),
-            },
-            100,
-        ).unwrap();
+
+        let id = registry
+            .register(
+                "owner1".to_string(),
+                10_000 * COIN,
+                NetworkInfo {
+                    ip_address: "127.0.0.1".to_string(),
+                    port: 9000,
+                    protocol_version: 1,
+                    public_key: "pubkey".to_string(),
+                },
+                100,
+            )
+            .unwrap();
 
         assert!(registry.get(&id).is_some());
         assert_eq!(registry.count(), 1);
@@ -116,21 +117,23 @@ mod tests {
     #[test]
     fn test_activate_masternode() {
         let mut registry = MasternodeRegistry::new();
-        
-        let id = registry.register(
-            "owner1".to_string(),
-            10_000 * COIN,
-            NetworkInfo {
-                ip_address: "127.0.0.1".to_string(),
-                port: 9000,
-                protocol_version: 1,
-                public_key: "pubkey".to_string(),
-            },
-            100,
-        ).unwrap();
+
+        let id = registry
+            .register(
+                "owner1".to_string(),
+                10_000 * COIN,
+                NetworkInfo {
+                    ip_address: "127.0.0.1".to_string(),
+                    port: 9000,
+                    protocol_version: 1,
+                    public_key: "pubkey".to_string(),
+                },
+                100,
+            )
+            .unwrap();
 
         registry.activate(&id).unwrap();
-        
+
         let mn = registry.get(&id).unwrap();
         assert!(mn.is_active());
         assert_eq!(registry.active_count(), 1);
