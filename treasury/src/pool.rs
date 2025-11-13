@@ -1003,7 +1003,7 @@ mod tests {
 
         // Add sufficient funds
         for i in 1..=5 {
-            pool.deposit_block_reward(i, (i as u64) * 1000).unwrap();
+            pool.deposit_block_reward(i, i * 1000).unwrap();
         }
 
         // Lock multiple collaterals
