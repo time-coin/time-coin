@@ -78,6 +78,16 @@ impl CollateralTier {
             CollateralTier::Professional => 50,
         }
     }
+
+    /// Vote maturity period in blocks before a newly registered masternode can vote
+    /// This prevents instant takeover by newly coordinated malicious nodes
+    pub fn vote_maturity_blocks(&self) -> u64 {
+        match self {
+            CollateralTier::Community => 1,      // 1 block for Community tier
+            CollateralTier::Verified => 3,       // 3 blocks for Verified tier
+            CollateralTier::Professional => 10,  // 10 blocks for Professional tier
+        }
+    }
 }
 
 /// Masternode configuration and state

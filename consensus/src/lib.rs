@@ -237,6 +237,20 @@ impl ConsensusEngine {
     }
 
     /// Vote on a proposed block
+    /// 
+    /// # Maturity Check Required
+    /// **IMPORTANT**: Callers should validate that the masternode has reached vote maturity
+    /// before calling this function. Use the masternode module's `MasternodeStatus::can_vote_at_height()`
+    /// to check if the masternode has waited the required number of blocks since registration.
+    /// This prevents instant takeover by newly coordinated malicious nodes.
+    /// 
+    /// Example:
+    /// ```ignore
+    /// // Before voting, check maturity:
+    /// if masternode_status.can_vote_at_height(current_block_height, &tier) {
+    ///     consensus.vote_on_block(block_hash, voter, approve).await?;
+    /// }
+    /// ```
     pub async fn vote_on_block(
         &self,
         block_hash: String,
@@ -513,6 +527,13 @@ pub mod tx_consensus {
             proposals.insert(proposal.block_height, proposal);
         }
 
+        /// Vote on a transaction set
+        /// 
+        /// # Maturity Check Required
+        /// **IMPORTANT**: Callers should validate that the masternode has reached vote maturity
+        /// before calling this function. Use the masternode module's `MasternodeStatus::can_vote_at_height()`
+        /// to check if the masternode has waited the required number of blocks since registration.
+        /// This prevents instant takeover by newly coordinated malicious nodes.
         pub async fn vote_on_tx_set(&self, vote: TxSetVote) -> Result<(), String> {
             let masternodes = self.masternodes.read().await;
             if !masternodes.contains(&vote.voter) {
@@ -676,6 +697,13 @@ pub mod block_consensus {
             proposals.insert(proposal.block_height, proposal);
         }
 
+        /// Vote on a proposed block
+        /// 
+        /// # Maturity Check Required
+        /// **IMPORTANT**: Callers should validate that the masternode has reached vote maturity
+        /// before calling this function. Use the masternode module's `MasternodeStatus::can_vote_at_height()`
+        /// to check if the masternode has waited the required number of blocks since registration.
+        /// This prevents instant takeover by newly coordinated malicious nodes.
         pub async fn vote_on_block(&self, vote: BlockVote) -> Result<(), String> {
             let masternodes = self.masternodes.read().await;
             if !masternodes.contains(&vote.voter) {
