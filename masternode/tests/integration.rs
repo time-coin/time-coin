@@ -7,9 +7,18 @@ fn test_masternode_lifecycle() {
     let mut registry = MasternodeRegistry::new();
 
     // Fund treasury first
-    registry.treasury_mut().deposit_block_reward(1, 1000).unwrap();
-    registry.treasury_mut().deposit_block_reward(2, 2000).unwrap();
-    registry.treasury_mut().deposit_block_reward(3, 3000).unwrap();
+    registry
+        .treasury_mut()
+        .deposit_block_reward(1, 1000)
+        .unwrap();
+    registry
+        .treasury_mut()
+        .deposit_block_reward(2, 2000)
+        .unwrap();
+    registry
+        .treasury_mut()
+        .deposit_block_reward(3, 3000)
+        .unwrap();
 
     // Register Verified tier masternode
     let id = registry
@@ -87,8 +96,14 @@ fn test_tier_upgrade() {
     let mut registry = MasternodeRegistry::new();
 
     // Fund treasury first
-    registry.treasury_mut().deposit_block_reward(1, 1000).unwrap();
-    registry.treasury_mut().deposit_block_reward(2, 2000).unwrap();
+    registry
+        .treasury_mut()
+        .deposit_block_reward(1, 1000)
+        .unwrap();
+    registry
+        .treasury_mut()
+        .deposit_block_reward(2, 2000)
+        .unwrap();
 
     // Start with Community tier
     let id = registry

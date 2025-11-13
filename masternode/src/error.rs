@@ -36,6 +36,28 @@ pub enum MasternodeError {
 
     #[error("Serialization error: {0}")]
     SerializationError(String),
+
+    // Violation-specific errors
+    #[error("Violation detected: {0}")]
+    ViolationDetected(String),
+
+    #[error("Invalid evidence: {0}")]
+    InvalidEvidence(String),
+
+    #[error("Detector error: {0}")]
+    DetectorError(String),
+
+    #[error("Double-signing detected at block {block_height}")]
+    DoubleSigning { block_height: u64 },
+
+    #[error("Extended downtime: {days} days offline")]
+    ExtendedDowntime { days: u64 },
+
+    #[error("Data withholding: {consecutive_failures} consecutive failures")]
+    DataWithholding { consecutive_failures: u32 },
+
+    #[error("Network manipulation detected")]
+    NetworkManipulation,
 }
 
 pub type Result<T> = std::result::Result<T, MasternodeError>;

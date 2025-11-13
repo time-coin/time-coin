@@ -163,6 +163,61 @@ impl Masternode {
             total_rewards: self.total_rewards,
         }
     }
+
+    /// Record a violation (affects reputation)
+    pub fn record_violation(&mut self, reputation_penalty: i32, timestamp: u64) {
+        self.reputation.update_score(reputation_penalty, timestamp);
+    }
+}
+
+/// Violation tracking state for a masternode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViolationState {
+    pub masternode_id: String,
+    /// Number of violations detected
+    pub violation_count: u32,
+    /// Last violation timestamp
+    pub last_violation: Option<u64>,
+    /// Consecutive data request failures
+    pub consecutive_data_failures: u32,
+    /// Last successful data request
+    pub last_successful_data_request: Option<u64>,
+}
+
+impl ViolationState {
+    pub fn new(masternode_id: String) -> Self {
+        Self {
+            masternode_id,
+            violation_count: 0,
+            last_violation: None,
+            consecutive_data_failures: 0,
+            last_successful_data_request: None,
+        }
+    }
+
+    /// Record a violation
+    pub fn record_violation(&mut self, timestamp: u64) {
+        self.violation_count += 1;
+        self.last_violation = Some(timestamp);
+    }
+
+    /// Record a data request failure
+    pub fn record_data_failure(&mut self) {
+        self.consecutive_data_failures += 1;
+    }
+
+    /// Record a successful data request (resets failure counter)
+    pub fn record_data_success(&mut self, timestamp: u64) {
+        self.consecutive_data_failures = 0;
+        self.last_successful_data_request = Some(timestamp);
+    }
+
+    /// Reset violation state
+    pub fn reset(&mut self) {
+        self.violation_count = 0;
+        self.last_violation = None;
+        self.consecutive_data_failures = 0;
+    }
 }
 
 /// Masternode information summary
@@ -186,14 +241,14 @@ mod tests {
         let mn = Masternode::new(
             "mn1".to_string(),
             "pubkey123".to_string(),
-            CollateralTier::Gold,
+            CollateralTier::Verified,
             "127.0.0.1".to_string(),
             9999,
             1000,
         );
 
         assert_eq!(mn.status, MasternodeStatus::Pending);
-        assert_eq!(mn.tier, CollateralTier::Gold);
+        assert_eq!(mn.tier, CollateralTier::Verified);
     }
 
     #[test]
@@ -201,7 +256,7 @@ mod tests {
         let mut mn = Masternode::new(
             "mn1".to_string(),
             "pubkey123".to_string(),
-            CollateralTier::Gold,
+            CollateralTier::Verified,
             "127.0.0.1".to_string(),
             9999,
             1000,
@@ -216,7 +271,7 @@ mod tests {
         let mut mn = Masternode::new(
             "mn1".to_string(),
             "pubkey123".to_string(),
-            CollateralTier::Gold,
+            CollateralTier::Verified,
             "127.0.0.1".to_string(),
             9999,
             1000,

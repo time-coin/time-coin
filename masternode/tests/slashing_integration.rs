@@ -1,8 +1,8 @@
-use time_masternode::slashing::{Violation, calculate_slash_amount};
+use chrono::Utc;
+use time_masternode::slashing::{calculate_slash_amount, Violation};
 use time_masternode::slashing_executor::SlashingExecutor;
 use time_masternode::{Masternode, MasternodeNetwork, COIN};
 use wallet::Address;
-use chrono::Utc;
 
 #[test]
 fn test_complete_slashing_workflow() {
@@ -38,7 +38,10 @@ fn test_complete_slashing_workflow() {
     // Verify collateral was deducted (5% for invalid block)
     let expected_slash = (initial_collateral as f64 * 0.05) as u64;
     assert_eq!(record.amount, expected_slash);
-    assert_eq!(record.remaining_collateral, initial_collateral - expected_slash);
+    assert_eq!(
+        record.remaining_collateral,
+        initial_collateral - expected_slash
+    );
 
     // Verify node was updated
     let node = network.get_node(&address).unwrap();
@@ -47,7 +50,7 @@ fn test_complete_slashing_workflow() {
 
     // Execute the slashing through executor (treasury transfer)
     let event = executor.execute_slashing(record, timestamp as u64).unwrap();
-    
+
     assert!(event.treasury_transfer_success);
     assert!(event.treasury_tx_id.is_some());
     assert_eq!(executor.total_slashed(), expected_slash);
@@ -83,7 +86,10 @@ fn test_double_signing_slashing() {
     // Should slash 50%
     let expected_slash = initial_collateral / 2;
     assert_eq!(record.amount, expected_slash);
-    assert_eq!(record.remaining_collateral, initial_collateral - expected_slash);
+    assert_eq!(
+        record.remaining_collateral,
+        initial_collateral - expected_slash
+    );
 
     // Verify node still has enough collateral for Professional tier
     let node = network.get_node(&address).unwrap();
@@ -143,7 +149,7 @@ fn test_long_term_abandonment_slashing() {
     network.register(node).unwrap();
 
     // Test different abandonment periods
-    
+
     // 50 days offline - 10% slash
     let violation = Violation::LongTermAbandonment { days_offline: 50 };
     let calculated_slash = calculate_slash_amount(&violation, initial_collateral);
@@ -163,7 +169,10 @@ fn test_long_term_abandonment_slashing() {
 
     let expected_slash = (initial_collateral as f64 * 0.2) as u64;
     assert_eq!(record.amount, expected_slash);
-    assert_eq!(record.remaining_collateral, initial_collateral - expected_slash);
+    assert_eq!(
+        record.remaining_collateral,
+        initial_collateral - expected_slash
+    );
 }
 
 #[test]
@@ -241,9 +250,12 @@ fn test_slashing_record_details() {
     assert_eq!(record.masternode_id, address.to_string());
     assert_eq!(record.block_height, block_height);
     assert!(record.id.starts_with("slash-"));
-    
+
     match &record.violation {
-        Violation::InvalidBlock { block_height, reason } => {
+        Violation::InvalidBlock {
+            block_height,
+            reason,
+        } => {
             assert_eq!(*block_height, 5000);
             assert_eq!(reason, "Invalid transaction");
         }
@@ -267,8 +279,10 @@ fn test_prevent_double_slashing_same_node() {
     };
 
     let timestamp = Utc::now().timestamp();
-    let _record = node.execute_slash(violation.clone(), timestamp, 1000).unwrap();
-    
+    let _record = node
+        .execute_slash(violation.clone(), timestamp, 1000)
+        .unwrap();
+
     // Node should be marked as slashed
     assert!(node.is_slashed);
 
@@ -342,12 +356,15 @@ fn test_get_all_slashing_records() {
     // Slash each one
     let timestamp = Utc::now().timestamp();
     for i in 0..3 {
-        let address = Address::from_public_key(&[i as u8; 32], wallet::NetworkType::Mainnet).unwrap();
+        let address =
+            Address::from_public_key(&[i as u8; 32], wallet::NetworkType::Mainnet).unwrap();
         let violation = Violation::InvalidBlock {
             block_height: 1000 + i as u64,
             reason: format!("Violation {}", i),
         };
-        network.slash_masternode(&address, violation, timestamp, 1000 + i as u64).unwrap();
+        network
+            .slash_masternode(&address, violation, timestamp, 1000 + i as u64)
+            .unwrap();
     }
 
     // Get all records
@@ -356,7 +373,8 @@ fn test_get_all_slashing_records() {
 
     // Verify each node has one record
     for i in 0..3 {
-        let address = Address::from_public_key(&[i as u8; 32], wallet::NetworkType::Mainnet).unwrap();
+        let address =
+            Address::from_public_key(&[i as u8; 32], wallet::NetworkType::Mainnet).unwrap();
         let records = network.get_slashing_records(&address);
         assert_eq!(records.len(), 1);
     }

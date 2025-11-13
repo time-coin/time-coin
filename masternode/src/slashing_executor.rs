@@ -15,13 +15,13 @@ use serde::{Deserialize, Serialize};
 pub struct SlashingEvent {
     /// The slashing record
     pub record: SlashingRecord,
-    
+
     /// Whether treasury transfer was successful
     pub treasury_transfer_success: bool,
-    
+
     /// Transaction ID of the treasury transfer (if successful)
     pub treasury_tx_id: Option<String>,
-    
+
     /// Timestamp when event was published
     pub event_timestamp: u64,
 }
@@ -42,7 +42,11 @@ impl SlashingEvent {
     }
 
     /// Create an event with successful treasury transfer
-    pub fn with_success(record: SlashingRecord, treasury_tx_id: String, event_timestamp: u64) -> Self {
+    pub fn with_success(
+        record: SlashingRecord,
+        treasury_tx_id: String,
+        event_timestamp: u64,
+    ) -> Self {
         Self::new(record, true, Some(treasury_tx_id), event_timestamp)
     }
 
@@ -57,16 +61,16 @@ impl SlashingEvent {
 pub struct TreasuryTransfer {
     /// Amount transferred
     pub amount: u64,
-    
+
     /// Transaction ID
     pub tx_id: String,
-    
+
     /// Source (slashed masternode address)
     pub source: String,
-    
+
     /// Reason for transfer
     pub reason: String,
-    
+
     /// Timestamp of transfer
     pub timestamp: u64,
 }
@@ -79,9 +83,7 @@ pub struct SlashingExecutor {
 
 impl SlashingExecutor {
     pub fn new() -> Self {
-        Self {
-            events: Vec::new(),
-        }
+        Self { events: Vec::new() }
     }
 
     /// Execute complete slashing workflow
@@ -123,7 +125,7 @@ impl SlashingExecutor {
         //
         // For now, we simulate by generating a transaction ID
         let tx_id = format!("treasury-transfer-{}", record.id);
-        
+
         Ok(tx_id)
     }
 
@@ -174,7 +176,7 @@ mod tests {
                 block_height: 1000,
                 reason: "invalid tx".to_string(),
             },
-            5_000_000, // 0.05 TIME
+            5_000_000,  // 0.05 TIME
             95_000_000, // 0.95 TIME remaining
             1234567890,
             1000,
@@ -185,9 +187,11 @@ mod tests {
     fn test_execute_slashing() {
         let mut executor = SlashingExecutor::new();
         let record = create_test_record();
-        
-        let event = executor.execute_slashing(record.clone(), 1234567890).unwrap();
-        
+
+        let event = executor
+            .execute_slashing(record.clone(), 1234567890)
+            .unwrap();
+
         assert_eq!(event.record.amount, 5_000_000);
         assert!(event.treasury_transfer_success);
         assert!(event.treasury_tx_id.is_some());
@@ -197,16 +201,12 @@ mod tests {
     #[test]
     fn test_slashing_event_creation() {
         let record = create_test_record();
-        
-        let event = SlashingEvent::with_success(
-            record.clone(),
-            "tx-123".to_string(),
-            1234567890,
-        );
-        
+
+        let event = SlashingEvent::with_success(record.clone(), "tx-123".to_string(), 1234567890);
+
         assert!(event.treasury_transfer_success);
         assert_eq!(event.treasury_tx_id, Some("tx-123".to_string()));
-        
+
         let event = SlashingEvent::with_failure(record, 1234567890);
         assert!(!event.treasury_transfer_success);
         assert_eq!(event.treasury_tx_id, None);
@@ -215,14 +215,14 @@ mod tests {
     #[test]
     fn test_get_events_for_masternode() {
         let mut executor = SlashingExecutor::new();
-        
+
         let record1 = create_test_record();
         executor.execute_slashing(record1, 1234567890).unwrap();
-        
+
         let mut record2 = create_test_record();
         record2.masternode_id = "node-2".to_string();
         executor.execute_slashing(record2, 1234567891).unwrap();
-        
+
         let events = executor.get_events_for_masternode("node-1");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].record.masternode_id, "node-1");
@@ -231,13 +231,13 @@ mod tests {
     #[test]
     fn test_total_slashed() {
         let mut executor = SlashingExecutor::new();
-        
+
         let record1 = create_test_record();
         executor.execute_slashing(record1, 1234567890).unwrap();
-        
+
         let record2 = create_test_record();
         executor.execute_slashing(record2, 1234567891).unwrap();
-        
+
         assert_eq!(executor.total_slashed(), 10_000_000);
         assert_eq!(executor.total_transferred_to_treasury(), 10_000_000);
     }

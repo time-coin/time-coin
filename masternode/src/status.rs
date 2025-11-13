@@ -52,7 +52,7 @@ impl MasternodeStatus {
 
         // Calculate blocks since registration
         let blocks_since_registration = current_block.saturating_sub(self.registration_block);
-        
+
         // Check if maturity period has passed
         blocks_since_registration >= tier.vote_maturity_blocks()
     }
@@ -158,83 +158,67 @@ mod tests {
 
     #[test]
     fn test_can_vote_at_height_community() {
-        let mut status = MasternodeStatus::new(
-            "pubkey".to_string(),
-            "127.0.0.1".to_string(),
-            9000,
-            100,
-        );
+        let mut status =
+            MasternodeStatus::new("pubkey".to_string(), "127.0.0.1".to_string(), 9000, 100);
         status.is_active = true;
         status.sync_status = SyncStatus::Synced;
-        
+
         let tier = CollateralTier::Community;
-        
+
         // At registration block, cannot vote (needs 1 block)
         assert!(!status.can_vote_at_height(100, &tier));
-        
+
         // At block 101, can vote (1 block has passed)
         assert!(status.can_vote_at_height(101, &tier));
     }
 
     #[test]
     fn test_can_vote_at_height_verified() {
-        let mut status = MasternodeStatus::new(
-            "pubkey".to_string(),
-            "127.0.0.1".to_string(),
-            9000,
-            100,
-        );
+        let mut status =
+            MasternodeStatus::new("pubkey".to_string(), "127.0.0.1".to_string(), 9000, 100);
         status.is_active = true;
         status.sync_status = SyncStatus::Synced;
-        
+
         let tier = CollateralTier::Verified;
-        
+
         // At registration block, cannot vote (needs 3 blocks)
         assert!(!status.can_vote_at_height(100, &tier));
-        
+
         // At block 102, cannot vote (only 2 blocks)
         assert!(!status.can_vote_at_height(102, &tier));
-        
+
         // At block 103, can vote (3 blocks have passed)
         assert!(status.can_vote_at_height(103, &tier));
     }
 
     #[test]
     fn test_can_vote_at_height_professional() {
-        let mut status = MasternodeStatus::new(
-            "pubkey".to_string(),
-            "127.0.0.1".to_string(),
-            9000,
-            100,
-        );
+        let mut status =
+            MasternodeStatus::new("pubkey".to_string(), "127.0.0.1".to_string(), 9000, 100);
         status.is_active = true;
         status.sync_status = SyncStatus::Synced;
-        
+
         let tier = CollateralTier::Professional;
-        
+
         // At registration block, cannot vote (needs 10 blocks)
         assert!(!status.can_vote_at_height(100, &tier));
-        
+
         // At block 109, cannot vote (only 9 blocks)
         assert!(!status.can_vote_at_height(109, &tier));
-        
+
         // At block 110, can vote (10 blocks have passed)
         assert!(status.can_vote_at_height(110, &tier));
     }
 
     #[test]
     fn test_can_vote_at_height_requires_active() {
-        let mut status = MasternodeStatus::new(
-            "pubkey".to_string(),
-            "127.0.0.1".to_string(),
-            9000,
-            100,
-        );
+        let mut status =
+            MasternodeStatus::new("pubkey".to_string(), "127.0.0.1".to_string(), 9000, 100);
         // Not active
         status.sync_status = SyncStatus::Synced;
-        
+
         let tier = CollateralTier::Community;
-        
+
         // Even after maturity period, cannot vote if not active
         assert!(!status.can_vote_at_height(110, &tier));
     }
@@ -252,19 +236,22 @@ mod tests {
         let config = VoteMaturityConfig::default();
         assert_eq!(config.get_maturity_blocks(&CollateralTier::Community), 1);
         assert_eq!(config.get_maturity_blocks(&CollateralTier::Verified), 3);
-        assert_eq!(config.get_maturity_blocks(&CollateralTier::Professional), 10);
+        assert_eq!(
+            config.get_maturity_blocks(&CollateralTier::Professional),
+            10
+        );
     }
 
     #[test]
     fn test_vote_maturity_config_admin_updates() {
         let mut config = VoteMaturityConfig::default();
-        
+
         config.set_community_maturity(5);
         assert_eq!(config.community_maturity_blocks, 5);
-        
+
         config.set_verified_maturity(7);
         assert_eq!(config.verified_maturity_blocks, 7);
-        
+
         config.set_professional_maturity(15);
         assert_eq!(config.professional_maturity_blocks, 15);
     }
@@ -273,7 +260,7 @@ mod tests {
     fn test_vote_maturity_config_emergency_disable() {
         let mut config = VoteMaturityConfig::default();
         config.emergency_disable_maturity();
-        
+
         assert_eq!(config.community_maturity_blocks, 0);
         assert_eq!(config.verified_maturity_blocks, 0);
         assert_eq!(config.professional_maturity_blocks, 0);
@@ -283,7 +270,7 @@ mod tests {
     fn test_vote_maturity_config_emergency_set_all() {
         let mut config = VoteMaturityConfig::default();
         config.emergency_set_all_maturity(20);
-        
+
         assert_eq!(config.community_maturity_blocks, 20);
         assert_eq!(config.verified_maturity_blocks, 20);
         assert_eq!(config.professional_maturity_blocks, 20);

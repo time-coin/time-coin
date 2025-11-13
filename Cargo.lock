@@ -4873,8 +4873,10 @@ name = "time-masternode"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.17",
  "time-core",
  "tokio",
