@@ -1,7 +1,7 @@
 //! Masternode reward calculation and distribution
 
 use serde::{Deserialize, Serialize};
-use time_core::MASTERNODE_REWARD;
+use time_core::constants::MASTERNODE_REWARD;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RewardCalculation {

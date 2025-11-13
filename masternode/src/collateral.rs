@@ -1,7 +1,7 @@
 //! Masternode collateral tiers and benefits
 
 use serde::{Deserialize, Serialize};
-use time_core::COIN;
+use time_core::constants::COIN;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CollateralTier {

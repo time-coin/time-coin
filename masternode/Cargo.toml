@@ -8,6 +8,7 @@ authors.workspace = true
 [dependencies]
 time-core = { version = "0.1.0", path = "../core" }
 wallet = { version = "0.1.0", path = "../wallet" }
+treasury = { version = "0.1.0", path = "../treasury" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

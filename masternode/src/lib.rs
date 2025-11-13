@@ -347,6 +347,14 @@ pub mod slashing;
 // Slashing executor module
 pub mod slashing_executor;
 
+// Module declarations for the new registry implementation
+pub mod types;
+pub mod collateral;
+pub mod rewards;
+pub mod registry;
+
+pub use registry::MasternodeRegistry;
+
 // --- Tests
 #[cfg(test)]
 mod tests {
