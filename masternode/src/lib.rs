@@ -83,9 +83,9 @@ impl CollateralTier {
     /// This prevents instant takeover by newly coordinated malicious nodes
     pub fn vote_maturity_blocks(&self) -> u64 {
         match self {
-            CollateralTier::Community => 1,      // 1 block for Community tier
-            CollateralTier::Verified => 3,       // 3 blocks for Verified tier
-            CollateralTier::Professional => 10,  // 10 blocks for Professional tier
+            CollateralTier::Community => 1,     // 1 block for Community tier
+            CollateralTier::Verified => 3,      // 3 blocks for Verified tier
+            CollateralTier::Professional => 10, // 10 blocks for Professional tier
         }
     }
 }
@@ -348,10 +348,22 @@ pub mod slashing;
 pub mod slashing_executor;
 
 // Module declarations for the new registry implementation
-pub mod types;
 pub mod collateral;
-pub mod rewards;
 pub mod registry;
+pub mod rewards;
+pub mod types;
+
+// Violation detection modules
+pub mod detector;
+pub mod violations;
+
+// Supporting modules
+pub mod error;
+pub mod heartbeat;
+pub mod node;
+pub mod reputation;
+pub mod selection;
+pub mod voting;
 
 pub use registry::MasternodeRegistry;
 

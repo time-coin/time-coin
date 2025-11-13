@@ -5,9 +5,9 @@ use time_core::constants::COIN;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CollateralTier {
-    Community,      // 1,000 TIME - Entry level
-    Verified,       // 10,000 TIME - Balanced
-    Professional,   // 50,000 TIME - Premium
+    Community,    // 1,000 TIME - Entry level
+    Verified,     // 10,000 TIME - Balanced
+    Professional, // 50,000 TIME - Premium
 }
 
 impl CollateralTier {
@@ -47,16 +47,16 @@ impl CollateralTier {
     pub fn reward_multiplier(&self) -> f64 {
         match self {
             CollateralTier::Community => 1.0,
-            CollateralTier::Verified => 1.33,   // 33% boost
+            CollateralTier::Verified => 1.33,     // 33% boost
             CollateralTier::Professional => 1.67, // 67% boost
         }
     }
-    
+
     pub fn min_uptime(&self) -> f64 {
         match self {
-            CollateralTier::Community => 0.90,      // 90%
-            CollateralTier::Verified => 0.95,       // 95%
-            CollateralTier::Professional => 0.98,   // 98%
+            CollateralTier::Community => 0.90,    // 90%
+            CollateralTier::Verified => 0.95,     // 95%
+            CollateralTier::Professional => 0.98, // 98%
         }
     }
 
@@ -64,9 +64,9 @@ impl CollateralTier {
     /// This prevents instant takeover by newly coordinated malicious nodes
     pub fn vote_maturity_blocks(&self) -> u64 {
         match self {
-            CollateralTier::Community => 1,      // 1 block for Community tier
-            CollateralTier::Verified => 3,       // 3 blocks for Verified tier
-            CollateralTier::Professional => 10,  // 10 blocks for Professional tier
+            CollateralTier::Community => 1,     // 1 block for Community tier
+            CollateralTier::Verified => 3,      // 3 blocks for Verified tier
+            CollateralTier::Professional => 10, // 10 blocks for Professional tier
         }
     }
 }
@@ -89,7 +89,7 @@ impl TierBenefits {
             CollateralTier::Verified => "Verified",
             CollateralTier::Professional => "Professional",
         };
-        
+
         TierBenefits {
             tier,
             name: name.to_string(),

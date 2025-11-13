@@ -14,10 +14,7 @@ pub struct RewardCalculation {
 pub struct RewardCalculator;
 
 impl RewardCalculator {
-    pub fn calculate_reward(
-        masternode_id: String,
-        tier_multiplier: f64,
-    ) -> RewardCalculation {
+    pub fn calculate_reward(masternode_id: String, tier_multiplier: f64) -> RewardCalculation {
         let base_reward = MASTERNODE_REWARD;
         let total_reward = (base_reward as f64 * tier_multiplier) as u64;
 
@@ -44,11 +41,8 @@ mod tests {
 
     #[test]
     fn test_reward_calculation() {
-        let reward = RewardCalculator::calculate_reward(
-            "mn123".to_string(),
-            1.0,
-        );
-        
+        let reward = RewardCalculator::calculate_reward("mn123".to_string(), 1.0);
+
         assert_eq!(reward.base_reward, MASTERNODE_REWARD);
         assert_eq!(reward.total_reward, MASTERNODE_REWARD);
     }

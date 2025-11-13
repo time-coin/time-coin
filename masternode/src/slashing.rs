@@ -6,38 +6,28 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Violation {
     /// Masternode signed two conflicting blocks at the same height
-    DoubleSigning {
-        block_height: u64,
-        evidence: String,
-    },
-    
+    DoubleSigning { block_height: u64, evidence: String },
+
     /// Masternode offline for extended period
-    LongTermAbandonment {
-        days_offline: u64,
-    },
-    
+    LongTermAbandonment { days_offline: u64 },
+
     /// Masternode withheld required data
-    DataWithholding {
-        evidence: String,
-    },
-    
+    DataWithholding { evidence: String },
+
     /// Masternode participated in network attack
     NetworkAttack {
         attack_type: String,
         evidence: String,
     },
-    
+
     /// Masternode attempted to manipulate consensus
     ConsensusManipulation {
         manipulation_type: String,
         evidence: String,
     },
-    
+
     /// Invalid block validation (e.g., invalid transactions)
-    InvalidBlock {
-        block_height: u64,
-        reason: String,
-    },
+    InvalidBlock { block_height: u64, reason: String },
 }
 
 impl Violation {
@@ -54,15 +44,20 @@ impl Violation {
             Violation::NetworkAttack { attack_type, .. } => {
                 format!("Network attack: {}", attack_type)
             }
-            Violation::ConsensusManipulation { manipulation_type, .. } => {
+            Violation::ConsensusManipulation {
+                manipulation_type, ..
+            } => {
                 format!("Consensus manipulation: {}", manipulation_type)
             }
-            Violation::InvalidBlock { block_height, reason } => {
+            Violation::InvalidBlock {
+                block_height,
+                reason,
+            } => {
                 format!("Invalid block at height {}: {}", block_height, reason)
             }
         }
     }
-    
+
     /// Get evidence for the violation
     pub fn evidence(&self) -> Option<String> {
         match self {
@@ -80,22 +75,22 @@ impl Violation {
 pub struct SlashingRecord {
     /// Unique identifier for this slashing event
     pub id: String,
-    
+
     /// ID of the slashed masternode
     pub masternode_id: String,
-    
+
     /// Type of violation
     pub violation: Violation,
-    
+
     /// Amount slashed (in smallest units)
     pub amount: u64,
-    
+
     /// Remaining collateral after slashing
     pub remaining_collateral: u64,
-    
+
     /// Timestamp of the slashing event
     pub timestamp: u64,
-    
+
     /// Block height at which slashing occurred
     pub block_height: u64,
 }
@@ -135,10 +130,10 @@ pub fn calculate_slash_amount(violation: &Violation, collateral: u64) -> u64 {
                 0.1 // 10%
             }
         }
-        Violation::DataWithholding { .. } => 0.25,        // 25%
-        Violation::NetworkAttack { .. } => 1.0,           // 100%
-        Violation::ConsensusManipulation { .. } => 0.7,   // 70%
-        Violation::InvalidBlock { .. } => 0.05,           // 5%
+        Violation::DataWithholding { .. } => 0.25, // 25%
+        Violation::NetworkAttack { .. } => 1.0,    // 100%
+        Violation::ConsensusManipulation { .. } => 0.7, // 70%
+        Violation::InvalidBlock { .. } => 0.05,    // 5%
     };
 
     (collateral as f64 * percentage) as u64
@@ -156,7 +151,7 @@ mod tests {
         };
         let collateral = 10_000_000_000; // 100 TIME in satoshis
         let slash_amount = calculate_slash_amount(&violation, collateral);
-        
+
         // Should slash 50%
         assert_eq!(slash_amount, 5_000_000_000);
     }
@@ -169,7 +164,7 @@ mod tests {
         };
         let collateral = 10_000_000_000; // 100 TIME in satoshis
         let slash_amount = calculate_slash_amount(&violation, collateral);
-        
+
         // Should slash 5%
         assert_eq!(slash_amount, 500_000_000);
     }
@@ -180,15 +175,24 @@ mod tests {
 
         // 50 days offline - 10%
         let violation = Violation::LongTermAbandonment { days_offline: 50 };
-        assert_eq!(calculate_slash_amount(&violation, collateral), 1_000_000_000);
+        assert_eq!(
+            calculate_slash_amount(&violation, collateral),
+            1_000_000_000
+        );
 
         // 70 days offline - 15%
         let violation = Violation::LongTermAbandonment { days_offline: 70 };
-        assert_eq!(calculate_slash_amount(&violation, collateral), 1_500_000_000);
+        assert_eq!(
+            calculate_slash_amount(&violation, collateral),
+            1_500_000_000
+        );
 
         // 100 days offline - 20%
         let violation = Violation::LongTermAbandonment { days_offline: 100 };
-        assert_eq!(calculate_slash_amount(&violation, collateral), 2_000_000_000);
+        assert_eq!(
+            calculate_slash_amount(&violation, collateral),
+            2_000_000_000
+        );
     }
 
     #[test]
@@ -199,7 +203,7 @@ mod tests {
         };
         let collateral = 10_000_000_000; // 100 TIME
         let slash_amount = calculate_slash_amount(&violation, collateral);
-        
+
         // Should slash 100%
         assert_eq!(slash_amount, collateral);
     }
@@ -210,13 +214,19 @@ mod tests {
             block_height: 1000,
             evidence: "proof".to_string(),
         };
-        assert_eq!(violation.description(), "Double-signing at block height 1000");
+        assert_eq!(
+            violation.description(),
+            "Double-signing at block height 1000"
+        );
 
         let violation = Violation::InvalidBlock {
             block_height: 500,
             reason: "invalid tx".to_string(),
         };
-        assert_eq!(violation.description(), "Invalid block at height 500: invalid tx");
+        assert_eq!(
+            violation.description(),
+            "Invalid block at height 500: invalid tx"
+        );
     }
 
     #[test]
