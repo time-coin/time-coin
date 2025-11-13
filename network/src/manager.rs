@@ -510,15 +510,19 @@ impl PeerManager {
         let peers_response: PeersResponse = response.json().await?;
 
         // Convert API peer info to discovery::PeerInfo
+        let p2p_port = match self.network {
+            NetworkType::Mainnet => 24000,
+            NetworkType::Testnet => 24100,
+        };
         // Expected API address formats:
-        // - Full socket address: "192.168.1.1:24100" or "[::1]:24100"
-        // - IP address only: "192.168.1.1" or "::1" (will append default port 24100)
+        // - Full socket address: "192.168.1.1:24000" (mainnet) or "192.168.1.1:24100" (testnet)
+        // - IP address only: "192.168.1.1" or "::1" (will append default network port)
         let mut peer_infos = Vec::new();
         for api_peer in peers_response.peers {
             // Try to parse address directly as SocketAddr
             let parsed = api_peer.address.parse::<SocketAddr>().or_else(|_| {
-                // If parsing fails, try appending default peer port (24100) and parse again
-                let with_port = format!("{}:24100", api_peer.address);
+                // If parsing fails, try appending default peer port and parse again
+                let with_port = format!("{}:{}", api_peer.address, p2p_port);
                 with_port.parse::<SocketAddr>()
             });
 
@@ -539,10 +543,18 @@ impl PeerManager {
 
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
         let peers = self.peers.read().await.clone();
+        let api_port = match self.network {
+            NetworkType::Mainnet => 24001,
+            NetworkType::Testnet => 24101,
+        };
         for (addr, _info) in peers {
             let proposal_clone = proposal.clone();
             tokio::spawn(async move {
-                let url = format!("http://{}:24101/consensus/block-proposal", addr.ip());
+                let url = format!(
+                    "http://{}:{}/consensus/block-proposal",
+                    addr.ip(),
+                    api_port
+                );
                 let _ = reqwest::Client::new()
                     .post(&url)
                     .json(&proposal_clone)
@@ -555,10 +567,14 @@ impl PeerManager {
 
     pub async fn broadcast_block_vote(&self, vote: serde_json::Value) {
         let peers = self.peers.read().await.clone();
+        let api_port = match self.network {
+            NetworkType::Mainnet => 24001,
+            NetworkType::Testnet => 24101,
+        };
         for (addr, _info) in peers {
             let vote_clone = vote.clone();
             tokio::spawn(async move {
-                let url = format!("http://{}:24101/consensus/block-vote", addr.ip());
+                let url = format!("http://{}:{}/consensus/block-vote", addr.ip(), api_port);
                 let _ = reqwest::Client::new()
                     .post(&url)
                     .json(&vote_clone)
