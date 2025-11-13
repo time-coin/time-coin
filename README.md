@@ -79,6 +79,36 @@ cargo run --bin timed --release
 cargo run --bin wallet-gui --release
 ```
 
+## Usage
+
+### Starting the Node (Daemon)
+```bash
+# Start the TIME Coin daemon
+timed --config config/testnet.toml
+
+# Or with default config
+timed
+```
+
+### Using the CLI
+All user operations should use `time-cli`:
+```bash
+# Check node status
+time-cli status
+
+# Validate blockchain
+time-cli validate-chain --verbose
+
+# Mint testnet coins
+time-cli testnet-mint --address TIME1... --amount 1000
+
+# RPC operations
+time-cli rpc get-blockchain-info
+```
+
+The daemon (`timed`) runs in the background and exposes RPC endpoints.
+The CLI tool (`time-cli`) connects to those RPC endpoints to perform operations.
+
 ## GUI Wallet
 
 TIME Coin includes a cross-platform GUI hot wallet with Bitcoin-style wallet.dat file support:
