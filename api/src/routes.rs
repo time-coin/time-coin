@@ -40,6 +40,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/network/quarantine/stats", get(get_quarantine_stats))
         // Core blockchain endpoints
         .route("/", get(root))
+        .route("/health", get(health_check))
         .route("/blockchain/info", get(get_blockchain_info))
         .route("/blockchain/block/{height}", get(get_block_by_height))
         .route("/balance/{address}", get(get_balance))
@@ -54,6 +55,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/vote", post(cast_vote))
         .route("/quorum/{block_hash}", get(check_quorum))
         // Mempool endpoints
+        .route("/mempool", get(get_mempool_status)) // Backwards compatibility alias
         .route("/mempool/status", get(get_mempool_status))
         .route("/mempool/add", post(add_to_mempool))
         .route("/mempool/all", get(get_all_mempool_txs))
@@ -127,6 +129,17 @@ pub fn create_routes() -> Router<ApiState> {
 
 async fn root() -> &'static str {
     "TIME Coin API"
+}
+
+#[derive(serde::Serialize)]
+struct HealthResponse {
+    status: String,
+}
+
+async fn health_check() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ok".to_string(),
+    })
 }
 
 #[derive(serde::Serialize)]

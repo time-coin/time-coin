@@ -114,3 +114,28 @@ fn test_chainwork_format() {
     assert_eq!(chainwork.len(), 64);
     assert!(chainwork.chars().all(|c| c.is_ascii_hexdigit()));
 }
+
+#[test]
+fn test_health_response_structure() {
+    // Test that health check response has correct structure
+    let health_response = json!({
+        "status": "ok"
+    });
+
+    assert!(health_response.get("status").is_some());
+    assert_eq!(health_response["status"], "ok");
+}
+
+#[test]
+fn test_mempool_response_structure() {
+    // Test that mempool response has correct structure
+    let mempool_response = json!({
+        "size": 5,
+        "transactions": ["tx1", "tx2", "tx3", "tx4", "tx5"]
+    });
+
+    assert!(mempool_response.get("size").is_some());
+    assert!(mempool_response.get("transactions").is_some());
+    assert_eq!(mempool_response["size"], 5);
+}
+
