@@ -550,11 +550,7 @@ impl PeerManager {
         for (addr, _info) in peers {
             let proposal_clone = proposal.clone();
             tokio::spawn(async move {
-                let url = format!(
-                    "http://{}:{}/consensus/block-proposal",
-                    addr.ip(),
-                    api_port
-                );
+                let url = format!("http://{}:{}/consensus/block-proposal", addr.ip(), api_port);
                 let _ = reqwest::Client::new()
                     .post(&url)
                     .json(&proposal_clone)
@@ -956,10 +952,10 @@ mod tests {
     async fn test_network_aware_ports_mainnet() {
         // Test that mainnet uses correct ports (24000 for P2P, 24001 for API)
         let manager = PeerManager::new(NetworkType::Mainnet, "127.0.0.1:24000".parse().unwrap());
-        
+
         // Verify network type is set correctly
         assert_eq!(manager.network, NetworkType::Mainnet);
-        
+
         // The manager should use port 24000 for P2P and 24001 for API
         // This is verified by the logic in functions like request_genesis, request_mempool, etc.
     }
@@ -968,10 +964,10 @@ mod tests {
     async fn test_network_aware_ports_testnet() {
         // Test that testnet uses correct ports (24100 for P2P, 24101 for API)
         let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
-        
+
         // Verify network type is set correctly
         assert_eq!(manager.network, NetworkType::Testnet);
-        
+
         // The manager should use port 24100 for P2P and 24101 for API
         // This is verified by the logic in functions like request_genesis, request_mempool, etc.
     }

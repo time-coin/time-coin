@@ -49,19 +49,22 @@ echo ""
 # Check 4: Cargo test
 echo "🧪 Running tests..."
 if cargo test --all-features; then
-    echo -e "${GREEN}✓ All tests passed${NC}"
+    echo -e "${GREEN}✓ Cargo tests passed${NC}"
 else
-    echo -e "${RED}✗ Tests failed${NC}"
+    echo -e "${RED}✗ Cargo Tests failed${NC}"
     ERRORS=$((ERRORS + 1))
 fi
 echo ""
 
+# Check 5: Cargo Deny Check
+echo "  Running Cargo Deny Tests..."
 if cargo deny check --hide-inclusion-graph; then
-    echo -e "${GREEN}✓ Cargo Deny check passed${NC}"
+    echo -e "${GREEN}✓ Cargo Deny Tests passed${NC}"
 else
     echo -e "${RED}✗ Cargo Deny Tests failed${NC}"
     ERRORS=$((ERRORS + 1))
 fi
+echo ""
 
 # Summary
 echo "═══════════════════════════════════════════════════════════"
