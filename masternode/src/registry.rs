@@ -172,7 +172,7 @@ mod tests {
         for i in 1..=3000 {
             registry
                 .treasury_mut()
-                .deposit_block_reward(i, (i as u64) * 1000)
+                .deposit_block_reward(i, i * 1000)
                 .unwrap();
         }
 
@@ -209,7 +209,7 @@ mod tests {
         for i in 1..=3000 {
             registry
                 .treasury_mut()
-                .deposit_block_reward(i, (i as u64) * 1000)
+                .deposit_block_reward(i, i * 1000)
                 .unwrap();
         }
 
@@ -243,7 +243,7 @@ mod tests {
         for i in 1..=3000 {
             registry
                 .treasury_mut()
-                .deposit_block_reward(i, (i as u64) * 1000)
+                .deposit_block_reward(i, i * 1000)
                 .unwrap();
         }
 
@@ -284,7 +284,7 @@ mod tests {
         for i in 1..=3000 {
             registry
                 .treasury_mut()
-                .deposit_block_reward(i, (i as u64) * 1000)
+                .deposit_block_reward(i, i * 1000)
                 .unwrap();
         }
 
@@ -335,7 +335,7 @@ mod tests {
         for i in 1..=3000 {
             registry
                 .treasury_mut()
-                .deposit_block_reward(i, (i as u64) * 1000)
+                .deposit_block_reward(i, i * 1000)
                 .unwrap();
         }
 
@@ -369,7 +369,7 @@ mod tests {
         for i in 1..=3000 {
             registry
                 .treasury_mut()
-                .deposit_block_reward(i, (i as u64) * 1000)
+                .deposit_block_reward(i, i * 1000)
                 .unwrap();
         }
 
