@@ -157,6 +157,7 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
 
     let consensus = state.consensus.clone();
     let mempool = state.mempool.clone();
+    let blockchain = state.blockchain.clone();
     let txid = tx.txid.clone();
 
     // Spawn async task to handle consensus voting
@@ -168,6 +169,14 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
             println!("⚠️  No masternodes registered - auto-finalizing in dev mode");
             if let Some(mempool) = mempool.as_ref() {
                 let _ = mempool.finalize_transaction(&txid).await;
+                
+                // Apply transaction to UTXO set for instant balance update
+                let mut blockchain = blockchain.write().await;
+                if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
+                    println!("❌ Failed to apply transaction to UTXO set: {}", e);
+                } else {
+                    println!("✅ UTXO set updated - balances are now live!");
+                }
             }
             return;
         }
@@ -200,6 +209,14 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
                 match mempool.finalize_transaction(&txid).await {
                     Ok(_) => {
                         println!("🎉 Transaction {} instantly finalized!", &txid[..16]);
+                        
+                        // Apply transaction to UTXO set for instant balance update
+                        let mut blockchain = blockchain.write().await;
+                        if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
+                            println!("❌ Failed to apply transaction to UTXO set: {}", e);
+                        } else {
+                            println!("✅ UTXO set updated - balances are now live!");
+                        }
                     }
                     Err(e) => {
                         println!("❌ Failed to finalize transaction: {}", e);
