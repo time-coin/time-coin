@@ -285,14 +285,70 @@ impl PeerListener {
         let our_handshake = HandshakeMessage::new(self.network.clone(), self.our_listen_addr);
         PeerConnection::send_handshake(&mut stream, &our_handshake, &self.network).await?;
 
-        let peer_info =
+        let mut peer_info =
             PeerInfo::with_version(addr, self.network.clone(), their_handshake.version.clone());
 
-        println!("✓ Accepted {} (v{})", addr, their_handshake.version);
+        // Update with commit information from handshake
+        peer_info.commit_date = their_handshake.commit_date.clone();
+        peer_info.commit_count = their_handshake.commit_count.clone();
+
+        println!(
+            "✓ Accepted {} (v{}, committed: {})",
+            addr,
+            their_handshake.version,
+            their_handshake.commit_date.as_deref().unwrap_or("unknown")
+        );
 
         Ok(PeerConnection {
             stream,
             peer_info: Arc::new(Mutex::new(peer_info)),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discovery::NetworkType;
+    use crate::protocol::HandshakeMessage;
+
+    #[test]
+    fn test_peer_info_preserves_build_info() {
+        // Test that PeerInfo correctly stores commit_date and commit_count
+        let addr: SocketAddr = "127.0.0.1:24100".parse().unwrap();
+        let mut peer_info =
+            PeerInfo::with_version(addr, NetworkType::Testnet, "0.1.0-abc1234".to_string());
+
+        // Initially, commit info should be None
+        assert_eq!(peer_info.commit_date, None);
+        assert_eq!(peer_info.commit_count, None);
+
+        // Simulate what happens in accept() - update with handshake data
+        let commit_date = Some("2025-11-07T15:09:21Z".to_string());
+        let commit_count = Some("1234".to_string());
+        peer_info.commit_date = commit_date.clone();
+        peer_info.commit_count = commit_count.clone();
+
+        // Verify the data is preserved
+        assert_eq!(peer_info.commit_date, commit_date);
+        assert_eq!(peer_info.commit_count, commit_count);
+        assert_eq!(peer_info.version, "0.1.0-abc1234");
+    }
+
+    #[test]
+    fn test_handshake_contains_build_info() {
+        // Verify that HandshakeMessage includes commit info
+        let addr: SocketAddr = "127.0.0.1:24100".parse().unwrap();
+        let handshake = HandshakeMessage::new(NetworkType::Testnet, addr);
+
+        // Handshake should always include build info
+        assert!(handshake.commit_date.is_some());
+        assert!(handshake.commit_count.is_some());
+
+        // Verify it's not empty
+        let commit_date = handshake.commit_date.unwrap();
+        let commit_count = handshake.commit_count.unwrap();
+        assert!(!commit_date.is_empty());
+        assert!(!commit_count.is_empty());
     }
 }
