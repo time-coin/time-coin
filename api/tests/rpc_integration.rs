@@ -138,4 +138,3 @@ fn test_mempool_response_structure() {
     assert!(mempool_response.get("transactions").is_some());
     assert_eq!(mempool_response["size"], 5);
 }
-
