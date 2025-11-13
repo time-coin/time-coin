@@ -101,6 +101,9 @@ pub async fn mint_coins(
 
         println!("   ✅ Minting transaction added to mempool");
         println!("   TX ID: {}", tx.txid);
+
+        // Trigger instant finality via BFT consensus
+        trigger_instant_finality(state.clone(), tx.clone()).await;
     } else {
         return Err(ApiError::Internal("Mempool not available".to_string()));
     }
@@ -146,6 +149,70 @@ pub async fn get_mint_info(State(state): State<ApiState>) -> ApiResult<Json<Mint
             "Minting is disabled in mainnet mode for security reasons.".to_string()
         },
     }))
+}
+
+/// Trigger instant finality for a transaction via BFT consensus
+async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::Transaction) {
+    println!("🚀 Initiating instant finality for transaction {}", &tx.txid[..16]);
+
+    let consensus = state.consensus.clone();
+    let mempool = state.mempool.clone();
+    let txid = tx.txid.clone();
+
+    // Spawn async task to handle consensus voting
+    tokio::spawn(async move {
+        // Get the current node's address (simulating as a masternode)
+        let masternodes = consensus.get_masternodes().await;
+        
+        if masternodes.is_empty() {
+            println!("⚠️  No masternodes registered - auto-finalizing in dev mode");
+            if let Some(mempool) = mempool.as_ref() {
+                let _ = mempool.finalize_transaction(&txid).await;
+            }
+            return;
+        }
+
+        println!("📊 Collected {} masternodes for voting", masternodes.len());
+
+        // Simulate voting from all masternodes (in production, this would happen via network)
+        let mut approvals = 0;
+        for (i, masternode) in masternodes.iter().enumerate() {
+            // Validate and vote on the transaction
+            match consensus.validate_and_vote_transaction(&tx, masternode.clone()).await {
+                Ok(_) => {
+                    approvals += 1;
+                    println!("   ✅ Masternode {} voted: APPROVE", i + 1);
+                }
+                Err(e) => {
+                    println!("   ❌ Masternode {} vote failed: {}", i + 1, e);
+                }
+            }
+        }
+
+        // Check if consensus reached
+        let has_consensus = consensus.has_transaction_consensus(&txid).await;
+        
+        if has_consensus {
+            println!("✅ BFT consensus reached ({}/{} approvals)", approvals, masternodes.len());
+            
+            // Finalize the transaction in mempool
+            if let Some(mempool) = mempool.as_ref() {
+                match mempool.finalize_transaction(&txid).await {
+                    Ok(_) => {
+                        println!("🎉 Transaction {} instantly finalized!", &txid[..16]);
+                    }
+                    Err(e) => {
+                        println!("❌ Failed to finalize transaction: {}", e);
+                    }
+                }
+            }
+
+            // Clear votes after finalization
+            consensus.clear_transaction_votes(&txid).await;
+        } else {
+            println!("❌ BFT consensus NOT reached - transaction remains pending");
+        }
+    });
 }
 
 #[cfg(test)]

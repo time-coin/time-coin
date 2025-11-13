@@ -60,6 +60,9 @@ pub struct ConsensusEngine {
 
     /// Pending votes for current block
     pending_votes: Arc<RwLock<HashMap<String, Vec<Vote>>>>, // block_hash -> votes
+
+    /// Pending votes for transactions (instant finality)
+    transaction_votes: Arc<RwLock<HashMap<String, Vec<Vote>>>>, // txid -> votes
 }
 
 impl ConsensusEngine {
@@ -70,6 +73,7 @@ impl ConsensusEngine {
             wallet_addresses: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(None)),
             pending_votes: Arc::new(RwLock::new(HashMap::new())),
+            transaction_votes: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -383,11 +387,133 @@ impl ConsensusEngine {
         }
     }
 
-    /// Validate a transaction (placeholder)
-    pub async fn validate_transaction(&self, _tx: &Transaction) -> bool {
-        // TODO: Implement transaction validation logic
-        // For now, accept all transactions
+    /// Validate a transaction and initiate BFT voting for instant finality
+    pub async fn validate_and_vote_transaction(
+        &self,
+        tx: &Transaction,
+        voter: String,
+    ) -> Result<(), ConsensusError> {
+        // Verify voter is a registered masternode
+        let masternodes = self.masternodes.read().await;
+        if !masternodes.contains(&voter) {
+            return Err(ConsensusError::UnauthorizedVoter);
+        }
+        drop(masternodes);
+
+        // Basic transaction validation
+        let is_valid = self.validate_transaction(tx).await;
+
+        // Vote on the transaction
+        self.vote_on_transaction(&tx.txid, voter, is_valid).await
+    }
+
+    /// Validate a transaction (basic checks)
+    pub async fn validate_transaction(&self, tx: &Transaction) -> bool {
+        // Basic validation checks
+        if tx.outputs.is_empty() {
+            return false;
+        }
+
+        // Check if amounts are valid
+        for output in &tx.outputs {
+            if output.amount == 0 {
+                return false;
+            }
+        }
+
+        // Coinbase transactions (no inputs) are valid for testnet minting
+        if tx.inputs.is_empty() {
+            return true;
+        }
+
+        // For regular transactions, verify structure
+        for input in &tx.inputs {
+            if input.previous_output.txid.is_empty() {
+                return false;
+            }
+        }
+
         true
+    }
+
+    /// Vote on a transaction for instant finality
+    pub async fn vote_on_transaction(
+        &self,
+        txid: &str,
+        voter: String,
+        approve: bool,
+    ) -> Result<(), ConsensusError> {
+        // Verify voter is a registered masternode
+        let masternodes = self.masternodes.read().await;
+        if !masternodes.contains(&voter) {
+            return Err(ConsensusError::UnauthorizedVoter);
+        }
+        drop(masternodes);
+
+        let mut votes = self.transaction_votes.write().await;
+        let vote_list = votes.entry(txid.to_string()).or_insert_with(Vec::new);
+
+        // Check if already voted
+        if vote_list.iter().any(|v| v.voter == voter) {
+            return Err(ConsensusError::DuplicateVote);
+        }
+
+        vote_list.push(Vote {
+            block_hash: txid.to_string(), // Reuse block_hash field for txid
+            voter,
+            approve,
+            timestamp: chrono::Utc::now().timestamp(),
+        });
+
+        Ok(())
+    }
+
+    /// Check if transaction has reached consensus (2/3+ approval) for instant finality
+    pub async fn has_transaction_consensus(&self, txid: &str) -> bool {
+        let mode = self.consensus_mode().await;
+
+        match mode {
+            ConsensusMode::Development | ConsensusMode::BootstrapNoQuorum => {
+                // Always true in dev/bootstrap mode for instant finality
+                true
+            }
+            ConsensusMode::BFT => {
+                let votes = self.transaction_votes.read().await;
+                let masternodes = self.masternodes.read().await;
+                let total_nodes = masternodes.len();
+
+                if total_nodes < 3 {
+                    return true; // Accept in bootstrap mode
+                }
+
+                if let Some(vote_list) = votes.get(txid) {
+                    let approvals = vote_list.iter().filter(|v| v.approve).count();
+                    let required = (total_nodes * 2).div_ceil(3); // Ceiling of 2/3
+                    approvals >= required
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /// Get transaction vote counts
+    pub async fn get_transaction_vote_count(&self, txid: &str) -> (usize, usize) {
+        let votes = self.transaction_votes.read().await;
+
+        if let Some(vote_list) = votes.get(txid) {
+            let approvals = vote_list.iter().filter(|v| v.approve).count();
+            let rejections = vote_list.iter().filter(|v| !v.approve).count();
+            (approvals, rejections)
+        } else {
+            (0, 0)
+        }
+    }
+
+    /// Clear transaction votes after finalization
+    pub async fn clear_transaction_votes(&self, txid: &str) {
+        let mut votes = self.transaction_votes.write().await;
+        votes.remove(txid);
     }
 
     /// VRF-based leader selection with weighted random

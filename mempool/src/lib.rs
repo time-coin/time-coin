@@ -37,6 +37,10 @@ pub struct MempoolEntry {
     pub added_at: i64,
     /// Priority score (higher = included sooner)
     pub priority: u64,
+    /// Whether the transaction has been finalized by BFT consensus
+    pub finalized: bool,
+    /// When it was finalized (if applicable)
+    pub finalized_at: Option<i64>,
 }
 
 impl Mempool {
@@ -108,6 +112,8 @@ impl Mempool {
             transaction: tx.clone(),
             added_at: chrono::Utc::now().timestamp(),
             priority,
+            finalized: false,
+            finalized_at: None,
         };
 
         pool.insert(tx.txid.clone(), entry);
@@ -460,6 +466,51 @@ impl Mempool {
         // Estimate: assume inputs are worth slightly more than outputs
         // This is a placeholder - real implementation needs UTXO lookup
         output_sum / 100 // 1% fee estimation
+    }
+
+    /// Finalize a transaction (mark as confirmed by BFT consensus)
+    pub async fn finalize_transaction(&self, txid: &str) -> Result<(), MempoolError> {
+        let mut pool = self.transactions.write().await;
+        
+        if let Some(entry) = pool.get_mut(txid) {
+            entry.finalized = true;
+            entry.finalized_at = Some(chrono::Utc::now().timestamp());
+            
+            println!(
+                "✅ Transaction {} finalized by BFT consensus",
+                &txid[..std::cmp::min(16, txid.len())]
+            );
+            
+            Ok(())
+        } else {
+            Err(MempoolError::InvalidTransaction(
+                TransactionError::InvalidInput,
+            ))
+        }
+    }
+
+    /// Check if a transaction is finalized
+    pub async fn is_finalized(&self, txid: &str) -> bool {
+        let pool = self.transactions.read().await;
+        pool.get(txid).map(|e| e.finalized).unwrap_or(false)
+    }
+
+    /// Get finalized transactions
+    pub async fn get_finalized_transactions(&self) -> Vec<Transaction> {
+        let pool = self.transactions.read().await;
+        pool.values()
+            .filter(|entry| entry.finalized)
+            .map(|entry| entry.transaction.clone())
+            .collect()
+    }
+
+    /// Get pending (not finalized) transactions
+    pub async fn get_pending_transactions(&self) -> Vec<Transaction> {
+        let pool = self.transactions.read().await;
+        pool.values()
+            .filter(|entry| !entry.finalized)
+            .map(|entry| entry.transaction.clone())
+            .collect()
     }
 }
 

@@ -446,7 +446,7 @@ pub async fn getrawtransaction(
                         confirmations: None,
                         time: Some(tx.timestamp),
                         blocktime: Some(tx.timestamp),
-                        finalized: false,
+                        finalized: state.mempool.as_ref().unwrap().is_finalized(&tx.txid).await,
                     }));
                 }
             }
