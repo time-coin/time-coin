@@ -59,6 +59,16 @@ impl CollateralTier {
             CollateralTier::Professional => 0.98,   // 98%
         }
     }
+
+    /// Vote maturity period in blocks before a newly registered masternode can vote
+    /// This prevents instant takeover by newly coordinated malicious nodes
+    pub fn vote_maturity_blocks(&self) -> u64 {
+        match self {
+            CollateralTier::Community => 1,      // 1 block for Community tier
+            CollateralTier::Verified => 3,       // 3 blocks for Verified tier
+            CollateralTier::Professional => 10,  // 10 blocks for Professional tier
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,5 +148,12 @@ mod tests {
     fn test_tier_count() {
         let tiers = TierBenefits::all();
         assert_eq!(tiers.len(), 3);
+    }
+
+    #[test]
+    fn test_vote_maturity_blocks() {
+        assert_eq!(CollateralTier::Community.vote_maturity_blocks(), 1);
+        assert_eq!(CollateralTier::Verified.vote_maturity_blocks(), 3);
+        assert_eq!(CollateralTier::Professional.vote_maturity_blocks(), 10);
     }
 }
