@@ -747,7 +747,10 @@ impl BlockProducer {
                     timestamp: Utc::now().timestamp(),
                 };
 
-                self.block_consensus.store_vote(vote.clone()).await;
+                // Use vote_on_block() instead of store_vote() to ensure proper validation
+                if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
+                    println!("   ⚠️  Failed to record vote: {}", e);
+                }
 
                 let vote_json = serde_json::to_value(&vote).unwrap();
                 self.peer_manager.broadcast_block_vote(vote_json).await;
