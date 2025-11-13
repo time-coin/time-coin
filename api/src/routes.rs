@@ -2,6 +2,7 @@ use crate::handlers::get_node_wallet;
 use crate::masternode_handlers::{list_masternodes, register_masternode};
 use crate::quarantine_handlers::{get_quarantine_stats, get_quarantined_peers, release_peer};
 use crate::rpc_handlers;
+use crate::testnet_handlers::{get_mint_info, mint_coins};
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
 use axum::{
@@ -16,6 +17,9 @@ use std::collections::HashMap;
 /// Create routes with TIME Coin-specific endpoints
 pub fn create_routes() -> Router<ApiState> {
     Router::new()
+        // Testnet-only endpoints
+        .route("/testnet/mint", post(mint_coins))
+        .route("/testnet/mint/info", get(get_mint_info))
         // Masternode management endpoints
         .route("/masternode/register", post(register_masternode))
         .route("/masternodes/list", get(list_masternodes))

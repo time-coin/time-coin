@@ -63,6 +63,21 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+    /// Mint coins for testing (testnet only)
+    TestnetMint {
+        /// Address to receive the minted coins
+        #[arg(short, long)]
+        address: String,
+        /// Amount to mint in TIME (e.g., 100.5)
+        #[arg(short = 'a', long)]
+        amount: f64,
+        /// Optional reason for minting
+        #[arg(short, long)]
+        reason: Option<String>,
+        /// RPC endpoint (default: http://127.0.0.1:24101)
+        #[arg(long, default_value = "http://127.0.0.1:24101")]
+        rpc_url: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -682,6 +697,113 @@ async fn validate_chain_command(config: &Config, verbose: bool) {
     println!("  • UTXO set is consistent");
 }
 
+/// Mint coins in testnet mode for testing
+async fn testnet_mint_command(
+    address: String,
+    amount: f64,
+    reason: Option<String>,
+    rpc_url: String,
+) {
+    use serde::{Deserialize, Serialize};
+
+    println!("{}", "🪙 TIME Coin Testnet Minter".cyan().bold());
+    println!("{}", "═══════════════════════════════════".bright_black());
+    println!();
+
+    // Convert TIME to satoshis
+    let amount_satoshis = (amount * 100_000_000.0) as u64;
+
+    println!("📋 Mint Request:");
+    println!("   Address: {}", address.bright_blue());
+    println!("   Amount: {} TIME ({} satoshis)", amount.to_string().green().bold(), amount_satoshis);
+    if let Some(ref r) = reason {
+        println!("   Reason: {}", r.bright_black());
+    }
+    println!("   RPC: {}", rpc_url.bright_black());
+    println!();
+
+    #[derive(Serialize)]
+    struct MintRequest {
+        address: String,
+        amount: u64,
+        reason: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct MintResponse {
+        success: bool,
+        message: String,
+        txid: String,
+        amount: u64,
+        address: String,
+    }
+
+    let request = MintRequest {
+        address: address.clone(),
+        amount: amount_satoshis,
+        reason,
+    };
+
+    let url = format!("{}/testnet/mint", rpc_url);
+    
+    println!("📡 Sending mint request...");
+    
+    match reqwest::Client::new()
+        .post(&url)
+        .json(&request)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<MintResponse>().await {
+                    Ok(mint_resp) => {
+                        if mint_resp.success {
+                            println!();
+                            println!("{}", "✅ SUCCESS!".green().bold());
+                            println!("{}", "═══════════════════════════════════".bright_black());
+                            println!("{}", mint_resp.message);
+                            println!();
+                            println!("Transaction Details:");
+                            println!("  • TX ID: {}", mint_resp.txid.bright_blue());
+                            println!("  • Amount: {} satoshis ({} TIME)", mint_resp.amount, mint_resp.amount as f64 / 100_000_000.0);
+                            println!("  • Recipient: {}", mint_resp.address);
+                            println!();
+                            println!("💡 The minted coins will appear in the next block.");
+                        } else {
+                            println!("{}", "❌ FAILED!".red().bold());
+                            println!("   {}", mint_resp.message);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{}", "❌ Failed to parse response".red().bold());
+                        eprintln!("   Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!("{}", "❌ Request failed!".red().bold());
+                let status = response.status();
+                if let Ok(body) = response.text().await {
+                    eprintln!("   Status: {}", status);
+                    eprintln!("   Response: {}", body);
+                } else {
+                    eprintln!("   Status: {}", status);
+                }
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("{}", "❌ Connection failed!".red().bold());
+            eprintln!("   Error: {}", e);
+            eprintln!();
+            eprintln!("{}",  "Make sure the TIME Coin node is running and accessible at:".yellow());
+            eprintln!("   {}", rpc_url);
+            std::process::exit(1);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -708,6 +830,15 @@ async fn main() {
     match cli.command {
         Some(Commands::ValidateChain { verbose }) => {
             validate_chain_command(&config, verbose).await;
+            return;
+        }
+        Some(Commands::TestnetMint {
+            address,
+            amount,
+            reason,
+            rpc_url,
+        }) => {
+            testnet_mint_command(address, amount, reason, rpc_url).await;
             return;
         }
         Some(Commands::Start) | None => {
