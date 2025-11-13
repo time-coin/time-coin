@@ -76,6 +76,18 @@ pub struct ViolationDetector {
     detected_violations: Vec<Violation>,
 }
 
+/// Parameters for recording invalid block proposals
+#[derive(Debug, Clone)]
+pub struct InvalidBlockParams {
+    pub masternode_id: String,
+    pub block_height: u64,
+    pub block_hash: String,
+    pub reason: String,
+    pub expected_merkle_root: Option<String>,
+    pub actual_merkle_root: Option<String>,
+    pub timestamp: u64,
+}
+
 impl ViolationDetector {
     /// Create a new violation detector with default config
     pub fn new() -> Self {
@@ -267,33 +279,24 @@ impl ViolationDetector {
     }
 
     /// Record invalid block proposal
-    pub fn record_invalid_block(
-        &mut self,
-        masternode_id: String,
-        block_height: u64,
-        block_hash: String,
-        reason: String,
-        expected_merkle_root: Option<String>,
-        actual_merkle_root: Option<String>,
-        timestamp: u64,
-    ) -> Violation {
+    pub fn record_invalid_block(&mut self, params: InvalidBlockParams) -> Violation {
         let invalid = InvalidBlock {
-            block_height,
-            block_hash,
-            reason,
-            expected_merkle_root,
-            actual_merkle_root,
+            block_height: params.block_height,
+            block_hash: params.block_hash,
+            reason: params.reason,
+            expected_merkle_root: params.expected_merkle_root,
+            actual_merkle_root: params.actual_merkle_root,
         };
 
         let evidence_data = serde_json::to_string(&invalid).unwrap_or_default();
-        let evidence = Evidence::new("invalid_block".to_string(), evidence_data, timestamp);
+        let evidence = Evidence::new("invalid_block".to_string(), evidence_data, params.timestamp);
 
         let violation = Violation::new(
-            masternode_id,
+            params.masternode_id,
             ViolationType::InvalidBlock(invalid),
             evidence,
-            timestamp,
-            block_height,
+            params.timestamp,
+            params.block_height,
         );
 
         self.detected_violations.push(violation.clone());
@@ -579,15 +582,15 @@ mod tests {
     fn test_invalid_block_recording() {
         let mut detector = ViolationDetector::new();
 
-        let violation = detector.record_invalid_block(
-            "mn1".to_string(),
-            1000,
-            "invalid_hash".to_string(),
-            "Invalid merkle root".to_string(),
-            Some("expected".to_string()),
-            Some("actual".to_string()),
-            5000,
-        );
+        let violation = detector.record_invalid_block(InvalidBlockParams {
+            masternode_id: "mn1".to_string(),
+            block_height: 1000,
+            block_hash: "invalid_hash".to_string(),
+            reason: "Invalid merkle root".to_string(),
+            expected_merkle_root: Some("expected".to_string()),
+            actual_merkle_root: Some("actual".to_string()),
+            timestamp: 5000,
+        });
 
         assert_eq!(violation.masternode_id, "mn1");
         assert_eq!(violation.severity(), ViolationSeverity::Moderate);
@@ -647,35 +650,35 @@ mod tests {
         let mut detector = ViolationDetector::new();
 
         // Create violations for different masternodes
-        detector.record_invalid_block(
-            "mn1".to_string(),
-            1000,
-            "hash1".to_string(),
-            "reason1".to_string(),
-            None,
-            None,
-            5000,
-        );
+        detector.record_invalid_block(InvalidBlockParams {
+            masternode_id: "mn1".to_string(),
+            block_height: 1000,
+            block_hash: "hash1".to_string(),
+            reason: "reason1".to_string(),
+            expected_merkle_root: None,
+            actual_merkle_root: None,
+            timestamp: 5000,
+        });
 
-        detector.record_invalid_block(
-            "mn2".to_string(),
-            1001,
-            "hash2".to_string(),
-            "reason2".to_string(),
-            None,
-            None,
-            5001,
-        );
+        detector.record_invalid_block(InvalidBlockParams {
+            masternode_id: "mn2".to_string(),
+            block_height: 1001,
+            block_hash: "hash2".to_string(),
+            reason: "reason2".to_string(),
+            expected_merkle_root: None,
+            actual_merkle_root: None,
+            timestamp: 5001,
+        });
 
-        detector.record_invalid_block(
-            "mn1".to_string(),
-            1002,
-            "hash3".to_string(),
-            "reason3".to_string(),
-            None,
-            None,
-            5002,
-        );
+        detector.record_invalid_block(InvalidBlockParams {
+            masternode_id: "mn1".to_string(),
+            block_height: 1002,
+            block_hash: "hash3".to_string(),
+            reason: "reason3".to_string(),
+            expected_merkle_root: None,
+            actual_merkle_root: None,
+            timestamp: 5002,
+        });
 
         let mn1_violations = detector.get_violations_for_masternode("mn1");
         assert_eq!(mn1_violations.len(), 2);
