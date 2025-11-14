@@ -141,10 +141,7 @@ fn test_block_after_snapshot_causes_utxo_loss() {
         if block_balance == 0 && finalized_balance > 0 {
             println!("\n❌ BUG REPRODUCED: Block UTXOs were lost when snapshot was restored!");
             println!("   The snapshot REPLACED the UTXOs from blocks instead of MERGING.");
-            assert!(
-                false,
-                "Bug confirmed: snapshot replaces block UTXOs instead of merging"
-            );
+            panic!("Bug confirmed: snapshot replaces block UTXOs instead of merging");
         } else if block_balance > 0 && finalized_balance > 0 {
             println!("\n✅ Bug is FIXED: Both block and finalized UTXOs are present!");
             assert_eq!(
@@ -156,8 +153,7 @@ fn test_block_after_snapshot_causes_utxo_loss() {
                 "Finalized balance should be correct"
             );
         } else {
-            assert!(
-                false,
+            panic!(
                 "Unexpected state: block_balance={}, finalized_balance={}",
                 block_balance, finalized_balance
             );
