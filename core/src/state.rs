@@ -373,6 +373,29 @@ impl Treasury {
         self.fee_percentage = percentage;
         Ok(())
     }
+
+    /// Check if a proposal has been executed (by checking if it has a withdrawal record)
+    pub fn is_proposal_executed(&self, proposal_id: &str) -> bool {
+        self.withdrawals.iter().any(|w| w.proposal_id == proposal_id)
+    }
+
+    /// Get approved proposal amount (None if not approved or already executed)
+    pub fn get_approved_amount(&self, proposal_id: &str) -> Option<u64> {
+        self.approved_proposals.get(proposal_id).copied()
+    }
+
+    /// Remove an approved proposal (for cleanup of expired proposals)
+    /// This should only be called by governance logic when a proposal expires
+    pub fn remove_approved_proposal(&mut self, proposal_id: &str) -> Result<(), StateError> {
+        if self.approved_proposals.remove(proposal_id).is_some() {
+            Ok(())
+        } else {
+            Err(StateError::IoError(format!(
+                "Proposal {} is not in approved proposals",
+                proposal_id
+            )))
+        }
+    }
 }
 
 impl Default for Treasury {
@@ -743,6 +766,13 @@ impl BlockchainState {
                     }
                 }
 
+                // Process treasury grant transactions
+                for tx in &block.transactions {
+                    if tx.is_treasury_grant() {
+                        self.process_treasury_grant(tx, block_number, timestamp)?;
+                    }
+                }
+
                 self.db.save_block(&block)?;
                 self.blocks_by_height
                     .insert(block.header.block_number, block.hash.clone());
@@ -756,6 +786,69 @@ impl BlockchainState {
                 Err(e.into())
             }
         }
+    }
+
+    /// Process a treasury grant transaction
+    /// Validates the grant against approved proposals and executes the distribution
+    fn process_treasury_grant(
+        &mut self,
+        tx: &Transaction,
+        block_number: u64,
+        timestamp: i64,
+    ) -> Result<(), StateError> {
+        // Extract proposal ID from the transaction
+        let proposal_id = tx.treasury_grant_proposal_id().ok_or_else(|| {
+            StateError::IoError("Invalid treasury grant transaction format".to_string())
+        })?;
+
+        // Validate transaction structure for treasury grants
+        if tx.outputs.len() != 1 {
+            return Err(StateError::IoError(
+                "Treasury grant must have exactly one output".to_string(),
+            ));
+        }
+
+        let output = &tx.outputs[0];
+        let recipient = &output.address;
+        let amount = output.amount;
+
+        // Check if proposal has already been executed (double execution prevention)
+        if self.treasury.is_proposal_executed(&proposal_id) {
+            return Err(StateError::IoError(format!(
+                "Treasury grant for proposal {} has already been executed",
+                proposal_id
+            )));
+        }
+
+        // Validate against approved proposal
+        let approved_amount = self
+            .treasury
+            .get_approved_amount(&proposal_id)
+            .ok_or_else(|| {
+                StateError::IoError(format!(
+                    "Treasury grant for proposal {} is not approved",
+                    proposal_id
+                ))
+            })?;
+
+        // Validate amount matches approved amount
+        if amount != approved_amount {
+            return Err(StateError::IoError(format!(
+                "Treasury grant amount {} does not match approved amount {}",
+                amount, approved_amount
+            )));
+        }
+
+        // Execute the distribution through the treasury
+        self.treasury.distribute(
+            proposal_id,
+            recipient.clone(),
+            amount,
+            block_number,
+            timestamp,
+        )?;
+
+        Ok(())
     }
 
     /// Register a new masternode
@@ -982,6 +1075,15 @@ impl BlockchainState {
             self.chain_tip_height,
             timestamp,
         )
+    }
+
+    /// Remove an expired approved proposal from treasury
+    /// This should be called by governance logic when a proposal expires
+    pub fn cleanup_expired_treasury_proposal(
+        &mut self,
+        proposal_id: &str,
+    ) -> Result<(), StateError> {
+        self.treasury.remove_approved_proposal(proposal_id)
     }
 }
 
@@ -1408,5 +1510,362 @@ mod tests {
         let chain_stats = state.get_stats();
         assert_eq!(chain_stats.treasury_balance, stats.balance);
         assert_eq!(chain_stats.treasury_total_allocated, stats.total_allocated);
+    }
+
+    #[test]
+    fn test_treasury_grant_transaction_creation() {
+        use crate::transaction::Transaction;
+        
+        // Create a treasury grant transaction
+        let grant = Transaction::create_treasury_grant(
+            "proposal-123".to_string(),
+            "recipient_address".to_string(),
+            1000000,
+            100,
+            1234567890,
+        );
+
+        // Verify it's identified as a treasury grant
+        assert!(grant.is_treasury_grant());
+        assert!(!grant.is_coinbase());
+        
+        // Verify proposal ID can be extracted
+        assert_eq!(grant.treasury_grant_proposal_id(), Some("proposal-123".to_string()));
+        
+        // Verify structure
+        assert_eq!(grant.inputs.len(), 0);
+        assert_eq!(grant.outputs.len(), 1);
+        assert_eq!(grant.outputs[0].amount, 1000000);
+        assert_eq!(grant.outputs[0].address, "recipient_address");
+        
+        // Verify txid format
+        assert!(grant.txid.starts_with("treasury_grant_proposal-123_"));
+    }
+
+    #[test]
+    fn test_treasury_grant_in_block_processing() {
+        use crate::transaction::Transaction;
+        
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_treasury_grant_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register a masternode to set proper counts
+        state.register_masternode(
+            "node1".to_string(),
+            MasternodeTier::Free,
+            "collateral1".to_string(),
+            "miner1".to_string(),
+        ).unwrap();
+
+        // Add first block to generate treasury funds
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        // Approve a proposal
+        let proposal_id = "test-proposal-1".to_string();
+        let recipient = "project_developer".to_string();
+        let amount = 100_000_000u64; // 1 TIME
+        
+        state.approve_treasury_proposal(proposal_id.clone(), amount).unwrap();
+
+        // Create a block with a treasury grant transaction
+        let grant_tx = Transaction::create_treasury_grant(
+            proposal_id.clone(),
+            recipient.clone(),
+            amount,
+            2,
+            1234567890,
+        );
+
+        let block_hash = state.chain_tip_hash().to_string();
+        // Need to provide valid coinbase outputs (masternode rewards)
+        let coinbase_outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
+        
+        // Add the grant transaction to the block
+        block2.add_transaction(grant_tx).unwrap();
+
+        // Process the block
+        state.add_block(block2).unwrap();
+
+        // Verify the treasury distribution happened
+        let stats = state.treasury_stats();
+        assert_eq!(stats.withdrawal_count, 1);
+        assert_eq!(stats.pending_proposals, 0); // Should be removed after execution
+
+        // Verify the recipient received the funds
+        let recipient_balance = state.get_balance(&recipient);
+        assert_eq!(recipient_balance, amount);
+    }
+
+    #[test]
+    fn test_treasury_grant_double_execution_prevention() {
+        use crate::transaction::Transaction;
+        
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_double_exec_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register a masternode to set proper counts
+        state.register_masternode(
+            "node1".to_string(),
+            MasternodeTier::Free,
+            "collateral1".to_string(),
+            "miner1".to_string(),
+        ).unwrap();
+
+        // Add first block to generate treasury funds
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        // Approve a proposal
+        let proposal_id = "test-proposal-2".to_string();
+        let amount = 100_000_000u64;
+        state.approve_treasury_proposal(proposal_id.clone(), amount).unwrap();
+
+        // Create first block with treasury grant
+        let grant_tx1 = Transaction::create_treasury_grant(
+            proposal_id.clone(),
+            "recipient1".to_string(),
+            amount,
+            2,
+            1234567890,
+        );
+
+        let block_hash = state.chain_tip_hash().to_string();
+        let coinbase_outputs2 = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let mut block2 = Block::new(2, block_hash.clone(), "miner1".to_string(), coinbase_outputs2);
+        block2.add_transaction(grant_tx1).unwrap();
+        state.add_block(block2).unwrap();
+
+        // Try to create another block with the same grant (double execution attempt)
+        let grant_tx2 = Transaction::create_treasury_grant(
+            proposal_id.clone(),
+            "recipient1".to_string(),
+            amount,
+            3,
+            1234567891,
+        );
+
+        let block_hash2 = state.chain_tip_hash().to_string();
+        let coinbase_outputs3 = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let mut block3 = Block::new(3, block_hash2, "miner1".to_string(), coinbase_outputs3);
+        block3.add_transaction(grant_tx2).unwrap();
+        
+        // This should fail because the proposal was already executed
+        let result = state.add_block(block3);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already been executed"));
+    }
+
+    #[test]
+    fn test_treasury_grant_unapproved_proposal() {
+        use crate::transaction::Transaction;
+        
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_unapproved_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register a masternode to set proper counts
+        state.register_masternode(
+            "node1".to_string(),
+            MasternodeTier::Free,
+            "collateral1".to_string(),
+            "miner1".to_string(),
+        ).unwrap();
+
+        // Add first block
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        // Try to create a grant for an unapproved proposal
+        let grant_tx = Transaction::create_treasury_grant(
+            "unapproved-proposal".to_string(),
+            "recipient".to_string(),
+            1000000,
+            2,
+            1234567890,
+        );
+
+        let block_hash = state.chain_tip_hash().to_string();
+        let coinbase_outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
+        block2.add_transaction(grant_tx).unwrap();
+
+        // This should fail because the proposal is not approved
+        let result = state.add_block(block2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not approved"));
+    }
+
+    #[test]
+    fn test_treasury_grant_amount_mismatch() {
+        use crate::transaction::Transaction;
+        
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_amount_mismatch_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register a masternode to set proper counts
+        state.register_masternode(
+            "node1".to_string(),
+            MasternodeTier::Free,
+            "collateral1".to_string(),
+            "miner1".to_string(),
+        ).unwrap();
+
+        // Add first block
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        // Approve a proposal with a specific amount
+        let proposal_id = "test-proposal-3".to_string();
+        let approved_amount = 100_000_000u64;
+        state.approve_treasury_proposal(proposal_id.clone(), approved_amount).unwrap();
+
+        // Try to create a grant with a different amount
+        let wrong_amount = 150_000_000u64;
+        let grant_tx = Transaction::create_treasury_grant(
+            proposal_id.clone(),
+            "recipient".to_string(),
+            wrong_amount,
+            2,
+            1234567890,
+        );
+
+        let block_hash = state.chain_tip_hash().to_string();
+        let coinbase_outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
+        block2.add_transaction(grant_tx).unwrap();
+
+        // This should fail because the amount doesn't match
+        let result = state.add_block(block2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not match"));
+    }
+
+    #[test]
+    fn test_cleanup_expired_treasury_proposal() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_cleanup_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register a masternode to set proper counts
+        state.register_masternode(
+            "node1".to_string(),
+            MasternodeTier::Free,
+            "collateral1".to_string(),
+            "miner1".to_string(),
+        ).unwrap();
+
+        // Add a block to generate treasury funds first
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        // Approve a proposal (should have treasury funds now)
+        let proposal_id = "expired-proposal".to_string();
+        let amount = 100_000u64; // Small amount
+        state.approve_treasury_proposal(proposal_id.clone(), amount).unwrap();
+
+        // Verify it's approved
+        let stats = state.treasury_stats();
+        assert_eq!(stats.pending_proposals, 1);
+
+        // Clean up the expired proposal
+        state.cleanup_expired_treasury_proposal(&proposal_id).unwrap();
+
+        // Verify it's been removed
+        let stats = state.treasury_stats();
+        assert_eq!(stats.pending_proposals, 0);
+
+        // Trying to clean up again should fail
+        let result = state.cleanup_expired_treasury_proposal(&proposal_id);
+        assert!(result.is_err());
     }
 }

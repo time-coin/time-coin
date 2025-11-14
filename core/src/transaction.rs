@@ -118,6 +118,27 @@ impl Transaction {
         tx
     }
 
+    /// Create a treasury grant transaction for an approved proposal
+    /// Treasury grants have no inputs (protocol-controlled) and a special txid format
+    pub fn create_treasury_grant(
+        proposal_id: String,
+        recipient: String,
+        amount: u64,
+        block_number: u64,
+        timestamp: i64,
+    ) -> Self {
+        let output = TxOutput::new(amount, recipient);
+        
+        Self {
+            txid: format!("treasury_grant_{}_{}", proposal_id, block_number),
+            version: 1,
+            inputs: vec![], // No inputs - protocol controlled
+            outputs: vec![output],
+            lock_time: 0,
+            timestamp,
+        }
+    }
+
     /// Calculate the transaction ID (double SHA3-256 hash)
     pub fn calculate_txid(&self) -> String {
         let data = self.serialize_for_signing();
@@ -200,8 +221,8 @@ impl Transaction {
     /// Basic validation (structure checks)
     pub fn validate_structure(&self) -> Result<(), TransactionError> {
         // Must have at least one input and output
-        // Coinbase transactions have no inputs
-        if self.inputs.is_empty() && !self.is_coinbase() {
+        // Coinbase and treasury grant transactions have no inputs
+        if self.inputs.is_empty() && !self.is_coinbase() && !self.is_treasury_grant() {
             return Err(TransactionError::InvalidInput);
         }
         if self.outputs.is_empty() {
@@ -227,8 +248,30 @@ impl Transaction {
     }
 
     /// Check if this is a coinbase transaction (no inputs, generates new coins)
+    /// Note: Treasury grants also have no inputs but are identified differently
     pub fn is_coinbase(&self) -> bool {
-        self.inputs.is_empty()
+        self.inputs.is_empty() && !self.is_treasury_grant()
+    }
+
+    /// Check if this is a treasury grant transaction (protocol-controlled distribution)
+    /// Treasury grants have no inputs and txid starts with "treasury_grant_"
+    pub fn is_treasury_grant(&self) -> bool {
+        self.inputs.is_empty() && self.txid.starts_with("treasury_grant_")
+    }
+
+    /// Extract proposal ID from treasury grant transaction
+    /// Returns None if this is not a treasury grant
+    pub fn treasury_grant_proposal_id(&self) -> Option<String> {
+        if !self.is_treasury_grant() {
+            return None;
+        }
+        // Treasury grant txid format: "treasury_grant_{proposal_id}_{block_number}"
+        let parts: Vec<&str> = self.txid.split('_').collect();
+        if parts.len() >= 3 && parts[0] == "treasury" && parts[1] == "grant" {
+            Some(parts[2].to_string())
+        } else {
+            None
+        }
     }
 }
 
@@ -313,5 +356,83 @@ mod tests {
 
         assert_eq!(op1, op2);
         assert_ne!(op1, op3);
+    }
+
+    #[test]
+    fn test_treasury_grant_identification() {
+        // Regular transaction should not be identified as treasury grant
+        let regular_tx = Transaction::new(
+            vec![TxInput::new("prev".to_string(), 0, vec![], vec![])],
+            vec![TxOutput::new(1000, "addr".to_string())],
+        );
+        assert!(!regular_tx.is_treasury_grant());
+        assert!(regular_tx.treasury_grant_proposal_id().is_none());
+
+        // Treasury grant should be identified correctly
+        let grant = Transaction::create_treasury_grant(
+            "proposal-xyz".to_string(),
+            "recipient".to_string(),
+            5000,
+            100,
+            1234567890,
+        );
+        assert!(grant.is_treasury_grant());
+        assert!(!grant.is_coinbase());
+        assert_eq!(grant.treasury_grant_proposal_id(), Some("proposal-xyz".to_string()));
+    }
+
+    #[test]
+    fn test_treasury_grant_structure() {
+        let grant = Transaction::create_treasury_grant(
+            "prop-123".to_string(),
+            "dev_team".to_string(),
+            10_000_000,
+            50,
+            1700000000,
+        );
+
+        // Should have no inputs (protocol-controlled)
+        assert_eq!(grant.inputs.len(), 0);
+        
+        // Should have exactly one output
+        assert_eq!(grant.outputs.len(), 1);
+        assert_eq!(grant.outputs[0].amount, 10_000_000);
+        assert_eq!(grant.outputs[0].address, "dev_team");
+        
+        // Should have correct timestamp
+        assert_eq!(grant.timestamp, 1700000000);
+        
+        // txid should follow the format
+        assert_eq!(grant.txid, "treasury_grant_prop-123_50");
+    }
+
+    #[test]
+    fn test_coinbase_vs_treasury_grant() {
+        // Coinbase transaction (empty inputs, generic txid)
+        let coinbase = Transaction {
+            txid: "coinbase_123".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![TxOutput::new(1000, "miner".to_string())],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+        
+        assert!(coinbase.is_coinbase());
+        assert!(!coinbase.is_treasury_grant());
+        assert!(coinbase.treasury_grant_proposal_id().is_none());
+
+        // Treasury grant (empty inputs, special txid)
+        let grant = Transaction::create_treasury_grant(
+            "prop-1".to_string(),
+            "recipient".to_string(),
+            5000,
+            10,
+            1234567890,
+        );
+        
+        assert!(!grant.is_coinbase()); // Not a coinbase
+        assert!(grant.is_treasury_grant());
+        assert_eq!(grant.treasury_grant_proposal_id(), Some("prop-1".to_string()));
     }
 }
