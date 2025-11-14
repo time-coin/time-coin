@@ -107,6 +107,14 @@ pub struct TreasuryWithdrawal {
     pub timestamp: i64,
 }
 
+/// Approved grant record for treasury proposals
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovedGrant {
+    pub proposal_id: String,
+    pub amount: u64,
+    pub approved_at: i64,
+}
+
 /// Protocol-managed treasury state (no wallet address or private key)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Treasury {
@@ -126,7 +134,7 @@ pub struct Treasury {
     withdrawals: Vec<TreasuryWithdrawal>,
 
     /// Approved proposals that can withdraw funds
-    approved_proposals: HashMap<String, u64>, // proposal_id -> approved_amount
+    approved_proposals: HashMap<String, ApprovedGrant>, // proposal_id -> ApprovedGrant
 
     /// Percentage of block rewards allocated to treasury (default 5%)
     block_reward_percentage: u64,
@@ -274,7 +282,13 @@ impl Treasury {
             )));
         }
 
-        self.approved_proposals.insert(proposal_id, amount);
+        let timestamp = chrono::Utc::now().timestamp();
+        let grant = ApprovedGrant {
+            proposal_id: proposal_id.clone(),
+            amount,
+            approved_at: timestamp,
+        };
+        self.approved_proposals.insert(proposal_id, grant);
         Ok(())
     }
 
@@ -288,15 +302,15 @@ impl Treasury {
         timestamp: i64,
     ) -> Result<(), StateError> {
         // Check if proposal is approved
-        let approved_amount = self
+        let approved_grant = self
             .approved_proposals
             .get(&proposal_id)
             .ok_or_else(|| StateError::IoError(format!("Proposal {} not approved", proposal_id)))?;
 
-        if amount > *approved_amount {
+        if amount > approved_grant.amount {
             return Err(StateError::IoError(format!(
                 "Requested amount {} exceeds approved amount {}",
-                amount, approved_amount
+                amount, approved_grant.amount
             )));
         }
 
@@ -327,14 +341,19 @@ impl Treasury {
         });
 
         // Update or remove approved amount
-        let remaining = approved_amount
+        let remaining = approved_grant.amount
             .checked_sub(amount)
             .ok_or_else(|| StateError::IoError("Approved amount underflow".to_string()))?;
 
         if remaining == 0 {
             self.approved_proposals.remove(&proposal_id);
         } else {
-            self.approved_proposals.insert(proposal_id, remaining);
+            let updated_grant = ApprovedGrant {
+                proposal_id: proposal_id.clone(),
+                amount: remaining,
+                approved_at: approved_grant.approved_at,
+            };
+            self.approved_proposals.insert(proposal_id, updated_grant);
         }
 
         Ok(())
@@ -379,9 +398,14 @@ impl Treasury {
         self.withdrawals.iter().any(|w| w.proposal_id == proposal_id)
     }
 
+    /// Get all approved grants (for block producer)
+    pub fn get_approved_grants(&self) -> Vec<ApprovedGrant> {
+        self.approved_proposals.values().cloned().collect()
+    }
+
     /// Get approved proposal amount (None if not approved or already executed)
     pub fn get_approved_amount(&self, proposal_id: &str) -> Option<u64> {
-        self.approved_proposals.get(proposal_id).copied()
+        self.approved_proposals.get(proposal_id).map(|g| g.amount)
     }
 
     /// Remove an approved proposal (for cleanup of expired proposals)
@@ -769,7 +793,57 @@ impl BlockchainState {
                 // Process treasury grant transactions
                 for tx in &block.transactions {
                     if tx.is_treasury_grant() {
-                        self.process_treasury_grant(tx, block_number, timestamp)?;
+                        // Extract proposal ID from the transaction
+                        let proposal_id = tx.treasury_grant_proposal_id().ok_or_else(|| {
+                            StateError::IoError("Invalid treasury grant transaction format".to_string())
+                        })?;
+
+                        // Validate transaction structure for treasury grants
+                        if tx.outputs.len() != 1 {
+                            return Err(StateError::IoError(
+                                "Treasury grant must have exactly one output".to_string(),
+                            ));
+                        }
+
+                        let output = &tx.outputs[0];
+                        let recipient = &output.address;
+                        let amount = output.amount;
+
+                        // Check if proposal has already been executed (double execution prevention)
+                        if self.treasury.is_proposal_executed(&proposal_id) {
+                            return Err(StateError::IoError(format!(
+                                "Treasury grant for proposal {} has already been executed",
+                                proposal_id
+                            )));
+                        }
+
+                        // Validate against approved proposal
+                        let approved_amount = self
+                            .treasury
+                            .get_approved_amount(&proposal_id)
+                            .ok_or_else(|| {
+                                StateError::IoError(format!(
+                                    "Treasury grant for proposal {} is not approved",
+                                    proposal_id
+                                ))
+                            })?;
+
+                        // Validate amount matches approved amount
+                        if amount != approved_amount {
+                            return Err(StateError::IoError(format!(
+                                "Treasury grant amount {} does not match approved amount {}",
+                                amount, approved_amount
+                            )));
+                        }
+
+                        // Execute the distribution through the treasury
+                        self.treasury.distribute(
+                            proposal_id,
+                            recipient.clone(),
+                            amount,
+                            block_number,
+                            timestamp,
+                        )?;
                     }
                 }
 
@@ -786,69 +860,6 @@ impl BlockchainState {
                 Err(e.into())
             }
         }
-    }
-
-    /// Process a treasury grant transaction
-    /// Validates the grant against approved proposals and executes the distribution
-    fn process_treasury_grant(
-        &mut self,
-        tx: &Transaction,
-        block_number: u64,
-        timestamp: i64,
-    ) -> Result<(), StateError> {
-        // Extract proposal ID from the transaction
-        let proposal_id = tx.treasury_grant_proposal_id().ok_or_else(|| {
-            StateError::IoError("Invalid treasury grant transaction format".to_string())
-        })?;
-
-        // Validate transaction structure for treasury grants
-        if tx.outputs.len() != 1 {
-            return Err(StateError::IoError(
-                "Treasury grant must have exactly one output".to_string(),
-            ));
-        }
-
-        let output = &tx.outputs[0];
-        let recipient = &output.address;
-        let amount = output.amount;
-
-        // Check if proposal has already been executed (double execution prevention)
-        if self.treasury.is_proposal_executed(&proposal_id) {
-            return Err(StateError::IoError(format!(
-                "Treasury grant for proposal {} has already been executed",
-                proposal_id
-            )));
-        }
-
-        // Validate against approved proposal
-        let approved_amount = self
-            .treasury
-            .get_approved_amount(&proposal_id)
-            .ok_or_else(|| {
-                StateError::IoError(format!(
-                    "Treasury grant for proposal {} is not approved",
-                    proposal_id
-                ))
-            })?;
-
-        // Validate amount matches approved amount
-        if amount != approved_amount {
-            return Err(StateError::IoError(format!(
-                "Treasury grant amount {} does not match approved amount {}",
-                amount, approved_amount
-            )));
-        }
-
-        // Execute the distribution through the treasury
-        self.treasury.distribute(
-            proposal_id,
-            recipient.clone(),
-            amount,
-            block_number,
-            timestamp,
-        )?;
-
-        Ok(())
     }
 
     /// Register a new masternode
@@ -1075,6 +1086,11 @@ impl BlockchainState {
             self.chain_tip_height,
             timestamp,
         )
+    }
+
+    /// Get all approved treasury grants (for block producer)
+    pub fn get_approved_treasury_grants(&self) -> Vec<ApprovedGrant> {
+        self.treasury.get_approved_grants()
     }
 
     /// Remove an expired approved proposal from treasury
@@ -1574,8 +1590,15 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
@@ -1596,8 +1619,11 @@ mod tests {
         );
 
         let block_hash = state.chain_tip_hash().to_string();
-        // Need to provide valid coinbase outputs (masternode rewards)
-        let coinbase_outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        // Need to provide valid coinbase outputs (masternode rewards + treasury)
+        let coinbase_outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
         
         // Add the grant transaction to the block
@@ -1648,8 +1674,15 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
@@ -1668,7 +1701,10 @@ mod tests {
         );
 
         let block_hash = state.chain_tip_hash().to_string();
-        let coinbase_outputs2 = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let coinbase_outputs2 = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let mut block2 = Block::new(2, block_hash.clone(), "miner1".to_string(), coinbase_outputs2);
         block2.add_transaction(grant_tx1).unwrap();
         state.add_block(block2).unwrap();
@@ -1683,7 +1719,10 @@ mod tests {
         );
 
         let block_hash2 = state.chain_tip_hash().to_string();
-        let coinbase_outputs3 = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let coinbase_outputs3 = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let mut block3 = Block::new(3, block_hash2, "miner1".to_string(), coinbase_outputs3);
         block3.add_transaction(grant_tx2).unwrap();
         
@@ -1725,8 +1764,15 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
@@ -1740,7 +1786,10 @@ mod tests {
         );
 
         let block_hash = state.chain_tip_hash().to_string();
-        let coinbase_outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let coinbase_outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
         block2.add_transaction(grant_tx).unwrap();
 
@@ -1782,8 +1831,15 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
@@ -1803,7 +1859,10 @@ mod tests {
         );
 
         let block_hash = state.chain_tip_hash().to_string();
-        let coinbase_outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let coinbase_outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
         block2.add_transaction(grant_tx).unwrap();
 
@@ -1843,8 +1902,15 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
