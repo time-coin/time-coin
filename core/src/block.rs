@@ -253,7 +253,7 @@ impl Block {
             return Err(BlockError::InvalidCoinbase);
         }
 
-        // Only first transaction can be coinbase
+        // Only first transaction can be coinbase (treasury grants can appear anywhere)
         for tx in &self.transactions[1..] {
             if tx.is_coinbase() {
                 return Err(BlockError::InvalidCoinbase);
@@ -300,11 +300,13 @@ impl Block {
         let coinbase = self.coinbase().ok_or(BlockError::InvalidCoinbase)?;
         let coinbase_total: u64 = coinbase.outputs.iter().map(|o| o.amount).sum();
 
-        // Calculate total fees from regular transactions
+        // Calculate total fees from regular transactions (excluding treasury grants)
         let mut total_fees = 0u64;
         for tx in self.regular_transactions() {
-            let fee = tx.fee(utxo_set.utxos())?;
-            total_fees += fee;
+            if !tx.is_treasury_grant() {
+                let fee = tx.fee(utxo_set.utxos())?;
+                total_fees += fee;
+            }
         }
 
         // Coinbase should be masternode rewards + fees (no treasury)
@@ -316,7 +318,7 @@ impl Block {
         // Apply coinbase first
         utxo_set.apply_transaction(coinbase)?;
 
-        // Validate and apply all regular transactions
+        // Validate and apply all regular transactions (including treasury grants)
         for tx in self.regular_transactions() {
             utxo_set.apply_transaction(tx)?;
         }
@@ -328,8 +330,11 @@ impl Block {
     pub fn total_fees(&self, utxo_set: &UTXOSet) -> Result<u64, BlockError> {
         let mut total = 0u64;
         for tx in self.regular_transactions() {
-            let fee = tx.fee(utxo_set.utxos())?;
-            total += fee;
+            // Skip treasury grants as they don't have fees
+            if !tx.is_treasury_grant() {
+                let fee = tx.fee(utxo_set.utxos())?;
+                total += fee;
+            }
         }
         Ok(total)
     }
