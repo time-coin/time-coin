@@ -695,7 +695,7 @@ pub async fn getbalance(
     let address = params
         .address
         .unwrap_or_else(|| state.wallet_address.clone());
-    
+
     // Calculate balance from UTXO set instead of the balances HashMap
     // This ensures the balance always reflects the actual spendable UTXOs
     // and properly handles multiple UTXOs for the same address

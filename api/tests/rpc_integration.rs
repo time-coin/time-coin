@@ -143,18 +143,18 @@ fn test_mempool_response_structure() {
 fn test_wallet_balance_from_multiple_utxos() {
     // Test that wallet balance correctly sums multiple UTXOs
     // This validates the fix for the wallet balance calculation issue
-    
+
     // Simulate multiple UTXOs for the same address
     let utxo1_amount = 1000u64 * 100_000_000; // 1000 TIME coins in satoshis
-    let utxo2_amount = 500u64 * 100_000_000;  // 500 TIME coins in satoshis
-    let utxo3_amount = 250u64 * 100_000_000;  // 250 TIME coins in satoshis
-    
+    let utxo2_amount = 500u64 * 100_000_000; // 500 TIME coins in satoshis
+    let utxo3_amount = 250u64 * 100_000_000; // 250 TIME coins in satoshis
+
     let total_satoshis = utxo1_amount + utxo2_amount + utxo3_amount;
     let expected_balance = total_satoshis as f64 / 100_000_000.0;
-    
+
     // Expected balance should be 1750 TIME coins
     assert_eq!(expected_balance, 1750.0);
-    
+
     // Verify each UTXO converts correctly
     assert_eq!(utxo1_amount as f64 / 100_000_000.0, 1000.0);
     assert_eq!(utxo2_amount as f64 / 100_000_000.0, 500.0);
@@ -165,9 +165,9 @@ fn test_wallet_balance_from_multiple_utxos() {
 fn test_zero_balance_for_nonexistent_address() {
     // Test that addresses with no UTXOs return 0 balance
     // This validates proper error handling in the balance calculation
-    
+
     let balance = 0u64; // No UTXOs means 0 balance
     let time_coins = balance as f64 / 100_000_000.0;
-    
+
     assert_eq!(time_coins, 0.0);
 }

@@ -102,10 +102,14 @@ impl BlockchainDB {
     }
 
     /// Save UTXO state snapshot for persistence between blocks
-    pub fn save_utxo_snapshot(&self, utxo_set: &crate::utxo_set::UTXOSet) -> Result<(), StateError> {
+    pub fn save_utxo_snapshot(
+        &self,
+        utxo_set: &crate::utxo_set::UTXOSet,
+    ) -> Result<(), StateError> {
         let snapshot = utxo_set.snapshot();
-        let data = bincode::serialize(&snapshot)
-            .map_err(|e| StateError::IoError(format!("Failed to serialize UTXO snapshot: {}", e)))?;
+        let data = bincode::serialize(&snapshot).map_err(|e| {
+            StateError::IoError(format!("Failed to serialize UTXO snapshot: {}", e))
+        })?;
 
         self.db
             .insert(b"snapshot:utxo_state", data)
@@ -120,7 +124,9 @@ impl BlockchainDB {
     }
 
     /// Load UTXO state snapshot
-    pub fn load_utxo_snapshot(&self) -> Result<Option<crate::utxo_set::UTXOSetSnapshot>, StateError> {
+    pub fn load_utxo_snapshot(
+        &self,
+    ) -> Result<Option<crate::utxo_set::UTXOSetSnapshot>, StateError> {
         match self.db.get(b"snapshot:utxo_state") {
             Ok(Some(data)) => {
                 let snapshot = bincode::deserialize(&data).map_err(|e| {

@@ -774,7 +774,7 @@ impl BlockchainState {
             // The snapshot might have UTXOs from finalized transactions
             // that aren't in blocks yet. We need to carefully merge.
             eprintln!("📥 Loading UTXO snapshot from disk...");
-            
+
             // For now, we'll restore the entire snapshot
             // In production, you might want to validate against blocks first
             self.utxo_set.restore(snapshot);
