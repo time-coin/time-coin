@@ -27,6 +27,11 @@ impl BlockchainDB {
             .insert(key.as_bytes(), value)
             .map_err(|e| StateError::IoError(format!("Failed to save block: {}", e)))?;
 
+        // Flush to disk to ensure durability - critical for persistence after reboot
+        self.db
+            .flush()
+            .map_err(|e| StateError::IoError(format!("Failed to flush block to disk: {}", e)))?;
+
         Ok(())
     }
 
