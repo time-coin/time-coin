@@ -222,7 +222,10 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
 
         println!(
             "📊 Vote results: {} approvals, {} rejections (total {} votes from {} peers)",
-            approvals, rejections, total_votes, masternodes.len()
+            approvals,
+            rejections,
+            total_votes,
+            masternodes.len()
         );
 
         // Check if consensus reached based on actual votes received
@@ -231,8 +234,7 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
         if has_consensus {
             println!(
                 "✅ BFT consensus reached ({}/{} approvals from responding masternodes)",
-                approvals,
-                total_votes
+                approvals, total_votes
             );
 
             // Finalize the transaction in mempool

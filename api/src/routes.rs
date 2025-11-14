@@ -1117,7 +1117,10 @@ async fn trigger_instant_finality_for_received_tx(
 
         println!(
             "📊 Vote results: {} approvals, {} rejections (total {} votes from {} peers)",
-            approvals, rejections, total_votes, masternodes.len()
+            approvals,
+            rejections,
+            total_votes,
+            masternodes.len()
         );
 
         // Check if consensus reached based on actual votes received
@@ -1126,8 +1129,7 @@ async fn trigger_instant_finality_for_received_tx(
         if has_consensus {
             println!(
                 "✅ BFT consensus reached ({}/{} approvals from responding masternodes)",
-                approvals,
-                total_votes
+                approvals, total_votes
             );
 
             // Finalize the transaction in mempool
@@ -1248,11 +1250,7 @@ async fn receive_instant_finality_vote(
         }
     }
 
-    let vote_type = if approve {
-        "APPROVE ✓"
-    } else {
-        "REJECT ✗"
-    };
+    let vote_type = if approve { "APPROVE ✓" } else { "REJECT ✗" };
     println!(
         "🗳️  Received instant finality vote for tx {}: {} from {}",
         &txid[..16],
