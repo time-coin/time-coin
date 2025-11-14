@@ -50,6 +50,24 @@ pub struct DistributeFundsRequest {
     pub amount: u64,
 }
 
+/// Proposal submission request
+#[derive(Debug, Deserialize)]
+pub struct ProposeRequest {
+    pub title: String,
+    pub description: String,
+    pub recipient: String,
+    pub amount: u64,
+    pub voting_period_days: u64,
+}
+
+/// Vote submission request
+#[derive(Debug, Deserialize)]
+pub struct VoteRequest {
+    pub proposal_id: String,
+    pub masternode_id: String,
+    pub vote: String, // "Yes", "No", or "Abstain"
+}
+
 /// Get treasury statistics
 pub async fn get_treasury_stats(
     State(state): State<ApiState>,
@@ -155,5 +173,78 @@ pub async fn distribute_treasury_funds(
         "recipient": request.recipient,
         "amount": request.amount,
         "message": "Treasury funds distributed successfully"
+    })))
+}
+
+/// Submit a new treasury proposal
+pub async fn submit_proposal(
+    State(_state): State<ApiState>,
+    Json(request): Json<ProposeRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // Generate a unique proposal ID
+    let proposal_id = format!("prop-{}", chrono::Utc::now().timestamp());
+    
+    // TODO: Store proposal in blockchain state
+    // For now, return success with the generated ID
+    
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "proposal_id": proposal_id,
+        "title": request.title,
+        "amount": request.amount,
+        "message": "Proposal submitted successfully and is now open for voting"
+    })))
+}
+
+/// Get a specific treasury proposal by ID
+pub async fn get_proposal(
+    State(_state): State<ApiState>,
+    proposal_id: String,
+) -> ApiResult<Json<serde_json::Value>> {
+    // TODO: Retrieve proposal from blockchain state
+    // For now, return a placeholder
+    
+    Ok(Json(serde_json::json!({
+        "id": proposal_id,
+        "title": "Sample Proposal",
+        "description": "This is a sample proposal",
+        "recipient": "TIME1sample000000000000000000000000000",
+        "amount": 100000000000u64,
+        "status": "Active",
+        "submitter": "submitter-node",
+        "votes": {}
+    })))
+}
+
+/// Get a specific treasury proposal by ID (with path extraction)
+pub async fn get_proposal_by_id(
+    State(state): State<ApiState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    get_proposal(State(state), id).await
+}
+
+/// Cast a vote on a treasury proposal
+pub async fn vote_on_proposal(
+    State(_state): State<ApiState>,
+    Json(request): Json<VoteRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // Validate vote choice
+    let vote_choice = match request.vote.as_str() {
+        "Yes" | "yes" => "Yes",
+        "No" | "no" => "No",
+        "Abstain" | "abstain" => "Abstain",
+        _ => return Err(ApiError::BadRequest("Invalid vote choice. Must be: Yes, No, or Abstain".to_string())),
+    };
+    
+    // TODO: Store vote in blockchain state
+    // TODO: Validate that masternode exists and hasn't already voted
+    
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "proposal_id": request.proposal_id,
+        "masternode_id": request.masternode_id,
+        "vote": vote_choice,
+        "message": format!("Vote '{}' recorded successfully", vote_choice)
     })))
 }

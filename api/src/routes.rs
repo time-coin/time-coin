@@ -4,8 +4,9 @@ use crate::quarantine_handlers::{get_quarantine_stats, get_quarantined_peers, re
 use crate::rpc_handlers;
 use crate::testnet_handlers::{get_mint_info, mint_coins};
 use crate::treasury_handlers::{
-    approve_treasury_proposal, distribute_treasury_funds, get_treasury_allocations,
-    get_treasury_stats, get_treasury_withdrawals,
+    approve_treasury_proposal, distribute_treasury_funds, get_proposal_by_id,
+    get_treasury_allocations, get_treasury_stats, get_treasury_withdrawals, submit_proposal,
+    vote_on_proposal,
 };
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
@@ -34,6 +35,9 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/treasury/withdrawals", get(get_treasury_withdrawals))
         .route("/treasury/approve", post(approve_treasury_proposal))
         .route("/treasury/distribute", post(distribute_treasury_funds))
+        .route("/treasury/propose", post(submit_proposal))
+        .route("/treasury/proposal/:id", post(get_proposal_by_id))
+        .route("/treasury/vote", post(vote_on_proposal))
         // Quarantine management endpoints
         .route("/network/quarantine", get(get_quarantined_peers))
         .route("/network/quarantine/release", post(release_peer))
