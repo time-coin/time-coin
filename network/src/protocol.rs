@@ -358,11 +358,7 @@ pub fn version_update_warning(
     format!(
         "\n\
         ╔══════════════════════════════════════════════════════════════╗\n\
-        ║  ⚠️  /// The above code is a comment in Rust programming language indicating that an update is
-        /// available and a newer version has been detected. It is not performing any specific
-        /// functionality in terms of code execution, but rather serving as a notification or
-        /// reminder for the programmer.
-        UPDATE AVAILABLE - NEWER VERSION DETECTED               ║\n\
+        ║      UPDATE AVAILABLE - NEWER VERSION DETECTED               ║\n\
         ╚══════════════════════════════════════════════════════════════╝\n\
         \n\
         Peer {} is running a NEWER version:\n\
