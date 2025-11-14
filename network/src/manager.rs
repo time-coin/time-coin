@@ -111,7 +111,23 @@ impl PeerManager {
         {
             Ok(conn) => {
                 // On successful connect, get peer info and record
-                let info = conn.peer_info().await;
+                let mut info = conn.peer_info().await;
+
+                // Normalize peer address to use standard P2P listening port
+                // Ephemeral ports (>= 49152) indicate outgoing connection ports, not listening addresses
+                if info.address.port() >= 49152 {
+                    let standard_port = match self.network {
+                        NetworkType::Mainnet => 24000,
+                        NetworkType::Testnet => 24100,
+                    };
+                    info.address = SocketAddr::new(info.address.ip(), standard_port);
+                    debug!(
+                        peer = %peer_ip,
+                        normalized_addr = %info.address,
+                        "Normalized peer address to standard P2P port"
+                    );
+                }
+
                 info!(peer = %info.address, version = %info.version, "connected to peer");
 
                 // Insert into the active peers map using IP address as key
@@ -328,9 +344,21 @@ impl PeerManager {
         peer_addr: SocketAddr,
         message: crate::protocol::NetworkMessage,
     ) -> Result<(), String> {
-        let mut stream = tokio::net::TcpStream::connect(peer_addr)
+        // Normalize peer address to use standard P2P listening port
+        // Ephemeral ports (>= 49152) indicate outgoing connection ports, not listening addresses
+        let normalized_addr = if peer_addr.port() >= 49152 {
+            let standard_port = match self.network {
+                NetworkType::Mainnet => 24000,
+                NetworkType::Testnet => 24100,
+            };
+            SocketAddr::new(peer_addr.ip(), standard_port)
+        } else {
+            peer_addr
+        };
+
+        let mut stream = tokio::net::TcpStream::connect(normalized_addr)
             .await
-            .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
+            .map_err(|e| format!("Failed to connect to {}: {}", normalized_addr, e))?;
 
         let json = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
