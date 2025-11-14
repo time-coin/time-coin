@@ -89,17 +89,68 @@ Status: Approved
 Votes: 220 YES, 50 NO (81% approval)
 ```
 
-### Vote on a Proposal (Future CLI)
+### Vote on a Proposal
 
 ```bash
 # Vote YES on a proposal
-time-cli treasury vote --proposal prop-001 --choice yes
+time-cli treasury vote \
+  --proposal-id prop-001 \
+  --masternode-id my-masternode-1 \
+  --choice yes \
+  --voting-power 100
 
 # Vote NO on a proposal
-time-cli treasury vote --proposal prop-001 --choice no
+time-cli treasury vote \
+  --proposal-id prop-001 \
+  --masternode-id my-masternode-1 \
+  --choice no \
+  --voting-power 100
 
 # Abstain from voting
-time-cli treasury vote --proposal prop-001 --choice abstain
+time-cli treasury vote \
+  --proposal-id prop-001 \
+  --masternode-id my-masternode-1 \
+  --choice abstain \
+  --voting-power 100
+```
+
+### View Proposal Details
+
+```bash
+# Get detailed information about a specific proposal
+time-cli treasury details prop-001
+```
+
+**Example Output:**
+```
+📄 Proposal Details
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID:          prop-001
+Title:       Website Redesign
+Description: Modernize TIME Coin website with new UI/UX
+Recipient:   TIME1abc123...
+Amount:      50000.0 TIME
+Submitter:   TIME1xyz789...
+Status:      Active
+
+Voting:
+  Yes votes:   110
+  No votes:    1
+  Total votes: 111
+  Approval:    99.1%
+```
+
+### List Proposals with Filtering
+
+```bash
+# List all proposals
+time-cli treasury list
+
+# List only active proposals
+time-cli treasury list --status active
+
+# List approved proposals
+time-cli treasury list --status approved
 ```
 
 ## For Proposal Submitters
@@ -124,12 +175,15 @@ Before submitting a proposal, ensure you have:
 
 2. **Create Proposal**
    ```bash
-   # Future CLI command
+   # Create a new treasury proposal
    time-cli treasury propose \
+     --id "website-redesign-2024" \
      --title "Website Redesign" \
-     --description "Modernize TIME Coin website" \
-     --recipient "time1abc123..." \
-     --amount 50000
+     --description "Modernize TIME Coin website with improved UI/UX" \
+     --recipient "TIME1abc123..." \
+     --amount 50000 \
+     --submitter "TIME1xyz789..." \
+     --voting-days 14
    ```
 
 3. **Promote Proposal**
