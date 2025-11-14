@@ -1095,6 +1095,573 @@ If 350 operators die/exit (catastrophic):
 
 This model ensures the treasury remains secure, operational, and truly decentralized even as individual operators join and leave the network over time.
 
+### 4.3 Protocol-Managed Treasury Architecture
+
+TIME Coin implements a revolutionary **state-only treasury** with no private keys or wallet addresses. This design eliminates entire classes of security vulnerabilities while providing transparent, consensus-driven fund management.
+
+#### Core Principles
+
+**State-Only Design:**
+- Treasury balance tracked in blockchain state, not UTXO or wallet
+- No private keys exist for treasury funds
+- No addresses or signing operations
+- Balance is a protocol-level variable in consensus state
+- All operations enforced by consensus rules
+
+**Consensus-Driven Spending:**
+- All expenditures require 67%+ masternode approval (2/3 supermajority)
+- Byzantine Fault Tolerant (BFT) governance model
+- Time-bound proposals with voting and execution deadlines
+- Fully transparent voting process
+- Automatic execution after approval
+
+**Complete Auditability:**
+- Every deposit recorded with source (block reward or transaction fee)
+- Every withdrawal linked to approved proposal
+- Immutable on-chain history
+- Real-time balance verification
+- No off-chain operations
+
+#### Data Structures
+
+**Treasury State:**
+```rust
+pub struct Treasury {
+    balance: u64,                                    // Current balance
+    total_allocated: u64,                            // Lifetime deposits
+    total_distributed: u64,                          // Lifetime withdrawals
+    allocations: Vec<TreasuryAllocation>,            // Deposit history
+    withdrawals: Vec<TreasuryWithdrawal>,            // Distribution history
+    approved_proposals: HashMap<String, u64>,        // Approved amounts
+    block_reward_percentage: u64,                    // 5%
+    fee_percentage: u64,                             // 50%
+}
+```
+
+**Treasury Allocation (Deposit):**
+```rust
+pub struct TreasuryAllocation {
+    block_number: u64,           // Block where deposit occurred
+    amount: u64,                 // Amount in smallest unit
+    source: AllocationSource,    // BlockReward or TransactionFees
+    timestamp: i64,              // Unix timestamp
+}
+```
+
+**Treasury Proposal:**
+```rust
+pub struct TreasuryProposal {
+    id: String,                  // Unique identifier
+    title: String,               // Human-readable title
+    description: String,         // Detailed description
+    recipient: String,           // TIME address
+    amount: u64,                 // Requested amount
+    submitter: String,           // Proposer address
+    submission_time: u64,        // Submission timestamp
+    voting_deadline: u64,        // Voting period end
+    execution_deadline: u64,     // Execution window end
+    status: ProposalStatus,      // Current state
+    votes: HashMap<String, Vote>,// Masternode votes
+    total_voting_power: u64,     // Cumulative power
+}
+```
+
+**Vote Record:**
+```rust
+pub struct Vote {
+    masternode_id: String,       // Masternode identifier
+    vote_choice: VoteChoice,     // Yes/No/Abstain
+    voting_power: u64,           // Weight by tier
+    timestamp: u64,              // Vote timestamp
+}
+```
+
+#### Funding Mechanism
+
+**Automatic Allocation:**
+
+Every block creation triggers treasury funding:
+
+```
+Block Reward Distribution:
+- Block creates 100 TIME
+- 95 TIME → Masternodes (95%)
+- 5 TIME → Treasury (5%)
+
+Transaction Fee Distribution:
+- Block includes fees totaling 10 TIME
+- 5 TIME → Masternodes (50%)
+- 5 TIME → Treasury (50%)
+
+Result: Treasury receives 10 TIME per block
+```
+
+**Implementation in Block Processing:**
+```rust
+impl BlockchainState {
+    pub fn add_block(&mut self, block: Block) -> Result<()> {
+        // ... block validation ...
+        
+        // Allocate treasury funds
+        let treasury_reward = 5 * TIME_UNIT;  // 5 TIME
+        self.treasury.allocate_from_block_reward(
+            treasury_reward,
+            block.height,
+            block.timestamp
+        )?;
+        
+        let treasury_fees = total_fees / 2;  // 50%
+        self.treasury.allocate_from_fees(
+            treasury_fees,
+            block.height,
+            block.timestamp
+        )?;
+        
+        // ... continue block processing ...
+    }
+}
+```
+
+#### Governance Process
+
+**Phase 1: Proposal Submission**
+
+Any community member can submit a proposal (future: may require deposit):
+
+```
+Required Information:
+- Unique proposal ID
+- Title (short description)
+- Detailed description (deliverables, timeline)
+- Recipient TIME address
+- Requested amount
+- Submitter address
+
+Automatic Calculations:
+- Voting deadline: submission_time + 14 days
+- Execution deadline: voting_deadline + 30 days
+- Initial status: Active
+```
+
+**Phase 2: Masternode Voting (14 days)**
+
+Active masternodes cast weighted votes:
+
+```
+Voting Power by Tier:
+- Bronze (1,000 TIME):   1x weight
+- Silver (10,000 TIME):  10x weight
+- Gold (100,000 TIME):   100x weight
+
+Vote Choices:
+- YES:     Support the proposal
+- NO:      Oppose the proposal
+- ABSTAIN: Participate without taking position
+
+Voting Rules:
+- One vote per masternode per proposal
+- No vote changes after submission
+- Votes cast before voting_deadline only
+- All votes publicly visible
+```
+
+**Phase 3: Approval Calculation**
+
+After voting deadline, results calculated:
+
+```
+Approval Formula:
+approval_percentage = (YES_power / (YES_power + NO_power)) × 100
+
+Approval Threshold: 67% (2/3 supermajority)
+
+Note: ABSTAIN votes don't count toward approval calculation
+      but demonstrate participation
+
+Examples:
+✅ 200 YES + 100 NO = 66.67% → APPROVED (rounds to 67%)
+✅ 670 YES + 330 NO = 67.0% → APPROVED
+✅ 1000 YES + 0 NO = 100% → APPROVED
+❌ 660 YES + 340 NO = 66.0% → REJECTED
+❌ 500 YES + 500 NO = 50.0% → REJECTED
+```
+
+**Phase 4: Proposal Execution (30-day window)**
+
+Approved proposals must be executed within 30 days:
+
+```
+Execution Requirements:
+✅ Status must be Approved
+✅ Current time before execution_deadline
+✅ Treasury balance ≥ proposal amount
+
+Execution Process:
+1. Validate preconditions
+2. Deduct from treasury.balance
+3. Record withdrawal in history
+4. Update total_distributed
+5. Mark proposal as Executed
+
+Expiration:
+If not executed before execution_deadline:
+- Status changes: Approved → Expired
+- Approval invalidated
+- Funds remain in treasury
+- New proposal needed to access funds
+```
+
+#### Security Model
+
+**Why No Private Keys?**
+
+Traditional cryptocurrency treasuries use multi-signature wallets with private keys. This introduces risks:
+
+❌ Key theft or loss  
+❌ Custodian collusion  
+❌ Single points of failure  
+❌ Trust in individuals  
+❌ Succession planning issues  
+
+TIME Coin's state-only treasury eliminates these risks:
+
+✅ **No keys exist** - Nothing to steal or lose  
+✅ **Protocol-enforced** - Consensus rules govern all operations  
+✅ **Decentralized control** - Masternodes vote, no individuals  
+✅ **Transparent** - All operations visible on-chain  
+✅ **Self-healing** - No succession or handoff needed  
+
+**Attack Resistance:**
+
+*Attack: Malicious Proposal Drain*
+```
+Attacker submits proposal to drain treasury:
+  Amount: 10,000,000 TIME (entire balance)
+  Recipient: Attacker's address
+
+Masternode Response:
+  Operators review proposal
+  Recognize malicious intent
+  Vote NO overwhelmingly
+
+Result:
+  YES: 5 votes (0.5%)
+  NO: 995 votes (99.5%)
+  Proposal REJECTED ✗
+  Treasury funds safe ✓
+```
+
+*Attack: Compromised Masternode Voting*
+```
+Scenario: Attacker compromises 300 of 1000 masternodes (30%)
+
+Malicious proposal voting:
+  Compromised nodes: 300 YES votes (30%)
+  Honest nodes: 700 NO votes (70%)
+
+Result:
+  Approval: 300/(300+700) = 30% < 67%
+  Proposal REJECTED ✗
+
+Economic Reality:
+  To compromise 67%+ of voting power requires:
+  - Acquire >670 masternodes
+  - At 10,000 TIME average collateral
+  - Total: 6,700,000+ TIME
+  - At $5/TIME: $33.5M+ at risk
+  
+  Risk-Reward: Attacker loses entire investment
+  if caught or network forks
+```
+
+*Attack: Execution Deadline Exploitation*
+```
+Attacker waits until execution deadline passes
+Then claims "expired" funds should go to them
+
+Protocol Response:
+  1. Check proposal status: Approved
+  2. Check current time vs execution_deadline
+  3. Time expired: Status → Expired
+  4. Execution attempt: REJECTED ✗
+  5. Funds remain in treasury
+  
+Note: Expired proposals cannot be revived
+      New proposal + voting required
+```
+
+**Time-Bound Security:**
+
+All proposals have explicit deadlines:
+
+```
+Timeline Example:
+Nov 1:  Proposal submitted
+Nov 15: Voting deadline (14 days)
+        - If ≥67% YES: Status → Approved
+        - If <67% YES: Status → Rejected
+Dec 15: Execution deadline (30 days from voting)
+        - Must execute before this date
+        - After this: Status → Expired
+
+Security Benefits:
+✅ No indefinite proposals
+✅ Expired approvals cannot be executed
+✅ Time for community oversight
+✅ Predictable state transitions
+```
+
+#### Consensus Integration
+
+**Block Validation:**
+
+Block validators verify treasury operations:
+
+```rust
+fn validate_block(block: Block) -> Result<()> {
+    // Verify treasury allocation
+    let expected_treasury_reward = calculate_treasury_reward();
+    if block.treasury_allocation != expected_treasury_reward {
+        return Err("Invalid treasury allocation");
+    }
+    
+    // Verify approved distributions
+    for distribution in block.treasury_distributions {
+        let proposal = get_proposal(distribution.proposal_id)?;
+        
+        if proposal.status != ProposalStatus::Approved {
+            return Err("Proposal not approved");
+        }
+        
+        if block.timestamp > proposal.execution_deadline {
+            return Err("Execution deadline passed");
+        }
+        
+        if distribution.amount != proposal.amount {
+            return Err("Distribution amount mismatch");
+        }
+    }
+    
+    Ok(())
+}
+```
+
+**State Synchronization:**
+
+New nodes synchronize treasury state:
+
+```
+Genesis Block:
+  treasury.balance = 0
+  treasury.total_allocated = 0
+  treasury.total_distributed = 0
+
+Replay All Blocks:
+  For each block:
+    1. Process treasury allocations
+    2. Process treasury distributions
+    3. Update proposal statuses
+    4. Verify balance integrity
+
+Final State:
+  treasury.balance = computed_balance
+  treasury.total_allocated = sum(allocations)
+  treasury.total_distributed = sum(withdrawals)
+  
+Integrity Check:
+  balance = total_allocated - total_distributed
+```
+
+#### API and CLI Integration
+
+**REST API Endpoints:**
+
+```
+GET /treasury/stats
+  Returns: balance, total_allocated, total_distributed,
+           allocation_count, withdrawal_count, pending_proposals
+
+GET /treasury/allocations
+  Returns: Array of allocation records
+
+GET /treasury/withdrawals
+  Returns: Array of withdrawal records
+
+POST /treasury/approve (internal)
+  Body: { proposal_id, amount }
+  Action: Register approved proposal
+
+POST /treasury/distribute (internal)
+  Body: { proposal_id, recipient, amount }
+  Action: Execute approved distribution
+```
+
+**CLI Commands:**
+
+```bash
+# View treasury statistics
+time-cli rpc gettreasury
+
+# List all proposals
+time-cli rpc listproposals
+
+# Future: Submit proposal
+time-cli treasury propose \
+  --id "proposal-2024-q4" \
+  --title "Mobile Wallet" \
+  --amount 50000 \
+  --recipient "time1address..."
+
+# Future: Vote on proposal
+time-cli treasury vote \
+  --proposal "proposal-2024-q4" \
+  --choice yes
+
+# Future: Execute approved proposal
+time-cli treasury execute "proposal-2024-q4"
+```
+
+#### Example Workflows
+
+**Complete Proposal Lifecycle:**
+
+```
+Day 0 (Nov 1, 2024):
+  Developer submits proposal:
+    ID: mobile-wallet-2024
+    Amount: 75,000 TIME
+    Description: iOS and Android wallets
+    Voting ends: Nov 15, 2024
+    Execute by: Dec 15, 2024
+
+Days 1-14 (Voting Period):
+  Masternode votes accumulate:
+    Day 2:  100 YES, 10 NO (90.9% approval)
+    Day 7:  350 YES, 50 NO (87.5% approval)
+    Day 14: 640 YES, 110 NO (85.3% approval)
+
+Day 15 (Nov 15, 2024):
+  Voting deadline reached
+  Final results: 85.3% ≥ 67% ✓
+  Status: Active → Approved
+  Developer notified
+
+Day 20 (Nov 20, 2024):
+  Developer executes proposal
+  Treasury: 1,000,000 → 925,000 TIME
+  Distribution recorded
+  Status: Approved → Executed
+  
+Outcome: ✓ Successful grant distribution
+```
+
+**Rejected Proposal:**
+
+```
+Day 0: Proposal submitted
+Days 1-14: Voting period
+  Results: 300 YES, 700 NO (30% approval)
+  
+Day 15: Voting deadline
+  30% < 67% ✗
+  Status: Active → Rejected
+  Treasury unchanged
+  
+Outcome: ✗ Proposal failed, funds safe
+```
+
+**Expired Approval:**
+
+```
+Day 0: Proposal submitted
+Days 1-14: Voting period
+  Results: 700 YES, 300 NO (70% approval)
+  
+Day 15: Voting deadline
+  70% ≥ 67% ✓
+  Status: Active → Approved
+  Execute window: Days 15-45
+  
+Days 16-45: Execution window
+  Developer fails to execute
+  
+Day 46: Execution deadline passed
+  Status: Approved → Expired
+  Approval invalidated
+  Funds remain in treasury
+  
+Outcome: ⚠ Proposal expired unused
+```
+
+#### Advantages Over Traditional Models
+
+**Comparison: Multi-Sig Treasury vs. Protocol-Managed Treasury**
+
+| Aspect | Multi-Sig Wallet | Protocol-Managed |
+|--------|-----------------|------------------|
+| Private keys | 9+ keyholders | Zero keys ✅ |
+| Key theft risk | High | None ✅ |
+| Key loss risk | High | None ✅ |
+| Custodian trust | Required | None ✅ |
+| Succession | Complex | Automatic ✅ |
+| Transparency | Limited | Complete ✅ |
+| Consensus | Social | Protocol ✅ |
+| Attack surface | 9 targets | Zero targets ✅ |
+| Collusion risk | Possible | Prevented ✅ |
+| Scalability | Fixed 9 | Unlimited ✅ |
+
+**Why This Matters:**
+
+Traditional multi-sig treasuries require:
+- Trusting 9 individuals with keys
+- Complex key rotation procedures
+- Off-chain coordination
+- Succession planning
+- Insurance against loss
+- Legal entity formation
+
+Protocol-managed treasury requires:
+- Nothing (consensus handles everything)
+
+This eliminates entire categories of risk while providing stronger security through consensus.
+
+#### Future Enhancements
+
+**Planned Features:**
+
+1. **Milestone-Based Funding**
+   - Release funds incrementally based on deliverables
+   - Automated verification of milestone completion
+   - Escrow-like fund release mechanism
+
+2. **Proposal Amendments**
+   - Allow modifications during discussion period
+   - Versioned proposals with change history
+   - Re-voting on amended proposals
+
+3. **Voting Delegation**
+   - Masternodes can delegate voting power
+   - Revocable delegations
+   - Transparent delegation records
+
+4. **Treasury Bonds**
+   - Lock funds for guaranteed future returns
+   - Fund long-term network investments
+   - Community investment opportunities
+
+5. **Recurring Grants**
+   - Automated monthly/quarterly payments
+   - For ongoing development or operations
+   - Revocable with governance vote
+
+**Additional Documentation:**
+
+For detailed technical documentation, see:
+- `/docs/TREASURY_ARCHITECTURE.md` - Complete architecture guide
+- `/docs/TREASURY_USAGE.md` - User guide for all stakeholders
+- `/docs/TREASURY_GOVERNANCE_FLOW.md` - Detailed process flows
+- `/docs/TREASURY_CLI_API_GUIDE.md` - CLI and API reference
+
 ---
 
 ## 5. Security Model
