@@ -179,6 +179,13 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
                     println!("❌ Failed to apply transaction to UTXO set: {}", e);
                 } else {
                     println!("✅ UTXO set updated - balances are now live!");
+                    
+                    // Save UTXO snapshot to disk for persistence
+                    if let Err(e) = blockchain.save_utxo_snapshot() {
+                        println!("⚠️  Failed to save UTXO snapshot: {}", e);
+                    } else {
+                        println!("💾 UTXO snapshot saved - transaction will persist across restarts");
+                    }
                 }
             }
             return;
@@ -226,6 +233,13 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
                             println!("❌ Failed to apply transaction to UTXO set: {}", e);
                         } else {
                             println!("✅ UTXO set updated - balances are now live!");
+                            
+                            // Save UTXO snapshot to disk for persistence
+                            if let Err(e) = blockchain.save_utxo_snapshot() {
+                                println!("⚠️  Failed to save UTXO snapshot: {}", e);
+                            } else {
+                                println!("💾 UTXO snapshot saved - transaction will persist across restarts");
+                            }
                         }
                     }
                     Err(e) => {

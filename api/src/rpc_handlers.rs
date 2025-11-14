@@ -661,8 +661,10 @@ pub struct WalletInfo {
 }
 
 pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<WalletInfo>> {
-    let balances = state.balances.read().await;
-    let wallet_balance = balances.get(&state.wallet_address).copied().unwrap_or(0);
+    // Calculate balance from UTXO set instead of the balances HashMap
+    // This ensures the balance always reflects the actual spendable UTXOs
+    let blockchain = state.blockchain.read().await;
+    let wallet_balance = blockchain.utxo_set().get_balance(&state.wallet_address);
 
     Ok(Json(WalletInfo {
         walletname: "time-wallet".to_string(),
@@ -693,8 +695,12 @@ pub async fn getbalance(
     let address = params
         .address
         .unwrap_or_else(|| state.wallet_address.clone());
-    let balances = state.balances.read().await;
-    let balance = balances.get(&address).copied().unwrap_or(0);
+    
+    // Calculate balance from UTXO set instead of the balances HashMap
+    // This ensures the balance always reflects the actual spendable UTXOs
+    // and properly handles multiple UTXOs for the same address
+    let blockchain = state.blockchain.read().await;
+    let balance = blockchain.utxo_set().get_balance(&address);
 
     Ok(Json(GetBalanceResponse {
         result: balance as f64 / 100_000_000.0,

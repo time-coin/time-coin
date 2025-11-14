@@ -27,6 +27,11 @@ impl BlockchainDB {
             .insert(key.as_bytes(), value)
             .map_err(|e| StateError::IoError(format!("Failed to save block: {}", e)))?;
 
+        // Flush to disk to ensure durability - critical for persistence after reboot
+        self.db
+            .flush()
+            .map_err(|e| StateError::IoError(format!("Failed to flush block to disk: {}", e)))?;
+
         Ok(())
     }
 
@@ -91,6 +96,41 @@ impl BlockchainDB {
             Ok(None) => Ok(None),
             Err(e) => Err(StateError::IoError(format!(
                 "Failed to load snapshot: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Save UTXO state snapshot for persistence between blocks
+    pub fn save_utxo_snapshot(&self, utxo_set: &crate::utxo_set::UTXOSet) -> Result<(), StateError> {
+        let snapshot = utxo_set.snapshot();
+        let data = bincode::serialize(&snapshot)
+            .map_err(|e| StateError::IoError(format!("Failed to serialize UTXO snapshot: {}", e)))?;
+
+        self.db
+            .insert(b"snapshot:utxo_state", data)
+            .map_err(|e| StateError::IoError(format!("Failed to save UTXO snapshot: {}", e)))?;
+
+        // Flush to ensure it's on disk
+        self.db
+            .flush()
+            .map_err(|e| StateError::IoError(format!("Failed to flush UTXO snapshot: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Load UTXO state snapshot
+    pub fn load_utxo_snapshot(&self) -> Result<Option<crate::utxo_set::UTXOSetSnapshot>, StateError> {
+        match self.db.get(b"snapshot:utxo_state") {
+            Ok(Some(data)) => {
+                let snapshot = bincode::deserialize(&data).map_err(|e| {
+                    StateError::IoError(format!("Failed to deserialize UTXO snapshot: {}", e))
+                })?;
+                Ok(Some(snapshot))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(StateError::IoError(format!(
+                "Failed to load UTXO snapshot: {}",
                 e
             ))),
         }
