@@ -293,8 +293,8 @@ impl Block {
         // First validate structure
         self.validate_structure()?;
 
-        // Calculate expected rewards (no treasury pre-allocation)
-        let total_masternode_reward = calculate_total_masternode_reward(masternode_counts);
+        // Calculate expected rewards including treasury allocation
+        let base_masternode_reward = calculate_total_masternode_reward(masternode_counts);
 
         // Validate coinbase reward
         let coinbase = self.coinbase().ok_or(BlockError::InvalidCoinbase)?;
@@ -307,9 +307,26 @@ impl Block {
             total_fees += fee;
         }
 
-        // Coinbase should be masternode rewards + fees (no treasury)
-        let max_coinbase = total_masternode_reward + total_fees;
+        // Total rewards = base masternode rewards + transaction fees
+        // Coinbase should contain 100% of this (90% to masternodes + 10% to treasury)
+        let total_rewards = base_masternode_reward + total_fees;
+        let max_coinbase = total_rewards;
+        
         if coinbase_total > max_coinbase {
+            return Err(BlockError::InvalidCoinbase);
+        }
+        
+        // Verify treasury allocation is present and correct (10% of total)
+        let expected_treasury = calculate_treasury_allocation(total_rewards);
+        let treasury_output = coinbase.outputs.iter()
+            .find(|o| o.address == "TREASURY");
+        
+        if let Some(treasury_out) = treasury_output {
+            if treasury_out.amount != expected_treasury {
+                return Err(BlockError::InvalidCoinbase);
+            }
+        } else if expected_treasury > 0 {
+            // Treasury output must be present if there are rewards
             return Err(BlockError::InvalidCoinbase);
         }
 
@@ -351,10 +368,13 @@ impl Block {
     }
 }
 
-/// Calculate fixed treasury reward per block (5 TIME)
-pub fn calculate_treasury_reward() -> u64 {
-    const TIME_UNIT: u64 = 100_000_000;
-    5 * TIME_UNIT
+/// Treasury percentage of total block rewards and fees (10%)
+pub const TREASURY_PERCENTAGE: u64 = 10;
+
+/// Calculate treasury allocation from total rewards (block rewards + fees)
+/// Returns 10% of the total amount
+pub fn calculate_treasury_allocation(total_rewards: u64) -> u64 {
+    (total_rewards * TREASURY_PERCENTAGE) / 100
 }
 
 /// Calculate total masternode reward pool using logarithmic scaling
@@ -393,13 +413,19 @@ pub fn calculate_tier_reward(tier: MasternodeTier, counts: &MasternodeCounts) ->
     per_weight * tier.weight()
 }
 
-/// Calculate total block reward (masternodes + fees only, no treasury pre-allocation)
+/// Calculate total block reward including treasury allocation
+/// Total rewards are split: 90% to masternodes, 10% to treasury
 pub fn calculate_total_block_reward(
     masternode_counts: &MasternodeCounts,
     transaction_fees: u64,
 ) -> u64 {
     let masternodes = calculate_total_masternode_reward(masternode_counts);
     masternodes + transaction_fees
+}
+
+/// Calculate masternode share after treasury allocation (90% of total)
+pub fn calculate_masternode_share(total_rewards: u64) -> u64 {
+    total_rewards - calculate_treasury_allocation(total_rewards)
 }
 
 /// Distribute masternode rewards to all active masternodes
@@ -433,8 +459,8 @@ pub fn distribute_masternode_rewards(
 }
 
 /// Create a complete coinbase transaction with all block rewards
+/// Splits rewards: 90% to masternodes, 10% to treasury
 /// Uses block_timestamp to ensure deterministic transaction across all nodes
-/// Note: Treasury funds are no longer pre-allocated; all rewards go to masternodes
 pub fn create_coinbase_transaction(
     block_number: u64,
     active_masternodes: &[(String, MasternodeTier)],
@@ -444,21 +470,40 @@ pub fn create_coinbase_transaction(
 ) -> crate::transaction::Transaction {
     let mut outputs = Vec::new();
 
-    // Masternode rewards - sorted by address for determinism
+    // Calculate total rewards (masternode rewards + transaction fees)
+    let base_masternode_rewards = calculate_total_masternode_reward(counts);
+    let total_rewards = base_masternode_rewards + transaction_fees;
+    
+    // Calculate treasury allocation (10% of total rewards)
+    let treasury_amount = calculate_treasury_allocation(total_rewards);
+    
+    // Calculate actual masternode share (90% of total rewards)
+    let masternode_total = calculate_masternode_share(total_rewards);
+
+    // Add treasury marker output first (special address to mark treasury allocation)
+    if treasury_amount > 0 {
+        outputs.push(crate::transaction::TxOutput::new(
+            treasury_amount,
+            "TREASURY".to_string(), // Special marker address for protocol-managed treasury
+        ));
+    }
+
+    // Distribute masternode share proportionally based on tier weights
     let mut masternode_list: Vec<(String, MasternodeTier)> = active_masternodes.to_vec();
-    masternode_list.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by wallet address
+    masternode_list.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by wallet address for determinism
 
-    let masternode_outputs = distribute_masternode_rewards(&masternode_list, counts);
-    outputs.extend(masternode_outputs);
-
-    // Transaction fees go to block producer (if any)
-    if transaction_fees > 0 && !masternode_list.is_empty() {
-        // Give fees to the first masternode (block producer) after sorting
-        if let Some((producer_address, _)) = masternode_list.first() {
-            outputs.push(crate::transaction::TxOutput::new(
-                transaction_fees,
-                producer_address.clone(),
-            ));
+    if !masternode_list.is_empty() {
+        let total_weight = counts.total_weight();
+        if total_weight > 0 {
+            let per_weight = masternode_total / total_weight;
+            
+            // Distribute to each masternode based on their tier weight
+            for (address, tier) in &masternode_list {
+                let reward = per_weight * tier.weight();
+                if reward > 0 {
+                    outputs.push(crate::transaction::TxOutput::new(reward, address.clone()));
+                }
+            }
         }
     }
 
@@ -525,6 +570,27 @@ pub fn create_reward_only_block(
     block
 }
 
+/// Create a treasury grant transaction for approved proposals
+/// This transaction spends from the treasury state to a recipient address
+pub fn create_treasury_grant_transaction(
+    proposal_id: String,
+    recipient: String,
+    amount: u64,
+    block_number: u64,
+    timestamp: i64,
+) -> crate::transaction::Transaction {
+    // Treasury grant transaction has no inputs (like coinbase)
+    // but is marked with a special txid format to identify it as a treasury grant
+    crate::transaction::Transaction {
+        txid: format!("treasury_grant_{}_{}", proposal_id, block_number),
+        version: 1,
+        inputs: vec![], // No inputs - funds come from protocol-managed treasury state
+        outputs: vec![crate::transaction::TxOutput::new(amount, recipient)],
+        lock_time: 0,
+        timestamp,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,8 +621,20 @@ mod tests {
     }
 
     #[test]
-    fn test_treasury_reward() {
-        assert_eq!(calculate_treasury_reward(), 5 * 100_000_000);
+    fn test_treasury_percentage() {
+        // Treasury should be 10% of total rewards
+        assert_eq!(TREASURY_PERCENTAGE, 10);
+        
+        // Test allocation calculation
+        let total_rewards = 1000 * 100_000_000; // 1000 TIME
+        let treasury_allocation = calculate_treasury_allocation(total_rewards);
+        assert_eq!(treasury_allocation, 100 * 100_000_000); // 100 TIME (10%)
+        
+        let masternode_share = calculate_masternode_share(total_rewards);
+        assert_eq!(masternode_share, 900 * 100_000_000); // 900 TIME (90%)
+        
+        // Verify they sum to total
+        assert_eq!(treasury_allocation + masternode_share, total_rewards);
     }
 
     #[test]
@@ -752,23 +830,78 @@ mod tests {
         };
 
         let block_timestamp = 1700000000; // Fixed timestamp for testing
+        let transaction_fees = 50_000_000; // 0.5 TIME in fees
         let tx = create_coinbase_transaction(
             100,
             &masternodes,
             &counts,
-            50_000_000, // 0.5 TIME in fees
+            transaction_fees,
             block_timestamp,
         );
 
         // Verify it's a coinbase
         assert!(tx.is_coinbase());
 
-        // Should have: 2 masternodes + 1 fee output = 3 outputs (no treasury)
+        // Calculate expected values
+        let base_rewards = calculate_total_masternode_reward(&counts);
+        let total_rewards = base_rewards + transaction_fees;
+        let expected_treasury = calculate_treasury_allocation(total_rewards);
+        let expected_masternode_share = calculate_masternode_share(total_rewards);
+
+        // Should have: 1 treasury output + 2 masternode outputs = 3 outputs
         assert_eq!(tx.outputs.len(), 3);
 
-        // Last output is fees to block producer (first masternode after sorting)
-        assert_eq!(tx.outputs[2].amount, 50_000_000);
-        assert_eq!(tx.outputs[2].address, "masternode1");
+        // First output should be treasury marker
+        assert_eq!(tx.outputs[0].address, "TREASURY");
+        assert_eq!(tx.outputs[0].amount, expected_treasury);
+        
+        // Remaining outputs are for masternodes (proportional to weights)
+        let total_weight = counts.total_weight(); // 1*10 + 1*25 = 35
+        let per_weight = expected_masternode_share / total_weight;
+        
+        // Masternodes sorted by address: masternode1, masternode2
+        assert_eq!(tx.outputs[1].address, "masternode1");
+        assert_eq!(tx.outputs[1].amount, per_weight * 10); // Bronze weight
+        
+        assert_eq!(tx.outputs[2].address, "masternode2");
+        assert_eq!(tx.outputs[2].amount, per_weight * 25); // Silver weight
+        
+        // Verify total adds up (within rounding tolerance)
+        let total: u64 = tx.outputs.iter().map(|o| o.amount).sum();
+        assert!(total <= total_rewards);
+        assert!(total_rewards - total < 100); // Small rounding loss acceptable
+    }
+
+    #[test]
+    fn test_create_treasury_grant_transaction() {
+        let proposal_id = "prop-001".to_string();
+        let recipient = "time1recipient_address".to_string();
+        let amount = 10_000 * 100_000_000; // 10,000 TIME
+        let block_number = 12345;
+        let timestamp = 1700000000;
+        
+        let tx = create_treasury_grant_transaction(
+            proposal_id.clone(),
+            recipient.clone(),
+            amount,
+            block_number,
+            timestamp,
+        );
+        
+        // Verify it's like a coinbase (no inputs)
+        assert!(tx.is_coinbase());
+        assert_eq!(tx.inputs.len(), 0);
+        
+        // Verify txid format
+        assert_eq!(tx.txid, format!("treasury_grant_{}_{}", proposal_id, block_number));
+        
+        // Verify single output to recipient
+        assert_eq!(tx.outputs.len(), 1);
+        assert_eq!(tx.outputs[0].address, recipient);
+        assert_eq!(tx.outputs[0].amount, amount);
+        
+        // Verify timestamp
+        assert_eq!(tx.timestamp, timestamp);
     }
 
     #[test]
@@ -914,6 +1047,62 @@ mod tests {
         // Blocks should be identical despite different input order
         assert_eq!(block1.hash, block2.hash);
         assert_eq!(block1.header.merkle_root, block2.header.merkle_root);
+    }
+
+    #[test]
+    fn test_coinbase_with_treasury_split() {
+        // Test that coinbase properly splits rewards: 90% masternodes, 10% treasury
+        let masternodes = vec![
+            ("addr1".to_string(), MasternodeTier::Bronze),
+            ("addr2".to_string(), MasternodeTier::Bronze),
+        ];
+
+        let counts = MasternodeCounts {
+            free: 0,
+            bronze: 2,
+            silver: 0,
+            gold: 0,
+        };
+
+        let transaction_fees = 100_000_000; // 1 TIME in fees
+        let block_timestamp = 1700000000;
+        
+        let tx = create_coinbase_transaction(
+            200,
+            &masternodes,
+            &counts,
+            transaction_fees,
+            block_timestamp,
+        );
+
+        // Calculate expected allocations
+        let base_rewards = calculate_total_masternode_reward(&counts);
+        let total_rewards = base_rewards + transaction_fees;
+        let treasury_amount = calculate_treasury_allocation(total_rewards);
+        let masternode_amount = calculate_masternode_share(total_rewards);
+
+        // Verify treasury allocation is 10%
+        assert_eq!(treasury_amount, total_rewards / 10);
+        
+        // Verify masternode share is 90%
+        assert_eq!(masternode_amount, (total_rewards * 9) / 10);
+
+        // Verify coinbase outputs
+        assert_eq!(tx.outputs[0].address, "TREASURY");
+        assert_eq!(tx.outputs[0].amount, treasury_amount);
+
+        // Sum masternode outputs
+        let masternode_total: u64 = tx.outputs[1..].iter().map(|o| o.amount).sum();
+        
+        // Due to integer division when distributing to masternodes, 
+        // the actual total may be slightly less than the share (rounding loss)
+        assert!(masternode_total <= masternode_amount);
+        assert!(masternode_amount - masternode_total < 100); // Loss should be minimal
+
+        // Verify total distributed is close to total rewards (within rounding tolerance)
+        let all_outputs: u64 = tx.outputs.iter().map(|o| o.amount).sum();
+        assert!(all_outputs <= total_rewards);
+        assert!(total_rewards - all_outputs < 100); // Small rounding loss acceptable
     }
 
     #[test]
