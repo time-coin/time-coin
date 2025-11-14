@@ -686,7 +686,7 @@ pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<Wall
 /// Response for getbalance RPC
 #[derive(Serialize)]
 pub struct GetBalanceResponse {
-    pub result: f64, // Confirmed balance in TIME coins
+    pub result: f64,              // Confirmed balance in TIME coins
     pub unconfirmed_balance: f64, // Unconfirmed balance in TIME coins
 }
 

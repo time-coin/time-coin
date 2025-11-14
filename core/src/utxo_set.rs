@@ -300,7 +300,6 @@ mod tests {
         let snapshot = snapshot_set.snapshot();
 
         // Merge snapshot into current UTXO set
-        let original_len = utxo_set.len();
         utxo_set.merge_snapshot(snapshot);
 
         // Verify merge behavior
