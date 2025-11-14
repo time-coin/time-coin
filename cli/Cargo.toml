@@ -17,20 +17,20 @@ name = "time-dashboard"
 path = "src/bin/time-dashboard.rs"
 
 [dependencies]
-local-ip-address = "0.5"
+local-ip-address = { workspace = true }
 time-network = { version = "0.1.0", path = "../network" }
 time-core = { version = "0.1.0", path = "../core" }
 time-api = { version = "0.1.0", path = "../api" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
 time-masternode = { version = "0.1.0", path = "../masternode" }
 clap = { version = "4.4", features = ["derive"] }
-tokio = { version = "1.35", features = ["full"] }
+tokio = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { workspace = true }
 toml = "0.9"
 chrono = "0.4"
 owo-colors = "4"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { workspace = true }
 sled = "0.34"
 ed25519-dalek = { version = "2.0", features = ["serde"] }
 sha2 = "0.10"
