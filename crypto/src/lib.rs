@@ -97,3 +97,64 @@ pub fn hash_sha256_hex(data: &[u8]) -> String {
 pub fn public_key_to_address(public_key_hex: &str) -> String {
     format!("TIME1{}", &public_key_hex[..40])
 }
+
+/// Generate a masternode private key (Ed25519)
+/// Returns a base58-encoded private key string suitable for masternode.conf
+pub fn generate_masternode_key() -> String {
+    let keypair = KeyPair::generate();
+    // Use a custom encoding for masternode keys (similar to Dash's format)
+    // For simplicity, we'll use hex encoding with a prefix
+    format!("MN{}", keypair.private_key_hex())
+}
+
+/// Validate a masternode private key format
+pub fn validate_masternode_key(key: &str) -> Result<(), CryptoError> {
+    if !key.starts_with("MN") {
+        return Err(CryptoError::InvalidPrivateKey);
+    }
+    
+    let hex_part = &key[2..];
+    if hex_part.len() != 64 {
+        return Err(CryptoError::InvalidPrivateKey);
+    }
+    
+    hex::decode(hex_part).map_err(|_| CryptoError::InvalidPrivateKey)?;
+    Ok(())
+}
+
+/// Extract the raw private key from a masternode key
+pub fn masternode_key_to_private_key(mn_key: &str) -> Result<String, CryptoError> {
+    if !mn_key.starts_with("MN") {
+        return Err(CryptoError::InvalidPrivateKey);
+    }
+    
+    Ok(mn_key[2..].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_generate_masternode_key() {
+        let key = generate_masternode_key();
+        assert!(key.starts_with("MN"));
+        assert_eq!(key.len(), 66); // "MN" + 64 hex chars
+    }
+    
+    #[test]
+    fn test_validate_masternode_key() {
+        let key = generate_masternode_key();
+        assert!(validate_masternode_key(&key).is_ok());
+        
+        assert!(validate_masternode_key("invalid").is_err());
+        assert!(validate_masternode_key("MNinvalid").is_err());
+    }
+    
+    #[test]
+    fn test_masternode_key_to_private_key() {
+        let key = generate_masternode_key();
+        let private_key = masternode_key_to_private_key(&key).unwrap();
+        assert_eq!(private_key.len(), 64);
+    }
+}

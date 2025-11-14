@@ -22,6 +22,7 @@ time-network = { version = "0.1.0", path = "../network" }
 time-core = { version = "0.1.0", path = "../core" }
 time-api = { version = "0.1.0", path = "../api" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
+time-masternode = { version = "0.1.0", path = "../masternode" }
 clap = { version = "4.4", features = ["derive"] }
 tokio = { version = "1.35", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
