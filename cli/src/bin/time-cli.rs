@@ -66,6 +66,12 @@ enum Commands {
         masternode_command: MasternodeCommands,
     },
 
+    /// Treasury operations
+    Treasury {
+        #[command(subcommand)]
+        treasury_command: TreasuryCommands,
+    },
+
     /// Validate the blockchain integrity
     ValidateChain {
         /// Display detailed validation information
@@ -382,6 +388,58 @@ enum MasternodeCommands {
     Count,
 }
 
+#[derive(Subcommand)]
+enum TreasuryCommands {
+    /// Get treasury information
+    Info,
+
+    /// List all treasury proposals
+    ListProposals,
+
+    /// Get specific proposal details
+    GetProposal {
+        /// Proposal ID
+        proposal_id: String,
+    },
+
+    /// Submit a new treasury proposal
+    Propose {
+        /// Proposal title
+        #[arg(short, long)]
+        title: String,
+
+        /// Proposal description
+        #[arg(short, long)]
+        description: String,
+
+        /// Recipient address
+        #[arg(short, long)]
+        recipient: String,
+
+        /// Amount in TIME (e.g., 1000.0)
+        #[arg(long)]
+        amount: f64,
+
+        /// Voting period in days (default: 14)
+        #[arg(short = 'p', long, default_value = "14")]
+        voting_period: u64,
+    },
+
+    /// Vote on a treasury proposal
+    Vote {
+        /// Proposal ID
+        proposal_id: String,
+
+        /// Vote choice (yes, no, abstain)
+        #[arg(value_parser = ["yes", "no", "abstain"])]
+        vote: String,
+
+        /// Masternode ID (optional, defaults to local node)
+        #[arg(short, long)]
+        masternode_id: Option<String>,
+    },
+}
+
 // Response types for RPC calls
 #[derive(Debug, Deserialize, Serialize)]
 struct MasternodeInfo {
@@ -674,6 +732,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Masternode { masternode_command } => {
             handle_masternode_command(masternode_command, &client, &cli.api, cli.json).await?;
+        }
+
+        Commands::Treasury { treasury_command } => {
+            handle_treasury_command(treasury_command, &client, &cli.api, cli.json).await?;
         }
 
         Commands::ValidateChain { verbose, rpc_url } => {
@@ -1568,6 +1630,266 @@ async fn handle_masternode_command(
                 );
             } else {
                 eprintln!("Error: {}", response.status());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_treasury_command(
+    command: TreasuryCommands,
+    client: &Client,
+    api: &str,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        TreasuryCommands::Info => {
+            let response = client
+                .get(format!("{}/treasury/stats", api))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let stats: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&stats)?);
+                } else {
+                    println!("\n💰 Treasury Information");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Balance: {} TIME", stats["balance_time"]);
+                    println!("Total Allocated: {} satoshis", stats["total_allocated"]);
+                    println!("Total Distributed: {} satoshis", stats["total_distributed"]);
+                    println!("Allocations: {}", stats["allocation_count"]);
+                    println!("Withdrawals: {}", stats["withdrawal_count"]);
+                    println!("Pending Proposals: {}", stats["pending_proposals"]);
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        TreasuryCommands::ListProposals => {
+            let response = client
+                .post(format!("{}/rpc/listproposals", api))
+                .json(&json!({}))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let proposals: Vec<serde_json::Value> = response.json().await?;
+
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "proposals": proposals,
+                            "count": proposals.len()
+                        }))?
+                    );
+                } else {
+                    println!("\n📋 Treasury Proposals ({} total)", proposals.len());
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                    if proposals.is_empty() {
+                        println!("No proposals found");
+                    } else {
+                        for (i, proposal) in proposals.iter().enumerate() {
+                            println!("\n{}. {} ({})", 
+                                i + 1,
+                                proposal["title"].as_str().unwrap_or("Unknown"),
+                                proposal["id"].as_str().unwrap_or("unknown")
+                            );
+                            println!("   Amount: {} TIME", proposal["amount"]);
+                            println!("   Status: {}", proposal["status"]);
+                            println!("   Votes: {} Yes / {} No",
+                                proposal["votes_yes"], proposal["votes_no"]
+                            );
+                        }
+                    }
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        TreasuryCommands::GetProposal { proposal_id } => {
+            let response = client
+                .post(format!("{}/treasury/proposal/{}", api, proposal_id))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let proposal: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&proposal)?);
+                } else {
+                    println!("\n📄 Proposal Details");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("ID: {}", proposal["id"]);
+                    println!("Title: {}", proposal["title"]);
+                    println!("Description: {}", proposal["description"]);
+                    println!("Recipient: {}", proposal["recipient"]);
+                    println!("Amount: {} TIME", proposal["amount"].as_f64().unwrap_or(0.0) / 100_000_000.0);
+                    println!("Status: {}", proposal["status"]);
+                    println!("Submitter: {}", proposal["submitter"]);
+                    
+                    if let Some(votes) = proposal["votes"].as_object() {
+                        println!("\nVotes ({}):", votes.len());
+                        for (voter, vote) in votes {
+                            println!("  {} -> {}", voter, vote["vote_choice"]);
+                        }
+                    }
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        TreasuryCommands::Propose {
+            title,
+            description,
+            recipient,
+            amount,
+            voting_period,
+        } => {
+            let amount_satoshis = (amount * 100_000_000.0) as u64;
+
+            let request = json!({
+                "title": title,
+                "description": description,
+                "recipient": recipient,
+                "amount": amount_satoshis,
+                "voting_period_days": voting_period,
+            });
+
+            if !json_output {
+                println!("\n📝 Submitting Treasury Proposal");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("Title: {}", title);
+                println!("Description: {}", description);
+                println!("Recipient: {}", recipient);
+                println!("Amount: {} TIME ({} satoshis)", amount, amount_satoshis);
+                println!("Voting Period: {} days", voting_period);
+                println!("\n📡 Submitting proposal...");
+            }
+
+            let response = client
+                .post(format!("{}/treasury/propose", api))
+                .json(&request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✅ SUCCESS!");
+                    println!("Proposal ID: {}", result["proposal_id"]);
+                    println!("{}", result["message"]);
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    eprintln!("Proposal submission failed: {}", error);
+                }
+            }
+        }
+
+        TreasuryCommands::Vote {
+            proposal_id,
+            vote,
+            masternode_id,
+        } => {
+            let vote_choice = match vote.to_lowercase().as_str() {
+                "yes" => "Yes",
+                "no" => "No",
+                "abstain" => "Abstain",
+                _ => {
+                    eprintln!("Invalid vote choice. Must be: yes, no, or abstain");
+                    return Ok(());
+                }
+            };
+
+            let masternode = if let Some(id) = masternode_id {
+                id
+            } else {
+                // Get local node IP as default
+                get_local_ip_or_fallback()
+            };
+
+            let request = json!({
+                "proposal_id": proposal_id,
+                "masternode_id": masternode,
+                "vote": vote_choice,
+            });
+
+            if !json_output {
+                println!("\n🗳️  Casting Vote");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("Proposal ID: {}", proposal_id);
+                println!("Vote: {}", vote_choice);
+                println!("Masternode: {}", masternode);
+                println!("\n📡 Submitting vote...");
+            }
+
+            let response = client
+                .post(format!("{}/treasury/vote", api))
+                .json(&request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✅ SUCCESS!");
+                    println!("{}", result["message"]);
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    eprintln!("Vote submission failed: {}", error);
+                }
             }
         }
     }
