@@ -347,8 +347,11 @@ impl PeerListener {
 
         let normalized_addr = SocketAddr::new(addr.ip(), normalized_port);
 
-        let mut peer_info =
-            PeerInfo::with_version(normalized_addr, self.network.clone(), their_handshake.version.clone());
+        let mut peer_info = PeerInfo::with_version(
+            normalized_addr,
+            self.network.clone(),
+            their_handshake.version.clone(),
+        );
 
         // Update with commit information from handshake
         peer_info.commit_date = their_handshake.commit_date.clone();
@@ -417,50 +420,66 @@ mod tests {
     #[test]
     fn test_ephemeral_port_normalization_testnet() {
         // Test that ephemeral ports are normalized to the standard P2P port for testnet
-        
+
         // Simulate what PeerListener::accept() does with an ephemeral port
         let ephemeral_addr: SocketAddr = "69.167.168.176:56236".parse().unwrap();
         assert!(ephemeral_addr.port() >= 49152, "Port should be ephemeral");
-        
+
         // This is what the fixed code does
         let normalized_port = if ephemeral_addr.port() >= 49152 {
             24100 // Testnet standard port
         } else {
             ephemeral_addr.port()
         };
-        
+
         let normalized_addr = SocketAddr::new(ephemeral_addr.ip(), normalized_port);
-        
+
         // Verify normalization
-        assert_eq!(normalized_addr.port(), 24100, "Ephemeral port should be normalized to 24100 for testnet");
-        assert_eq!(normalized_addr.ip(), ephemeral_addr.ip(), "IP address should remain unchanged");
+        assert_eq!(
+            normalized_addr.port(),
+            24100,
+            "Ephemeral port should be normalized to 24100 for testnet"
+        );
+        assert_eq!(
+            normalized_addr.ip(),
+            ephemeral_addr.ip(),
+            "IP address should remain unchanged"
+        );
     }
 
     #[test]
     fn test_ephemeral_port_normalization_mainnet() {
         // Test that ephemeral ports are normalized to the standard P2P port for mainnet
-        
+
         let ephemeral_addr: SocketAddr = "178.128.199.144:58378".parse().unwrap();
         assert!(ephemeral_addr.port() >= 49152, "Port should be ephemeral");
-        
+
         // This is what the fixed code does for mainnet
         let normalized_port = if ephemeral_addr.port() >= 49152 {
             24000 // Mainnet standard port
         } else {
             ephemeral_addr.port()
         };
-        
+
         let normalized_addr = SocketAddr::new(ephemeral_addr.ip(), normalized_port);
-        
+
         // Verify normalization
-        assert_eq!(normalized_addr.port(), 24000, "Ephemeral port should be normalized to 24000 for mainnet");
-        assert_eq!(normalized_addr.ip(), ephemeral_addr.ip(), "IP address should remain unchanged");
+        assert_eq!(
+            normalized_addr.port(),
+            24000,
+            "Ephemeral port should be normalized to 24000 for mainnet"
+        );
+        assert_eq!(
+            normalized_addr.ip(),
+            ephemeral_addr.ip(),
+            "IP address should remain unchanged"
+        );
     }
 
     #[test]
     fn test_standard_port_not_changed() {
         // Test that standard P2P ports are not modified
-        
+
         // Testnet standard port
         let testnet_addr: SocketAddr = "161.35.129.70:24100".parse().unwrap();
         let normalized_port = if testnet_addr.port() >= 49152 {
@@ -468,8 +487,11 @@ mod tests {
         } else {
             testnet_addr.port()
         };
-        assert_eq!(normalized_port, 24100, "Standard testnet port should not be changed");
-        
+        assert_eq!(
+            normalized_port, 24100,
+            "Standard testnet port should not be changed"
+        );
+
         // Mainnet standard port
         let mainnet_addr: SocketAddr = "161.35.129.70:24000".parse().unwrap();
         let normalized_port = if mainnet_addr.port() >= 49152 {
@@ -477,13 +499,16 @@ mod tests {
         } else {
             mainnet_addr.port()
         };
-        assert_eq!(normalized_port, 24000, "Standard mainnet port should not be changed");
+        assert_eq!(
+            normalized_port, 24000,
+            "Standard mainnet port should not be changed"
+        );
     }
 
     #[test]
     fn test_ephemeral_port_boundary() {
         // Test the boundary case at port 49152 (start of ephemeral range)
-        
+
         // Port 49151 should not be normalized (just below ephemeral range)
         let below_ephemeral: SocketAddr = "192.168.1.1:49151".parse().unwrap();
         let normalized_port = if below_ephemeral.port() >= 49152 {
@@ -491,8 +516,11 @@ mod tests {
         } else {
             below_ephemeral.port()
         };
-        assert_eq!(normalized_port, 49151, "Port 49151 should not be normalized");
-        
+        assert_eq!(
+            normalized_port, 49151,
+            "Port 49151 should not be normalized"
+        );
+
         // Port 49152 should be normalized (start of ephemeral range)
         let at_ephemeral: SocketAddr = "192.168.1.1:49152".parse().unwrap();
         let normalized_port = if at_ephemeral.port() >= 49152 {

@@ -1092,9 +1092,14 @@ async fn trigger_instant_finality_for_received_tx(
         }
 
         println!(
-            "📊 Broadcasting transaction to {} masternodes for voting",
+            "📊 Broadcasting instant finality request to {} masternodes for voting",
             masternodes.len()
         );
+
+        // Log which peers we're sending to
+        for (i, peer) in masternodes.iter().enumerate() {
+            println!("   📤 Sending vote request #{} to peer: {}", i + 1, peer);
+        }
 
         // Vote locally
         let _ = consensus
@@ -1109,6 +1114,10 @@ async fn trigger_instant_finality_for_received_tx(
 
         // Wait for votes to be collected (with timeout)
         let vote_timeout = tokio::time::Duration::from_secs(5);
+        println!(
+            "   ⏳ Waiting {}s for peer votes...",
+            vote_timeout.as_secs()
+        );
         tokio::time::sleep(vote_timeout).await;
 
         // Check vote counts from actual peer responses
@@ -1200,7 +1209,7 @@ async fn receive_instant_finality_request(
         .vote_on_transaction(&txid, wallet_address.clone(), is_valid)
         .await;
 
-    // Send vote back to the proposer
+    // Send vote back to the proposer via HTTP POST
     if let Some(broadcaster) = tx_broadcaster.as_ref() {
         let vote = serde_json::json!({
             "txid": txid,
@@ -1208,7 +1217,11 @@ async fn receive_instant_finality_request(
             "approve": is_valid,
             "timestamp": chrono::Utc::now().timestamp()
         });
+
+        println!("   📤 Broadcasting vote response via HTTP to all peers");
         broadcaster.broadcast_instant_finality_vote(vote).await;
+    } else {
+        println!("   ⚠️  No transaction broadcaster available - vote response not sent");
     }
 
     Ok(Json(serde_json::json!({

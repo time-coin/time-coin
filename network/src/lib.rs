@@ -186,41 +186,57 @@ pub mod tx_broadcast {
             }
         }
 
-        /// Broadcast instant finality vote to all peers via TCP
+        /// Broadcast instant finality vote to all peers via HTTP POST
         pub async fn broadcast_instant_finality_vote(&self, vote: serde_json::Value) {
             let peers = self.peer_manager.get_connected_peers().await;
 
-            // Extract vote details from JSON
-            let txid = vote
-                .get("txid")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let voter = vote
-                .get("voter")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let approve = vote
-                .get("approve")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let timestamp = vote.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
-
-            let message = crate::protocol::NetworkMessage::InstantFinalityVote {
-                txid,
-                voter,
-                approve,
-                timestamp,
+            // Use HTTP POST to API port for vote responses
+            // This allows votes to reach the HTTP API handlers that are listening
+            let api_port = match self.peer_manager.network {
+                crate::discovery::NetworkType::Mainnet => 24001,
+                crate::discovery::NetworkType::Testnet => 24101,
             };
 
             for peer_info in peers {
-                let peer_addr = peer_info.address;
-                let msg_clone = message.clone();
-                let manager = self.peer_manager.clone();
+                let peer_ip = peer_info.address.ip();
+                let vote_clone = vote.clone();
 
                 tokio::spawn(async move {
-                    let _ = manager.send_message_to_peer(peer_addr, msg_clone).await;
+                    let client = match reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(5))
+                        .build()
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            println!(
+                                "   ✗ Failed to create HTTP client for vote to {}: {}",
+                                peer_ip, e
+                            );
+                            return;
+                        }
+                    };
+
+                    let url = format!(
+                        "http://{}:{}/consensus/instant-finality-vote",
+                        peer_ip, api_port
+                    );
+
+                    match client.post(&url).json(&vote_clone).send().await {
+                        Ok(resp) => {
+                            if resp.status().is_success() {
+                                println!("   ✓ Vote sent to {} via HTTP", peer_ip);
+                            } else {
+                                println!(
+                                    "   ✗ Vote to {} failed with status: {}",
+                                    peer_ip,
+                                    resp.status()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            println!("   ✗ Failed to send vote to {}: {}", peer_ip, e);
+                        }
+                    }
                 });
             }
         }

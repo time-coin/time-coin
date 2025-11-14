@@ -197,9 +197,14 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
         }
 
         println!(
-            "📊 Broadcasting transaction to {} masternodes for voting",
+            "📊 Broadcasting instant finality request to {} masternodes for voting",
             masternodes.len()
         );
+
+        // Log which peers we're sending to
+        for (i, peer) in masternodes.iter().enumerate() {
+            println!("   📤 Sending vote request #{} to peer: {}", i + 1, peer);
+        }
 
         // Vote locally as the proposer
         let _ = consensus
@@ -214,6 +219,10 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
 
         // Wait for votes to be collected (with timeout)
         let vote_timeout = tokio::time::Duration::from_secs(5);
+        println!(
+            "   ⏳ Waiting {}s for peer votes...",
+            vote_timeout.as_secs()
+        );
         tokio::time::sleep(vote_timeout).await;
 
         // Check vote counts from actual peer responses
