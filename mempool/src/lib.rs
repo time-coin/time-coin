@@ -37,6 +37,10 @@ pub struct MempoolEntry {
     pub added_at: i64,
     /// Priority score (higher = included sooner)
     pub priority: u64,
+    /// Whether the transaction has been finalized by BFT consensus
+    pub finalized: bool,
+    /// When it was finalized (if applicable)
+    pub finalized_at: Option<i64>,
 }
 
 impl Mempool {
@@ -108,6 +112,8 @@ impl Mempool {
             transaction: tx.clone(),
             added_at: chrono::Utc::now().timestamp(),
             priority,
+            finalized: false,
+            finalized_at: None,
         };
 
         pool.insert(tx.txid.clone(), entry);
@@ -461,6 +467,51 @@ impl Mempool {
         // This is a placeholder - real implementation needs UTXO lookup
         output_sum / 100 // 1% fee estimation
     }
+
+    /// Finalize a transaction (mark as confirmed by BFT consensus)
+    pub async fn finalize_transaction(&self, txid: &str) -> Result<(), MempoolError> {
+        let mut pool = self.transactions.write().await;
+        
+        if let Some(entry) = pool.get_mut(txid) {
+            entry.finalized = true;
+            entry.finalized_at = Some(chrono::Utc::now().timestamp());
+            
+            println!(
+                "✅ Transaction {} finalized by BFT consensus",
+                &txid[..std::cmp::min(16, txid.len())]
+            );
+            
+            Ok(())
+        } else {
+            Err(MempoolError::InvalidTransaction(
+                TransactionError::InvalidInput,
+            ))
+        }
+    }
+
+    /// Check if a transaction is finalized
+    pub async fn is_finalized(&self, txid: &str) -> bool {
+        let pool = self.transactions.read().await;
+        pool.get(txid).map(|e| e.finalized).unwrap_or(false)
+    }
+
+    /// Get finalized transactions
+    pub async fn get_finalized_transactions(&self) -> Vec<Transaction> {
+        let pool = self.transactions.read().await;
+        pool.values()
+            .filter(|entry| entry.finalized)
+            .map(|entry| entry.transaction.clone())
+            .collect()
+    }
+
+    /// Get pending (not finalized) transactions
+    pub async fn get_pending_transactions(&self) -> Vec<Transaction> {
+        let pool = self.transactions.read().await;
+        pool.values()
+            .filter(|entry| !entry.finalized)
+            .map(|entry| entry.transaction.clone())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -586,4 +637,66 @@ mod tests {
         assert_eq!(mempool.size().await, 1);
         assert!(mempool.contains("coinbase_tx_1").await);
     }
+
+    #[tokio::test]
+    async fn test_transaction_finalization() {
+        let mempool = Mempool::new(100, "testnet".to_string());
+
+        let tx = Transaction {
+            txid: "test_tx_finalize".to_string(),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![TxOutput {
+                amount: 1000,
+                address: "addr1".to_string(),
+            }],
+            lock_time: 0,
+            timestamp: 1234567890,
+        };
+
+        // Add transaction to mempool
+        mempool.add_transaction(tx.clone()).await.unwrap();
+
+        // Initially should not be finalized
+        assert!(!mempool.is_finalized("test_tx_finalize").await);
+
+        // Finalize the transaction
+        mempool.finalize_transaction("test_tx_finalize").await.unwrap();
+
+        // Now should be finalized
+        assert!(mempool.is_finalized("test_tx_finalize").await);
+    }
+
+    #[tokio::test]
+    async fn test_get_finalized_transactions() {
+        let mempool = Mempool::new(100, "testnet".to_string());
+
+        // Add multiple transactions
+        for i in 0..3 {
+            let tx = Transaction {
+                txid: format!("tx_{}", i),
+                version: 1,
+                inputs: vec![],
+                outputs: vec![TxOutput {
+                    amount: 1000,
+                    address: "addr".to_string(),
+                }],
+                lock_time: 0,
+                timestamp: 1234567890 + i as i64,
+            };
+            mempool.add_transaction(tx).await.unwrap();
+        }
+
+        // Finalize first two
+        mempool.finalize_transaction("tx_0").await.unwrap();
+        mempool.finalize_transaction("tx_1").await.unwrap();
+
+        // Check counts
+        let finalized = mempool.get_finalized_transactions().await;
+        let pending = mempool.get_pending_transactions().await;
+
+        assert_eq!(finalized.len(), 2);
+        assert_eq!(pending.len(), 1);
+    }
 }
+

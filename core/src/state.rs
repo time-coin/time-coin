@@ -659,6 +659,11 @@ impl BlockchainState {
         &self.utxo_set
     }
 
+    /// Get mutable UTXO set reference (for applying finalized transactions)
+    pub fn utxo_set_mut(&mut self) -> &mut UTXOSet {
+        &mut self.utxo_set
+    }
+
     /// Get masternode counts
     pub fn masternode_counts(&self) -> &MasternodeCounts {
         &self.masternode_counts
