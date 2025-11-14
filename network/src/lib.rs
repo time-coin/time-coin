@@ -24,11 +24,11 @@ pub use discovery::PeerInfo;
 
 /// Transaction broadcasting functionality
 pub mod tx_broadcast {
+    use crate::manager::PeerManager;
     use reqwest;
     use std::sync::Arc;
     use time_core::Transaction;
     use time_mempool::Mempool;
-    use crate::manager::PeerManager;
 
     pub struct TransactionBroadcaster {
         mempool: Arc<Mempool>,
