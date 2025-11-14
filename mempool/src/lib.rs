@@ -471,16 +471,16 @@ impl Mempool {
     /// Finalize a transaction (mark as confirmed by BFT consensus)
     pub async fn finalize_transaction(&self, txid: &str) -> Result<(), MempoolError> {
         let mut pool = self.transactions.write().await;
-        
+
         if let Some(entry) = pool.get_mut(txid) {
             entry.finalized = true;
             entry.finalized_at = Some(chrono::Utc::now().timestamp());
-            
+
             println!(
                 "✅ Transaction {} finalized by BFT consensus",
                 &txid[..std::cmp::min(16, txid.len())]
             );
-            
+
             Ok(())
         } else {
             Err(MempoolError::InvalidTransaction(
@@ -661,7 +661,10 @@ mod tests {
         assert!(!mempool.is_finalized("test_tx_finalize").await);
 
         // Finalize the transaction
-        mempool.finalize_transaction("test_tx_finalize").await.unwrap();
+        mempool
+            .finalize_transaction("test_tx_finalize")
+            .await
+            .unwrap();
 
         // Now should be finalized
         assert!(mempool.is_finalized("test_tx_finalize").await);
@@ -699,4 +702,3 @@ mod tests {
         assert_eq!(pending.len(), 1);
     }
 }
-

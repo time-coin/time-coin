@@ -2023,9 +2023,18 @@ mod tests {
         };
 
         // Vote from all masternodes
-        engine.vote_on_transaction(&tx.txid, "mn1".to_string(), true).await.unwrap();
-        engine.vote_on_transaction(&tx.txid, "mn2".to_string(), true).await.unwrap();
-        engine.vote_on_transaction(&tx.txid, "mn3".to_string(), true).await.unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn1".to_string(), true)
+            .await
+            .unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn2".to_string(), true)
+            .await
+            .unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn3".to_string(), true)
+            .await
+            .unwrap();
 
         // Check vote counts
         let (approvals, rejections) = engine.get_transaction_vote_count(&tx.txid).await;
@@ -2060,9 +2069,18 @@ mod tests {
         };
 
         // Only 2 out of 3 approve (66.7%)
-        engine.vote_on_transaction(&tx.txid, "mn1".to_string(), true).await.unwrap();
-        engine.vote_on_transaction(&tx.txid, "mn2".to_string(), true).await.unwrap();
-        engine.vote_on_transaction(&tx.txid, "mn3".to_string(), false).await.unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn1".to_string(), true)
+            .await
+            .unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn2".to_string(), true)
+            .await
+            .unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn3".to_string(), false)
+            .await
+            .unwrap();
 
         // Should reach consensus (2/3 = 67% meets the 2/3 threshold)
         assert!(engine.has_transaction_consensus(&tx.txid).await);
@@ -2092,9 +2110,18 @@ mod tests {
         };
 
         // Only 1 out of 3 approves (33.3%)
-        engine.vote_on_transaction(&tx.txid, "mn1".to_string(), true).await.unwrap();
-        engine.vote_on_transaction(&tx.txid, "mn2".to_string(), false).await.unwrap();
-        engine.vote_on_transaction(&tx.txid, "mn3".to_string(), false).await.unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn1".to_string(), true)
+            .await
+            .unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn2".to_string(), false)
+            .await
+            .unwrap();
+        engine
+            .vote_on_transaction(&tx.txid, "mn3".to_string(), false)
+            .await
+            .unwrap();
 
         // Should NOT reach consensus (1/3 = 33% below the 67% threshold)
         assert!(!engine.has_transaction_consensus(&tx.txid).await);

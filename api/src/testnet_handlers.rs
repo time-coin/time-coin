@@ -153,7 +153,10 @@ pub async fn get_mint_info(State(state): State<ApiState>) -> ApiResult<Json<Mint
 
 /// Trigger instant finality for a transaction via BFT consensus
 async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::Transaction) {
-    println!("🚀 Initiating instant finality for transaction {}", &tx.txid[..16]);
+    println!(
+        "🚀 Initiating instant finality for transaction {}",
+        &tx.txid[..16]
+    );
 
     let consensus = state.consensus.clone();
     let mempool = state.mempool.clone();
@@ -164,12 +167,12 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
     tokio::spawn(async move {
         // Get the current node's address (simulating as a masternode)
         let masternodes = consensus.get_masternodes().await;
-        
+
         if masternodes.is_empty() {
             println!("⚠️  No masternodes registered - auto-finalizing in dev mode");
             if let Some(mempool) = mempool.as_ref() {
                 let _ = mempool.finalize_transaction(&txid).await;
-                
+
                 // Apply transaction to UTXO set for instant balance update
                 let mut blockchain = blockchain.write().await;
                 if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
@@ -187,7 +190,10 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
         let mut approvals = 0;
         for (i, masternode) in masternodes.iter().enumerate() {
             // Validate and vote on the transaction
-            match consensus.validate_and_vote_transaction(&tx, masternode.clone()).await {
+            match consensus
+                .validate_and_vote_transaction(&tx, masternode.clone())
+                .await
+            {
                 Ok(_) => {
                     approvals += 1;
                     println!("   ✅ Masternode {} voted: APPROVE", i + 1);
@@ -200,16 +206,20 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
 
         // Check if consensus reached
         let has_consensus = consensus.has_transaction_consensus(&txid).await;
-        
+
         if has_consensus {
-            println!("✅ BFT consensus reached ({}/{} approvals)", approvals, masternodes.len());
-            
+            println!(
+                "✅ BFT consensus reached ({}/{} approvals)",
+                approvals,
+                masternodes.len()
+            );
+
             // Finalize the transaction in mempool
             if let Some(mempool) = mempool.as_ref() {
                 match mempool.finalize_transaction(&txid).await {
                     Ok(_) => {
                         println!("🎉 Transaction {} instantly finalized!", &txid[..16]);
-                        
+
                         // Apply transaction to UTXO set for instant balance update
                         let mut blockchain = blockchain.write().await;
                         if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
