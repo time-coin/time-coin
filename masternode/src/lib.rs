@@ -349,8 +349,10 @@ pub mod slashing_executor;
 
 // Module declarations for the new registry implementation
 pub mod collateral;
+pub mod config;
 pub mod registry;
 pub mod rewards;
+pub mod start_protocol;
 pub mod types;
 
 // Violation detection modules

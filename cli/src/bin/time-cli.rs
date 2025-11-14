@@ -287,7 +287,73 @@ enum RpcCommands {
 
 #[derive(Subcommand)]
 enum MasternodeCommands {
-    /// Register a masternode (defaults to local node)
+    /// Generate a new masternode private key
+    Genkey,
+
+    /// List available collateral outputs (UTXOs suitable for masternodes)
+    Outputs {
+        /// Minimum confirmations required
+        #[arg(short, long, default_value = "15")]
+        min_conf: u64,
+    },
+
+    /// List masternodes from masternode.conf
+    ListConf {
+        /// Path to masternode.conf file
+        #[arg(short, long, default_value = "masternode.conf")]
+        config: String,
+    },
+
+    /// Add a masternode to masternode.conf
+    AddConf {
+        /// Masternode alias
+        alias: String,
+
+        /// IP address and port (e.g., 192.168.1.100:24000)
+        ip_port: String,
+
+        /// Masternode private key (from genkey command)
+        masternode_privkey: String,
+
+        /// Collateral transaction ID
+        collateral_txid: String,
+
+        /// Collateral output index
+        collateral_vout: u32,
+
+        /// Path to masternode.conf file
+        #[arg(short, long, default_value = "masternode.conf")]
+        config: String,
+    },
+
+    /// Remove a masternode from masternode.conf
+    RemoveConf {
+        /// Masternode alias to remove
+        alias: String,
+
+        /// Path to masternode.conf file
+        #[arg(short, long, default_value = "masternode.conf")]
+        config: String,
+    },
+
+    /// Start a specific masternode by alias
+    StartAlias {
+        /// Masternode alias from masternode.conf
+        alias: String,
+
+        /// Path to masternode.conf file
+        #[arg(short, long, default_value = "masternode.conf")]
+        config: String,
+    },
+
+    /// Start all masternodes from masternode.conf
+    StartAll {
+        /// Path to masternode.conf file
+        #[arg(short, long, default_value = "masternode.conf")]
+        config: String,
+    },
+
+    /// Register a masternode (legacy, defaults to local node)
     Register {
         /// Node IP address (optional, defaults to local IP)
         #[arg(short = 'n', long)]
@@ -931,6 +997,379 @@ async fn handle_masternode_command(
     json_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
+        MasternodeCommands::Genkey => {
+            // Generate a new masternode private key
+            let key = time_crypto::generate_masternode_key();
+
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "masternode_privkey": key
+                    }))?
+                );
+            } else {
+                println!("\n🔑 Masternode Private Key");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("{}", key);
+                println!("\n⚠️  Keep this key secret and secure!");
+                println!("Use this key in your masternode.conf file");
+            }
+        }
+
+        MasternodeCommands::Outputs { min_conf } => {
+            // List available collateral outputs
+            let response = client
+                .post(format!("{}/rpc/listunspent", api))
+                .json(&json!({
+                    "minconf": min_conf,
+                    "maxconf": 9999999,
+                    "addresses": []
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let utxos: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&utxos)?);
+                } else {
+                    println!("\n💰 Available Collateral Outputs");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                    if let Some(outputs) = utxos.as_array() {
+                        for output in outputs {
+                            let amount = output["amount"].as_u64().unwrap_or(0) / 100_000_000;
+                            let txid = output["txid"].as_str().unwrap_or("");
+                            let vout = output["vout"].as_u64().unwrap_or(0);
+                            let confirmations = output["confirmations"].as_u64().unwrap_or(0);
+
+                            // Determine tier
+                            let tier = if amount >= 100_000 {
+                                "Professional"
+                            } else if amount >= 10_000 {
+                                "Verified"
+                            } else if amount >= 1_000 {
+                                "Community"
+                            } else {
+                                "Below minimum"
+                            };
+
+                            println!(
+                                "\n  {}:{}\n    Amount: {} TIME ({})\n    Confirmations: {}",
+                                &txid[..16], vout, amount, tier, confirmations
+                            );
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        MasternodeCommands::ListConf { config } => {
+            // List masternodes from masternode.conf
+            match masternode::config::MasternodeConfig::load_from_file(&config) {
+                Ok(conf) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "masternodes": conf.entries(),
+                                "count": conf.count()
+                            }))?
+                        );
+                    } else {
+                        println!("\n🔧 Configured Masternodes ({} total)", conf.count());
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                        if conf.count() == 0 {
+                            println!("No masternodes configured");
+                        } else {
+                            for (i, entry) in conf.entries().iter().enumerate() {
+                                println!("\n{}. {}", i + 1, entry.alias);
+                                println!("   IP:Port: {}", entry.ip_port);
+                                println!("   Collateral: {}:{}", &entry.collateral_txid[..16], entry.collateral_output_index);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "error": format!("{}", e)
+                            }))?
+                        );
+                    } else {
+                        eprintln!("Error loading masternode.conf: {}", e);
+                    }
+                }
+            }
+        }
+
+        MasternodeCommands::AddConf {
+            alias,
+            ip_port,
+            masternode_privkey,
+            collateral_txid,
+            collateral_vout,
+            config,
+        } => {
+            // Add a masternode to masternode.conf
+            let entry = masternode::config::MasternodeConfigEntry {
+                alias: alias.clone(),
+                ip_port: ip_port.clone(),
+                masternode_privkey: masternode_privkey.clone(),
+                collateral_txid: collateral_txid.clone(),
+                collateral_output_index: collateral_vout,
+            };
+
+            let mut conf = masternode::config::MasternodeConfig::load_from_file(&config)
+                .unwrap_or_else(|_| masternode::config::MasternodeConfig::new());
+
+            match conf.add_entry(entry) {
+                Ok(_) => {
+                    if let Err(e) = conf.save_to_file(&config) {
+                        if json_output {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&json!({
+                                    "error": format!("Failed to save: {}", e)
+                                }))?
+                            );
+                        } else {
+                            eprintln!("Error saving masternode.conf: {}", e);
+                        }
+                    } else if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "success": true,
+                                "alias": alias,
+                                "message": "Masternode added to configuration"
+                            }))?
+                        );
+                    } else {
+                        println!("\n✓ Masternode Added");
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        println!("Alias: {}", alias);
+                        println!("IP:Port: {}", ip_port);
+                        println!("Collateral: {}:{}", &collateral_txid[..16], collateral_vout);
+                        println!("\nConfiguration saved to {}", config);
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "error": format!("{}", e)
+                            }))?
+                        );
+                    } else {
+                        eprintln!("Error: {}", e);
+                    }
+                }
+            }
+        }
+
+        MasternodeCommands::RemoveConf { alias, config } => {
+            // Remove a masternode from masternode.conf
+            match masternode::config::MasternodeConfig::load_from_file(&config) {
+                Ok(mut conf) => {
+                    match conf.remove_entry(&alias) {
+                        Ok(_) => {
+                            if let Err(e) = conf.save_to_file(&config) {
+                                if json_output {
+                                    println!(
+                                        "{}",
+                                        serde_json::to_string_pretty(&json!({
+                                            "error": format!("Failed to save: {}", e)
+                                        }))?
+                                    );
+                                } else {
+                                    eprintln!("Error saving masternode.conf: {}", e);
+                                }
+                            } else if json_output {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&json!({
+                                        "success": true,
+                                        "alias": alias,
+                                        "message": "Masternode removed from configuration"
+                                    }))?
+                                );
+                            } else {
+                                println!("\n✓ Masternode Removed");
+                                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                                println!("Alias: {}", alias);
+                                println!("Configuration saved to {}", config);
+                            }
+                        }
+                        Err(e) => {
+                            if json_output {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&json!({
+                                        "error": format!("{}", e)
+                                    }))?
+                                );
+                            } else {
+                                eprintln!("Error: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "error": format!("Failed to load config: {}", e)
+                            }))?
+                        );
+                    } else {
+                        eprintln!("Error loading masternode.conf: {}", e);
+                    }
+                }
+            }
+        }
+
+        MasternodeCommands::StartAlias { alias, config } => {
+            // Start a specific masternode by alias
+            match masternode::config::MasternodeConfig::load_from_file(&config) {
+                Ok(conf) => {
+                    if let Some(entry) = conf.get_entry(&alias) {
+                        // Send start-masternode message to the API
+                        let response = client
+                            .post(format!("{}/masternode/start", api))
+                            .json(&json!({
+                                "alias": entry.alias,
+                                "ip_port": entry.ip_port,
+                                "masternode_privkey": entry.masternode_privkey,
+                                "collateral_txid": entry.collateral_txid,
+                                "collateral_vout": entry.collateral_output_index
+                            }))
+                            .send()
+                            .await?;
+
+                        if response.status().is_success() {
+                            let result: serde_json::Value = response.json().await?;
+                            if json_output {
+                                println!("{}", serde_json::to_string_pretty(&result)?);
+                            } else {
+                                println!("\n✓ Masternode Started");
+                                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                                println!("Alias: {}", alias);
+                                println!("{}", result.get("message").and_then(|v| v.as_str()).unwrap_or("Success"));
+                            }
+                        } else {
+                            let error = response.text().await?;
+                            if json_output {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&json!({
+                                        "error": error
+                                    }))?
+                                );
+                            } else {
+                                eprintln!("Error: {}", error);
+                            }
+                        }
+                    } else if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "error": format!("Masternode '{}' not found in configuration", alias)
+                            }))?
+                        );
+                    } else {
+                        eprintln!("Error: Masternode '{}' not found in configuration", alias);
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "error": format!("Failed to load config: {}", e)
+                            }))?
+                        );
+                    } else {
+                        eprintln!("Error loading masternode.conf: {}", e);
+                    }
+                }
+            }
+        }
+
+        MasternodeCommands::StartAll { config } => {
+            // Start all masternodes from masternode.conf
+            match masternode::config::MasternodeConfig::load_from_file(&config) {
+                Ok(conf) => {
+                    let mut results = Vec::new();
+
+                    for entry in conf.entries() {
+                        let response = client
+                            .post(format!("{}/masternode/start", api))
+                            .json(&json!({
+                                "alias": entry.alias,
+                                "ip_port": entry.ip_port,
+                                "masternode_privkey": entry.masternode_privkey,
+                                "collateral_txid": entry.collateral_txid,
+                                "collateral_vout": entry.collateral_output_index
+                            }))
+                            .send()
+                            .await;
+
+                        let success = response.as_ref().map(|r| r.status().is_success()).unwrap_or(false);
+                        results.push(json!({
+                            "alias": entry.alias,
+                            "success": success,
+                            "message": if success { "Started" } else { "Failed" }
+                        }));
+                    }
+
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "results": results,
+                                "total": results.len()
+                            }))?
+                        );
+                    } else {
+                        println!("\n🚀 Starting All Masternodes");
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        for result in &results {
+                            let alias = result["alias"].as_str().unwrap_or("unknown");
+                            let success = result["success"].as_bool().unwrap_or(false);
+                            println!(
+                                "  {} {}",
+                                alias,
+                                if success { "✓" } else { "✗" }
+                            );
+                        }
+                        println!("\nTotal: {}", results.len());
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "error": format!("Failed to load config: {}", e)
+                            }))?
+                        );
+                    } else {
+                        eprintln!("Error loading masternode.conf: {}", e);
+                    }
+                }
+            }
+        }
+
         MasternodeCommands::Register {
             node_ip,
             wallet_address,
