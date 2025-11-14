@@ -54,12 +54,12 @@ pub mod tx_broadcast {
             );
 
             let message = crate::protocol::NetworkMessage::TransactionBroadcast(tx.clone());
-            
+
             for peer_info in peers {
                 let peer_addr = peer_info.address;
                 let msg_clone = message.clone();
                 let manager = self.peer_manager.clone();
-                
+
                 tokio::spawn(async move {
                     match manager.send_message_to_peer(peer_addr, msg_clone).await {
                         Ok(_) => {
@@ -74,7 +74,10 @@ pub mod tx_broadcast {
         }
 
         /// Sync mempool with a peer via TCP
-        pub async fn sync_mempool_from_peer(&self, peer_addr: &str) -> Result<Vec<Transaction>, String> {
+        pub async fn sync_mempool_from_peer(
+            &self,
+            peer_addr: &str,
+        ) -> Result<Vec<Transaction>, String> {
             let addr: std::net::SocketAddr = peer_addr
                 .parse()
                 .map_err(|e| format!("Invalid peer address: {}", e))?;
@@ -83,7 +86,9 @@ pub mod tx_broadcast {
 
             // Send mempool query via TCP
             let query_msg = crate::protocol::NetworkMessage::MempoolQuery;
-            self.peer_manager.send_message_to_peer(addr, query_msg).await
+            self.peer_manager
+                .send_message_to_peer(addr, query_msg)
+                .await
                 .map_err(|e| format!("Failed to send query: {}", e))?;
 
             // For now, return empty as we need a response mechanism
@@ -111,7 +116,7 @@ pub mod tx_broadcast {
             for peer_info in peers {
                 let peer_ip = peer_info.address.ip();
                 let proposal_clone = proposal.clone();
-                
+
                 tokio::spawn(async move {
                     let client = match reqwest::Client::builder()
                         .timeout(std::time::Duration::from_secs(5))
@@ -137,7 +142,7 @@ pub mod tx_broadcast {
             for peer_info in peers {
                 let peer_ip = peer_info.address.ip();
                 let vote_clone = vote.clone();
-                
+
                 tokio::spawn(async move {
                     let client = match reqwest::Client::builder()
                         .timeout(std::time::Duration::from_secs(5))
@@ -162,12 +167,12 @@ pub mod tx_broadcast {
             );
 
             let message = crate::protocol::NetworkMessage::InstantFinalityRequest(tx.clone());
-            
+
             for peer_info in peers {
                 let peer_addr = peer_info.address;
                 let msg_clone = message.clone();
                 let manager = self.peer_manager.clone();
-                
+
                 tokio::spawn(async move {
                     match manager.send_message_to_peer(peer_addr, msg_clone).await {
                         Ok(_) => {
@@ -186,9 +191,20 @@ pub mod tx_broadcast {
             let peers = self.peer_manager.get_connected_peers().await;
 
             // Extract vote details from JSON
-            let txid = vote.get("txid").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let voter = vote.get("voter").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let approve = vote.get("approve").and_then(|v| v.as_bool()).unwrap_or(false);
+            let txid = vote
+                .get("txid")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let voter = vote
+                .get("voter")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let approve = vote
+                .get("approve")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let timestamp = vote.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
 
             let message = crate::protocol::NetworkMessage::InstantFinalityVote {
@@ -202,7 +218,7 @@ pub mod tx_broadcast {
                 let peer_addr = peer_info.address;
                 let msg_clone = message.clone();
                 let manager = self.peer_manager.clone();
-                
+
                 tokio::spawn(async move {
                     let _ = manager.send_message_to_peer(peer_addr, msg_clone).await;
                 });

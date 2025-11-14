@@ -354,11 +354,11 @@ impl PeerManager {
     /// Broadcast a network message to all connected peers over TCP
     pub async fn broadcast_message(&self, message: crate::protocol::NetworkMessage) {
         let peers = self.peers.read().await;
-        
+
         for (_peer_ip, peer_info) in peers.iter() {
             let peer_addr = peer_info.address;
             let msg_clone = message.clone();
-            
+
             tokio::spawn(async move {
                 let mut stream = match tokio::net::TcpStream::connect(peer_addr).await {
                     Ok(s) => s,
@@ -375,9 +375,9 @@ impl PeerManager {
                         return;
                     }
                 };
-                
+
                 let len = json.len() as u32;
-                
+
                 if stream.write_all(&len.to_be_bytes()).await.is_err() {
                     return;
                 }

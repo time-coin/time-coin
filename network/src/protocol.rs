@@ -570,15 +570,20 @@ mod tests {
             approve: true,
             timestamp: 1234567890,
         };
-        
+
         let serialized = vote.serialize().unwrap();
         let deserialized = NetworkMessage::deserialize(&serialized).unwrap();
-        
+
         match deserialized {
-            NetworkMessage::InstantFinalityVote { txid, voter, approve, timestamp } => {
+            NetworkMessage::InstantFinalityVote {
+                txid,
+                voter,
+                approve,
+                timestamp,
+            } => {
                 assert_eq!(txid, "test_txid_123");
                 assert_eq!(voter, "voter_address");
-                assert_eq!(approve, true);
+                assert!(approve);
                 assert_eq!(timestamp, 1234567890);
             }
             _ => panic!("Expected InstantFinalityVote message"),
@@ -591,7 +596,7 @@ mod tests {
         let query = NetworkMessage::MempoolQuery;
         let serialized = query.serialize().unwrap();
         let deserialized = NetworkMessage::deserialize(&serialized).unwrap();
-        
+
         match deserialized {
             NetworkMessage::MempoolQuery => (),
             _ => panic!("Expected MempoolQuery message"),
@@ -638,13 +643,21 @@ pub enum NetworkMessage {
     BlockProposal(Vec<u8>),
     GetBlockchainHeight,
     BlockchainHeight(u64),
-    GetBlocks { start_height: u64, end_height: u64 },
+    GetBlocks {
+        start_height: u64,
+        end_height: u64,
+    },
     BlocksData(Vec<BlockData>),
-    
+
     // New message types for unified TCP communication
     TransactionBroadcast(time_core::Transaction),
     InstantFinalityRequest(time_core::Transaction),
-    InstantFinalityVote { txid: String, voter: String, approve: bool, timestamp: u64 },
+    InstantFinalityVote {
+        txid: String,
+        voter: String,
+        approve: bool,
+        timestamp: u64,
+    },
     MempoolAdd(time_core::Transaction),
     MempoolQuery,
     MempoolResponse(Vec<time_core::Transaction>),

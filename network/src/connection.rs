@@ -221,14 +221,17 @@ impl PeerConnection {
     }
 
     /// Send a network message over the TCP connection
-    pub async fn send_message(&mut self, msg: crate::protocol::NetworkMessage) -> Result<(), String> {
+    pub async fn send_message(
+        &mut self,
+        msg: crate::protocol::NetworkMessage,
+    ) -> Result<(), String> {
         let json = serde_json::to_vec(&msg).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
-        
+
         if len > 10 * 1024 * 1024 {
             return Err("Message too large (>10MB)".into());
         }
-        
+
         self.stream
             .write_all(&len.to_be_bytes())
             .await
@@ -252,11 +255,11 @@ impl PeerConnection {
             .await
             .map_err(|e| format!("Failed to read length: {}", e))?;
         let len = u32::from_be_bytes(len_bytes) as usize;
-        
+
         if len > 10 * 1024 * 1024 {
             return Err("Message too large (>10MB)".into());
         }
-        
+
         let mut buf = vec![0u8; len];
         self.stream
             .read_exact(&mut buf)
