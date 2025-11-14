@@ -3,7 +3,7 @@
 ## Overview
 
 This implementation adds Dash-style masternode support to TIME Coin, enabling secure hot/cold wallet separation and flexible masternode management through configuration files.
-
+ 
 ## Components Implemented
 
 ### 1. Masternode Key Generation (`crypto` module)
