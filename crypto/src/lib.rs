@@ -112,12 +112,12 @@ pub fn validate_masternode_key(key: &str) -> Result<(), CryptoError> {
     if !key.starts_with("MN") {
         return Err(CryptoError::InvalidPrivateKey);
     }
-    
+
     let hex_part = &key[2..];
     if hex_part.len() != 64 {
         return Err(CryptoError::InvalidPrivateKey);
     }
-    
+
     hex::decode(hex_part).map_err(|_| CryptoError::InvalidPrivateKey)?;
     Ok(())
 }
@@ -127,30 +127,30 @@ pub fn masternode_key_to_private_key(mn_key: &str) -> Result<String, CryptoError
     if !mn_key.starts_with("MN") {
         return Err(CryptoError::InvalidPrivateKey);
     }
-    
+
     Ok(mn_key[2..].to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_generate_masternode_key() {
         let key = generate_masternode_key();
         assert!(key.starts_with("MN"));
         assert_eq!(key.len(), 66); // "MN" + 64 hex chars
     }
-    
+
     #[test]
     fn test_validate_masternode_key() {
         let key = generate_masternode_key();
         assert!(validate_masternode_key(&key).is_ok());
-        
+
         assert!(validate_masternode_key("invalid").is_err());
         assert!(validate_masternode_key("MNinvalid").is_err());
     }
-    
+
     #[test]
     fn test_masternode_key_to_private_key() {
         let key = generate_masternode_key();

@@ -1059,7 +1059,11 @@ async fn handle_masternode_command(
 
                             println!(
                                 "\n  {}:{}\n    Amount: {} TIME ({})\n    Confirmations: {}",
-                                &txid[..16], vout, amount, tier, confirmations
+                                &txid[..16],
+                                vout,
+                                amount,
+                                tier,
+                                confirmations
                             );
                         }
                     }
@@ -1091,7 +1095,11 @@ async fn handle_masternode_command(
                             for (i, entry) in conf.entries().iter().enumerate() {
                                 println!("\n{}. {}", i + 1, entry.alias);
                                 println!("   IP:Port: {}", entry.ip_port);
-                                println!("   Collateral: {}:{}", &entry.collateral_txid[..16], entry.collateral_output_index);
+                                println!(
+                                    "   Collateral: {}:{}",
+                                    &entry.collateral_txid[..16],
+                                    entry.collateral_output_index
+                                );
                             }
                         }
                     }
@@ -1180,50 +1188,48 @@ async fn handle_masternode_command(
         MasternodeCommands::RemoveConf { alias, config } => {
             // Remove a masternode from masternode.conf
             match masternode::config::MasternodeConfig::load_from_file(&config) {
-                Ok(mut conf) => {
-                    match conf.remove_entry(&alias) {
-                        Ok(_) => {
-                            if let Err(e) = conf.save_to_file(&config) {
-                                if json_output {
-                                    println!(
-                                        "{}",
-                                        serde_json::to_string_pretty(&json!({
-                                            "error": format!("Failed to save: {}", e)
-                                        }))?
-                                    );
-                                } else {
-                                    eprintln!("Error saving masternode.conf: {}", e);
-                                }
-                            } else if json_output {
-                                println!(
-                                    "{}",
-                                    serde_json::to_string_pretty(&json!({
-                                        "success": true,
-                                        "alias": alias,
-                                        "message": "Masternode removed from configuration"
-                                    }))?
-                                );
-                            } else {
-                                println!("\n✓ Masternode Removed");
-                                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                                println!("Alias: {}", alias);
-                                println!("Configuration saved to {}", config);
-                            }
-                        }
-                        Err(e) => {
+                Ok(mut conf) => match conf.remove_entry(&alias) {
+                    Ok(_) => {
+                        if let Err(e) = conf.save_to_file(&config) {
                             if json_output {
                                 println!(
                                     "{}",
                                     serde_json::to_string_pretty(&json!({
-                                        "error": format!("{}", e)
+                                        "error": format!("Failed to save: {}", e)
                                     }))?
                                 );
                             } else {
-                                eprintln!("Error: {}", e);
+                                eprintln!("Error saving masternode.conf: {}", e);
                             }
+                        } else if json_output {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&json!({
+                                    "success": true,
+                                    "alias": alias,
+                                    "message": "Masternode removed from configuration"
+                                }))?
+                            );
+                        } else {
+                            println!("\n✓ Masternode Removed");
+                            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                            println!("Alias: {}", alias);
+                            println!("Configuration saved to {}", config);
                         }
                     }
-                }
+                    Err(e) => {
+                        if json_output {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&json!({
+                                    "error": format!("{}", e)
+                                }))?
+                            );
+                        } else {
+                            eprintln!("Error: {}", e);
+                        }
+                    }
+                },
                 Err(e) => {
                     if json_output {
                         println!(
@@ -1265,7 +1271,13 @@ async fn handle_masternode_command(
                                 println!("\n✓ Masternode Started");
                                 println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                                 println!("Alias: {}", alias);
-                                println!("{}", result.get("message").and_then(|v| v.as_str()).unwrap_or("Success"));
+                                println!(
+                                    "{}",
+                                    result
+                                        .get("message")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("Success")
+                                );
                             }
                         } else {
                             let error = response.text().await?;
@@ -1325,7 +1337,10 @@ async fn handle_masternode_command(
                             .send()
                             .await;
 
-                        let success = response.as_ref().map(|r| r.status().is_success()).unwrap_or(false);
+                        let success = response
+                            .as_ref()
+                            .map(|r| r.status().is_success())
+                            .unwrap_or(false);
                         results.push(json!({
                             "alias": entry.alias,
                             "success": success,
@@ -1347,11 +1362,7 @@ async fn handle_masternode_command(
                         for result in &results {
                             let alias = result["alias"].as_str().unwrap_or("unknown");
                             let success = result["success"].as_bool().unwrap_or(false);
-                            println!(
-                                "  {} {}",
-                                alias,
-                                if success { "✓" } else { "✗" }
-                            );
+                            println!("  {} {}", alias, if success { "✓" } else { "✗" });
                         }
                         println!("\nTotal: {}", results.len());
                     }
