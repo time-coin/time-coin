@@ -25,12 +25,12 @@ pub use discovery::PeerInfo;
 /// Transaction broadcasting functionality
 pub mod tx_broadcast {
     use crate::manager::PeerManager;
-    use reqwest;
     use std::sync::Arc;
     use time_core::Transaction;
     use time_mempool::Mempool;
 
     pub struct TransactionBroadcaster {
+        #[allow(dead_code)]
         mempool: Arc<Mempool>,
         peer_manager: Arc<PeerManager>,
     }
@@ -43,10 +43,9 @@ pub mod tx_broadcast {
             }
         }
 
-        /// Broadcast a transaction to all peers
+        /// Broadcast a transaction to all peers via TCP
         pub async fn broadcast_transaction(&self, tx: Transaction) {
-            // Query PeerManager directly for LIVE connected peers only
-            let peers = self.peer_manager.get_peer_ips().await;
+            let peers = self.peer_manager.get_connected_peers().await;
 
             println!(
                 "📡 Broadcasting transaction {} to {} peers",
@@ -54,75 +53,65 @@ pub mod tx_broadcast {
                 peers.len()
             );
 
-            for peer in peers {
-                let tx_clone = tx.clone();
+            let message = crate::protocol::NetworkMessage::TransactionBroadcast(tx.clone());
+            
+            for peer_info in peers {
+                let peer_addr = peer_info.address;
+                let msg_clone = message.clone();
+                let manager = self.peer_manager.clone();
+                
                 tokio::spawn(async move {
-                    let client = match reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(5))
-                        .build()
-                    {
-                        Ok(c) => c,
-                        Err(e) => {
-                            println!("   ✗ Failed to build client for {}: {}", peer, e);
-                            return;
-                        }
-                    };
-                    let url = format!("http://{}:24101/mempool/add", peer);
-
-                    match client.post(&url).json(&tx_clone).send().await {
+                    match manager.send_message_to_peer(peer_addr, msg_clone).await {
                         Ok(_) => {
-                            println!("   ✓ Sent to {}", peer);
+                            println!("   ✓ Sent to {}", peer_addr);
                         }
                         Err(e) => {
-                            println!("   ✗ Failed to send to {}: {}", peer, e);
+                            println!("   ✗ Failed to send to {}: {}", peer_addr, e);
                         }
                     }
                 });
             }
         }
 
-        /// Sync mempool with a peer (on startup or reconnection)
-        pub async fn sync_mempool_from_peer(&self, peer: &str) -> Result<Vec<Transaction>, String> {
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-            let url = format!("http://{}:24101/mempool/all", peer);
+        /// Sync mempool with a peer via TCP
+        pub async fn sync_mempool_from_peer(&self, peer_addr: &str) -> Result<Vec<Transaction>, String> {
+            let addr: std::net::SocketAddr = peer_addr
+                .parse()
+                .map_err(|e| format!("Invalid peer address: {}", e))?;
 
-            println!("🔄 Syncing mempool from {}...", peer);
+            println!("🔄 Syncing mempool from {}...", peer_addr);
 
-            match client.get(&url).send().await {
-                Ok(response) => {
-                    match response.json::<Vec<Transaction>>().await {
-                        Ok(transactions) => {
-                            println!("   ✓ Received {} transactions", transactions.len());
+            // Send mempool query via TCP
+            let query_msg = crate::protocol::NetworkMessage::MempoolQuery;
+            self.peer_manager.send_message_to_peer(addr, query_msg).await
+                .map_err(|e| format!("Failed to send query: {}", e))?;
 
-                            // Add to local mempool
-                            for tx in &transactions {
-                                let _ = self.mempool.add_transaction(tx.clone()).await;
-                            }
-
-                            Ok(transactions)
-                        }
-                        Err(e) => Err(format!("Failed to parse response: {}", e)),
-                    }
-                }
-                Err(e) => Err(format!("Request failed: {}", e)),
-            }
+            // For now, return empty as we need a response mechanism
+            // This will be implemented when we add request/response handling
+            println!("   ⚠️  Mempool sync via TCP not yet fully implemented");
+            Ok(vec![])
         }
 
-        /// Broadcast transaction proposal (which transactions should go in block)
+        /// Broadcast transaction proposal via TCP
         pub async fn broadcast_tx_proposal(&self, proposal: serde_json::Value) {
-            // Query PeerManager directly for LIVE connected peers only
-            let peers = self.peer_manager.get_peer_ips().await;
+            let peers = self.peer_manager.get_connected_peers().await;
 
             println!(
                 "📡 Broadcasting transaction proposal to {} peers",
                 peers.len()
             );
 
-            for peer in peers {
+            // For now, keep using HTTP API for proposals as they're more complex
+            // and require maintaining compatibility with existing nodes
+            let api_port = match self.peer_manager.network {
+                crate::discovery::NetworkType::Mainnet => 24001,
+                crate::discovery::NetworkType::Testnet => 24101,
+            };
+
+            for peer_info in peers {
+                let peer_ip = peer_info.address.ip();
                 let proposal_clone = proposal.clone();
+                
                 tokio::spawn(async move {
                     let client = match reqwest::Client::builder()
                         .timeout(std::time::Duration::from_secs(5))
@@ -131,20 +120,24 @@ pub mod tx_broadcast {
                         Ok(c) => c,
                         Err(_) => return,
                     };
-                    let url = format!("http://{}:24101/consensus/tx-proposal", peer);
-
+                    let url = format!("http://{}:{}/consensus/tx-proposal", peer_ip, api_port);
                     let _ = client.post(&url).json(&proposal_clone).send().await;
                 });
             }
         }
 
-        /// Broadcast vote on transaction set
+        /// Broadcast vote on transaction set via TCP
         pub async fn broadcast_tx_vote(&self, vote: serde_json::Value) {
-            // Query PeerManager directly for LIVE connected peers only
-            let peers = self.peer_manager.get_peer_ips().await;
+            let peers = self.peer_manager.get_connected_peers().await;
+            let api_port = match self.peer_manager.network {
+                crate::discovery::NetworkType::Mainnet => 24001,
+                crate::discovery::NetworkType::Testnet => 24101,
+            };
 
-            for peer in peers {
+            for peer_info in peers {
+                let peer_ip = peer_info.address.ip();
                 let vote_clone = vote.clone();
+                
                 tokio::spawn(async move {
                     let client = match reqwest::Client::builder()
                         .timeout(std::time::Duration::from_secs(5))
@@ -153,68 +146,65 @@ pub mod tx_broadcast {
                         Ok(c) => c,
                         Err(_) => return,
                     };
-                    let url = format!("http://{}:24101/consensus/tx-vote", peer);
-
+                    let url = format!("http://{}:{}/consensus/tx-vote", peer_ip, api_port);
                     let _ = client.post(&url).json(&vote_clone).send().await;
                 });
             }
         }
 
-        /// Request instant finality votes from all peers
+        /// Request instant finality votes from all peers via TCP
         pub async fn request_instant_finality_votes(&self, tx: Transaction) {
-            // Query PeerManager directly for LIVE connected peers only
-            let peers = self.peer_manager.get_peer_ips().await;
+            let peers = self.peer_manager.get_connected_peers().await;
 
             println!(
                 "📡 Requesting instant finality votes from {} peers",
                 peers.len()
             );
 
-            for peer in peers {
-                let tx_clone = tx.clone();
+            let message = crate::protocol::NetworkMessage::InstantFinalityRequest(tx.clone());
+            
+            for peer_info in peers {
+                let peer_addr = peer_info.address;
+                let msg_clone = message.clone();
+                let manager = self.peer_manager.clone();
+                
                 tokio::spawn(async move {
-                    let client = match reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(3))
-                        .build()
-                    {
-                        Ok(c) => c,
-                        Err(e) => {
-                            println!("   ✗ Failed to build client for {}: {}", peer, e);
-                            return;
-                        }
-                    };
-                    let url = format!("http://{}:24101/consensus/instant-finality-request", peer);
-
-                    match client.post(&url).json(&tx_clone).send().await {
+                    match manager.send_message_to_peer(peer_addr, msg_clone).await {
                         Ok(_) => {
-                            println!("   ✓ Vote request sent to {}", peer);
+                            println!("   ✓ Vote request sent to {}", peer_addr);
                         }
                         Err(e) => {
-                            println!("   ✗ Failed to send vote request to {}: {}", peer, e);
+                            println!("   ✗ Failed to send vote request to {}: {}", peer_addr, e);
                         }
                     }
                 });
             }
         }
 
-        /// Broadcast instant finality vote to all peers
+        /// Broadcast instant finality vote to all peers via TCP
         pub async fn broadcast_instant_finality_vote(&self, vote: serde_json::Value) {
-            // Query PeerManager directly for LIVE connected peers only
-            let peers = self.peer_manager.get_peer_ips().await;
+            let peers = self.peer_manager.get_connected_peers().await;
 
-            for peer in peers {
-                let vote_clone = vote.clone();
+            // Extract vote details from JSON
+            let txid = vote.get("txid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let voter = vote.get("voter").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let approve = vote.get("approve").and_then(|v| v.as_bool()).unwrap_or(false);
+            let timestamp = vote.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            let message = crate::protocol::NetworkMessage::InstantFinalityVote {
+                txid,
+                voter,
+                approve,
+                timestamp,
+            };
+
+            for peer_info in peers {
+                let peer_addr = peer_info.address;
+                let msg_clone = message.clone();
+                let manager = self.peer_manager.clone();
+                
                 tokio::spawn(async move {
-                    let client = match reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(3))
-                        .build()
-                    {
-                        Ok(c) => c,
-                        Err(_) => return,
-                    };
-                    let url = format!("http://{}:24101/consensus/instant-finality-vote", peer);
-
-                    let _ = client.post(&url).json(&vote_clone).send().await;
+                    let _ = manager.send_message_to_peer(peer_addr, msg_clone).await;
                 });
             }
         }

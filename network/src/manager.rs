@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -22,7 +23,7 @@ pub struct Snapshot {
 }
 
 pub struct PeerManager {
-    network: NetworkType,
+    pub network: NetworkType,
     listen_addr: SocketAddr,
     peers: Arc<RwLock<HashMap<IpAddr, PeerInfo>>>,
     peer_exchange: Arc<RwLock<crate::peer_exchange::PeerExchange>>,
@@ -319,6 +320,73 @@ impl PeerManager {
         info!(count = peer_count, "broadcasting transaction to peers");
 
         Ok(peer_count)
+    }
+
+    /// Send a network message to a specific peer over TCP
+    pub async fn send_message_to_peer(
+        &self,
+        peer_addr: SocketAddr,
+        message: crate::protocol::NetworkMessage,
+    ) -> Result<(), String> {
+        let mut stream = tokio::net::TcpStream::connect(peer_addr)
+            .await
+            .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
+
+        let json = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
+        let len = json.len() as u32;
+
+        stream
+            .write_all(&len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to write length: {}", e))?;
+        stream
+            .write_all(&json)
+            .await
+            .map_err(|e| format!("Failed to write message: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Broadcast a network message to all connected peers over TCP
+    pub async fn broadcast_message(&self, message: crate::protocol::NetworkMessage) {
+        let peers = self.peers.read().await;
+        
+        for (_peer_ip, peer_info) in peers.iter() {
+            let peer_addr = peer_info.address;
+            let msg_clone = message.clone();
+            
+            tokio::spawn(async move {
+                let mut stream = match tokio::net::TcpStream::connect(peer_addr).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        debug!(peer = %peer_addr, error = %e, "Failed to connect for message send");
+                        return;
+                    }
+                };
+
+                let json = match serde_json::to_vec(&msg_clone) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        debug!(error = %e, "Failed to serialize message");
+                        return;
+                    }
+                };
+                
+                let len = json.len() as u32;
+                
+                if stream.write_all(&len.to_be_bytes()).await.is_err() {
+                    return;
+                }
+                if stream.write_all(&json).await.is_err() {
+                    return;
+                }
+                let _ = stream.flush().await;
+            });
+        }
     }
 
     pub async fn request_genesis(

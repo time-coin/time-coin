@@ -548,6 +548,55 @@ mod tests {
         assert!(err_msg.contains("00000000839a8e68")); // First 16 chars of actual genesis
         assert!(err_msg.contains("0000000000000000")); // First 16 chars of different genesis
     }
+
+    #[test]
+    fn test_network_message_serialization() {
+        // Test Ping message
+        let ping = NetworkMessage::Ping;
+        let serialized = ping.serialize().unwrap();
+        let deserialized = NetworkMessage::deserialize(&serialized).unwrap();
+        match deserialized {
+            NetworkMessage::Ping => (),
+            _ => panic!("Expected Ping message"),
+        }
+    }
+
+    #[test]
+    fn test_instant_finality_vote_message() {
+        // Test InstantFinalityVote message
+        let vote = NetworkMessage::InstantFinalityVote {
+            txid: "test_txid_123".to_string(),
+            voter: "voter_address".to_string(),
+            approve: true,
+            timestamp: 1234567890,
+        };
+        
+        let serialized = vote.serialize().unwrap();
+        let deserialized = NetworkMessage::deserialize(&serialized).unwrap();
+        
+        match deserialized {
+            NetworkMessage::InstantFinalityVote { txid, voter, approve, timestamp } => {
+                assert_eq!(txid, "test_txid_123");
+                assert_eq!(voter, "voter_address");
+                assert_eq!(approve, true);
+                assert_eq!(timestamp, 1234567890);
+            }
+            _ => panic!("Expected InstantFinalityVote message"),
+        }
+    }
+
+    #[test]
+    fn test_mempool_query_message() {
+        // Test MempoolQuery message
+        let query = NetworkMessage::MempoolQuery;
+        let serialized = query.serialize().unwrap();
+        let deserialized = NetworkMessage::deserialize(&serialized).unwrap();
+        
+        match deserialized {
+            NetworkMessage::MempoolQuery => (),
+            _ => panic!("Expected MempoolQuery message"),
+        }
+    }
 }
 
 /// Transaction broadcast message
@@ -591,6 +640,14 @@ pub enum NetworkMessage {
     BlockchainHeight(u64),
     GetBlocks { start_height: u64, end_height: u64 },
     BlocksData(Vec<BlockData>),
+    
+    // New message types for unified TCP communication
+    TransactionBroadcast(time_core::Transaction),
+    InstantFinalityRequest(time_core::Transaction),
+    InstantFinalityVote { txid: String, voter: String, approve: bool, timestamp: u64 },
+    MempoolAdd(time_core::Transaction),
+    MempoolQuery,
+    MempoolResponse(Vec<time_core::Transaction>),
 }
 
 impl NetworkMessage {
