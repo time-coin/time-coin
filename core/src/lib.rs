@@ -30,3 +30,6 @@ pub use state::{
     BlockchainState, ChainStats, MasternodeInfo, StateError, Treasury, TreasuryAllocation,
     TreasurySource, TreasuryStats, TreasuryWithdrawal,
 };
+pub use treasury_manager::{
+    CreateProposalParams, ProposalStatus, TreasuryManager, TreasuryProposal, Vote, VoteChoice,
+};

@@ -66,6 +66,12 @@ enum Commands {
         masternode_command: MasternodeCommands,
     },
 
+    /// Treasury operations
+    Treasury {
+        #[command(subcommand)]
+        treasury_command: TreasuryCommands,
+    },
+
     /// Validate the blockchain integrity
     ValidateChain {
         /// Display detailed validation information
@@ -382,6 +388,75 @@ enum MasternodeCommands {
     Count,
 }
 
+#[derive(Subcommand)]
+enum TreasuryCommands {
+    /// Get treasury information
+    Info,
+
+    /// List all treasury proposals
+    List {
+        /// Filter by status (active, approved, rejected, executed, expired)
+        #[arg(short, long)]
+        status: Option<String>,
+    },
+
+    /// Get details of a specific proposal
+    Details {
+        /// Proposal ID
+        proposal_id: String,
+    },
+
+    /// Create a new treasury proposal
+    Propose {
+        /// Unique proposal ID
+        #[arg(short, long)]
+        id: String,
+
+        /// Proposal title
+        #[arg(short, long)]
+        title: String,
+
+        /// Proposal description
+        #[arg(short, long)]
+        description: String,
+
+        /// Recipient address
+        #[arg(short, long)]
+        recipient: String,
+
+        /// Amount in TIME
+        #[arg(short, long)]
+        amount: f64,
+
+        /// Submitter address
+        #[arg(short, long)]
+        submitter: String,
+
+        /// Voting period in days
+        #[arg(short, long, default_value = "14")]
+        voting_days: u64,
+    },
+
+    /// Vote on a treasury proposal
+    Vote {
+        /// Proposal ID
+        #[arg(short, long)]
+        proposal_id: String,
+
+        /// Masternode ID
+        #[arg(short, long)]
+        masternode_id: String,
+
+        /// Vote choice (yes, no, abstain)
+        #[arg(short = 'c', long)]
+        choice: String,
+
+        /// Voting power
+        #[arg(short = 'p', long)]
+        voting_power: u64,
+    },
+}
+
 // Response types for RPC calls
 #[derive(Debug, Deserialize, Serialize)]
 struct MasternodeInfo {
@@ -674,6 +749,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Masternode { masternode_command } => {
             handle_masternode_command(masternode_command, &client, &cli.api, cli.json).await?;
+        }
+
+        Commands::Treasury { treasury_command } => {
+            handle_treasury_command(treasury_command, &client, &cli.api, cli.json).await?;
         }
 
         Commands::ValidateChain { verbose, rpc_url } => {
@@ -1557,6 +1636,190 @@ async fn handle_masternode_command(
                 );
             } else {
                 eprintln!("Error: {}", response.status());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_treasury_command(
+    command: TreasuryCommands,
+    client: &Client,
+    api: &str,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        TreasuryCommands::Info => {
+            let response = client
+                .post(format!("{}/rpc/gettreasury", api))
+                .json(&json!({}))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let info: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&info)?);
+                } else {
+                    println!("\n📊 Treasury Information");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Balance:          {} TIME", info["balance"].as_f64().unwrap_or(0.0));
+                    println!("Total Allocated:  {} TIME", info["total_allocated"].as_f64().unwrap_or(0.0));
+                    println!("Pending Proposals: {}", info["pending_proposals"].as_u64().unwrap_or(0));
+                    println!("Monthly Budget:   {} TIME", info["monthly_budget"].as_f64().unwrap_or(0.0));
+                }
+            } else {
+                eprintln!("Error: {}", response.text().await?);
+            }
+        }
+
+        TreasuryCommands::List { status } => {
+            let response = client
+                .get(format!("{}/treasury/proposals", api))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let proposals: Vec<serde_json::Value> = response.json().await?;
+                
+                let filtered: Vec<_> = if let Some(status_filter) = status {
+                    proposals.into_iter()
+                        .filter(|p| {
+                            p["status"].as_str().unwrap_or("")
+                                .to_lowercase()
+                                .contains(&status_filter.to_lowercase())
+                        })
+                        .collect()
+                } else {
+                    proposals
+                };
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&filtered)?);
+                } else {
+                    println!("\n📋 Treasury Proposals ({} total)", filtered.len());
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    for proposal in filtered {
+                        println!("\nID:     {}", proposal["id"].as_str().unwrap_or(""));
+                        println!("Title:  {}", proposal["title"].as_str().unwrap_or(""));
+                        println!("Amount: {} TIME", proposal["amount_time"].as_f64().unwrap_or(0.0));
+                        println!("Status: {}", proposal["status"].as_str().unwrap_or(""));
+                        println!("Votes:  Yes: {} | No: {} | Total: {}", 
+                            proposal["yes_votes"].as_u64().unwrap_or(0),
+                            proposal["no_votes"].as_u64().unwrap_or(0),
+                            proposal["total_votes"].as_u64().unwrap_or(0)
+                        );
+                        println!("Approval: {:.1}%", proposal["approval_percentage"].as_f64().unwrap_or(0.0));
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", response.text().await?);
+            }
+        }
+
+        TreasuryCommands::Details { proposal_id } => {
+            let response = client
+                .get(format!("{}/treasury/proposal/{}", api, proposal_id))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let proposal: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&proposal)?);
+                } else {
+                    println!("\n📄 Proposal Details");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("ID:          {}", proposal["id"].as_str().unwrap_or(""));
+                    println!("Title:       {}", proposal["title"].as_str().unwrap_or(""));
+                    println!("Description: {}", proposal["description"].as_str().unwrap_or(""));
+                    println!("Recipient:   {}", proposal["recipient"].as_str().unwrap_or(""));
+                    println!("Amount:      {} TIME", proposal["amount_time"].as_f64().unwrap_or(0.0));
+                    println!("Submitter:   {}", proposal["submitter"].as_str().unwrap_or(""));
+                    println!("Status:      {}", proposal["status"].as_str().unwrap_or(""));
+                    println!("\nVoting:");
+                    println!("  Yes votes:   {}", proposal["yes_votes"].as_u64().unwrap_or(0));
+                    println!("  No votes:    {}", proposal["no_votes"].as_u64().unwrap_or(0));
+                    println!("  Total votes: {}", proposal["total_votes"].as_u64().unwrap_or(0));
+                    println!("  Approval:    {:.1}%", proposal["approval_percentage"].as_f64().unwrap_or(0.0));
+                }
+            } else {
+                eprintln!("Error: {}", response.text().await?);
+            }
+        }
+
+        TreasuryCommands::Propose {
+            id,
+            title,
+            description,
+            recipient,
+            amount,
+            submitter,
+            voting_days,
+        } => {
+            let amount_satoshis = (amount * 100_000_000.0) as u64;
+            
+            let response = client
+                .post(format!("{}/treasury/proposal", api))
+                .json(&json!({
+                    "id": id,
+                    "title": title,
+                    "description": description,
+                    "recipient": recipient,
+                    "amount": amount_satoshis,
+                    "submitter": submitter,
+                    "voting_period_days": voting_days
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✓ Proposal Created");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Proposal ID: {}", id);
+                    println!("{}", result.get("message").and_then(|v| v.as_str()).unwrap_or("Success"));
+                }
+            } else {
+                eprintln!("Error: {}", response.text().await?);
+            }
+        }
+
+        TreasuryCommands::Vote {
+            proposal_id,
+            masternode_id,
+            choice,
+            voting_power,
+        } => {
+            let response = client
+                .post(format!("{}/treasury/vote", api))
+                .json(&json!({
+                    "proposal_id": proposal_id,
+                    "masternode_id": masternode_id,
+                    "vote_choice": choice,
+                    "voting_power": voting_power
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✓ Vote Recorded");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Proposal ID:   {}", proposal_id);
+                    println!("Masternode ID: {}", masternode_id);
+                    println!("Vote:          {}", choice);
+                    println!("{}", result.get("message").and_then(|v| v.as_str()).unwrap_or("Success"));
+                }
+            } else {
+                eprintln!("Error: {}", response.text().await?);
             }
         }
     }

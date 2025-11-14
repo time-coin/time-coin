@@ -901,15 +901,25 @@ pub struct TreasuryInfo {
 }
 
 pub async fn gettreasury(State(state): State<ApiState>) -> ApiResult<Json<TreasuryInfo>> {
-    let balances = state.balances.read().await;
-    let treasury_address = "TIME1treasury00000000000000000000000000";
-    let treasury_balance = balances.get(treasury_address).copied().unwrap_or(0);
+    let blockchain = state.blockchain.read().await;
+    let treasury_stats = blockchain.treasury_stats();
+    let proposals = blockchain.get_treasury_proposals();
+    
+    let pending_proposals = proposals
+        .iter()
+        .filter(|p| matches!(p.status, time_core::ProposalStatus::Active))
+        .count();
+    
+    // Calculate monthly budget based on blocks per month (30 days)
+    // ~86400 seconds/day * 30 days / 86400 seconds per block = 30 blocks per month
+    // 5 TIME per block * 30 blocks = 150 TIME per month
+    let monthly_budget = 150.0;
 
     Ok(Json(TreasuryInfo {
-        balance: treasury_balance as f64 / 100_000_000.0,
-        total_allocated: 0.0,    // TODO: Track allocated funds
-        pending_proposals: 0,    // TODO: Count pending proposals
-        monthly_budget: 50000.0, // TODO: Calculate monthly budget
+        balance: treasury_stats.balance as f64 / 100_000_000.0,
+        total_allocated: treasury_stats.total_allocated as f64 / 100_000_000.0,
+        pending_proposals,
+        monthly_budget,
     }))
 }
 
@@ -925,8 +935,35 @@ pub struct ProposalListItem {
 }
 
 pub async fn listproposals(
-    State(_state): State<ApiState>,
+    State(state): State<ApiState>,
 ) -> ApiResult<Json<Vec<ProposalListItem>>> {
-    // TODO: Implement actual proposal listing from governance system
-    Ok(Json(vec![]))
+    let blockchain = state.blockchain.read().await;
+    let proposals = blockchain.get_treasury_proposals();
+    
+    let proposal_list: Vec<ProposalListItem> = proposals
+        .iter()
+        .map(|p| {
+            let mut yes_votes = 0u64;
+            let mut no_votes = 0u64;
+            
+            for vote in p.votes.values() {
+                match vote.vote_choice {
+                    time_core::VoteChoice::Yes => yes_votes += vote.voting_power,
+                    time_core::VoteChoice::No => no_votes += vote.voting_power,
+                    time_core::VoteChoice::Abstain => {},
+                }
+            }
+            
+            ProposalListItem {
+                id: p.id.clone(),
+                title: p.title.clone(),
+                amount: p.amount as f64 / 100_000_000.0,
+                votes_yes: yes_votes as u32,
+                votes_no: no_votes as u32,
+                status: format!("{:?}", p.status),
+            }
+        })
+        .collect();
+    
+    Ok(Json(proposal_list))
 }
