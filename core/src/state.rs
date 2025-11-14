@@ -600,6 +600,13 @@ impl BlockchainState {
             );
         }
 
+        // Load UTXO snapshot to restore finalized transactions not yet in blocks
+        eprintln!("🔍 Checking for UTXO snapshot...");
+        if let Err(e) = state.load_and_merge_utxo_snapshot() {
+            eprintln!("⚠️  Failed to load UTXO snapshot: {}", e);
+            eprintln!("   Continuing with UTXO set from blocks only");
+        }
+
         Ok(state)
     }
 
@@ -750,6 +757,33 @@ impl BlockchainState {
     /// Get total supply
     pub fn total_supply(&self) -> u64 {
         self.utxo_set.total_supply()
+    }
+
+    /// Save current UTXO state to disk for persistence between blocks
+    /// This allows finalized transactions to persist across restarts
+    pub fn save_utxo_snapshot(&self) -> Result<(), StateError> {
+        self.db.save_utxo_snapshot(&self.utxo_set)?;
+        eprintln!("💾 UTXO state snapshot saved to disk");
+        Ok(())
+    }
+
+    /// Load UTXO state from disk snapshot and merge with blockchain state
+    /// This restores finalized transactions that aren't yet in blocks
+    pub fn load_and_merge_utxo_snapshot(&mut self) -> Result<(), StateError> {
+        if let Some(snapshot) = self.db.load_utxo_snapshot()? {
+            // The snapshot might have UTXOs from finalized transactions
+            // that aren't in blocks yet. We need to carefully merge.
+            eprintln!("📥 Loading UTXO snapshot from disk...");
+            
+            // For now, we'll restore the entire snapshot
+            // In production, you might want to validate against blocks first
+            self.utxo_set.restore(snapshot);
+            eprintln!("✅ UTXO state restored from snapshot");
+            Ok(())
+        } else {
+            eprintln!("ℹ️  No UTXO snapshot found");
+            Ok(())
+        }
     }
 
     /// Add a new block to the chain
