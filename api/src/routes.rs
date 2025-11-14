@@ -834,13 +834,54 @@ async fn receive_block_proposal(
         println!("   Block hash: (pending)");
     }
 
+    // Store the proposal
     if let Some(block_consensus) = state.block_consensus.as_ref() {
         block_consensus.propose_block(block_proposal.clone()).await;
+        
+        // Get my node ID from environment
+        if let Ok(my_id) = std::env::var("NODE_PUBLIC_IP") {
+            // Auto-vote if I'm not the proposer
+            if my_id != block_proposal.proposer {
+                println!("   🗳️  Auto-voting on received proposal...");
+                
+                // Validate the proposal
+                let blockchain = state.blockchain.read().await;
+                let chain_tip_hash = blockchain.chain_tip_hash().to_string();
+                let chain_tip_height = blockchain.chain_tip_height();
+                drop(blockchain);
+                
+                let is_valid = block_consensus.validate_proposal(
+                    &block_proposal,
+                    &chain_tip_hash,
+                    chain_tip_height,
+                );
+                
+                // Create and register vote
+                let vote = time_consensus::block_consensus::BlockVote {
+                    block_height: block_proposal.block_height,
+                    block_hash: block_proposal.block_hash.clone(),
+                    voter: my_id.clone(),
+                    approve: is_valid,
+                    timestamp: chrono::Utc::now().timestamp(),
+                };
+                
+                if let Err(e) = block_consensus.vote_on_block(vote.clone()).await {
+                    println!("   ⚠️  Failed to record vote: {}", e);
+                } else {
+                    let vote_type = if is_valid { "APPROVE ✓" } else { "REJECT ✗" };
+                    println!("   ✓ Auto-voted: {}", vote_type);
+                    
+                    // Broadcast the vote
+                    let vote_json = serde_json::to_value(&vote).unwrap();
+                    state.peer_manager.broadcast_block_vote(vote_json).await;
+                }
+            }
+        }
     }
 
     Ok(Json(serde_json::json!({
         "success": true,
-        "message": "Block proposal received"
+        "message": "Block proposal received and voted"
     })))
 }
 
@@ -878,15 +919,21 @@ async fn receive_block_vote(
         "REJECT ✗"
     };
     println!(
-        "🗳️  Received block vote: {} from {}",
-        vote_type, block_vote.voter
+        "🗳️  Received block vote: {} from {} for block #{}",
+        vote_type, block_vote.voter, block_vote.block_height
     );
+    println!("   Block hash: {}...", &block_vote.block_hash[..16]);
 
     if let Some(block_consensus) = state.block_consensus.as_ref() {
-        block_consensus
-            .vote_on_block(block_vote.clone())
-            .await
-            .map_err(ApiError::Internal)?;
+        match block_consensus.vote_on_block(block_vote.clone()).await {
+            Ok(_) => {
+                println!("   ✓ Vote registered successfully");
+            }
+            Err(e) => {
+                println!("   ⚠️  Vote registration failed: {}", e);
+                return Err(ApiError::Internal(e));
+            }
+        }
 
         let (has_consensus, approvals, total) = block_consensus
             .has_block_consensus(block_vote.block_height, &block_vote.block_hash)
@@ -895,7 +942,8 @@ async fn receive_block_vote(
         if has_consensus {
             println!("   ✅ CONSENSUS REACHED ({}/{})", approvals, total);
         } else {
-            println!("   ⏳ Waiting... ({}/{})", approvals, total);
+            let required = (total * 2).div_ceil(3);
+            println!("   ⏳ Waiting... ({}/{}, need {})", approvals, total, required);
         }
     }
 

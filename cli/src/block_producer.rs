@@ -434,12 +434,35 @@ impl BlockProducer {
 
                 self.block_consensus.store_proposal(proposal.clone()).await;
 
+                // Leader auto-votes on their own proposal
+                let leader_vote = time_consensus::block_consensus::BlockVote {
+                    block_height: block_num,
+                    block_hash: block.hash.clone(),
+                    voter: my_id.clone(),
+                    approve: true,
+                    timestamp: chrono::Utc::now().timestamp(),
+                };
+                if let Err(e) = self.block_consensus.vote_on_block(leader_vote.clone()).await {
+                    println!("   ⚠️  Leader failed to record own vote: {}", e);
+                } else {
+                    println!("   ✓ Leader auto-voted APPROVE");
+                }
+
                 let proposal_json = serde_json::to_value(&proposal).unwrap();
                 self.peer_manager
                     .broadcast_block_proposal(proposal_json)
                     .await;
 
-                println!("   📡 Reward-only proposal broadcast");
+                // Also broadcast leader's vote
+                let vote_json = serde_json::to_value(&leader_vote).unwrap();
+                self.peer_manager.broadcast_block_vote(vote_json).await;
+
+                println!("   📡 Reward-only proposal and vote broadcast");
+                
+                // Give peers time to receive and process proposal (2 second buffer)
+                println!("   ⏳ Waiting 2s for peers to receive proposal...");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                
                 println!(
                     "   ▶️ Collecting votes (need {}/{})...",
                     required_votes,
@@ -614,10 +637,34 @@ impl BlockProducer {
 
             let merkle_root = self.calc_merkle(&all_transactions);
 
+            // Create a temporary block to calculate the hash
+            use sha2::{Digest, Sha256};
+            use time_core::{BlockHeader};
+            
+            let temp_header = BlockHeader {
+                block_number: block_num,
+                timestamp: now,
+                previous_hash: previous_hash.clone(),
+                merkle_root: merkle_root.clone(),
+                validator_signature: {
+                    let sig_data = format!("{}{}{}", block_num, previous_hash, merkle_root);
+                    let mut hasher = Sha256::new();
+                    hasher.update(sig_data.as_bytes());
+                    hasher.update(my_id.as_bytes());
+                    format!("{:x}", hasher.finalize())
+                },
+                validator_address: my_id.clone(),
+            };
+            
+            let header_json = serde_json::to_string(&temp_header).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(header_json.as_bytes());
+            let block_hash = format!("{:x}", hasher.finalize());
+
             let proposal = time_consensus::block_consensus::BlockProposal {
                 block_height: block_num,
                 proposer: my_id.clone(),
-                block_hash: "".to_string(),
+                block_hash: block_hash.clone(),
                 merkle_root: merkle_root.clone(),
                 previous_hash: previous_hash.clone(),
                 timestamp: now.timestamp(),
@@ -626,12 +673,35 @@ impl BlockProducer {
 
             self.block_consensus.store_proposal(proposal.clone()).await;
 
+            // Leader auto-votes on their own proposal
+            let leader_vote = time_consensus::block_consensus::BlockVote {
+                block_height: block_num,
+                block_hash: block_hash.clone(),
+                voter: my_id.clone(),
+                approve: true,
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            if let Err(e) = self.block_consensus.vote_on_block(leader_vote.clone()).await {
+                println!("   ⚠️  Leader failed to record own vote: {}", e);
+            } else {
+                println!("   ✓ Leader auto-voted APPROVE");
+            }
+
             let proposal_json = serde_json::to_value(&proposal).unwrap();
             self.peer_manager
                 .broadcast_block_proposal(proposal_json)
                 .await;
 
-            println!("   📡 Proposal broadcast");
+            // Also broadcast leader's vote
+            let vote_json = serde_json::to_value(&leader_vote).unwrap();
+            self.peer_manager.broadcast_block_vote(vote_json).await;
+
+            println!("   📡 Proposal and vote broadcast");
+            
+            // Give peers time to receive and process proposal (2 second buffer)
+            println!("   ⏳ Waiting 2s for peers to receive proposal...");
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            
             println!(
                 "   ▶️ Collecting votes (need {}/{})...",
                 required_votes,
