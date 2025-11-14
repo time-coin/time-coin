@@ -57,16 +57,19 @@ pub mod tx_broadcast {
             for peer in peers {
                 let tx_clone = tx.clone();
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
+                    let client = match reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(5))
+                        .build()
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            println!("   ✗ Failed to build client for {}: {}", peer, e);
+                            return;
+                        }
+                    };
                     let url = format!("http://{}:24101/mempool/add", peer);
 
-                    match client
-                        .post(&url)
-                        .json(&tx_clone)
-                        .timeout(std::time::Duration::from_secs(5))
-                        .send()
-                        .await
-                    {
+                    match client.post(&url).json(&tx_clone).send().await {
                         Ok(_) => {
                             println!("   ✓ Sent to {}", peer);
                         }
@@ -80,17 +83,15 @@ pub mod tx_broadcast {
 
         /// Sync mempool with a peer (on startup or reconnection)
         pub async fn sync_mempool_from_peer(&self, peer: &str) -> Result<Vec<Transaction>, String> {
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
             let url = format!("http://{}:24101/mempool/all", peer);
 
             println!("🔄 Syncing mempool from {}...", peer);
 
-            match client
-                .get(&url)
-                .timeout(std::time::Duration::from_secs(10))
-                .send()
-                .await
-            {
+            match client.get(&url).send().await {
                 Ok(response) => {
                     match response.json::<Vec<Transaction>>().await {
                         Ok(transactions) => {
@@ -123,15 +124,16 @@ pub mod tx_broadcast {
             for peer in peers {
                 let proposal_clone = proposal.clone();
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
+                    let client = match reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(5))
+                        .build()
+                    {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
                     let url = format!("http://{}:24101/consensus/tx-proposal", peer);
 
-                    let _ = client
-                        .post(&url)
-                        .json(&proposal_clone)
-                        .timeout(std::time::Duration::from_secs(5))
-                        .send()
-                        .await;
+                    let _ = client.post(&url).json(&proposal_clone).send().await;
                 });
             }
         }
@@ -144,15 +146,16 @@ pub mod tx_broadcast {
             for peer in peers {
                 let vote_clone = vote.clone();
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
+                    let client = match reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(5))
+                        .build()
+                    {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
                     let url = format!("http://{}:24101/consensus/tx-vote", peer);
 
-                    let _ = client
-                        .post(&url)
-                        .json(&vote_clone)
-                        .timeout(std::time::Duration::from_secs(5))
-                        .send()
-                        .await;
+                    let _ = client.post(&url).json(&vote_clone).send().await;
                 });
             }
         }
@@ -170,16 +173,19 @@ pub mod tx_broadcast {
             for peer in peers {
                 let tx_clone = tx.clone();
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
+                    let client = match reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(3))
+                        .build()
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            println!("   ✗ Failed to build client for {}: {}", peer, e);
+                            return;
+                        }
+                    };
                     let url = format!("http://{}:24101/consensus/instant-finality-request", peer);
 
-                    match client
-                        .post(&url)
-                        .json(&tx_clone)
-                        .timeout(std::time::Duration::from_secs(3))
-                        .send()
-                        .await
-                    {
+                    match client.post(&url).json(&tx_clone).send().await {
                         Ok(_) => {
                             println!("   ✓ Vote request sent to {}", peer);
                         }
@@ -199,15 +205,16 @@ pub mod tx_broadcast {
             for peer in peers {
                 let vote_clone = vote.clone();
                 tokio::spawn(async move {
-                    let client = reqwest::Client::new();
+                    let client = match reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(3))
+                        .build()
+                    {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
                     let url = format!("http://{}:24101/consensus/instant-finality-vote", peer);
 
-                    let _ = client
-                        .post(&url)
-                        .json(&vote_clone)
-                        .timeout(std::time::Duration::from_secs(3))
-                        .send()
-                        .await;
+                    let _ = client.post(&url).json(&vote_clone).send().await;
                 });
             }
         }
