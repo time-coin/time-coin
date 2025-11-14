@@ -74,7 +74,7 @@ impl CollateralOutput {
     /// Determine the masternode tier from the collateral amount
     pub fn tier(&self) -> Result<crate::CollateralTier, StartProtocolError> {
         crate::CollateralTier::from_amount(self.amount)
-            .map_err(|e| StartProtocolError::InvalidCollateralAmount(self.amount))
+            .map_err(|_e| StartProtocolError::InvalidCollateralAmount(self.amount))
     }
 }
 

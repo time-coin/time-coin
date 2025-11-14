@@ -5,6 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
+use time_masternode as masternode;
 
 #[derive(Parser)]
 #[command(name = "time-cli")]
