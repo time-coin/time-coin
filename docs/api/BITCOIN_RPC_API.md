@@ -233,7 +233,7 @@ Broadcast a raw transaction to the network.
 
 ### getwalletinfo
 
-Get wallet information.
+Get wallet information including mempool balance.
 
 **Endpoint:** `POST /rpc/getwalletinfo`
 
@@ -248,22 +248,29 @@ Get wallet information.
   "walletname": "time-wallet",
   "walletversion": 1,
   "balance": 100.5,
-  "unconfirmed_balance": 0.0,
-  "immature_balance": 0.0,
+  "unconfirmed_balance": 25.0,
   "txcount": 150,
-  "keypoololdest": 1699564800,
-  "keypoolsize": 100,
-  "paytxfee": 0.00001,
-  "hdseedid": null,
-  "private_keys_enabled": true
+  "keypoolsize": 100
 }
 ```
+
+**Response Fields:**
+- `walletname` (string): Name of the wallet
+- `walletversion` (integer): Wallet version number
+- `balance` (float): Confirmed balance in TIME coins
+- `unconfirmed_balance` (float): Unconfirmed balance from pending mempool transactions in TIME coins
+- `txcount` (integer): Number of transactions in wallet
+- `keypoolsize` (integer): Size of key pool
+
+**Notes:**
+- `unconfirmed_balance` reflects pending incoming transactions minus pending outgoing transactions
+- Total available balance = `balance` + `unconfirmed_balance`
 
 ---
 
 ### getbalance
 
-Get wallet balance.
+Get wallet balance including unconfirmed mempool transactions.
 
 **Endpoint:** `POST /rpc/getbalance`
 
@@ -280,13 +287,20 @@ Get wallet balance.
 **Response:**
 ```json
 {
-  "result": 100.5
+  "result": 100.5,
+  "unconfirmed_balance": 25.0
 }
 ```
+
+**Response Fields:**
+- `result` (float): Confirmed balance in TIME coins
+- `unconfirmed_balance` (float): Unconfirmed balance from pending mempool transactions in TIME coins
 
 **Notes:**
 - Balance is returned in TIME coins (not satoshis)
 - 1 TIME = 100,000,000 satoshis
+- `unconfirmed_balance` includes pending incoming transactions minus pending outgoing transactions
+- Total available balance = `result` + `unconfirmed_balance`
 
 ---
 

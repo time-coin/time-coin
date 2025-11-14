@@ -666,11 +666,18 @@ pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<Wall
     let blockchain = state.blockchain.read().await;
     let wallet_balance = blockchain.utxo_set().get_balance(&state.wallet_address);
 
+    // Calculate unconfirmed balance from mempool
+    let unconfirmed_balance = if let Some(mempool) = &state.mempool {
+        calculate_mempool_balance_rpc(&state.wallet_address, &blockchain, mempool).await
+    } else {
+        0
+    };
+
     Ok(Json(WalletInfo {
         walletname: "time-wallet".to_string(),
         walletversion: 1,
         balance: wallet_balance as f64 / 100_000_000.0,
-        unconfirmed_balance: 0.0,
+        unconfirmed_balance: unconfirmed_balance as f64 / 100_000_000.0,
         txcount: 0,
         keypoolsize: 100,
     }))
@@ -679,7 +686,8 @@ pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<Wall
 /// Response for getbalance RPC
 #[derive(Serialize)]
 pub struct GetBalanceResponse {
-    pub result: f64, // Balance in TIME coins
+    pub result: f64, // Confirmed balance in TIME coins
+    pub unconfirmed_balance: f64, // Unconfirmed balance in TIME coins
 }
 
 #[derive(Deserialize)]
@@ -702,9 +710,51 @@ pub async fn getbalance(
     let blockchain = state.blockchain.read().await;
     let balance = blockchain.utxo_set().get_balance(&address);
 
+    // Calculate unconfirmed balance from mempool
+    let unconfirmed_balance = if let Some(mempool) = &state.mempool {
+        calculate_mempool_balance_rpc(&address, &blockchain, mempool).await
+    } else {
+        0
+    };
+
     Ok(Json(GetBalanceResponse {
         result: balance as f64 / 100_000_000.0,
+        unconfirmed_balance: unconfirmed_balance as f64 / 100_000_000.0,
     }))
+}
+
+/// Calculate balance changes from unconfirmed mempool transactions
+async fn calculate_mempool_balance_rpc(
+    address: &str,
+    blockchain: &time_core::state::BlockchainState,
+    mempool: &time_mempool::Mempool,
+) -> u64 {
+    let mempool_txs = mempool.get_all_transactions().await;
+    let utxo_set = blockchain.utxo_set();
+
+    let mut pending_received = 0u64;
+    let mut pending_spent = 0u64;
+
+    for tx in mempool_txs {
+        // Add outputs sent to this address
+        for output in &tx.outputs {
+            if output.address == address {
+                pending_received = pending_received.saturating_add(output.amount);
+            }
+        }
+
+        // Subtract inputs spending this address's UTXOs
+        for input in &tx.inputs {
+            if let Some(utxo) = utxo_set.get(&input.previous_output) {
+                if utxo.address == address {
+                    pending_spent = pending_spent.saturating_add(utxo.amount);
+                }
+            }
+        }
+    }
+
+    // Net unconfirmed balance = received - spent
+    pending_received.saturating_sub(pending_spent)
 }
 
 /// Response for getnewaddress RPC
