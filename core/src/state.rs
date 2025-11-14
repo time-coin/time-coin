@@ -399,6 +399,9 @@ pub struct BlockchainState {
 
     /// Protocol-managed treasury (no wallet/private key)
     treasury: Treasury,
+
+    /// Treasury manager for proposals and voting
+    treasury_manager: crate::treasury_manager::TreasuryManager,
 }
 
 impl BlockchainState {
@@ -440,6 +443,7 @@ impl BlockchainState {
             db,
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
             treasury: Treasury::new(),
+            treasury_manager: crate::treasury_manager::TreasuryManager::new(),
         };
 
         // Load blocks from disk if they match the genesis
@@ -959,6 +963,69 @@ impl BlockchainState {
             self.chain_tip_height,
             timestamp,
         )
+    }
+
+    /// Create a new treasury proposal
+    pub fn create_treasury_proposal(
+        &mut self,
+        id: String,
+        title: String,
+        description: String,
+        recipient: String,
+        amount: u64,
+        submitter: String,
+        submission_time: u64,
+        voting_period_days: u64,
+    ) -> Result<(), StateError> {
+        self.treasury_manager.create_proposal(
+            crate::treasury_manager::CreateProposalParams {
+                id,
+                title,
+                description,
+                recipient,
+                amount,
+                submitter,
+                submission_time,
+                voting_period_days,
+            },
+        )
+    }
+
+    /// Vote on a treasury proposal
+    pub fn vote_on_treasury_proposal(
+        &mut self,
+        proposal_id: &str,
+        masternode_id: String,
+        vote_choice: crate::treasury_manager::VoteChoice,
+        voting_power: u64,
+        timestamp: u64,
+    ) -> Result<(), StateError> {
+        self.treasury_manager.vote_on_proposal(
+            proposal_id,
+            masternode_id,
+            vote_choice,
+            voting_power,
+            timestamp,
+        )
+    }
+
+    /// Get all treasury proposals
+    pub fn get_treasury_proposals(&self) -> Vec<&crate::treasury_manager::TreasuryProposal> {
+        self.treasury_manager.get_all_proposals()
+    }
+
+    /// Get a specific treasury proposal
+    pub fn get_treasury_proposal(
+        &self,
+        proposal_id: &str,
+    ) -> Option<&crate::treasury_manager::TreasuryProposal> {
+        self.treasury_manager.get_proposal(proposal_id)
+    }
+
+    /// Update proposal statuses based on current time
+    pub fn update_treasury_proposals(&mut self) {
+        let current_time = chrono::Utc::now().timestamp() as u64;
+        self.treasury_manager.update_proposals(current_time);
     }
 }
 
