@@ -417,7 +417,7 @@ enum TreasuryCommands {
         recipient: String,
 
         /// Amount in TIME (e.g., 1000.0)
-        #[arg(short, long)]
+        #[arg(long)]
         amount: f64,
 
         /// Voting period in days (default: 14)
