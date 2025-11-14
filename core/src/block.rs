@@ -893,8 +893,9 @@ mod tests {
             timestamp,
         );
         
-        // Verify it's like a coinbase (no inputs)
-        assert!(tx.is_coinbase());
+        // Verify it's a treasury grant (no inputs but not a coinbase)
+        assert!(tx.is_treasury_grant());
+        assert!(!tx.is_coinbase());
         assert_eq!(tx.inputs.len(), 0);
         
         // Verify txid format
