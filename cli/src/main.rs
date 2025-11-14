@@ -613,7 +613,7 @@ async fn main() {
 
         println!(
             "{}",
-            "║              [TESTNET]                                  ║"
+            "║                   [TESTNET]                                  ║"
                 .yellow()
                 .bold()
         );
