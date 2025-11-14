@@ -39,6 +39,7 @@ pub struct WithdrawalInfo {
 #[derive(Debug, Deserialize)]
 pub struct ApproveProposalRequest {
     pub proposal_id: String,
+    pub recipient: String,
     pub amount: u64,
 }
 
@@ -122,12 +123,17 @@ pub async fn approve_treasury_proposal(
     let mut blockchain = state.blockchain.write().await;
 
     blockchain
-        .approve_treasury_proposal(request.proposal_id.clone(), request.amount)
+        .approve_treasury_proposal(
+            request.proposal_id.clone(),
+            request.recipient.clone(),
+            request.amount,
+        )
         .map_err(|e| ApiError::BadRequest(format!("Failed to approve proposal: {}", e)))?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
         "proposal_id": request.proposal_id,
+        "recipient": request.recipient,
         "approved_amount": request.amount,
         "message": "Proposal approved for treasury spending"
     })))

@@ -619,16 +619,49 @@ impl BlockProducer {
             let mempool_count = transactions.len();
             all_transactions.extend(transactions);
 
-            if mempool_count == 0 {
+            // Include approved treasury grants
+            let approved_grants = {
+                let blockchain = self.blockchain.read().await;
+                blockchain.get_approved_treasury_grants()
+            };
+
+            if !approved_grants.is_empty() {
+                println!("   💰 Including {} approved treasury grant(s)", approved_grants.len());
+                for grant in &approved_grants {
+                    println!(
+                        "      📜 Grant {} → {} ({} TIME)",
+                        &grant.proposal_id[..8],
+                        &grant.recipient[..20],
+                        grant.amount as f64 / 100_000_000.0
+                    );
+
+                    // Create a treasury grant transaction
+                    let grant_tx = time_core::Transaction {
+                        txid: format!("treasury_grant_{}_{}", block_num, grant.proposal_id),
+                        version: 1,
+                        inputs: vec![], // No inputs - funds come from treasury
+                        outputs: vec![time_core::TxOutput {
+                            amount: grant.amount,
+                            address: grant.recipient.clone(),
+                        }],
+                        lock_time: 0,
+                        timestamp: block_timestamp,
+                    };
+                    all_transactions.push(grant_tx);
+                }
+            }
+
+            if mempool_count == 0 && approved_grants.is_empty() {
                 println!("   📦 Block will contain ONLY coinbase transaction (zero regular txs)");
                 println!("   ℹ️  This is NORMAL and EXPECTED for TIME Coin");
                 println!("   ℹ️  Coinbase includes treasury + masternode rewards");
             }
 
             println!(
-                "   📋 {} total transactions (1 coinbase + {} mempool)",
+                "   📋 {} total transactions (1 coinbase + {} mempool + {} grants)",
                 all_transactions.len(),
-                mempool_count
+                mempool_count,
+                approved_grants.len()
             );
 
             // Verify coinbase transaction
