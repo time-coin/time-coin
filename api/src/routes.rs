@@ -1020,6 +1020,11 @@ async fn trigger_instant_finality_for_received_tx(
                 } else {
                     println!("✅ UTXO set updated - balances are now live!");
                 }
+                
+                // TODO: Create and broadcast block immediately to persist the transaction
+                // For now, transaction is in memory only and will be lost on restart
+                println!("⚠️  WARNING: Transaction not yet in a block - will be lost on restart");
+                println!("   Solution: Wait for next 24-hour block or implement immediate block creation");
             }
             return;
         }
@@ -1067,6 +1072,11 @@ async fn trigger_instant_finality_for_received_tx(
                         } else {
                             println!("✅ UTXO set updated - balances are now live!");
                         }
+                        
+                        // TODO: Create and broadcast block immediately to persist the transaction
+                        // For now, transaction is in memory only and will be lost on restart
+                        println!("⚠️  WARNING: Transaction not yet in a block - will be lost on restart");
+                        println!("   Solution: Wait for next 24-hour block or implement immediate block creation");
                     }
                     Err(e) => {
                         println!("❌ Failed to finalize transaction: {}", e);
