@@ -97,6 +97,14 @@ pub enum TreasurySource {
     TransactionFees,
 }
 
+/// Approved treasury grant
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovedGrant {
+    pub proposal_id: String,
+    pub recipient: String,
+    pub amount: u64,
+}
+
 /// Treasury withdrawal record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreasuryWithdrawal {
@@ -126,7 +134,7 @@ pub struct Treasury {
     withdrawals: Vec<TreasuryWithdrawal>,
 
     /// Approved proposals that can withdraw funds
-    approved_proposals: HashMap<String, u64>, // proposal_id -> approved_amount
+    approved_proposals: HashMap<String, ApprovedGrant>, // proposal_id -> ApprovedGrant
 
     /// Percentage of block rewards allocated to treasury (default 5%)
     block_reward_percentage: u64,
@@ -266,7 +274,12 @@ impl Treasury {
     }
 
     /// Approve a proposal for spending (called by governance)
-    pub fn approve_proposal(&mut self, proposal_id: String, amount: u64) -> Result<(), StateError> {
+    pub fn approve_proposal(
+        &mut self,
+        proposal_id: String,
+        recipient: String,
+        amount: u64,
+    ) -> Result<(), StateError> {
         if amount > self.balance {
             return Err(StateError::IoError(format!(
                 "Insufficient treasury balance: requested {}, available {}",
@@ -274,7 +287,14 @@ impl Treasury {
             )));
         }
 
-        self.approved_proposals.insert(proposal_id, amount);
+        self.approved_proposals.insert(
+            proposal_id.clone(),
+            ApprovedGrant {
+                proposal_id,
+                recipient,
+                amount,
+            },
+        );
         Ok(())
     }
 
@@ -288,15 +308,24 @@ impl Treasury {
         timestamp: i64,
     ) -> Result<(), StateError> {
         // Check if proposal is approved
-        let approved_amount = self
+        let approved_grant = self
             .approved_proposals
             .get(&proposal_id)
-            .ok_or_else(|| StateError::IoError(format!("Proposal {} not approved", proposal_id)))?;
+            .ok_or_else(|| StateError::IoError(format!("Proposal {} not approved", proposal_id)))?
+            .clone();
 
-        if amount > *approved_amount {
+        if amount > approved_grant.amount {
             return Err(StateError::IoError(format!(
                 "Requested amount {} exceeds approved amount {}",
-                amount, approved_amount
+                amount, approved_grant.amount
+            )));
+        }
+
+        // Verify recipient matches
+        if recipient != approved_grant.recipient {
+            return Err(StateError::IoError(format!(
+                "Recipient mismatch: expected {}, got {}",
+                approved_grant.recipient, recipient
             )));
         }
 
@@ -327,14 +356,22 @@ impl Treasury {
         });
 
         // Update or remove approved amount
-        let remaining = approved_amount
+        let remaining = approved_grant
+            .amount
             .checked_sub(amount)
             .ok_or_else(|| StateError::IoError("Approved amount underflow".to_string()))?;
 
         if remaining == 0 {
             self.approved_proposals.remove(&proposal_id);
         } else {
-            self.approved_proposals.insert(proposal_id, remaining);
+            self.approved_proposals.insert(
+                proposal_id.clone(),
+                ApprovedGrant {
+                    proposal_id,
+                    recipient: approved_grant.recipient,
+                    amount: remaining,
+                },
+            );
         }
 
         Ok(())
@@ -374,6 +411,7 @@ impl Treasury {
         Ok(())
     }
 
+<<<<<<< HEAD
     /// Check if a proposal has been executed (by checking if it has a withdrawal record)
     pub fn is_proposal_executed(&self, proposal_id: &str) -> bool {
         self.withdrawals.iter().any(|w| w.proposal_id == proposal_id)
@@ -395,6 +433,15 @@ impl Treasury {
                 proposal_id
             )))
         }
+=======
+    /// Get approved treasury grants ready for execution
+    /// Returns a list of ApprovedGrant clones
+    pub fn get_approved_grants(&self) -> Vec<ApprovedGrant> {
+        self.approved_proposals
+            .values()
+            .cloned()
+            .collect()
+>>>>>>> 598d60ea4c6958cdc44b0bdaf3b39034c01b1fd2
     }
 }
 
@@ -773,6 +820,39 @@ impl BlockchainState {
                     }
                 }
 
+                // Process treasury grant transactions
+                for tx in &block.transactions {
+                    // Check if this is a treasury grant transaction (starts with "treasury_grant_")
+                    if tx.txid.starts_with("treasury_grant_") {
+                        // Extract proposal_id from txid format: "treasury_grant_{block}_{proposal_id}"
+                        if let Some(proposal_id_start) = tx.txid.rfind('_') {
+                            let proposal_id = &tx.txid[proposal_id_start + 1..];
+                            
+                            // Get recipient and amount from the transaction output
+                            if let Some(output) = tx.outputs.first() {
+                                let recipient = output.address.clone();
+                                let amount = output.amount;
+                                
+                                // Mark the grant as executed in treasury
+                                if let Err(e) = self.treasury.distribute(
+                                    proposal_id.to_string(),
+                                    recipient.clone(),
+                                    amount,
+                                    block_number,
+                                    timestamp,
+                                ) {
+                                    eprintln!("⚠️  Failed to execute treasury grant {}: {:?}", proposal_id, e);
+                                    // Note: We don't fail the block, just log the warning
+                                    // The transaction is still in the block, but treasury accounting may be off
+                                } else {
+                                    println!("✅ Executed treasury grant {} to {} ({} TIME)", 
+                                        proposal_id, &recipient[..20], amount as f64 / 100_000_000.0);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 self.db.save_block(&block)?;
                 self.blocks_by_height
                     .insert(block.header.block_number, block.hash.clone());
@@ -1054,9 +1134,10 @@ impl BlockchainState {
     pub fn approve_treasury_proposal(
         &mut self,
         proposal_id: String,
+        recipient: String,
         amount: u64,
     ) -> Result<(), StateError> {
-        self.treasury.approve_proposal(proposal_id, amount)
+        self.treasury.approve_proposal(proposal_id, recipient, amount)
     }
 
     /// Distribute treasury funds for an approved proposal
@@ -1077,6 +1158,7 @@ impl BlockchainState {
         )
     }
 
+<<<<<<< HEAD
     /// Remove an expired approved proposal from treasury
     /// This should be called by governance logic when a proposal expires
     pub fn cleanup_expired_treasury_proposal(
@@ -1084,6 +1166,12 @@ impl BlockchainState {
         proposal_id: &str,
     ) -> Result<(), StateError> {
         self.treasury.remove_approved_proposal(proposal_id)
+=======
+    /// Get approved treasury grants ready for execution
+    /// Returns a list of ApprovedGrant for block producer to include
+    pub fn get_approved_treasury_grants(&self) -> Vec<ApprovedGrant> {
+        self.treasury.get_approved_grants()
+>>>>>>> 598d60ea4c6958cdc44b0bdaf3b39034c01b1fd2
     }
 }
 
@@ -1393,7 +1481,11 @@ mod tests {
         // Approve a proposal
         let proposal_amount = treasury_balance / 2;
         state
-            .approve_treasury_proposal("proposal-1".to_string(), proposal_amount)
+            .approve_treasury_proposal(
+                "proposal-1".to_string(),
+                "recipient".to_string(),
+                proposal_amount,
+            )
             .unwrap();
 
         // Distribute funds
@@ -1429,7 +1521,11 @@ mod tests {
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
 
         // Try to approve proposal with more than treasury balance
-        let result = state.approve_treasury_proposal("proposal-1".to_string(), 1_000_000);
+        let result = state.approve_treasury_proposal(
+            "proposal-1".to_string(),
+            "recipient".to_string(),
+            1_000_000,
+        );
         assert!(result.is_err());
     }
 
@@ -1513,6 +1609,7 @@ mod tests {
     }
 
     #[test]
+<<<<<<< HEAD
     fn test_treasury_grant_transaction_creation() {
         use crate::transaction::Transaction;
         
@@ -1550,6 +1647,13 @@ mod tests {
         let genesis_hash = genesis.hash.clone();
         let db_dir = std::env::temp_dir().join(format!(
             "time_coin_test_treasury_grant_{}",
+=======
+    fn test_approved_treasury_grants() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_grants_{}",
+>>>>>>> 598d60ea4c6958cdc44b0bdaf3b39034c01b1fd2
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -1559,6 +1663,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&db_path);
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
 
+<<<<<<< HEAD
         // Register a masternode to set proper counts
         state.register_masternode(
             "node1".to_string(),
@@ -1568,6 +1673,19 @@ mod tests {
         ).unwrap();
 
         // Add first block to generate treasury funds
+=======
+        // Register masternode
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral_tx_1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
+
+        // Add some funds to treasury first
+>>>>>>> 598d60ea4c6958cdc44b0bdaf3b39034c01b1fd2
         let counts = MasternodeCounts {
             free: 1,
             bronze: 0,
@@ -1579,6 +1697,7 @@ mod tests {
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
+<<<<<<< HEAD
         // Approve a proposal
         let proposal_id = "test-proposal-1".to_string();
         let recipient = "project_developer".to_string();
@@ -1867,5 +1986,114 @@ mod tests {
         // Trying to clean up again should fail
         let result = state.cleanup_expired_treasury_proposal(&proposal_id);
         assert!(result.is_err());
+=======
+        // Approve a treasury grant
+        let proposal_id = "proposal-001".to_string();
+        let recipient = "recipient_address".to_string();
+        let amount = 1000000u64;
+
+        state
+            .approve_treasury_proposal(proposal_id.clone(), recipient.clone(), amount)
+            .unwrap();
+
+        // Get approved grants
+        let grants = state.get_approved_treasury_grants();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].proposal_id, proposal_id);
+        assert_eq!(grants[0].recipient, recipient);
+        assert_eq!(grants[0].amount, amount);
+
+        // Approve another grant
+        let proposal_id2 = "proposal-002".to_string();
+        let recipient2 = "recipient_address2".to_string();
+        let amount2 = 2000000u64;
+
+        state
+            .approve_treasury_proposal(proposal_id2.clone(), recipient2.clone(), amount2)
+            .unwrap();
+
+        // Get approved grants - should have 2 now
+        let grants = state.get_approved_treasury_grants();
+        assert_eq!(grants.len(), 2);
+
+        // Verify both grants are present
+        let grant1 = grants.iter().find(|g| g.proposal_id == proposal_id).unwrap();
+        assert_eq!(grant1.recipient, recipient);
+        assert_eq!(grant1.amount, amount);
+
+        let grant2 = grants
+            .iter()
+            .find(|g| g.proposal_id == proposal_id2)
+            .unwrap();
+        assert_eq!(grant2.recipient, recipient2);
+        assert_eq!(grant2.amount, amount2);
+    }
+
+    #[test]
+    fn test_treasury_grant_execution() {
+        let genesis = create_genesis_block();
+        let genesis_hash = genesis.hash.clone();
+        let db_dir = std::env::temp_dir().join(format!(
+            "time_coin_test_grant_exec_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path = db_dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_dir_all(&db_path);
+        let mut state = BlockchainState::new(genesis, &db_path).unwrap();
+
+        // Register masternode
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral_tx_1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
+
+        // Add funds to treasury
+        let counts = MasternodeCounts {
+            free: 1,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        state.add_block(block1).unwrap();
+
+        let initial_balance = state.treasury_stats().balance;
+        assert!(initial_balance > 0);
+
+        // Approve and execute a grant
+        let proposal_id = "proposal-test".to_string();
+        let recipient = "test_recipient".to_string();
+        let amount = 500000u64;
+
+        state
+            .approve_treasury_proposal(proposal_id.clone(), recipient.clone(), amount)
+            .unwrap();
+
+        // Execute the grant
+        state
+            .distribute_treasury_funds(proposal_id.clone(), recipient.clone(), amount)
+            .unwrap();
+
+        // Verify treasury balance decreased
+        let final_balance = state.treasury_stats().balance;
+        assert_eq!(final_balance, initial_balance - amount);
+
+        // Verify grant is no longer in approved list
+        let grants = state.get_approved_treasury_grants();
+        assert_eq!(grants.len(), 0);
+
+        // Verify withdrawal was recorded
+        let stats = state.treasury_stats();
+        assert_eq!(stats.withdrawal_count, 1);
+>>>>>>> 598d60ea4c6958cdc44b0bdaf3b39034c01b1fd2
     }
 }

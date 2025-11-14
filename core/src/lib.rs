@@ -28,6 +28,6 @@ pub use utxo_set::{UTXOSet, UTXOSetSnapshot};
 // Note: Mempool and BlockchainState will be re-exported once they're properly defined
 // pub use mempool::{Mempool, MempoolError, MempoolStats};
 pub use state::{
-    BlockchainState, ChainStats, MasternodeInfo, StateError, Treasury, TreasuryAllocation,
-    TreasurySource, TreasuryStats, TreasuryWithdrawal,
+    ApprovedGrant, BlockchainState, ChainStats, MasternodeInfo, StateError, Treasury,
+    TreasuryAllocation, TreasurySource, TreasuryStats, TreasuryWithdrawal,
 };
