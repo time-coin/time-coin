@@ -220,8 +220,8 @@ async fn get_balance(
     State(state): State<ApiState>,
     Path(address): Path<String>,
 ) -> ApiResult<Json<BalanceResponse>> {
-    let balances = state.balances.read().await;
-    let balance = balances.get(&address).copied().unwrap_or(0);
+    let blockchain = state.blockchain.read().await;
+    let balance = blockchain.get_balance(&address);
 
     Ok(Json(BalanceResponse { address, balance }))
 }
