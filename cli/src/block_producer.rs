@@ -360,7 +360,7 @@ impl BlockProducer {
         // CRITICAL: Use consensus engine's deterministic leader selection on ALL masternodes
         // This ensures all nodes agree on the leader regardless of local health state
         let selected_producer = self.consensus.get_leader(block_num).await;
-        
+
         let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
             if let Ok(ip) = local_ip_address::local_ip() {
                 ip.to_string()
@@ -373,10 +373,16 @@ impl BlockProducer {
             .as_ref()
             .map(|p| p == &my_id)
             .unwrap_or(false);
-        
+
         // Log leader selection for debugging
-        println!("   🎯 Leader selection (VRF-based on {} total masternodes)", all_masternodes.len());
-        println!("      Selected leader: {}", selected_producer.as_ref().unwrap_or(&"none".to_string()));
+        println!(
+            "   🎯 Leader selection (VRF-based on {} total masternodes)",
+            all_masternodes.len()
+        );
+        println!(
+            "      Selected leader: {}",
+            selected_producer.as_ref().unwrap_or(&"none".to_string())
+        );
         println!("      Active masternodes: {}", masternodes.len());
 
         if am_i_leader {
@@ -438,7 +444,11 @@ impl BlockProducer {
                     approve: true,
                     timestamp: chrono::Utc::now().timestamp(),
                 };
-                if let Err(e) = self.block_consensus.vote_on_block(leader_vote.clone()).await {
+                if let Err(e) = self
+                    .block_consensus
+                    .vote_on_block(leader_vote.clone())
+                    .await
+                {
                     println!("   ⚠️  Leader failed to record own vote: {}", e);
                 } else {
                     println!("   ✓ Leader auto-voted APPROVE");
@@ -454,11 +464,11 @@ impl BlockProducer {
                 self.peer_manager.broadcast_block_vote(vote_json).await;
 
                 println!("   📡 Reward-only proposal and vote broadcast");
-                
+
                 // Give peers time to receive and process proposal (2 second buffer)
                 println!("   ⏳ Waiting 2s for peers to receive proposal...");
                 tokio::time::sleep(Duration::from_secs(2)).await;
-                
+
                 println!(
                     "   ▶️ Collecting votes (need {}/{})...",
                     required_votes,
@@ -635,8 +645,8 @@ impl BlockProducer {
 
             // Create a temporary block to calculate the hash
             use sha2::{Digest, Sha256};
-            use time_core::{BlockHeader};
-            
+            use time_core::BlockHeader;
+
             let temp_header = BlockHeader {
                 block_number: block_num,
                 timestamp: now,
@@ -651,7 +661,7 @@ impl BlockProducer {
                 },
                 validator_address: my_id.clone(),
             };
-            
+
             let header_json = serde_json::to_string(&temp_header).unwrap();
             let mut hasher = Sha256::new();
             hasher.update(header_json.as_bytes());
@@ -677,7 +687,11 @@ impl BlockProducer {
                 approve: true,
                 timestamp: chrono::Utc::now().timestamp(),
             };
-            if let Err(e) = self.block_consensus.vote_on_block(leader_vote.clone()).await {
+            if let Err(e) = self
+                .block_consensus
+                .vote_on_block(leader_vote.clone())
+                .await
+            {
                 println!("   ⚠️  Leader failed to record own vote: {}", e);
             } else {
                 println!("   ✓ Leader auto-voted APPROVE");
@@ -693,11 +707,11 @@ impl BlockProducer {
             self.peer_manager.broadcast_block_vote(vote_json).await;
 
             println!("   📡 Proposal and vote broadcast");
-            
+
             // Give peers time to receive and process proposal (2 second buffer)
             println!("   ⏳ Waiting 2s for peers to receive proposal...");
             tokio::time::sleep(Duration::from_secs(2)).await;
-            
+
             println!(
                 "   ▶️ Collecting votes (need {}/{})...",
                 required_votes,
@@ -1299,11 +1313,14 @@ impl BlockProducer {
                 // Use VRF-based selection for normal strategies
                 self.consensus.get_leader(block_num).await
             };
-            
+
             let selected_producer = base_selected_producer;
             let am_i_leader = selected_producer.as_ref() == Some(&my_id);
 
-            println!("   Leader: {:?} (Strategy: {:?})", selected_producer, strategy);
+            println!(
+                "   Leader: {:?} (Strategy: {:?})",
+                selected_producer, strategy
+            );
 
             // Step 1: Leader creates and broadcasts proposal
             if am_i_leader {
