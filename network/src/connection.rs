@@ -220,6 +220,51 @@ impl PeerConnection {
         self.peer_info.lock().await.clone()
     }
 
+    /// Send a network message over the TCP connection
+    pub async fn send_message(&mut self, msg: crate::protocol::NetworkMessage) -> Result<(), String> {
+        let json = serde_json::to_vec(&msg).map_err(|e| e.to_string())?;
+        let len = json.len() as u32;
+        
+        if len > 10 * 1024 * 1024 {
+            return Err("Message too large (>10MB)".into());
+        }
+        
+        self.stream
+            .write_all(&len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to write length: {}", e))?;
+        self.stream
+            .write_all(&json)
+            .await
+            .map_err(|e| format!("Failed to write message: {}", e))?;
+        self.stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush: {}", e))?;
+        Ok(())
+    }
+
+    /// Receive a network message from the TCP connection
+    pub async fn receive_message(&mut self) -> Result<crate::protocol::NetworkMessage, String> {
+        let mut len_bytes = [0u8; 4];
+        self.stream
+            .read_exact(&mut len_bytes)
+            .await
+            .map_err(|e| format!("Failed to read length: {}", e))?;
+        let len = u32::from_be_bytes(len_bytes) as usize;
+        
+        if len > 10 * 1024 * 1024 {
+            return Err("Message too large (>10MB)".into());
+        }
+        
+        let mut buf = vec![0u8; len];
+        self.stream
+            .read_exact(&mut buf)
+            .await
+            .map_err(|e| format!("Failed to read message: {}", e))?;
+        crate::protocol::NetworkMessage::deserialize(&buf)
+    }
+
     pub async fn ping(&mut self) -> Result<(), String> {
         let msg = NetworkMessage {
             msg_type: MessageType::Ping,
