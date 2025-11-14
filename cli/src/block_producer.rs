@@ -308,18 +308,6 @@ impl BlockProducer {
         println!("   ✔ Catch-up complete!");
     }
 
-    fn select_block_producer(&self, masternodes: &[String], block_height: u64) -> Option<String> {
-        if masternodes.is_empty() {
-            return None;
-        }
-
-        let mut sorted_nodes = masternodes.to_vec();
-        sorted_nodes.sort();
-
-        let index = (block_height as usize) % sorted_nodes.len();
-        Some(sorted_nodes[index].clone())
-    }
-
     async fn create_and_propose_block(&self) {
         let now = Utc::now();
         let block_num = self.load_block_height().await + 1;
@@ -369,7 +357,10 @@ impl BlockProducer {
             );
         }
 
-        let selected_producer = self.select_block_producer(&masternodes, block_num);
+        // CRITICAL: Use consensus engine's deterministic leader selection on ALL masternodes
+        // This ensures all nodes agree on the leader regardless of local health state
+        let selected_producer = self.consensus.get_leader(block_num).await;
+        
         let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
             if let Ok(ip) = local_ip_address::local_ip() {
                 ip.to_string()
@@ -382,6 +373,11 @@ impl BlockProducer {
             .as_ref()
             .map(|p| p == &my_id)
             .unwrap_or(false);
+        
+        // Log leader selection for debugging
+        println!("   🎯 Leader selection (VRF-based on {} total masternodes)", all_masternodes.len());
+        println!("      Selected leader: {}", selected_producer.as_ref().unwrap_or(&"none".to_string()));
+        println!("      Active masternodes: {}", masternodes.len());
 
         if am_i_leader {
             println!("{}", "   🟢 I am the block producer".green().bold());
@@ -1290,21 +1286,24 @@ impl BlockProducer {
             println!("║  Block: #{}", block_num);
             println!("╚═══════════════════════════════════════════════════════════╝");
 
-            // Determine leader (rotate on LeaderRotation strategy)
-            let mut active_masternodes = masternodes.to_vec();
-            if strategy == BlockCreationStrategy::LeaderRotation {
-                // Rotate leader by shifting the list
+            // Determine leader using consensus engine's VRF selection
+            // For LeaderRotation strategy, we'll override after getting base selection
+            let base_selected_producer = if strategy == BlockCreationStrategy::LeaderRotation {
+                // For rotation, use simple round-robin on the masternode list
                 let attempt_count = foolproof.attempt_count().await;
-                if attempt_count > 0 {
-                    let len = active_masternodes.len();
-                    active_masternodes.rotate_left(attempt_count % len);
-                }
-            }
-
-            let selected_producer = self.select_block_producer(&active_masternodes, block_num);
+                let index = (block_num as usize + attempt_count) % masternodes.len();
+                let mut sorted = masternodes.to_vec();
+                sorted.sort();
+                Some(sorted[index].clone())
+            } else {
+                // Use VRF-based selection for normal strategies
+                self.consensus.get_leader(block_num).await
+            };
+            
+            let selected_producer = base_selected_producer;
             let am_i_leader = selected_producer.as_ref() == Some(&my_id);
 
-            println!("   Leader: {:?}", selected_producer);
+            println!("   Leader: {:?} (Strategy: {:?})", selected_producer, strategy);
 
             // Step 1: Leader creates and broadcasts proposal
             if am_i_leader {
@@ -1335,7 +1334,7 @@ impl BlockProducer {
                 };
 
                 self.block_consensus.propose_block(proposal.clone()).await;
-                self.broadcast_block_proposal(proposal.clone(), &active_masternodes)
+                self.broadcast_block_proposal(proposal.clone(), masternodes)
                     .await;
 
                 // Leader auto-votes
@@ -1347,7 +1346,7 @@ impl BlockProducer {
                     timestamp: chrono::Utc::now().timestamp(),
                 };
                 let _ = self.block_consensus.vote_on_block(vote.clone()).await;
-                self.broadcast_block_vote(vote, &active_masternodes).await;
+                self.broadcast_block_vote(vote, masternodes).await;
             }
 
             // Step 2: Wait for consensus with strategy-specific timeout
@@ -1358,7 +1357,7 @@ impl BlockProducer {
 
             let start_time = Utc::now();
             let mut best_votes = 0;
-            let mut best_total = active_masternodes.len();
+            let mut best_total = masternodes.len();
             let mut consensus_reached = false;
 
             // For emergency strategy, always succeed
@@ -1367,7 +1366,7 @@ impl BlockProducer {
 
                 // Finalize immediately
                 let success = self
-                    .finalize_catchup_block_with_rewards(block_num, timestamp, &active_masternodes)
+                    .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
                     .await;
 
                 foolproof
@@ -1375,7 +1374,7 @@ impl BlockProducer {
                         strategy,
                         selected_producer.unwrap_or_else(|| "emergency".to_string()),
                         1, // Emergency assumes 1 vote (self)
-                        active_masternodes.len(),
+                        masternodes.len(),
                         success,
                         if success {
                             None
@@ -1410,7 +1409,7 @@ impl BlockProducer {
                             .await
                             .is_ok()
                         {
-                            self.broadcast_block_vote(vote, &active_masternodes).await;
+                            self.broadcast_block_vote(vote, masternodes).await;
                         }
                     }
 
@@ -1445,7 +1444,7 @@ impl BlockProducer {
             // Record attempt result
             if consensus_reached {
                 let success = self
-                    .finalize_catchup_block_with_rewards(block_num, timestamp, &active_masternodes)
+                    .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
                     .await;
 
                 foolproof
