@@ -162,6 +162,25 @@ impl UTXOSet {
         self.utxos = snapshot.utxos;
         self.total_supply = snapshot.total_supply;
     }
+
+    /// Merge snapshot UTXOs into current set
+    ///
+    /// This adds UTXOs from the snapshot that are not already present in the current set.
+    /// UTXOs that exist in both the current set and the snapshot are kept from the current set
+    /// (i.e., current set takes precedence, as it represents more recent blockchain state).
+    ///
+    /// This is used during node restart to add finalized transactions that haven't been
+    /// included in blocks yet, without losing UTXOs from blocks that were added after
+    /// the snapshot was saved.
+    pub fn merge_snapshot(&mut self, snapshot: UTXOSetSnapshot) {
+        for (outpoint, output) in snapshot.utxos {
+            // Only add UTXO if it doesn't already exist (current state takes precedence)
+            if !self.utxos.contains_key(&outpoint) {
+                self.total_supply = self.total_supply.saturating_add(output.amount);
+                self.utxos.insert(outpoint, output);
+            }
+        }
+    }
 }
 
 impl Default for UTXOSet {
@@ -253,5 +272,94 @@ mod tests {
         assert_eq!(utxo_set.get_balance("addr1"), 1500);
         assert_eq!(utxo_set.get_balance("addr2"), 2000);
         assert_eq!(utxo_set.get_balance("addr3"), 0);
+    }
+
+    #[test]
+    fn test_merge_snapshot() {
+        // Create initial UTXO set
+        let mut utxo_set = UTXOSet::new();
+        utxo_set.add_utxo(
+            OutPoint::new("tx1".to_string(), 0),
+            TxOutput::new(1000, "addr1".to_string()),
+        );
+        utxo_set.add_utxo(
+            OutPoint::new("tx2".to_string(), 0),
+            TxOutput::new(500, "addr2".to_string()),
+        );
+
+        // Create a snapshot with some overlapping and some new UTXOs
+        let mut snapshot_set = UTXOSet::new();
+        snapshot_set.add_utxo(
+            OutPoint::new("tx1".to_string(), 0), // Duplicate - should not override
+            TxOutput::new(2000, "addr1".to_string()),
+        );
+        snapshot_set.add_utxo(
+            OutPoint::new("tx3".to_string(), 0), // New - should be added
+            TxOutput::new(3000, "addr3".to_string()),
+        );
+        let snapshot = snapshot_set.snapshot();
+
+        // Merge snapshot into current UTXO set
+        let original_len = utxo_set.len();
+        utxo_set.merge_snapshot(snapshot);
+
+        // Verify merge behavior
+        assert_eq!(utxo_set.len(), 3); // Should have 3 total (tx1, tx2, tx3)
+        assert_eq!(utxo_set.get_balance("addr1"), 1000); // tx1 not overwritten (original value)
+        assert_eq!(utxo_set.get_balance("addr2"), 500); // tx2 unchanged
+        assert_eq!(utxo_set.get_balance("addr3"), 3000); // tx3 added from snapshot
+
+        // Verify total supply is updated correctly
+        let expected_supply = 1000 + 500 + 3000;
+        assert_eq!(utxo_set.total_supply(), expected_supply);
+    }
+
+    #[test]
+    fn test_merge_snapshot_no_duplicates() {
+        // Test merging snapshot with no overlapping UTXOs
+        let mut utxo_set = UTXOSet::new();
+        utxo_set.add_utxo(
+            OutPoint::new("tx1".to_string(), 0),
+            TxOutput::new(1000, "addr1".to_string()),
+        );
+
+        let mut snapshot_set = UTXOSet::new();
+        snapshot_set.add_utxo(
+            OutPoint::new("tx2".to_string(), 0),
+            TxOutput::new(2000, "addr2".to_string()),
+        );
+        let snapshot = snapshot_set.snapshot();
+
+        utxo_set.merge_snapshot(snapshot);
+
+        assert_eq!(utxo_set.len(), 2);
+        assert_eq!(utxo_set.get_balance("addr1"), 1000);
+        assert_eq!(utxo_set.get_balance("addr2"), 2000);
+        assert_eq!(utxo_set.total_supply(), 3000);
+    }
+
+    #[test]
+    fn test_merge_snapshot_all_duplicates() {
+        // Test merging snapshot where all UTXOs already exist
+        let mut utxo_set = UTXOSet::new();
+        utxo_set.add_utxo(
+            OutPoint::new("tx1".to_string(), 0),
+            TxOutput::new(1000, "addr1".to_string()),
+        );
+        utxo_set.add_utxo(
+            OutPoint::new("tx2".to_string(), 0),
+            TxOutput::new(2000, "addr2".to_string()),
+        );
+
+        let original_supply = utxo_set.total_supply();
+        let snapshot = utxo_set.snapshot();
+
+        // Merge should not change anything
+        utxo_set.merge_snapshot(snapshot);
+
+        assert_eq!(utxo_set.len(), 2);
+        assert_eq!(utxo_set.get_balance("addr1"), 1000);
+        assert_eq!(utxo_set.get_balance("addr2"), 2000);
+        assert_eq!(utxo_set.total_supply(), original_supply);
     }
 }
