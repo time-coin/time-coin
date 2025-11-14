@@ -164,11 +164,11 @@ impl UTXOSet {
     }
 
     /// Merge snapshot UTXOs into current set
-    /// 
+    ///
     /// This adds UTXOs from the snapshot that are not already present in the current set.
     /// UTXOs that exist in both the current set and the snapshot are kept from the current set
     /// (i.e., current set takes precedence, as it represents more recent blockchain state).
-    /// 
+    ///
     /// This is used during node restart to add finalized transactions that haven't been
     /// included in blocks yet, without losing UTXOs from blocks that were added after
     /// the snapshot was saved.
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(utxo_set.get_balance("addr1"), 1000); // tx1 not overwritten (original value)
         assert_eq!(utxo_set.get_balance("addr2"), 500); // tx2 unchanged
         assert_eq!(utxo_set.get_balance("addr3"), 3000); // tx3 added from snapshot
-        
+
         // Verify total supply is updated correctly
         let expected_supply = 1000 + 500 + 3000;
         assert_eq!(utxo_set.total_supply(), expected_supply);

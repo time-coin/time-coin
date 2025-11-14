@@ -48,7 +48,10 @@ fn test_block_after_snapshot_causes_utxo_loss() {
         state.save_utxo_snapshot().unwrap();
         println!("✅ Phase 1: Snapshot saved with genesis + finalized tx");
         println!("   UTXOs in snapshot: {}", state.utxo_set().len());
-        println!("   finalized_address: {}", state.get_balance("finalized_address"));
+        println!(
+            "   finalized_address: {}",
+            state.get_balance("finalized_address")
+        );
     }
 
     // Phase 2: Add a block (simulating daily block finalization AFTER snapshot)
@@ -85,8 +88,14 @@ fn test_block_after_snapshot_causes_utxo_loss() {
         state.add_block(block1).unwrap();
 
         println!("\n✅ Phase 2: Block 1 added with payment to block_miner");
-        println!("   block_miner balance: {}", state.get_balance("block_miner"));
-        println!("   finalized_address balance: {}", state.get_balance("finalized_address"));
+        println!(
+            "   block_miner balance: {}",
+            state.get_balance("block_miner")
+        );
+        println!(
+            "   finalized_address balance: {}",
+            state.get_balance("finalized_address")
+        );
         println!("   Total UTXOs: {}", state.utxo_set().len());
 
         // Node crashes before saving another snapshot!
@@ -99,8 +108,14 @@ fn test_block_after_snapshot_causes_utxo_loss() {
         let state = BlockchainState::new(genesis.clone(), &db_path).unwrap();
 
         println!("\n📋 Phase 3: After restart:");
-        println!("   block_miner balance: {}", state.get_balance("block_miner"));
-        println!("   finalized_address balance: {}", state.get_balance("finalized_address"));
+        println!(
+            "   block_miner balance: {}",
+            state.get_balance("block_miner")
+        );
+        println!(
+            "   finalized_address balance: {}",
+            state.get_balance("finalized_address")
+        );
         println!("   Total UTXOs: {}", state.utxo_set().len());
 
         // What should happen with the FIX:
@@ -112,22 +127,40 @@ fn test_block_after_snapshot_causes_utxo_loss() {
         let finalized_balance = state.get_balance("finalized_address");
 
         println!("\n🔍 Bug Detection:");
-        println!("   Expected block_miner balance: {}", expected_block_balance);
+        println!(
+            "   Expected block_miner balance: {}",
+            expected_block_balance
+        );
         println!("   Actual block_miner balance: {}", block_balance);
-        println!("   Expected finalized_address balance: {}", expected_finalized_balance);
+        println!(
+            "   Expected finalized_address balance: {}",
+            expected_finalized_balance
+        );
         println!("   Actual finalized_address balance: {}", finalized_balance);
 
         if block_balance == 0 && finalized_balance > 0 {
             println!("\n❌ BUG REPRODUCED: Block UTXOs were lost when snapshot was restored!");
             println!("   The snapshot REPLACED the UTXOs from blocks instead of MERGING.");
-            assert!(false, "Bug confirmed: snapshot replaces block UTXOs instead of merging");
+            assert!(
+                false,
+                "Bug confirmed: snapshot replaces block UTXOs instead of merging"
+            );
         } else if block_balance > 0 && finalized_balance > 0 {
             println!("\n✅ Bug is FIXED: Both block and finalized UTXOs are present!");
-            assert_eq!(block_balance, expected_block_balance, "Block balance should be correct");
-            assert_eq!(finalized_balance, expected_finalized_balance, "Finalized balance should be correct");
+            assert_eq!(
+                block_balance, expected_block_balance,
+                "Block balance should be correct"
+            );
+            assert_eq!(
+                finalized_balance, expected_finalized_balance,
+                "Finalized balance should be correct"
+            );
         } else {
-            assert!(false, "Unexpected state: block_balance={}, finalized_balance={}", 
-                     block_balance, finalized_balance);
+            assert!(
+                false,
+                "Unexpected state: block_balance={}, finalized_balance={}",
+                block_balance, finalized_balance
+            );
         }
     }
 
