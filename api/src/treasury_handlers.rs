@@ -360,14 +360,16 @@ pub async fn create_treasury_proposal(
     
     blockchain
         .create_treasury_proposal(
-            request.id.clone(),
-            request.title.clone(),
-            request.description.clone(),
-            request.recipient.clone(),
-            request.amount,
-            request.submitter.clone(),
-            current_time,
-            request.voting_period_days,
+            time_core::treasury_manager::CreateProposalParams {
+                id: request.id.clone(),
+                title: request.title.clone(),
+                description: request.description.clone(),
+                recipient: request.recipient.clone(),
+                amount: request.amount,
+                submitter: request.submitter.clone(),
+                submission_time: current_time,
+                voting_period_days: request.voting_period_days,
+            }
         )
         .map_err(|e| ApiError::BadRequest(format!("Failed to create proposal: {}", e)))?;
 

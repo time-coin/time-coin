@@ -968,27 +968,9 @@ impl BlockchainState {
     /// Create a new treasury proposal
     pub fn create_treasury_proposal(
         &mut self,
-        id: String,
-        title: String,
-        description: String,
-        recipient: String,
-        amount: u64,
-        submitter: String,
-        submission_time: u64,
-        voting_period_days: u64,
+        params: crate::treasury_manager::CreateProposalParams,
     ) -> Result<(), StateError> {
-        self.treasury_manager.create_proposal(
-            crate::treasury_manager::CreateProposalParams {
-                id,
-                title,
-                description,
-                recipient,
-                amount,
-                submitter,
-                submission_time,
-                voting_period_days,
-            },
-        )
+        self.treasury_manager.create_proposal(params)
     }
 
     /// Vote on a treasury proposal
