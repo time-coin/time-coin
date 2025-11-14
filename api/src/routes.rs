@@ -36,7 +36,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/treasury/approve", post(approve_treasury_proposal))
         .route("/treasury/distribute", post(distribute_treasury_funds))
         .route("/treasury/propose", post(submit_proposal))
-        .route("/treasury/proposal/:id", post(get_proposal_by_id))
+        .route("/treasury/proposal/{id}", post(get_proposal_by_id))
         .route("/treasury/vote", post(vote_on_proposal))
         // Quarantine management endpoints
         .route("/network/quarantine", get(get_quarantined_peers))
