@@ -72,6 +72,12 @@ enum Commands {
         treasury_command: TreasuryCommands,
     },
 
+    /// Mempool operations
+    Mempool {
+        #[command(subcommand)]
+        mempool_command: MempoolCommands,
+    },
+
     /// Validate the blockchain integrity
     ValidateChain {
         /// Display detailed validation information
@@ -440,6 +446,15 @@ enum TreasuryCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum MempoolCommands {
+    /// Get mempool status (transaction count and IDs)
+    Status,
+
+    /// List all mempool transactions with full details
+    List,
+}
+
 // Response types for RPC calls
 #[derive(Debug, Deserialize, Serialize)]
 struct MasternodeInfo {
@@ -736,6 +751,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Treasury { treasury_command } => {
             handle_treasury_command(treasury_command, &client, &cli.api, cli.json).await?;
+        }
+
+        Commands::Mempool { mempool_command } => {
+            handle_mempool_command(mempool_command, &client, &cli.api, cli.json).await?;
         }
 
         Commands::ValidateChain { verbose, rpc_url } => {
@@ -1892,6 +1911,130 @@ async fn handle_treasury_command(
                 } else {
                     eprintln!("Vote submission failed: {}", error);
                 }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_mempool_command(
+    command: MempoolCommands,
+    client: &Client,
+    api: &str,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        MempoolCommands::Status => {
+            let response = client.get(format!("{}/mempool/status", api)).send().await?;
+
+            if response.status().is_success() {
+                let status: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&status)?);
+                } else {
+                    println!("\n💾 Mempool Status");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Transaction Count: {}", status["size"]);
+
+                    if let Some(txs) = status["transactions"].as_array() {
+                        if !txs.is_empty() {
+                            println!("\nTransaction IDs:");
+                            for (i, tx_id) in txs.iter().enumerate() {
+                                if let Some(id) = tx_id.as_str() {
+                                    println!("  {}. {}", i + 1, id);
+                                }
+                            }
+                        } else {
+                            println!("\nNo transactions in mempool");
+                        }
+                    }
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+
+        MempoolCommands::List => {
+            let response = client.get(format!("{}/mempool/all", api)).send().await?;
+
+            if response.status().is_success() {
+                let transactions: Vec<serde_json::Value> = response.json().await?;
+
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "transactions": transactions,
+                            "count": transactions.len()
+                        }))?
+                    );
+                } else {
+                    println!("\n💾 Mempool Transactions ({} total)", transactions.len());
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                    if transactions.is_empty() {
+                        println!("No transactions in mempool");
+                    } else {
+                        for (i, tx) in transactions.iter().enumerate() {
+                            println!(
+                                "\n{}. Transaction: {}",
+                                i + 1,
+                                tx["txid"].as_str().unwrap_or("unknown")
+                            );
+                            println!("   Version: {}", tx["version"]);
+                            println!("   Lock Time: {}", tx["lock_time"]);
+
+                            if let Some(inputs) = tx["inputs"].as_array() {
+                                println!("   Inputs: {}", inputs.len());
+                                for (idx, input) in inputs.iter().enumerate() {
+                                    if let Some(prev_out) = input.get("previous_output") {
+                                        let txid = prev_out["txid"].as_str().unwrap_or("");
+                                        let vout = prev_out["vout"].as_u64().unwrap_or(0);
+                                        println!(
+                                            "     {}.  {}:{}",
+                                            idx + 1,
+                                            &txid[..16.min(txid.len())],
+                                            vout
+                                        );
+                                    }
+                                }
+                            }
+
+                            if let Some(outputs) = tx["outputs"].as_array() {
+                                println!("   Outputs: {}", outputs.len());
+                                for (idx, output) in outputs.iter().enumerate() {
+                                    let amount = output["amount"].as_u64().unwrap_or(0);
+                                    let address = output["address"].as_str().unwrap_or("unknown");
+                                    let amount_time = amount as f64 / 100_000_000.0;
+                                    println!(
+                                        "     {}.  {} TIME -> {}",
+                                        idx + 1,
+                                        amount_time,
+                                        address
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
             }
         }
     }
