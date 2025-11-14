@@ -183,10 +183,10 @@ pub async fn submit_proposal(
 ) -> ApiResult<Json<serde_json::Value>> {
     // Generate a unique proposal ID
     let proposal_id = format!("prop-{}", chrono::Utc::now().timestamp());
-    
+
     // TODO: Store proposal in blockchain state
     // For now, return success with the generated ID
-    
+
     Ok(Json(serde_json::json!({
         "status": "success",
         "proposal_id": proposal_id,
@@ -203,7 +203,7 @@ pub async fn get_proposal(
 ) -> ApiResult<Json<serde_json::Value>> {
     // TODO: Retrieve proposal from blockchain state
     // For now, return a placeholder
-    
+
     Ok(Json(serde_json::json!({
         "id": proposal_id,
         "title": "Sample Proposal",
@@ -234,12 +234,16 @@ pub async fn vote_on_proposal(
         "Yes" | "yes" => "Yes",
         "No" | "no" => "No",
         "Abstain" | "abstain" => "Abstain",
-        _ => return Err(ApiError::BadRequest("Invalid vote choice. Must be: Yes, No, or Abstain".to_string())),
+        _ => {
+            return Err(ApiError::BadRequest(
+                "Invalid vote choice. Must be: Yes, No, or Abstain".to_string(),
+            ))
+        }
     };
-    
+
     // TODO: Store vote in blockchain state
     // TODO: Validate that masternode exists and hasn't already voted
-    
+
     Ok(Json(serde_json::json!({
         "status": "success",
         "proposal_id": request.proposal_id,

@@ -128,7 +128,7 @@ impl Transaction {
         timestamp: i64,
     ) -> Self {
         let output = TxOutput::new(amount, recipient);
-        
+
         Self {
             txid: format!("treasury_grant_{}_{}", proposal_id, block_number),
             version: 1,
@@ -378,7 +378,10 @@ mod tests {
         );
         assert!(grant.is_treasury_grant());
         assert!(!grant.is_coinbase());
-        assert_eq!(grant.treasury_grant_proposal_id(), Some("proposal-xyz".to_string()));
+        assert_eq!(
+            grant.treasury_grant_proposal_id(),
+            Some("proposal-xyz".to_string())
+        );
     }
 
     #[test]
@@ -393,15 +396,15 @@ mod tests {
 
         // Should have no inputs (protocol-controlled)
         assert_eq!(grant.inputs.len(), 0);
-        
+
         // Should have exactly one output
         assert_eq!(grant.outputs.len(), 1);
         assert_eq!(grant.outputs[0].amount, 10_000_000);
         assert_eq!(grant.outputs[0].address, "dev_team");
-        
+
         // Should have correct timestamp
         assert_eq!(grant.timestamp, 1700000000);
-        
+
         // txid should follow the format
         assert_eq!(grant.txid, "treasury_grant_prop-123_50");
     }
@@ -417,7 +420,7 @@ mod tests {
             lock_time: 0,
             timestamp: 1234567890,
         };
-        
+
         assert!(coinbase.is_coinbase());
         assert!(!coinbase.is_treasury_grant());
         assert!(coinbase.treasury_grant_proposal_id().is_none());
@@ -430,9 +433,12 @@ mod tests {
             10,
             1234567890,
         );
-        
+
         assert!(!grant.is_coinbase()); // Not a coinbase
         assert!(grant.is_treasury_grant());
-        assert_eq!(grant.treasury_grant_proposal_id(), Some("prop-1".to_string()));
+        assert_eq!(
+            grant.treasury_grant_proposal_id(),
+            Some("prop-1".to_string())
+        );
     }
 }

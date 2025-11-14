@@ -313,16 +313,15 @@ impl Block {
         // Coinbase should contain 100% of this (90% to masternodes + 10% to treasury)
         let total_rewards = base_masternode_reward + total_fees;
         let max_coinbase = total_rewards;
-        
+
         if coinbase_total > max_coinbase {
             return Err(BlockError::InvalidCoinbase);
         }
-        
+
         // Verify treasury allocation is present and correct (10% of total)
         let expected_treasury = calculate_treasury_allocation(total_rewards);
-        let treasury_output = coinbase.outputs.iter()
-            .find(|o| o.address == "TREASURY");
-        
+        let treasury_output = coinbase.outputs.iter().find(|o| o.address == "TREASURY");
+
         if let Some(treasury_out) = treasury_output {
             if treasury_out.amount != expected_treasury {
                 return Err(BlockError::InvalidCoinbase);
@@ -478,10 +477,10 @@ pub fn create_coinbase_transaction(
     // Calculate total rewards (masternode rewards + transaction fees)
     let base_masternode_rewards = calculate_total_masternode_reward(counts);
     let total_rewards = base_masternode_rewards + transaction_fees;
-    
+
     // Calculate treasury allocation (10% of total rewards)
     let treasury_amount = calculate_treasury_allocation(total_rewards);
-    
+
     // Calculate actual masternode share (90% of total rewards)
     let masternode_total = calculate_masternode_share(total_rewards);
 
@@ -501,7 +500,7 @@ pub fn create_coinbase_transaction(
         let total_weight = counts.total_weight();
         if total_weight > 0 {
             let per_weight = masternode_total / total_weight;
-            
+
             // Distribute to each masternode based on their tier weight
             for (address, tier) in &masternode_list {
                 let reward = per_weight * tier.weight();
@@ -629,15 +628,15 @@ mod tests {
     fn test_treasury_percentage() {
         // Treasury should be 10% of total rewards
         assert_eq!(TREASURY_PERCENTAGE, 10);
-        
+
         // Test allocation calculation
         let total_rewards = 1000 * 100_000_000; // 1000 TIME
         let treasury_allocation = calculate_treasury_allocation(total_rewards);
         assert_eq!(treasury_allocation, 100 * 100_000_000); // 100 TIME (10%)
-        
+
         let masternode_share = calculate_masternode_share(total_rewards);
         assert_eq!(masternode_share, 900 * 100_000_000); // 900 TIME (90%)
-        
+
         // Verify they sum to total
         assert_eq!(treasury_allocation + masternode_share, total_rewards);
     }
@@ -859,18 +858,18 @@ mod tests {
         // First output should be treasury marker
         assert_eq!(tx.outputs[0].address, "TREASURY");
         assert_eq!(tx.outputs[0].amount, expected_treasury);
-        
+
         // Remaining outputs are for masternodes (proportional to weights)
         let total_weight = counts.total_weight(); // 1*10 + 1*25 = 35
         let per_weight = expected_masternode_share / total_weight;
-        
+
         // Masternodes sorted by address: masternode1, masternode2
         assert_eq!(tx.outputs[1].address, "masternode1");
         assert_eq!(tx.outputs[1].amount, per_weight * 10); // Bronze weight
-        
+
         assert_eq!(tx.outputs[2].address, "masternode2");
         assert_eq!(tx.outputs[2].amount, per_weight * 25); // Silver weight
-        
+
         // Verify total adds up (within rounding tolerance)
         let total: u64 = tx.outputs.iter().map(|o| o.amount).sum();
         assert!(total <= total_rewards);
@@ -884,7 +883,7 @@ mod tests {
         let amount = 10_000 * 100_000_000; // 10,000 TIME
         let block_number = 12345;
         let timestamp = 1700000000;
-        
+
         let tx = create_treasury_grant_transaction(
             proposal_id.clone(),
             recipient.clone(),
@@ -892,20 +891,23 @@ mod tests {
             block_number,
             timestamp,
         );
-        
+
         // Verify it's a treasury grant (no inputs but not a coinbase)
         assert!(tx.is_treasury_grant());
         assert!(!tx.is_coinbase());
         assert_eq!(tx.inputs.len(), 0);
-        
+
         // Verify txid format
-        assert_eq!(tx.txid, format!("treasury_grant_{}_{}", proposal_id, block_number));
-        
+        assert_eq!(
+            tx.txid,
+            format!("treasury_grant_{}_{}", proposal_id, block_number)
+        );
+
         // Verify single output to recipient
         assert_eq!(tx.outputs.len(), 1);
         assert_eq!(tx.outputs[0].address, recipient);
         assert_eq!(tx.outputs[0].amount, amount);
-        
+
         // Verify timestamp
         assert_eq!(tx.timestamp, timestamp);
     }
@@ -1072,7 +1074,7 @@ mod tests {
 
         let transaction_fees = 100_000_000; // 1 TIME in fees
         let block_timestamp = 1700000000;
-        
+
         let tx = create_coinbase_transaction(
             200,
             &masternodes,
@@ -1089,7 +1091,7 @@ mod tests {
 
         // Verify treasury allocation is 10%
         assert_eq!(treasury_amount, total_rewards / 10);
-        
+
         // Verify masternode share is 90%
         assert_eq!(masternode_amount, (total_rewards * 9) / 10);
 
@@ -1099,8 +1101,8 @@ mod tests {
 
         // Sum masternode outputs
         let masternode_total: u64 = tx.outputs[1..].iter().map(|o| o.amount).sum();
-        
-        // Due to integer division when distributing to masternodes, 
+
+        // Due to integer division when distributing to masternodes,
         // the actual total may be slightly less than the share (rounding loss)
         assert!(masternode_total <= masternode_amount);
         assert!(masternode_amount - masternode_total < 100); // Loss should be minimal

@@ -1645,10 +1645,7 @@ async fn handle_treasury_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
         TreasuryCommands::Info => {
-            let response = client
-                .get(format!("{}/treasury/stats", api))
-                .send()
-                .await?;
+            let response = client.get(format!("{}/treasury/stats", api)).send().await?;
 
             if response.status().is_success() {
                 let stats: serde_json::Value = response.json().await?;
@@ -1703,14 +1700,16 @@ async fn handle_treasury_command(
                         println!("No proposals found");
                     } else {
                         for (i, proposal) in proposals.iter().enumerate() {
-                            println!("\n{}. {} ({})", 
+                            println!(
+                                "\n{}. {} ({})",
                                 i + 1,
                                 proposal["title"].as_str().unwrap_or("Unknown"),
                                 proposal["id"].as_str().unwrap_or("unknown")
                             );
                             println!("   Amount: {} TIME", proposal["amount"]);
                             println!("   Status: {}", proposal["status"]);
-                            println!("   Votes: {} Yes / {} No",
+                            println!(
+                                "   Votes: {} Yes / {} No",
                                 proposal["votes_yes"], proposal["votes_no"]
                             );
                         }
@@ -1746,10 +1745,13 @@ async fn handle_treasury_command(
                     println!("Title: {}", proposal["title"]);
                     println!("Description: {}", proposal["description"]);
                     println!("Recipient: {}", proposal["recipient"]);
-                    println!("Amount: {} TIME", proposal["amount"].as_f64().unwrap_or(0.0) / 100_000_000.0);
+                    println!(
+                        "Amount: {} TIME",
+                        proposal["amount"].as_f64().unwrap_or(0.0) / 100_000_000.0
+                    );
                     println!("Status: {}", proposal["status"]);
                     println!("Submitter: {}", proposal["submitter"]);
-                    
+
                     if let Some(votes) = proposal["votes"].as_object() {
                         println!("\nVotes ({}):", votes.len());
                         for (voter, vote) in votes {
