@@ -1364,11 +1364,8 @@ async fn main() {
     // Initialize transaction broadcaster
     let tx_broadcaster = Arc::new(time_network::tx_broadcast::TransactionBroadcaster::new(
         mempool.clone(),
+        peer_manager.clone(),
     ));
-
-    // Update broadcaster with current peers
-    let current_peers = peer_manager.get_peer_ips().await;
-    tx_broadcaster.update_peers(current_peers).await;
     println!("{}", "✓ Transaction broadcaster initialized".green());
 
     println!();
@@ -1405,7 +1402,6 @@ async fn main() {
                 let peer_manager_clone = peer_manager.clone();
                 let _blockchain_clone = blockchain.clone();
                 let consensus_clone = consensus.clone();
-                let tx_broadcaster_clone = tx_broadcaster.clone();
                 let tx_consensus_clone = tx_consensus.clone();
                 let block_consensus_clone = block_consensus.clone();
                 let quarantine_clone = quarantine.clone();
@@ -1475,10 +1471,6 @@ async fn main() {
                             );
 
                             peer_manager_clone.add_connected_peer(info.clone()).await;
-
-                            // Update transaction broadcaster with current peer list
-                            let current_peers = peer_manager_clone.get_peer_ips().await;
-                            tx_broadcaster_clone.update_peers(current_peers).await;
 
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone
@@ -1685,20 +1677,6 @@ async fn main() {
             if let Err(e) = mempool_persist.save_to_disk(&mempool_path_persist).await {
                 eprintln!("Failed to save mempool: {}", e);
             }
-        }
-    });
-
-    // Transaction broadcaster synchronization task
-    let peer_mgr_bc = peer_manager.clone();
-    let tx_bc_sync = tx_broadcaster.clone();
-    tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(30));
-        interval.tick().await;
-
-        loop {
-            interval.tick().await;
-            let current_peers = peer_mgr_bc.get_peer_ips().await;
-            tx_bc_sync.update_peers(current_peers).await;
         }
     });
 

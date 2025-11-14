@@ -28,30 +28,25 @@ pub mod tx_broadcast {
     use std::sync::Arc;
     use time_core::Transaction;
     use time_mempool::Mempool;
-    use tokio::sync::RwLock;
+    use crate::manager::PeerManager;
 
     pub struct TransactionBroadcaster {
         mempool: Arc<Mempool>,
-        peer_ips: Arc<RwLock<Vec<String>>>,
+        peer_manager: Arc<PeerManager>,
     }
 
     impl TransactionBroadcaster {
-        pub fn new(mempool: Arc<Mempool>) -> Self {
+        pub fn new(mempool: Arc<Mempool>, peer_manager: Arc<PeerManager>) -> Self {
             Self {
                 mempool,
-                peer_ips: Arc::new(RwLock::new(Vec::new())),
+                peer_manager,
             }
-        }
-
-        /// Update peer list
-        pub async fn update_peers(&self, peers: Vec<String>) {
-            let mut peer_ips = self.peer_ips.write().await;
-            *peer_ips = peers;
         }
 
         /// Broadcast a transaction to all peers
         pub async fn broadcast_transaction(&self, tx: Transaction) {
-            let peers = self.peer_ips.read().await.clone();
+            // Query PeerManager directly for LIVE connected peers only
+            let peers = self.peer_manager.get_peer_ips().await;
 
             println!(
                 "📡 Broadcasting transaction {} to {} peers",
@@ -117,7 +112,8 @@ pub mod tx_broadcast {
 
         /// Broadcast transaction proposal (which transactions should go in block)
         pub async fn broadcast_tx_proposal(&self, proposal: serde_json::Value) {
-            let peers = self.peer_ips.read().await.clone();
+            // Query PeerManager directly for LIVE connected peers only
+            let peers = self.peer_manager.get_peer_ips().await;
 
             println!(
                 "📡 Broadcasting transaction proposal to {} peers",
@@ -142,7 +138,8 @@ pub mod tx_broadcast {
 
         /// Broadcast vote on transaction set
         pub async fn broadcast_tx_vote(&self, vote: serde_json::Value) {
-            let peers = self.peer_ips.read().await.clone();
+            // Query PeerManager directly for LIVE connected peers only
+            let peers = self.peer_manager.get_peer_ips().await;
 
             for peer in peers {
                 let vote_clone = vote.clone();
