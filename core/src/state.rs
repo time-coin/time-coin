@@ -204,6 +204,34 @@ impl Treasury {
         Ok(allocation)
     }
 
+    /// Directly allocate a specific amount to treasury (used when amount is pre-calculated in coinbase)
+    pub fn allocate_direct(
+        &mut self,
+        block_number: u64,
+        amount: u64,
+        source: TreasurySource,
+        timestamp: i64,
+    ) -> Result<(), StateError> {
+        self.balance = self
+            .balance
+            .checked_add(amount)
+            .ok_or_else(|| StateError::IoError("Treasury balance overflow".to_string()))?;
+
+        self.total_allocated = self
+            .total_allocated
+            .checked_add(amount)
+            .ok_or_else(|| StateError::IoError("Treasury total allocation overflow".to_string()))?;
+
+        self.allocations.push(TreasuryAllocation {
+            block_number,
+            amount,
+            source,
+            timestamp,
+        });
+
+        Ok(())
+    }
+
     /// Allocate funds from transaction fees
     pub fn allocate_from_fees(
         &mut self,
@@ -697,27 +725,22 @@ impl BlockchainState {
 
         match block.validate_and_apply(&mut self.utxo_set, &self.masternode_counts) {
             Ok(_) => {
-                // Allocate treasury funds from block reward and fees
+                // Extract and allocate treasury funds from coinbase transaction
                 let timestamp = block.header.timestamp.timestamp();
                 let block_number = block.header.block_number;
 
-                // Calculate total masternode reward to derive treasury allocation
-                let masternode_reward =
-                    crate::block::calculate_total_masternode_reward(&self.masternode_counts);
-
-                // Allocate from block reward (5% of masternode reward pool)
-                let _ = self.treasury.allocate_from_block_reward(
-                    block_number,
-                    masternode_reward,
-                    timestamp,
-                )?;
-
-                // Allocate from transaction fees (50% of total fees)
-                let total_fees = block.total_fees(&self.utxo_set)?;
-                if total_fees > 0 {
-                    let _ =
-                        self.treasury
-                            .allocate_from_fees(block_number, total_fees, timestamp)?;
+                // Find treasury allocation in coinbase transaction (marked with "TREASURY" address)
+                if let Some(coinbase) = block.coinbase() {
+                    if let Some(treasury_output) = coinbase.outputs.iter().find(|o| o.address == "TREASURY") {
+                        // Allocate treasury funds from the coinbase output
+                        // This represents 10% of total block rewards (base rewards + fees)
+                        self.treasury.allocate_direct(
+                            block_number,
+                            treasury_output.amount,
+                            TreasurySource::BlockReward,
+                            timestamp,
+                        )?;
+                    }
                 }
 
                 self.db.save_block(&block)?;
@@ -1041,10 +1064,18 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-
-        // Create block with proper masternode reward (no treasury)
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        
+        // Calculate total rewards and split properly
+        let total_rewards = base_reward;
+        let treasury_amount = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        // Create block with proper treasury split
+        let outputs = vec![
+            TxOutput::new(treasury_amount, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
         assert_eq!(state.chain_tip_height(), 1);
@@ -1189,18 +1220,25 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        
+        // Calculate treasury allocation (10% of total)
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
 
-        // Create block
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        // Create block with treasury split
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
 
         state.add_block(block1).unwrap();
 
-        // Check treasury received allocation (5% of masternode reward)
-        let expected_allocation = (masternode_reward * 5) / 100;
-        assert_eq!(state.treasury().balance(), expected_allocation);
-        assert_eq!(state.treasury().total_allocated(), expected_allocation);
+        // Check treasury received allocation (10% of total reward)
+        assert_eq!(state.treasury().balance(), treasury_allocation);
+        assert_eq!(state.treasury().total_allocated(), treasury_allocation);
         assert_eq!(state.treasury().allocations().len(), 1);
     }
 
@@ -1235,8 +1273,15 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
@@ -1340,8 +1385,15 @@ mod tests {
             silver: 0,
             gold: 0,
         };
-        let masternode_reward = crate::block::calculate_total_masternode_reward(&counts);
-        let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
+        let base_reward = crate::block::calculate_total_masternode_reward(&counts);
+        let total_rewards = base_reward;
+        let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
+        let masternode_share = crate::block::calculate_masternode_share(total_rewards);
+        
+        let outputs = vec![
+            TxOutput::new(treasury_allocation, "TREASURY".to_string()),
+            TxOutput::new(masternode_share, "miner1".to_string()),
+        ];
         let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
         state.add_block(block1).unwrap();
 
