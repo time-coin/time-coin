@@ -16,9 +16,9 @@ pub mod utxo_set;
 
 // Re-export commonly used types
 pub use block::{
-    calculate_total_masternode_reward, calculate_treasury_allocation, 
-    calculate_masternode_share, create_treasury_grant_transaction,
-    Block, BlockHeader, MasternodeCounts, MasternodeTier, TREASURY_PERCENTAGE,
+    calculate_masternode_share, calculate_total_masternode_reward, calculate_treasury_allocation,
+    create_treasury_grant_transaction, Block, BlockHeader, MasternodeCounts, MasternodeTier,
+    TREASURY_PERCENTAGE,
 };
 pub use transaction::{
     OutPoint, SpecialTransaction, Transaction, TransactionError, TxInput, TxOutput,

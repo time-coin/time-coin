@@ -341,7 +341,8 @@ impl Treasury {
         });
 
         // Update or remove approved amount
-        let remaining = approved_grant.amount
+        let remaining = approved_grant
+            .amount
             .checked_sub(amount)
             .ok_or_else(|| StateError::IoError("Approved amount underflow".to_string()))?;
 
@@ -395,7 +396,9 @@ impl Treasury {
 
     /// Check if a proposal has been executed (by checking if it has a withdrawal record)
     pub fn is_proposal_executed(&self, proposal_id: &str) -> bool {
-        self.withdrawals.iter().any(|w| w.proposal_id == proposal_id)
+        self.withdrawals
+            .iter()
+            .any(|w| w.proposal_id == proposal_id)
     }
 
     /// Get all approved grants (for block producer)
@@ -778,7 +781,9 @@ impl BlockchainState {
 
                 // Find treasury allocation in coinbase transaction (marked with "TREASURY" address)
                 if let Some(coinbase) = block.coinbase() {
-                    if let Some(treasury_output) = coinbase.outputs.iter().find(|o| o.address == "TREASURY") {
+                    if let Some(treasury_output) =
+                        coinbase.outputs.iter().find(|o| o.address == "TREASURY")
+                    {
                         // Allocate treasury funds from the coinbase output
                         // This represents 10% of total block rewards (base rewards + fees)
                         self.treasury.allocate_direct(
@@ -795,7 +800,9 @@ impl BlockchainState {
                     if tx.is_treasury_grant() {
                         // Extract proposal ID from the transaction
                         let proposal_id = tx.treasury_grant_proposal_id().ok_or_else(|| {
-                            StateError::IoError("Invalid treasury grant transaction format".to_string())
+                            StateError::IoError(
+                                "Invalid treasury grant transaction format".to_string(),
+                            )
                         })?;
 
                         // Validate transaction structure for treasury grants
@@ -1183,12 +1190,12 @@ mod tests {
             gold: 0,
         };
         let base_reward = crate::block::calculate_total_masternode_reward(&counts);
-        
+
         // Calculate total rewards and split properly
         let total_rewards = base_reward;
         let treasury_amount = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         // Create block with proper treasury split
         let outputs = vec![
             TxOutput::new(treasury_amount, "TREASURY".to_string()),
@@ -1339,7 +1346,7 @@ mod tests {
             gold: 0,
         };
         let base_reward = crate::block::calculate_total_masternode_reward(&counts);
-        
+
         // Calculate treasury allocation (10% of total)
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
@@ -1395,7 +1402,7 @@ mod tests {
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         let outputs = vec![
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
@@ -1507,7 +1514,7 @@ mod tests {
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         let outputs = vec![
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
@@ -1531,7 +1538,7 @@ mod tests {
     #[test]
     fn test_treasury_grant_transaction_creation() {
         use crate::transaction::Transaction;
-        
+
         // Create a treasury grant transaction
         let grant = Transaction::create_treasury_grant(
             "proposal-123".to_string(),
@@ -1544,16 +1551,19 @@ mod tests {
         // Verify it's identified as a treasury grant
         assert!(grant.is_treasury_grant());
         assert!(!grant.is_coinbase());
-        
+
         // Verify proposal ID can be extracted
-        assert_eq!(grant.treasury_grant_proposal_id(), Some("proposal-123".to_string()));
-        
+        assert_eq!(
+            grant.treasury_grant_proposal_id(),
+            Some("proposal-123".to_string())
+        );
+
         // Verify structure
         assert_eq!(grant.inputs.len(), 0);
         assert_eq!(grant.outputs.len(), 1);
         assert_eq!(grant.outputs[0].amount, 1000000);
         assert_eq!(grant.outputs[0].address, "recipient_address");
-        
+
         // Verify txid format
         assert!(grant.txid.starts_with("treasury_grant_proposal-123_"));
     }
@@ -1561,7 +1571,7 @@ mod tests {
     #[test]
     fn test_treasury_grant_in_block_processing() {
         use crate::transaction::Transaction;
-        
+
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
         let db_dir = std::env::temp_dir().join(format!(
@@ -1576,12 +1586,14 @@ mod tests {
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
 
         // Register a masternode to set proper counts
-        state.register_masternode(
-            "node1".to_string(),
-            MasternodeTier::Free,
-            "collateral1".to_string(),
-            "miner1".to_string(),
-        ).unwrap();
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
 
         // Add first block to generate treasury funds
         let counts = MasternodeCounts {
@@ -1594,7 +1606,7 @@ mod tests {
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         let outputs = vec![
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
@@ -1606,8 +1618,10 @@ mod tests {
         let proposal_id = "test-proposal-1".to_string();
         let recipient = "project_developer".to_string();
         let amount = 100_000_000u64; // 1 TIME
-        
-        state.approve_treasury_proposal(proposal_id.clone(), amount).unwrap();
+
+        state
+            .approve_treasury_proposal(proposal_id.clone(), amount)
+            .unwrap();
 
         // Create a block with a treasury grant transaction
         let grant_tx = Transaction::create_treasury_grant(
@@ -1625,7 +1639,7 @@ mod tests {
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
         let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
-        
+
         // Add the grant transaction to the block
         block2.add_transaction(grant_tx).unwrap();
 
@@ -1645,7 +1659,7 @@ mod tests {
     #[test]
     fn test_treasury_grant_double_execution_prevention() {
         use crate::transaction::Transaction;
-        
+
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
         let db_dir = std::env::temp_dir().join(format!(
@@ -1660,12 +1674,14 @@ mod tests {
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
 
         // Register a masternode to set proper counts
-        state.register_masternode(
-            "node1".to_string(),
-            MasternodeTier::Free,
-            "collateral1".to_string(),
-            "miner1".to_string(),
-        ).unwrap();
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
 
         // Add first block to generate treasury funds
         let counts = MasternodeCounts {
@@ -1678,7 +1694,7 @@ mod tests {
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         let outputs = vec![
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
@@ -1689,7 +1705,9 @@ mod tests {
         // Approve a proposal
         let proposal_id = "test-proposal-2".to_string();
         let amount = 100_000_000u64;
-        state.approve_treasury_proposal(proposal_id.clone(), amount).unwrap();
+        state
+            .approve_treasury_proposal(proposal_id.clone(), amount)
+            .unwrap();
 
         // Create first block with treasury grant
         let grant_tx1 = Transaction::create_treasury_grant(
@@ -1705,7 +1723,12 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let mut block2 = Block::new(2, block_hash.clone(), "miner1".to_string(), coinbase_outputs2);
+        let mut block2 = Block::new(
+            2,
+            block_hash.clone(),
+            "miner1".to_string(),
+            coinbase_outputs2,
+        );
         block2.add_transaction(grant_tx1).unwrap();
         state.add_block(block2).unwrap();
 
@@ -1725,17 +1748,20 @@ mod tests {
         ];
         let mut block3 = Block::new(3, block_hash2, "miner1".to_string(), coinbase_outputs3);
         block3.add_transaction(grant_tx2).unwrap();
-        
+
         // This should fail because the proposal was already executed
         let result = state.add_block(block3);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("already been executed"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("already been executed"));
     }
 
     #[test]
     fn test_treasury_grant_unapproved_proposal() {
         use crate::transaction::Transaction;
-        
+
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
         let db_dir = std::env::temp_dir().join(format!(
@@ -1750,12 +1776,14 @@ mod tests {
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
 
         // Register a masternode to set proper counts
-        state.register_masternode(
-            "node1".to_string(),
-            MasternodeTier::Free,
-            "collateral1".to_string(),
-            "miner1".to_string(),
-        ).unwrap();
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
 
         // Add first block
         let counts = MasternodeCounts {
@@ -1768,7 +1796,7 @@ mod tests {
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         let outputs = vec![
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
@@ -1802,7 +1830,7 @@ mod tests {
     #[test]
     fn test_treasury_grant_amount_mismatch() {
         use crate::transaction::Transaction;
-        
+
         let genesis = create_genesis_block();
         let genesis_hash = genesis.hash.clone();
         let db_dir = std::env::temp_dir().join(format!(
@@ -1817,12 +1845,14 @@ mod tests {
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
 
         // Register a masternode to set proper counts
-        state.register_masternode(
-            "node1".to_string(),
-            MasternodeTier::Free,
-            "collateral1".to_string(),
-            "miner1".to_string(),
-        ).unwrap();
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
 
         // Add first block
         let counts = MasternodeCounts {
@@ -1835,7 +1865,7 @@ mod tests {
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         let outputs = vec![
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
@@ -1846,7 +1876,9 @@ mod tests {
         // Approve a proposal with a specific amount
         let proposal_id = "test-proposal-3".to_string();
         let approved_amount = 100_000_000u64;
-        state.approve_treasury_proposal(proposal_id.clone(), approved_amount).unwrap();
+        state
+            .approve_treasury_proposal(proposal_id.clone(), approved_amount)
+            .unwrap();
 
         // Try to create a grant with a different amount
         let wrong_amount = 150_000_000u64;
@@ -1888,12 +1920,14 @@ mod tests {
         let mut state = BlockchainState::new(genesis, &db_path).unwrap();
 
         // Register a masternode to set proper counts
-        state.register_masternode(
-            "node1".to_string(),
-            MasternodeTier::Free,
-            "collateral1".to_string(),
-            "miner1".to_string(),
-        ).unwrap();
+        state
+            .register_masternode(
+                "node1".to_string(),
+                MasternodeTier::Free,
+                "collateral1".to_string(),
+                "miner1".to_string(),
+            )
+            .unwrap();
 
         // Add a block to generate treasury funds first
         let counts = MasternodeCounts {
@@ -1906,7 +1940,7 @@ mod tests {
         let total_rewards = base_reward;
         let treasury_allocation = crate::block::calculate_treasury_allocation(total_rewards);
         let masternode_share = crate::block::calculate_masternode_share(total_rewards);
-        
+
         let outputs = vec![
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
@@ -1917,14 +1951,18 @@ mod tests {
         // Approve a proposal (should have treasury funds now)
         let proposal_id = "expired-proposal".to_string();
         let amount = 100_000u64; // Small amount
-        state.approve_treasury_proposal(proposal_id.clone(), amount).unwrap();
+        state
+            .approve_treasury_proposal(proposal_id.clone(), amount)
+            .unwrap();
 
         // Verify it's approved
         let stats = state.treasury_stats();
         assert_eq!(stats.pending_proposals, 1);
 
         // Clean up the expired proposal
-        state.cleanup_expired_treasury_proposal(&proposal_id).unwrap();
+        state
+            .cleanup_expired_treasury_proposal(&proposal_id)
+            .unwrap();
 
         // Verify it's been removed
         let stats = state.treasury_stats();
