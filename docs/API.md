@@ -85,17 +85,25 @@ Get transaction status and details.
 
 **GET** `/balance/{address}`
 
-Get balance for an address.
+Get balance for an address including unconfirmed mempool transactions.
 
 **Response:**
 ```json
 {
   "address": "TIME1abc123...",
   "balance": 100000000,
-  "balance_time": "1.00 TIME",
-  "pending": 0
+  "unconfirmed_balance": 25000000
 }
 ```
+
+**Response Fields:**
+- `address` (string): The wallet address
+- `balance` (integer): Confirmed balance in satoshis (1 TIME = 100,000,000 satoshis)
+- `unconfirmed_balance` (integer): Unconfirmed balance from pending mempool transactions in satoshis
+
+**Notes:**
+- `unconfirmed_balance` includes pending incoming transactions minus pending outgoing transactions
+- Total available balance = `balance` + `unconfirmed_balance`
 
 ---
 
