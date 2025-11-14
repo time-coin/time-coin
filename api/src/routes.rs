@@ -70,6 +70,15 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/block-vote", post(receive_block_vote))
         .route("/consensus/block/{height}", get(get_consensus_block))
         .route("/consensus/finalized-block", post(receive_finalized_block))
+        // Instant finality endpoints
+        .route(
+            "/consensus/instant-finality-request",
+            post(receive_instant_finality_request),
+        )
+        .route(
+            "/consensus/instant-finality-vote",
+            post(receive_instant_finality_vote),
+        )
         // ============================================================
         // Bitcoin-compatible RPC endpoints (maintained for compatibility)
         // ============================================================
@@ -1034,7 +1043,7 @@ async fn receive_finalized_block(
     }
 }
 
-/// Trigger instant finality for a transaction received from another node
+/// Trigger instant finality for a transaction received from another node with real distributed voting
 async fn trigger_instant_finality_for_received_tx(
     state: ApiState,
     tx: time_core::transaction::Transaction,
@@ -1048,14 +1057,17 @@ async fn trigger_instant_finality_for_received_tx(
     let mempool = state.mempool.clone();
     let blockchain = state.blockchain.clone();
     let txid = tx.txid.clone();
+    let tx_broadcaster = state.tx_broadcaster.clone();
+    let peer_manager = state.peer_manager.clone();
+    let wallet_address = state.wallet_address.clone();
 
     // Spawn async task to handle consensus voting
     tokio::spawn(async move {
-        // Get the current node's address (simulating as a masternode)
-        let masternodes = consensus.get_masternodes().await;
+        // Get connected masternodes (real peers only)
+        let masternodes = peer_manager.get_peer_ips().await;
 
         if masternodes.is_empty() {
-            println!("⚠️  No masternodes registered - auto-finalizing in dev mode");
+            println!("⚠️  No masternodes connected - auto-finalizing in dev mode");
             if let Some(mempool) = mempool.as_ref() {
                 let _ = mempool.finalize_transaction(&txid).await;
 
@@ -1079,34 +1091,43 @@ async fn trigger_instant_finality_for_received_tx(
             return;
         }
 
-        println!("📊 Collected {} masternodes for voting", masternodes.len());
+        println!(
+            "📊 Broadcasting transaction to {} masternodes for voting",
+            masternodes.len()
+        );
 
-        // Simulate voting from all masternodes (in production, this would happen via network)
-        let mut approvals = 0;
-        for (i, masternode) in masternodes.iter().enumerate() {
-            // Validate and vote on the transaction
-            match consensus
-                .validate_and_vote_transaction(&tx, masternode.clone())
-                .await
-            {
-                Ok(_) => {
-                    approvals += 1;
-                    println!("   ✅ Masternode {} voted: APPROVE", i + 1);
-                }
-                Err(e) => {
-                    println!("   ❌ Masternode {} vote failed: {}", i + 1, e);
-                }
-            }
+        // Vote locally
+        let _ = consensus
+            .vote_on_transaction(&txid, wallet_address.clone(), true)
+            .await;
+        println!("   ✅ Local node voted: APPROVE");
+
+        // Broadcast instant finality vote request to all peers
+        if let Some(broadcaster) = tx_broadcaster.as_ref() {
+            broadcaster.request_instant_finality_votes(tx.clone()).await;
         }
 
-        // Check if consensus reached
+        // Wait for votes to be collected (with timeout)
+        let vote_timeout = tokio::time::Duration::from_secs(5);
+        tokio::time::sleep(vote_timeout).await;
+
+        // Check vote counts from actual peer responses
+        let (approvals, rejections) = consensus.get_transaction_vote_count(&txid).await;
+        let total_votes = approvals + rejections;
+
+        println!(
+            "📊 Vote results: {} approvals, {} rejections (total {} votes from {} peers)",
+            approvals, rejections, total_votes, masternodes.len()
+        );
+
+        // Check if consensus reached based on actual votes received
         let has_consensus = consensus.has_transaction_consensus(&txid).await;
 
         if has_consensus {
             println!(
-                "✅ BFT consensus reached ({}/{} approvals)",
+                "✅ BFT consensus reached ({}/{} approvals from responding masternodes)",
                 approvals,
-                masternodes.len()
+                total_votes
             );
 
             // Finalize the transaction in mempool
@@ -1139,7 +1160,125 @@ async fn trigger_instant_finality_for_received_tx(
             // Clear votes after finalization
             consensus.clear_transaction_votes(&txid).await;
         } else {
-            println!("❌ BFT consensus NOT reached - transaction remains pending");
+            println!(
+                "❌ BFT consensus NOT reached ({}/{} approvals, need 2/3+) - transaction remains pending",
+                approvals, total_votes
+            );
         }
     });
+}
+
+/// Receive instant finality vote request from another node
+async fn receive_instant_finality_request(
+    State(state): State<ApiState>,
+    Json(tx): Json<time_core::Transaction>,
+) -> ApiResult<Json<serde_json::Value>> {
+    println!(
+        "📬 Received instant finality request for transaction {}",
+        &tx.txid[..16]
+    );
+
+    let consensus = state.consensus.clone();
+    let wallet_address = state.wallet_address.clone();
+    let tx_broadcaster = state.tx_broadcaster.clone();
+    let txid = tx.txid.clone();
+
+    // Validate the transaction
+    let is_valid = consensus.validate_transaction(&tx).await;
+
+    let vote_result = if is_valid {
+        "APPROVE ✓"
+    } else {
+        "REJECT ✗"
+    };
+    println!("   🗳️  Voting: {}", vote_result);
+
+    // Vote on the transaction
+    let _ = consensus
+        .vote_on_transaction(&txid, wallet_address.clone(), is_valid)
+        .await;
+
+    // Send vote back to the proposer
+    if let Some(broadcaster) = tx_broadcaster.as_ref() {
+        let vote = serde_json::json!({
+            "txid": txid,
+            "voter": wallet_address,
+            "approve": is_valid,
+            "timestamp": chrono::Utc::now().timestamp()
+        });
+        broadcaster.broadcast_instant_finality_vote(vote).await;
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "approved": is_valid
+    })))
+}
+
+/// Receive instant finality vote from another node
+async fn receive_instant_finality_vote(
+    State(state): State<ApiState>,
+    Json(vote): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let txid = vote["txid"]
+        .as_str()
+        .ok_or_else(|| ApiError::BadRequest("Missing txid in vote".to_string()))?;
+    let voter = vote["voter"]
+        .as_str()
+        .ok_or_else(|| ApiError::BadRequest("Missing voter in vote".to_string()))?;
+    let approve = vote["approve"]
+        .as_bool()
+        .ok_or_else(|| ApiError::BadRequest("Missing approve in vote".to_string()))?;
+
+    // Check if voter is quarantined
+    if let Some(quarantine) = state.quarantine.as_ref() {
+        if let Ok(voter_ip) = voter.parse::<std::net::IpAddr>() {
+            if quarantine.is_quarantined(&voter_ip).await {
+                if let Some(reason) = quarantine.get_reason(&voter_ip).await {
+                    println!(
+                        "🚫 Rejecting instant finality vote from quarantined peer {} (reason: {})",
+                        voter, reason
+                    );
+                }
+                return Err(ApiError::Internal(format!(
+                    "Voter {} is quarantined",
+                    voter
+                )));
+            }
+        }
+    }
+
+    let vote_type = if approve {
+        "APPROVE ✓"
+    } else {
+        "REJECT ✗"
+    };
+    println!(
+        "🗳️  Received instant finality vote for tx {}: {} from {}",
+        &txid[..16],
+        vote_type,
+        voter
+    );
+
+    // Record the vote
+    let consensus = state.consensus.clone();
+    match consensus
+        .vote_on_transaction(txid, voter.to_string(), approve)
+        .await
+    {
+        Ok(_) => {
+            let (approvals, rejections) = consensus.get_transaction_vote_count(txid).await;
+            println!(
+                "   📊 Current votes: {} approvals, {} rejections",
+                approvals, rejections
+            );
+        }
+        Err(e) => {
+            println!("   ⚠️  Failed to record vote: {}", e);
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true
+    })))
 }

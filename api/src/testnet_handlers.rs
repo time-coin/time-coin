@@ -151,7 +151,7 @@ pub async fn get_mint_info(State(state): State<ApiState>) -> ApiResult<Json<Mint
     }))
 }
 
-/// Trigger instant finality for a transaction via BFT consensus
+/// Trigger instant finality for a transaction via BFT consensus with real distributed voting
 async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::Transaction) {
     println!(
         "🚀 Initiating instant finality for transaction {}",
@@ -162,14 +162,17 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
     let mempool = state.mempool.clone();
     let blockchain = state.blockchain.clone();
     let txid = tx.txid.clone();
+    let tx_broadcaster = state.tx_broadcaster.clone();
+    let peer_manager = state.peer_manager.clone();
+    let wallet_address = state.wallet_address.clone();
 
     // Spawn async task to handle consensus voting
     tokio::spawn(async move {
-        // Get the current node's address (simulating as a masternode)
-        let masternodes = consensus.get_masternodes().await;
+        // Get connected masternodes (real peers only)
+        let masternodes = peer_manager.get_peer_ips().await;
 
         if masternodes.is_empty() {
-            println!("⚠️  No masternodes registered - auto-finalizing in dev mode");
+            println!("⚠️  No masternodes connected - auto-finalizing in dev mode");
             if let Some(mempool) = mempool.as_ref() {
                 let _ = mempool.finalize_transaction(&txid).await;
 
@@ -193,34 +196,43 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
             return;
         }
 
-        println!("📊 Collected {} masternodes for voting", masternodes.len());
+        println!(
+            "📊 Broadcasting transaction to {} masternodes for voting",
+            masternodes.len()
+        );
 
-        // Simulate voting from all masternodes (in production, this would happen via network)
-        let mut approvals = 0;
-        for (i, masternode) in masternodes.iter().enumerate() {
-            // Validate and vote on the transaction
-            match consensus
-                .validate_and_vote_transaction(&tx, masternode.clone())
-                .await
-            {
-                Ok(_) => {
-                    approvals += 1;
-                    println!("   ✅ Masternode {} voted: APPROVE", i + 1);
-                }
-                Err(e) => {
-                    println!("   ❌ Masternode {} vote failed: {}", i + 1, e);
-                }
-            }
+        // Vote locally as the proposer
+        let _ = consensus
+            .vote_on_transaction(&txid, wallet_address.clone(), true)
+            .await;
+        println!("   ✅ Local node voted: APPROVE");
+
+        // Broadcast instant finality vote request to all peers
+        if let Some(broadcaster) = tx_broadcaster.as_ref() {
+            broadcaster.request_instant_finality_votes(tx.clone()).await;
         }
 
-        // Check if consensus reached
+        // Wait for votes to be collected (with timeout)
+        let vote_timeout = tokio::time::Duration::from_secs(5);
+        tokio::time::sleep(vote_timeout).await;
+
+        // Check vote counts from actual peer responses
+        let (approvals, rejections) = consensus.get_transaction_vote_count(&txid).await;
+        let total_votes = approvals + rejections;
+
+        println!(
+            "📊 Vote results: {} approvals, {} rejections (total {} votes from {} peers)",
+            approvals, rejections, total_votes, masternodes.len()
+        );
+
+        // Check if consensus reached based on actual votes received
         let has_consensus = consensus.has_transaction_consensus(&txid).await;
 
         if has_consensus {
             println!(
-                "✅ BFT consensus reached ({}/{} approvals)",
+                "✅ BFT consensus reached ({}/{} approvals from responding masternodes)",
                 approvals,
-                masternodes.len()
+                total_votes
             );
 
             // Finalize the transaction in mempool
@@ -253,7 +265,10 @@ async fn trigger_instant_finality(state: ApiState, tx: time_core::transaction::T
             // Clear votes after finalization
             consensus.clear_transaction_votes(&txid).await;
         } else {
-            println!("❌ BFT consensus NOT reached - transaction remains pending");
+            println!(
+                "❌ BFT consensus NOT reached ({}/{} approvals, need 2/3+) - transaction remains pending",
+                approvals, total_votes
+            );
         }
     });
 }
