@@ -49,6 +49,9 @@ pub struct ConsensusEngine {
     /// Development mode flag
     dev_mode: bool,
 
+    /// Network type ("mainnet" or "testnet")
+    network: String,
+
     /// Registered masternodes (addresses)
     masternodes: Arc<RwLock<Vec<String>>>,
 
@@ -67,8 +70,13 @@ pub struct ConsensusEngine {
 
 impl ConsensusEngine {
     pub fn new(dev_mode: bool) -> Self {
+        Self::new_with_network(dev_mode, "mainnet".to_string())
+    }
+
+    pub fn new_with_network(dev_mode: bool, network: String) -> Self {
         Self {
             dev_mode,
+            network,
             masternodes: Arc::new(RwLock::new(Vec::new())),
             wallet_addresses: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(None)),
@@ -421,9 +429,16 @@ impl ConsensusEngine {
             }
         }
 
-        // Coinbase transactions (no inputs) are valid for testnet minting
+        // Coinbase transactions (no inputs) are ONLY valid on testnet for minting
+        // Mainnet should reject coinbase transactions unless they're in blocks
         if tx.inputs.is_empty() {
-            return true;
+            if self.network == "testnet" {
+                println!("   ✓ Testnet coinbase transaction accepted for instant finality");
+                return true;
+            } else {
+                println!("   ✗ Mainnet coinbase transaction rejected (only allowed in blocks)");
+                return false;
+            }
         }
 
         // For regular transactions, verify structure

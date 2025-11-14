@@ -1171,8 +1171,9 @@ async fn main() {
     // STEP 5: Initialize consensus and services
     // ═══════════════════════════════════════════════════════════════
 
-    // Initialize Consensus Engine
-    let consensus = Arc::new(ConsensusEngine::new(is_dev_mode));
+    // Initialize Consensus Engine with network type
+    let network_str = if is_testnet { "testnet" } else { "mainnet" };
+    let consensus = Arc::new(ConsensusEngine::new_with_network(is_dev_mode, network_str.to_string()));
 
     let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
         if let Ok(ip) = local_ip_address::local_ip() {
