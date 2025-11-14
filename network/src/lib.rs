@@ -156,5 +156,60 @@ pub mod tx_broadcast {
                 });
             }
         }
+
+        /// Request instant finality votes from all peers
+        pub async fn request_instant_finality_votes(&self, tx: Transaction) {
+            // Query PeerManager directly for LIVE connected peers only
+            let peers = self.peer_manager.get_peer_ips().await;
+
+            println!(
+                "📡 Requesting instant finality votes from {} peers",
+                peers.len()
+            );
+
+            for peer in peers {
+                let tx_clone = tx.clone();
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    let url = format!("http://{}:24101/consensus/instant-finality-request", peer);
+
+                    match client
+                        .post(&url)
+                        .json(&tx_clone)
+                        .timeout(std::time::Duration::from_secs(3))
+                        .send()
+                        .await
+                    {
+                        Ok(_) => {
+                            println!("   ✓ Vote request sent to {}", peer);
+                        }
+                        Err(e) => {
+                            println!("   ✗ Failed to send vote request to {}: {}", peer, e);
+                        }
+                    }
+                });
+            }
+        }
+
+        /// Broadcast instant finality vote to all peers
+        pub async fn broadcast_instant_finality_vote(&self, vote: serde_json::Value) {
+            // Query PeerManager directly for LIVE connected peers only
+            let peers = self.peer_manager.get_peer_ips().await;
+
+            for peer in peers {
+                let vote_clone = vote.clone();
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    let url = format!("http://{}:24101/consensus/instant-finality-vote", peer);
+
+                    let _ = client
+                        .post(&url)
+                        .json(&vote_clone)
+                        .timeout(std::time::Duration::from_secs(3))
+                        .send()
+                        .await;
+                });
+            }
+        }
     }
 }
