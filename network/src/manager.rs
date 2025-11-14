@@ -4,7 +4,7 @@ use crate::discovery::{NetworkType, PeerInfo};
 use crate::protocol::{NetworkMessage, TransactionMessage};
 use local_ip_address::local_ip;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -24,9 +24,9 @@ pub struct Snapshot {
 pub struct PeerManager {
     network: NetworkType,
     listen_addr: SocketAddr,
-    peers: Arc<RwLock<HashMap<SocketAddr, PeerInfo>>>,
+    peers: Arc<RwLock<HashMap<IpAddr, PeerInfo>>>,
     peer_exchange: Arc<RwLock<crate::peer_exchange::PeerExchange>>,
-    last_seen: Arc<RwLock<HashMap<SocketAddr, Instant>>>,
+    last_seen: Arc<RwLock<HashMap<IpAddr, Instant>>>,
     stale_after: Duration,
     reaper_interval: Duration,
     /// Track recently broadcast peers to prevent re-broadcasting
@@ -63,13 +63,13 @@ impl PeerManager {
     /// Mark that we have recent evidence the peer is alive.
     /// Call this when you receive a heartbeat/pong, upon successful connect, or
     /// periodically while a connection's keep-alive is running.
-    pub async fn peer_seen(&self, addr: SocketAddr) {
+    pub async fn peer_seen(&self, addr: IpAddr) {
         let mut ls = self.last_seen.write().await;
         ls.insert(addr, Instant::now());
     }
 
     /// Remove a connected peer and clear last_seen. Centralized removal + logging.
-    pub async fn remove_connected_peer(&self, addr: &SocketAddr) {
+    pub async fn remove_connected_peer(&self, addr: &IpAddr) {
         let mut peers = self.peers.write().await;
         let removed = peers.remove(addr).is_some();
 
@@ -96,6 +96,7 @@ impl PeerManager {
         }
 
         let peer_addr = peer.address;
+        let peer_ip = peer_addr.ip();
         let peer_arc = Arc::new(tokio::sync::Mutex::new(peer.clone()));
 
         match PeerConnection::connect(
@@ -112,11 +113,11 @@ impl PeerManager {
                 let info = conn.peer_info().await;
                 info!(peer = %info.address, version = %info.version, "connected to peer");
 
-                // Insert into the active peers map
-                self.peers.write().await.insert(peer_addr, info.clone());
+                // Insert into the active peers map using IP address as key
+                self.peers.write().await.insert(peer_ip, info.clone());
 
                 // mark last-seen immediately
-                self.peer_seen(peer_addr).await;
+                self.peer_seen(peer_ip).await;
 
                 // Persist discovery / mark success in peer exchange
                 self.add_discovered_peer(
@@ -182,8 +183,8 @@ impl PeerManager {
                             break;
                         }
 
-                        // Refresh last-seen timestamp for this peer
-                        manager_clone.peer_seen(peer_addr).await;
+                        // Refresh last-seen timestamp for this peer using IP address
+                        manager_clone.peer_seen(peer_ip).await;
 
                         // Sleep a short interval before refreshing again
                         time::sleep(Duration::from_secs(10)).await;
@@ -195,7 +196,7 @@ impl PeerManager {
                     debug!(peer = %peer_addr, "peer keep_alive finished");
 
                     // Always attempt to remove the peer from active map when the connection finishes.
-                    if peers_clone.write().await.remove(&peer_addr).is_some() {
+                    if peers_clone.write().await.remove(&peer_ip).is_some() {
                         info!(peer = %peer_addr, "removed peer from active peers after disconnect");
                     } else {
                         debug!(peer = %peer_addr, "peer not present in active peers map at disconnect");
@@ -203,7 +204,7 @@ impl PeerManager {
 
                     // Ensure last_seen entry is cleared as well
                     let mut ls = manager_clone.last_seen.write().await;
-                    ls.remove(&peer_addr);
+                    ls.remove(&peer_ip);
                 });
 
                 Ok(())
@@ -251,24 +252,26 @@ impl PeerManager {
             return;
         }
 
+        let peer_ip = peer.address.ip();
+
         let is_new_peer = {
             let peers = self.peers.read().await;
-            !peers.contains_key(&peer.address)
+            !peers.contains_key(&peer_ip)
         };
 
         {
             let mut peers = self.peers.write().await;
-            if let Some(existing) = peers.get(&peer.address) {
+            if let Some(existing) = peers.get(&peer_ip) {
                 // keep an existing known good version over unknown version
                 if existing.version != "unknown" && peer.version == "unknown" {
                     return;
                 }
             }
-            peers.insert(peer.address, peer.clone());
+            peers.insert(peer_ip, peer.clone());
         }
 
         // mark last-seen on add
-        self.peer_seen(peer.address).await;
+        self.peer_seen(peer_ip).await;
 
         // Use standard listening port for peer exchange to avoid ephemeral port duplication
         // Ephemeral ports (>=49152) indicate outgoing connections, not listening addresses
@@ -547,10 +550,10 @@ impl PeerManager {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
-        for (addr, _info) in peers {
+        for (peer_ip, _info) in peers {
             let proposal_clone = proposal.clone();
             tokio::spawn(async move {
-                let url = format!("http://{}:{}/consensus/block-proposal", addr.ip(), api_port);
+                let url = format!("http://{}:{}/consensus/block-proposal", peer_ip, api_port);
                 let _ = reqwest::Client::new()
                     .post(&url)
                     .json(&proposal_clone)
@@ -567,10 +570,10 @@ impl PeerManager {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
-        for (addr, _info) in peers {
+        for (peer_ip, _info) in peers {
             let vote_clone = vote.clone();
             tokio::spawn(async move {
-                let url = format!("http://{}:{}/consensus/block-vote", addr.ip(), api_port);
+                let url = format!("http://{}:{}/consensus/block-vote", peer_ip, api_port);
                 let _ = reqwest::Client::new()
                     .post(&url)
                     .json(&vote_clone)
@@ -646,14 +649,16 @@ impl PeerManager {
             NetworkType::Testnet => (24100, 24101),
         };
 
-        for (addr, _info) in peers {
+        let new_peer_ip = new_peer_info.address.ip();
+
+        for (peer_ip, _info) in peers {
             // Don't broadcast to the peer itself
-            if addr == new_peer_info.address {
+            if peer_ip == new_peer_ip {
                 continue;
             }
 
             // Don't send broadcast back to ourselves
-            if addr == my_addr {
+            if peer_ip == my_addr.ip() {
                 continue;
             }
 
@@ -662,7 +667,7 @@ impl PeerManager {
             let new_peer_version = new_peer_info.version.clone();
 
             tokio::spawn(async move {
-                let url = format!("http://{}:{}/peers/discovered", addr.ip(), api_port);
+                let url = format!("http://{}:{}/peers/discovered", peer_ip, api_port);
                 let payload = serde_json::json!({
                     "address": new_peer_addr,
                     "version": new_peer_version,
@@ -677,13 +682,13 @@ impl PeerManager {
                     Ok(response) => {
                         if response.status().is_success() {
                             debug!(
-                                target_peer = %addr,
+                                target_peer = %peer_ip,
                                 new_peer = %new_peer_addr,
                                 "Successfully notified peer about new connection"
                             );
                         } else {
                             debug!(
-                                target_peer = %addr,
+                                target_peer = %peer_ip,
                                 new_peer = %new_peer_addr,
                                 status = %response.status(),
                                 "Peer notification returned error status"
@@ -692,7 +697,7 @@ impl PeerManager {
                     }
                     Err(e) => {
                         debug!(
-                            target_peer = %addr,
+                            target_peer = %peer_ip,
                             new_peer = %new_peer_addr,
                             error = %e,
                             "Failed to notify peer about new connection"
@@ -756,19 +761,26 @@ impl PeerManager {
             loop {
                 ticker.tick().await;
 
-                // Get currently connected peer addresses
-                let connected_addrs: std::collections::HashSet<String> = {
+                // Get currently connected peer IP addresses
+                let connected_ips: std::collections::HashSet<IpAddr> = {
                     let peers = manager.peers.read().await;
-                    peers.keys().map(|addr| addr.to_string()).collect()
+                    peers.keys().copied().collect()
                 };
 
                 // Get best known peers from peer exchange
                 let best_peers = manager.get_best_peers(10).await;
 
-                // Filter to only peers that aren't currently connected
+                // Filter to only peers that aren't currently connected (by IP)
                 let disconnected_peers: Vec<_> = best_peers
                     .into_iter()
-                    .filter(|p| !connected_addrs.contains(&p.full_address()))
+                    .filter(|p| {
+                        // Parse the IP from the full address and check if it's not connected
+                        if let Ok(addr) = p.full_address().parse::<SocketAddr>() {
+                            !connected_ips.contains(&addr.ip())
+                        } else {
+                            false
+                        }
+                    })
                     .collect();
 
                 if !disconnected_peers.is_empty() {
@@ -970,5 +982,95 @@ mod tests {
 
         // The manager should use port 24100 for P2P and 24101 for API
         // This is verified by the logic in functions like request_genesis, request_mempool, etc.
+    }
+
+    #[tokio::test]
+    async fn test_same_ip_different_ports_counted_once() {
+        // Test that multiple connections from the same IP with different ports
+        // are counted as a single peer (fixes the duplicate peer counting issue)
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+
+        // Create three peers with the same IP but different ports (simulating ephemeral ports)
+        let peer1 = PeerInfo::with_version(
+            "178.128.199.144:52341".parse().unwrap(),
+            NetworkType::Testnet,
+            "0.1.0".to_string(),
+        );
+        let peer2 = PeerInfo::with_version(
+            "178.128.199.144:52342".parse().unwrap(),
+            NetworkType::Testnet,
+            "0.1.0".to_string(),
+        );
+        let peer3 = PeerInfo::with_version(
+            "178.128.199.144:52343".parse().unwrap(),
+            NetworkType::Testnet,
+            "0.1.0".to_string(),
+        );
+
+        // Add all three "peers" (which are actually the same peer with different ephemeral ports)
+        manager.add_connected_peer(peer1.clone()).await;
+        manager.add_connected_peer(peer2.clone()).await;
+        manager.add_connected_peer(peer3.clone()).await;
+
+        // Verify that only 1 peer is counted (not 3)
+        let peer_count = manager.active_peer_count().await;
+        assert_eq!(
+            peer_count, 1,
+            "Expected 1 peer (same IP), but got {}",
+            peer_count
+        );
+
+        // Verify the connected peers list has only 1 entry
+        let connected_peers = manager.get_connected_peers().await;
+        assert_eq!(
+            connected_peers.len(),
+            1,
+            "Expected 1 connected peer, but got {}",
+            connected_peers.len()
+        );
+
+        // The stored peer should have the most recent connection info (peer3)
+        assert_eq!(connected_peers[0].address, peer3.address);
+    }
+
+    #[tokio::test]
+    async fn test_different_ips_counted_separately() {
+        // Test that connections from different IPs are counted separately
+        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+
+        // Create three peers with different IPs
+        let peer1 = PeerInfo::with_version(
+            "178.128.199.144:24100".parse().unwrap(),
+            NetworkType::Testnet,
+            "0.1.0".to_string(),
+        );
+        let peer2 = PeerInfo::with_version(
+            "192.168.1.100:24100".parse().unwrap(),
+            NetworkType::Testnet,
+            "0.1.0".to_string(),
+        );
+        let peer3 = PeerInfo::with_version(
+            "10.0.0.1:24100".parse().unwrap(),
+            NetworkType::Testnet,
+            "0.1.0".to_string(),
+        );
+
+        // Add all three peers
+        manager.add_connected_peer(peer1.clone()).await;
+        manager.add_connected_peer(peer2.clone()).await;
+        manager.add_connected_peer(peer3.clone()).await;
+
+        // Verify that all 3 peers are counted
+        let peer_count = manager.active_peer_count().await;
+        assert_eq!(peer_count, 3, "Expected 3 peers, but got {}", peer_count);
+
+        // Verify the connected peers list has 3 entries
+        let connected_peers = manager.get_connected_peers().await;
+        assert_eq!(
+            connected_peers.len(),
+            3,
+            "Expected 3 connected peers, but got {}",
+            connected_peers.len()
+        );
     }
 }
