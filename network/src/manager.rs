@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{debug, info, warn};
 
@@ -128,7 +127,10 @@ impl PeerManager {
 
                 // Store the TCP connection for two-way communication
                 let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
-                self.connections.write().await.insert(peer_ip, conn_arc.clone());
+                self.connections
+                    .write()
+                    .await
+                    .insert(peer_ip, conn_arc.clone());
 
                 // mark last-seen immediately
                 self.peer_seen(peer_ip).await;
@@ -188,7 +190,7 @@ impl PeerManager {
                     // Run keep_alive loop manually using the shared connection
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        
+
                         let mut conn_guard = conn_arc_clone.lock().await;
                         if conn_guard.ping().await.is_err() {
                             break;
@@ -626,27 +628,32 @@ impl PeerManager {
 
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
         let proposal_json = proposal.to_string();
-        let message = crate::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json.clone());
-        
+        let message =
+            crate::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json.clone());
+
         let peers = self.peers.read().await.clone();
         let api_port = match self.network {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
-        
+
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
             let msg_clone = message.clone();
             let proposal_clone = proposal.clone();
             let manager_clone = self.clone();
-            
+
             tokio::spawn(async move {
                 // Try TCP first
-                if manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await.is_ok() {
+                if manager_clone
+                    .send_to_peer_tcp(peer_ip, msg_clone)
+                    .await
+                    .is_ok()
+                {
                     debug!(peer = %peer_ip, "Sent block proposal via TCP");
                     return;
                 }
-                
+
                 // Fall back to HTTP if TCP unavailable
                 let url = format!("http://{}:{}/consensus/block-proposal", peer_ip, api_port);
                 let _ = reqwest::Client::new()
@@ -662,26 +669,30 @@ impl PeerManager {
     pub async fn broadcast_block_vote(&self, vote: serde_json::Value) {
         let vote_json = vote.to_string();
         let message = crate::protocol::NetworkMessage::ConsensusBlockVote(vote_json.clone());
-        
+
         let peers = self.peers.read().await.clone();
         let api_port = match self.network {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
-        
+
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
             let msg_clone = message.clone();
             let vote_clone = vote.clone();
             let manager_clone = self.clone();
-            
+
             tokio::spawn(async move {
                 // Try TCP first
-                if manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await.is_ok() {
+                if manager_clone
+                    .send_to_peer_tcp(peer_ip, msg_clone)
+                    .await
+                    .is_ok()
+                {
                     debug!(peer = %peer_ip, "Sent block vote via TCP");
                     return;
                 }
-                
+
                 // Fall back to HTTP if TCP unavailable
                 let url = format!("http://{}:{}/consensus/block-vote", peer_ip, api_port);
                 let _ = reqwest::Client::new()
@@ -978,6 +989,7 @@ impl Clone for PeerManager {
             public_addr: self.public_addr,
             listen_addr: self.listen_addr,
             peers: self.peers.clone(),
+            connections: self.connections.clone(),
             peer_exchange: self.peer_exchange.clone(),
             last_seen: self.last_seen.clone(),
             stale_after: self.stale_after,

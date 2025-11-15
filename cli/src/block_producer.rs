@@ -1278,7 +1278,9 @@ impl BlockProducer {
 
         // CRITICAL: Update block_consensus manager's masternode list before starting
         // This ensures votes from all masternodes (including self) are authorized
-        self.block_consensus.set_masternodes(masternodes.to_vec()).await;
+        self.block_consensus
+            .set_masternodes(masternodes.to_vec())
+            .await;
 
         // Initialize foolproof system
         let foolproof = FoolproofBlockManager::new(FoolproofConfig::default());
