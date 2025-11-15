@@ -172,7 +172,24 @@ impl BlockProducer {
             println!("   ⚠️  Cannot create catch-up blocks in BOOTSTRAP mode");
             println!("   ℹ️  Chain sync will download blocks from peers");
             println!("   ▶️ Waiting for BFT mode (need 3+ masternodes)...");
-            return;
+
+            // Wait and periodically re-check if BFT mode is reached
+            for _ in 0..12 {
+                // Check every 5 seconds for 1 minute
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                let mode = self.consensus.consensus_mode().await;
+                if mode == time_consensus::ConsensusMode::BFT {
+                    println!("   ✅ BFT mode activated! Proceeding with catch-up...");
+                    break;
+                }
+            }
+
+            // Final check - if still not BFT, give up for now
+            let final_mode = self.consensus.consensus_mode().await;
+            if final_mode != time_consensus::ConsensusMode::BFT {
+                println!("   ⚠️  Still in BOOTSTRAP mode after waiting - will retry next cycle");
+                return;
+            }
         }
 
         // Check if we have enough masternodes
