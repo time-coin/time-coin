@@ -213,15 +213,20 @@ impl BlockProducer {
                 let url = format!("http://{}:24101/blockchain/info", peer_ip);
                 if let Ok(response) = reqwest::get(&url).await {
                     if let Ok(info) = response.json::<BlockchainInfo>().await {
-                        if info.height >= expected_height {
-                            println!("      Peer height: {}", info.height);
-                            println!("      ✓ Peer has all blocks! Syncing from peer...");
+                        println!("      Peer {} height: {}", peer_ip, info.height);
+                        
+                        // If peer has ANY of the blocks we need, try to sync
+                        if info.height > actual_height {
+                            println!("      ✓ Peer has blocks we need! Syncing from peer...");
 
                             // Download blocks from peer
                             let mut blockchain = self.blockchain.write().await;
                             let current_height = blockchain.chain_tip_height();
+                            
+                            // Only sync up to what the peer has
+                            let sync_to_height = std::cmp::min(info.height, expected_height);
 
-                            for height in (current_height + 1)..=expected_height {
+                            for height in (current_height + 1)..=sync_to_height {
                                 println!("      🔽 Downloading block #{}...", height);
 
                                 match reqwest::get(format!(
@@ -268,19 +273,41 @@ impl BlockProducer {
                                             return;
                                         }
                                     },
-                                    Err(e) => {
+                                     Err(e) => {
                                         println!("         ✗ Failed to download block: {:?}", e);
-                                        return;
+                                        // Don't return, try next peer
+                                        break; // Exit inner block loop, try next peer
                                     }
                                 }
                             }
-                            println!("      ✔ Sync complete!");
-                            return;
+                            
+                            // Update height and check if we're done
+                            drop(blockchain); // Release lock
+                            let new_height = self.blockchain.read().await.chain_tip_height();
+                            
+                            if new_height >= sync_to_height {
+                                println!("      ✔ Synced to height {}!", new_height);
+                                if new_height >= expected_height {
+                                    println!("      ✔ All blocks synced!");
+                                    return;
+                                }
+                                // Continue to create remaining blocks if needed
+                            }
                         }
                     }
                 }
             }
-            println!("      ℹ️ No peers have the missing blocks yet");
+            
+            // Check current height after trying all peers
+            let final_height = self.blockchain.read().await.chain_tip_height();
+            if final_height >= expected_height {
+                println!("      ✔ Sync complete!");
+                return;
+            } else if final_height > actual_height {
+                println!("      ℹ️ Partially synced to height {}, will create remaining blocks", final_height);
+            } else {
+                println!("      ℹ️ No peers have the missing blocks yet");
+            }
         }
 
         // Wait for BFT consensus to stabilize
