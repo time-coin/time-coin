@@ -250,31 +250,6 @@ CONFIGEOF
 create_systemd_service() {
     print_header "Creating Systemd Service ${SERVICE_NAME}.service"
 
-    # Prompt for required environment variables
-    print_info "Node configuration - these are REQUIRED for consensus voting:"
-    echo ""
-    
-    # Get public IP (with auto-detect fallback)
-    DEFAULT_IP=$(curl -s ifconfig.me 2>/dev/null || echo "")
-    if [ -n "$DEFAULT_IP" ]; then
-        read -p "Enter NODE_PUBLIC_IP [$DEFAULT_IP]: " NODE_IP
-        NODE_IP=${NODE_IP:-$DEFAULT_IP}
-    else
-        read -p "Enter NODE_PUBLIC_IP (e.g., 69.167.168.176): " NODE_IP
-    fi
-    
-    # Get wallet address
-    read -p "Enter MASTERNODE_WALLET address: " WALLET_ADDR
-    
-    if [ -z "$NODE_IP" ]; then
-        print_error "NODE_PUBLIC_IP is required!"
-        exit 1
-    fi
-    
-    if [ -z "$WALLET_ADDR" ]; then
-        print_warning "MASTERNODE_WALLET not set - node won't earn rewards"
-    fi
-
     cat > /etc/systemd/system/${SERVICE_NAME}.service <<SERVICEEOF
 [Unit]
 Description=TIME Coin Testnet Masternode
@@ -285,11 +260,6 @@ Type=simple
 ExecStart=/usr/local/bin/timed --config $CONFIG_DIR/testnet.toml
 Restart=always
 RestartSec=10
-
-# CRITICAL: Environment variables for consensus voting
-Environment="NODE_PUBLIC_IP=${NODE_IP}"
-Environment="MASTERNODE_WALLET=${WALLET_ADDR}"
-
 StandardOutput=journal
 StandardError=journal
 WorkingDirectory=$NODE_DIR
@@ -302,10 +272,6 @@ SERVICEEOF
     systemctl daemon-reload
 
     print_success "Systemd service created at /etc/systemd/system/${SERVICE_NAME}.service"
-    print_success "NODE_PUBLIC_IP set to: ${NODE_IP}"
-    if [ -n "$WALLET_ADDR" ]; then
-        print_success "MASTERNODE_WALLET set to: ${WALLET_ADDR}"
-    fi
 }
 
 #############################
