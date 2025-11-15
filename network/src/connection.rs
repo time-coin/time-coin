@@ -333,22 +333,11 @@ impl PeerListener {
         let our_handshake = HandshakeMessage::new(self.network.clone(), self.our_listen_addr);
         PeerConnection::send_handshake(&mut stream, &our_handshake, &self.network).await?;
 
-        // Normalize ephemeral ports to standard P2P ports
-        // Ephemeral ports (>= 49152) indicate client-side source ports, not listening ports
-        // Replace them with the network's standard P2P port for proper peer-to-peer communication
-        let normalized_port = if addr.port() >= 49152 {
-            match self.network {
-                NetworkType::Mainnet => 24000,
-                NetworkType::Testnet => 24100,
-            }
-        } else {
-            addr.port()
-        };
-
-        let normalized_addr = SocketAddr::new(addr.ip(), normalized_port);
-
-        let mut peer_info =
-            PeerInfo::with_version(normalized_addr, self.network.clone(), their_handshake.version.clone());
+        let mut peer_info = PeerInfo::with_version(
+            their_handshake.listen_addr,
+            self.network.clone(),
+            their_handshake.version.clone(),
+        );
 
         // Update with commit information from handshake
         peer_info.commit_date = their_handshake.commit_date.clone();
