@@ -97,6 +97,8 @@ pub async fn vote_proposal(
 ) -> ApiResult<Json<VoteProposalResponse>> {
     // Get node ID (voter)
     let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| "unknown".to_string());
+    
+    println!("📋 Vote request from node_id: {}", node_id);
 
     // Get proposal manager from consensus
     let consensus = &state.consensus;
@@ -106,10 +108,15 @@ pub async fn vote_proposal(
         .ok_or_else(|| ApiError::Internal("Proposal manager not available".to_string()))?;
 
     // Check if voter is a masternode
+    let masternodes = consensus.get_masternodes().await;
+    println!("   📋 Registered masternodes: {:?}", masternodes);
+    
     let is_masternode = consensus.is_masternode(&node_id).await;
+    println!("   🔍 Is {} a masternode? {}", node_id, is_masternode);
+    
     if !is_masternode {
         return Err(ApiError::BadRequest(
-            "Only masternodes can vote on proposals".to_string(),
+            format!("Only masternodes can vote on proposals. Your node_id '{}' is not in the masternode list: {:?}", node_id, masternodes),
         ));
     }
 
