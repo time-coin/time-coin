@@ -1508,7 +1508,8 @@ async fn main() {
                                 .green()
                             );
 
-                            peer_manager_clone.add_connected_peer(info.clone()).await;
+                            // IMPORTANT: Store both peer info AND connection to prevent ephemeral connections
+                            peer_manager_clone.add_connected_peer_with_connection(info.clone(), conn).await;
 
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone

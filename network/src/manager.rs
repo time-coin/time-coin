@@ -300,6 +300,60 @@ impl PeerManager {
         }
     }
 
+    /// Add a connected peer WITH its connection object (for incoming connections)
+    /// This ensures the connection is stored and maintained, not just the peer info
+    pub async fn add_connected_peer_with_connection(
+        &self,
+        peer: PeerInfo,
+        conn: crate::connection::PeerConnection,
+    ) {
+        if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
+            return;
+        }
+
+        let peer_ip = peer.address.ip();
+
+        let is_new_peer = {
+            let peers = self.peers.read().await;
+            !peers.contains_key(&peer_ip)
+        };
+
+        {
+            let mut peers = self.peers.write().await;
+            if let Some(existing) = peers.get(&peer_ip) {
+                // keep an existing known good version over unknown version
+                if existing.version != "unknown" && peer.version == "unknown" {
+                    return;
+                }
+            }
+            peers.insert(peer_ip, peer.clone());
+        }
+
+        // Store the TCP connection for two-way communication
+        let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
+        self.connections
+            .write()
+            .await
+            .insert(peer_ip, conn_arc);
+
+        // mark last-seen on add
+        self.peer_seen(peer_ip).await;
+
+        // Since we now use listen_addr from handshake, the address/port is always correct
+        self.add_discovered_peer(
+            peer.address.ip().to_string(),
+            peer.address.port(),
+            peer.version.clone(),
+        )
+        .await;
+
+        // Broadcast the newly connected peer to all other connected peers
+        // Only broadcast if this is a genuinely new peer, not an update
+        if is_new_peer {
+            self.broadcast_new_peer(&peer).await;
+        }
+    }
+
     pub async fn get_peer_ips(&self) -> Vec<String> {
         // Return host:port strings (unique) rather than bare IPs
         self.peers
