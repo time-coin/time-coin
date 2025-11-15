@@ -1810,9 +1810,6 @@ impl BlockProducer {
             }
         });
 
-        // Build outputs with masternode rewards only (no treasury pre-allocation)
-        let mut outputs = vec![];
-
         // Pay all registered masternodes (simplified approach)
         let all_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_all_masternodes()
@@ -1826,19 +1823,39 @@ impl BlockProducer {
             })
             .collect();
 
+        // Build outputs with masternode rewards AND treasury allocation
+        let mut outputs = vec![];
+
         println!(
             "      💰 Distributing rewards to {} registered masternodes",
             all_masternodes.len()
         );
 
-        // Distribute rewards to all registered masternodes
+        // Distribute rewards to all registered masternodes and get outputs
+        let masternode_outputs =
+            distribute_masternode_rewards(&all_masternodes, &masternode_counts);
+
+        // Calculate total rewards from the outputs
+        let total_masternode_rewards: u64 = masternode_outputs.iter().map(|o| o.amount).sum();
+
+        // Add treasury output (10% of total masternode rewards)
+        let treasury_amount =
+            time_core::block::calculate_treasury_allocation(total_masternode_rewards);
+        if treasury_amount > 0 {
+            outputs.push(time_core::transaction::TxOutput {
+                amount: treasury_amount,
+                address: "TREASURY".to_string(),
+            });
+            println!(
+                "      💰 Added treasury allocation: {} TIME",
+                treasury_amount
+            );
+        }
+
+        // Add masternode reward outputs
+        outputs.extend(masternode_outputs);
+
         if !all_masternodes.is_empty() {
-            // Use the built-in distribution function
-            let masternode_outputs =
-                distribute_masternode_rewards(&all_masternodes, &masternode_counts);
-
-            outputs.extend(masternode_outputs);
-
             println!(
                 "      ✓ Added {} masternode reward outputs",
                 all_masternodes.len()
