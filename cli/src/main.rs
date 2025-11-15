@@ -1224,10 +1224,21 @@ async fn main() {
 
     // Initialize Consensus Engine with network type
     let network_str = if is_testnet { "testnet" } else { "mainnet" };
-    let consensus = Arc::new(ConsensusEngine::new_with_network(
-        is_dev_mode,
-        network_str.to_string(),
+    let mut consensus = ConsensusEngine::new_with_network(is_dev_mode, network_str.to_string());
+
+    // Initialize proposal manager
+    let proposal_manager = Arc::new(time_consensus::proposals::ProposalManager::new(
+        data_dir.clone(),
     ));
+
+    // Load proposals from disk
+    if let Err(e) = proposal_manager.load().await {
+        eprintln!("⚠️  Failed to load proposals: {}", e);
+    }
+
+    consensus.set_proposal_manager(proposal_manager);
+
+    let consensus = Arc::new(consensus);
 
     // node_id already defined earlier for peer manager
 
