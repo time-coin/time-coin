@@ -894,6 +894,9 @@ async fn receive_block_proposal(
         block_proposal.block_height
     );
     println!("   Proposer: {}", block_proposal.proposer);
+    if let Some(ref strategy) = block_proposal.strategy {
+        println!("   Strategy: {}", strategy);
+    }
     if !block_proposal.block_hash.is_empty() {
         println!("   Block hash: {}...", &block_proposal.block_hash[..16]);
     } else {

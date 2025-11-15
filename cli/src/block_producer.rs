@@ -1369,6 +1369,7 @@ impl BlockProducer {
                     previous_hash: block.header.previous_hash.clone(),
                     timestamp: timestamp.timestamp(),
                     is_reward_only: false, // Catch-up blocks are not marked as reward-only
+                    strategy: Some(format!("{:?}", strategy)), // Include strategy for synchronization
                 };
 
                 self.block_consensus.propose_block(proposal.clone()).await;
@@ -1388,10 +1389,13 @@ impl BlockProducer {
             }
 
             // Step 2: Wait for consensus with strategy-specific timeout
+            // NOTE: All nodes wait for ANY valid proposal, regardless of strategy mismatch
+            // This ensures network converges even if nodes are on different strategy rounds
             println!(
                 "   ▶️ Waiting for consensus (timeout: {}s)...",
                 timeout_secs
             );
+            println!("   ℹ️  Will accept proposals from ANY strategy to ensure convergence");
 
             let start_time = Utc::now();
             let mut best_votes = 0;

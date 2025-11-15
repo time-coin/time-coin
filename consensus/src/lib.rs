@@ -910,6 +910,8 @@ pub mod block_consensus {
         pub timestamp: i64,
         #[serde(default)]
         pub is_reward_only: bool,
+        #[serde(default)]
+        pub strategy: Option<String>, // Foolproof strategy name
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
