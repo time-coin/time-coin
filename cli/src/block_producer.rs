@@ -1298,6 +1298,28 @@ impl BlockProducer {
 
         println!("   🆔 My node ID: {}", my_id);
         println!("   📋 Masternode list: {:?}", masternodes);
+        
+        // Test connectivity to all masternodes
+        println!("   🔍 Testing connectivity to masternodes...");
+        for node in masternodes {
+            let url = format!("http://{}:24101/health", node);
+            match reqwest::Client::new()
+                .get(&url)
+                .timeout(Duration::from_secs(2))
+                .send()
+                .await
+            {
+                Ok(response) if response.status().is_success() => {
+                    println!("      ✓ {} is reachable", node);
+                }
+                Ok(response) => {
+                    println!("      ⚠️  {} responded with status: {}", node, response.status());
+                }
+                Err(e) => {
+                    println!("      ✗ {} is NOT reachable: {}", node, e);
+                }
+            }
+        }
 
         // Try each strategy in the foolproof chain
         loop {
@@ -1723,11 +1745,20 @@ impl BlockProducer {
             .send()
             .await;
 
-        if result.is_err() {
-            println!(
-                "   ⚠️ Failed to notify leader {} - they may be offline",
-                leader_ip
-            );
+        match result {
+            Ok(response) if response.status().is_success() => {
+                println!("      ✓ Leader {} acknowledged the request", leader_ip);
+            }
+            Ok(response) => {
+                println!(
+                    "      ⚠️  Leader {} responded with status: {}",
+                    leader_ip,
+                    response.status()
+                );
+            }
+            Err(e) => {
+                println!("      ✗ Failed to notify leader {}: {}", leader_ip, e);
+            }
         }
     }
 
