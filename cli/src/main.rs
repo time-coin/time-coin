@@ -538,6 +538,28 @@ async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
     }
 }
 
+fn detect_public_ip() -> Option<String> {
+    let services = [
+        "https://ifconfig.me/ip",
+        "https://api.ipify.org",
+        "https://icanhazip.com",
+    ];
+    
+    for service in &services {
+        if let Ok(response) = reqwest::blocking::get(*service) {
+            if let Ok(ip) = response.text() {
+                let ip = ip.trim().to_string();
+                // Validate it's an IP address
+                if ip.parse::<std::net::IpAddr>().is_ok() {
+                    return Some(ip);
+                }
+            }
+        }
+    }
+    
+    None
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -779,27 +801,23 @@ async fn main() {
 
     // Detect public IP for peer-to-peer handshakes
     let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
-        if let Ok(ip) = local_ip_address::local_ip() {
+        // Try to auto-detect public IP via HTTP
+        println!("🔍 Auto-detecting public IP address...");
+        let public_ip = detect_public_ip();
+        
+        if let Some(ip) = public_ip {
+            println!("✓ Auto-detected public IP: {}", ip);
+            ip
+        } else if let Ok(ip) = local_ip_address::local_ip() {
             let ip_str = ip.to_string();
-            let is_private = ip_str.starts_with("10.")
-                || ip_str.starts_with("192.168.")
-                || ip_str.starts_with("172.16.")
-                || ip_str.starts_with("127.");
-            if !is_private {
-                println!("✓ Using public IP: {}", ip_str);
-            } else {
-                eprintln!("⚠️  WARNING: NODE_PUBLIC_IP not set!");
-                eprintln!(
-                    "⚠️  Using private/local IP: {} (this may cause issues)",
-                    ip_str
-                );
-                eprintln!("⚠️  Set NODE_PUBLIC_IP environment variable in systemd service");
-            }
+            eprintln!("⚠️  WARNING: Could not auto-detect public IP!");
+            eprintln!("⚠️  Using local IP: {} (this may cause consensus issues)", ip_str);
+            eprintln!("⚠️  Set NODE_PUBLIC_IP environment variable if this is incorrect");
             ip_str
         } else {
-            eprintln!("⚠️  CRITICAL: Cannot determine local IP address!");
-            eprintln!("⚠️  Please set NODE_PUBLIC_IP environment variable");
-            "unknown".to_string()
+            eprintln!("❌ CRITICAL: Cannot determine IP address!");
+            eprintln!("❌ Set NODE_PUBLIC_IP environment variable");
+            std::process::exit(1);
         }
     });
     let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
