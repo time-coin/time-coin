@@ -27,6 +27,8 @@ pub struct PeerManager {
     listen_addr: SocketAddr,
     public_addr: SocketAddr,
     peers: Arc<RwLock<HashMap<IpAddr, PeerInfo>>>,
+    /// Active TCP connections for two-way communication
+    connections: Arc<RwLock<HashMap<IpAddr, Arc<tokio::sync::Mutex<PeerConnection>>>>>,
     peer_exchange: Arc<RwLock<crate::peer_exchange::PeerExchange>>,
     last_seen: Arc<RwLock<HashMap<IpAddr, Instant>>>,
     stale_after: Duration,
@@ -45,6 +47,7 @@ impl PeerManager {
             listen_addr,
             public_addr,
             peers: Arc::new(RwLock::new(HashMap::new())),
+            connections: Arc::new(RwLock::new(HashMap::new())),
             peer_exchange: Arc::new(RwLock::new(crate::peer_exchange::PeerExchange::new(
                 "/root/time-coin-node/data/peers.json".to_string(),
                 network.clone(),
@@ -75,6 +78,10 @@ impl PeerManager {
     pub async fn remove_connected_peer(&self, addr: &IpAddr) {
         let mut peers = self.peers.write().await;
         let removed = peers.remove(addr).is_some();
+
+        // Remove TCP connection
+        let mut connections = self.connections.write().await;
+        connections.remove(addr);
 
         // clear last_seen entry
         let mut ls = self.last_seen.write().await;
@@ -118,6 +125,10 @@ impl PeerManager {
 
                 // Insert into the active peers map using IP address as key
                 self.peers.write().await.insert(peer_ip, info.clone());
+
+                // Store the TCP connection for two-way communication
+                let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
+                self.connections.write().await.insert(peer_ip, conn_arc.clone());
 
                 // mark last-seen immediately
                 self.peer_seen(peer_ip).await;
@@ -168,33 +179,25 @@ impl PeerManager {
 
                 // Clone handles for the spawned cleanup / keep-alive watcher task.
                 let peers_clone = self.peers.clone();
+                let connections_clone = self.connections.clone();
                 let manager_clone = self.clone();
+                let conn_arc_clone = conn_arc.clone();
 
                 // Spawn a task to run the connection keep-alive and cleanup on exit.
                 tokio::spawn(async move {
-                    // Run keep_alive in a separate task so we can periodically refresh last_seen
-                    let keep_alive_handle: JoinHandle<()> = tokio::spawn(async move {
-                        conn.keep_alive().await;
-                    });
-
-                    // While keep_alive is running, periodically mark peer as seen so reaper
-                    // doesn't remove it prematurely. This helps when keep_alive is successfully
-                    // pinging but the reaper would otherwise consider the peer stale.
+                    // Run keep_alive loop manually using the shared connection
                     loop {
-                        // If keep_alive has finished, break out and do cleanup
-                        if keep_alive_handle.is_finished() {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        
+                        let mut conn_guard = conn_arc_clone.lock().await;
+                        if conn_guard.ping().await.is_err() {
                             break;
                         }
+                        drop(conn_guard);
 
                         // Refresh last-seen timestamp for this peer using IP address
                         manager_clone.peer_seen(peer_ip).await;
-
-                        // Sleep a short interval before refreshing again
-                        time::sleep(Duration::from_secs(10)).await;
                     }
-
-                    // Await the keep_alive task to ensure any internal errors are propagated/logged
-                    let _ = keep_alive_handle.await;
 
                     debug!(peer = %peer_addr, "peer keep_alive finished");
 
@@ -204,6 +207,9 @@ impl PeerManager {
                     } else {
                         debug!(peer = %peer_addr, "peer not present in active peers map at disconnect");
                     }
+
+                    // Remove connection from connections map
+                    connections_clone.write().await.remove(&peer_ip);
 
                     // Ensure last_seen entry is cleared as well
                     let mut ls = manager_clone.last_seen.write().await;
@@ -603,16 +609,45 @@ impl PeerManager {
         Ok(peer_infos)
     }
 
+    /// Send a message to a peer via TCP (if connection exists)
+    /// Falls back to HTTP if TCP connection unavailable
+    async fn send_to_peer_tcp(
+        &self,
+        peer_ip: IpAddr,
+        message: crate::protocol::NetworkMessage,
+    ) -> Result<(), String> {
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
+            return conn.send_message(message).await;
+        }
+        Err("No TCP connection available".to_string())
+    }
+
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
+        let proposal_json = proposal.to_string();
+        let message = crate::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json.clone());
+        
         let peers = self.peers.read().await.clone();
         let api_port = match self.network {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
+        
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
+            let msg_clone = message.clone();
             let proposal_clone = proposal.clone();
+            let manager_clone = self.clone();
+            
             tokio::spawn(async move {
+                // Try TCP first
+                if manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await.is_ok() {
+                    debug!(peer = %peer_ip, "Sent block proposal via TCP");
+                    return;
+                }
+                
+                // Fall back to HTTP if TCP unavailable
                 let url = format!("http://{}:{}/consensus/block-proposal", peer_ip, api_port);
                 let _ = reqwest::Client::new()
                     .post(&url)
@@ -625,15 +660,29 @@ impl PeerManager {
     }
 
     pub async fn broadcast_block_vote(&self, vote: serde_json::Value) {
+        let vote_json = vote.to_string();
+        let message = crate::protocol::NetworkMessage::ConsensusBlockVote(vote_json.clone());
+        
         let peers = self.peers.read().await.clone();
         let api_port = match self.network {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
+        
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
+            let msg_clone = message.clone();
             let vote_clone = vote.clone();
+            let manager_clone = self.clone();
+            
             tokio::spawn(async move {
+                // Try TCP first
+                if manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await.is_ok() {
+                    debug!(peer = %peer_ip, "Sent block vote via TCP");
+                    return;
+                }
+                
+                // Fall back to HTTP if TCP unavailable
                 let url = format!("http://{}:{}/consensus/block-vote", peer_ip, api_port);
                 let _ = reqwest::Client::new()
                     .post(&url)
