@@ -409,6 +409,50 @@ impl BlockProducer {
             // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
 
+            // Check for approved proposals and add treasury grants
+            if let Some(proposal_manager) = self.consensus.proposal_manager() {
+                let masternode_count = self.consensus.masternode_count().await;
+                let approved_proposals = proposal_manager
+                    .get_approved_pending(masternode_count)
+                    .await;
+
+                if !approved_proposals.is_empty() {
+                    println!(
+                        "   💰 Processing {} approved proposal(s)",
+                        approved_proposals.len()
+                    );
+
+                    for proposal in approved_proposals {
+                        // Create treasury grant transaction
+                        let grant_tx = time_core::transaction::Transaction {
+                            txid: format!("treasury_grant_{}", proposal.id),
+                            version: 1,
+                            inputs: vec![], // No inputs = treasury grant
+                            outputs: vec![time_core::transaction::TxOutput::new(
+                                proposal.amount,
+                                proposal.recipient.clone(),
+                            )],
+                            lock_time: 0,
+                            timestamp: chrono::Utc::now().timestamp(),
+                        };
+
+                        println!(
+                            "      ✓ Grant: {} TIME to {}",
+                            proposal.amount as f64 / 100_000_000.0,
+                            proposal.recipient
+                        );
+                        println!("         Reason: {}", proposal.reason);
+
+                        transactions.push(grant_tx);
+
+                        // Mark proposal as executed (will be persisted after block)
+                        let _ = proposal_manager
+                            .mark_executed(&proposal.id, format!("treasury_grant_{}", proposal.id))
+                            .await;
+                    }
+                }
+            }
+
             // Get blockchain state atomically (all data retrieved while holding read lock)
             let blockchain = self.blockchain.read().await;
             let previous_hash = blockchain.chain_tip_hash().to_string();
