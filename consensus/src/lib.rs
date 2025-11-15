@@ -28,6 +28,7 @@ pub mod leader_election;
 pub mod monitoring;
 pub mod orchestrator;
 pub mod phased_protocol;
+pub mod proposals;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
