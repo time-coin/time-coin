@@ -1835,6 +1835,32 @@ async fn main() {
             );
         }
 
+        // Test TCP connectivity by pinging connected peers every 5 heartbeats
+        if counter % 5 == 0 {
+            println!("   🔍 Testing TCP peer connectivity...");
+            for peer in peers.iter() {
+                // Send Ping message via TCP
+                match peer_mgr_heartbeat
+                    .send_message_to_peer(
+                        peer.address,
+                        time_network::protocol::NetworkMessage::Ping,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        println!("      ✓ {} responded to TCP ping", peer.address.ip());
+                    }
+                    Err(e) => {
+                        println!(
+                            "      ✗ {} did NOT respond to TCP ping: {}",
+                            peer.address.ip(),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+
         // Check for version updates every 10 minutes (every 10 heartbeats)
         if counter % 10 == 0 {
             for peer in peers.iter() {
