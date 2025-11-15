@@ -1,5 +1,6 @@
 use crate::handlers::get_node_wallet;
 use crate::masternode_handlers::{list_masternodes, register_masternode};
+use crate::proposal_handlers::{create_proposal, get_proposal, list_proposals, vote_proposal};
 use crate::quarantine_handlers::{get_quarantine_stats, get_quarantined_peers, release_peer};
 use crate::rpc_handlers;
 use crate::testnet_handlers::{get_mint_info, mint_coins};
@@ -38,6 +39,11 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/treasury/propose", post(submit_proposal))
         .route("/treasury/proposal/{id}", post(get_proposal_by_id))
         .route("/treasury/vote", post(vote_on_proposal))
+        // Grant proposal endpoints (new governance system)
+        .route("/proposals/create", post(create_proposal))
+        .route("/proposals/vote", post(vote_proposal))
+        .route("/proposals/list", get(list_proposals))
+        .route("/proposals/:id", get(get_proposal))
         // Quarantine management endpoints
         .route("/network/quarantine", get(get_quarantined_peers))
         .route("/network/quarantine/release", post(release_peer))

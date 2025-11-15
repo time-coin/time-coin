@@ -67,6 +67,9 @@ pub struct ConsensusEngine {
 
     /// Pending votes for transactions (instant finality)
     transaction_votes: Arc<RwLock<HashMap<String, Vec<Vote>>>>, // txid -> votes
+
+    /// Proposal manager for treasury grants
+    proposal_manager: Option<Arc<crate::proposals::ProposalManager>>,
 }
 
 impl ConsensusEngine {
@@ -83,7 +86,18 @@ impl ConsensusEngine {
             state: Arc::new(RwLock::new(None)),
             pending_votes: Arc::new(RwLock::new(HashMap::new())),
             transaction_votes: Arc::new(RwLock::new(HashMap::new())),
+            proposal_manager: None,
         }
+    }
+
+    /// Set the proposal manager
+    pub fn set_proposal_manager(&mut self, manager: Arc<crate::proposals::ProposalManager>) {
+        self.proposal_manager = Some(manager);
+    }
+
+    /// Get the proposal manager
+    pub fn proposal_manager(&self) -> Option<Arc<crate::proposals::ProposalManager>> {
+        self.proposal_manager.clone()
     }
 
     /// Set blockchain state
@@ -109,6 +123,12 @@ impl ConsensusEngine {
     /// Get masternode count
     pub async fn masternode_count(&self) -> usize {
         self.masternodes.read().await.len()
+    }
+
+    /// Check if a node ID is a registered masternode
+    pub async fn is_masternode(&self, node_id: &str) -> bool {
+        let masternodes = self.masternodes.read().await;
+        masternodes.contains(&node_id.to_string())
     }
 
     /// Register wallet address for a masternode
