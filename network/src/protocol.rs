@@ -665,6 +665,13 @@ pub enum NetworkMessage {
     // Consensus messages for TCP communication
     ConsensusBlockProposal(String), // JSON serialized BlockProposal
     ConsensusBlockVote(String),     // JSON serialized BlockVote
+    
+    // Leader election notification
+    RequestBlockProposal {
+        block_height: u64,
+        leader_ip: String,
+        requester_ip: String,
+    },
 }
 
 impl NetworkMessage {

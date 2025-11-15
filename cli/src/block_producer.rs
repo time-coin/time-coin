@@ -1328,6 +1328,14 @@ impl BlockProducer {
                 selected_producer, strategy
             );
 
+            // Notify the leader if I'm not the leader
+            if !am_i_leader {
+                if let Some(ref leader_ip) = selected_producer {
+                    println!("   📨 Notifying leader {} to create block proposal...", leader_ip);
+                    self.notify_leader_to_produce_block(leader_ip, block_num, &my_id).await;
+                }
+            }
+
             // Step 1: Leader creates and broadcasts proposal
             if am_i_leader {
                 println!("   📝 I'm the leader - creating block proposal...");
@@ -1672,6 +1680,31 @@ impl BlockProducer {
         for node in masternodes {
             let url = format!("http://{}:24101/consensus/block-vote", node);
             let _ = reqwest::Client::new().post(&url).json(&vote).send().await;
+        }
+    }
+
+    async fn notify_leader_to_produce_block(
+        &self,
+        leader_ip: &str,
+        block_height: u64,
+        requester_ip: &str,
+    ) {
+        let request = serde_json::json!({
+            "block_height": block_height,
+            "leader_ip": leader_ip,
+            "requester_ip": requester_ip,
+        });
+        
+        let url = format!("http://{}:24101/consensus/request-block-proposal", leader_ip);
+        let result = reqwest::Client::new()
+            .post(&url)
+            .json(&request)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await;
+            
+        if result.is_err() {
+            println!("   ⚠️ Failed to notify leader {} - they may be offline", leader_ip);
         }
     }
 
