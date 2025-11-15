@@ -103,6 +103,51 @@ enum Commands {
         #[arg(long, default_value = "http://127.0.0.1:24101")]
         rpc_url: String,
     },
+
+    /// Treasury grant proposals (replaces testnet-mint)
+    Proposal {
+        #[command(subcommand)]
+        command: ProposalCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProposalCommands {
+    /// Create a new treasury grant proposal
+    Create {
+        /// Recipient wallet address
+        #[arg(short = 'a', long)]
+        address: String,
+        /// Amount in TIME (e.g., 100.5)
+        #[arg(short = 'm', long)]
+        amount: f64,
+        /// Reason for the grant
+        #[arg(short, long)]
+        reason: String,
+    },
+
+    /// Vote on a proposal
+    Vote {
+        /// Proposal ID
+        #[arg(short, long)]
+        id: String,
+        /// Approve the proposal
+        #[arg(long)]
+        approve: bool,
+    },
+
+    /// List all proposals
+    List {
+        /// Show only pending proposals
+        #[arg(long)]
+        pending: bool,
+    },
+
+    /// Get details of a specific proposal
+    Get {
+        /// Proposal ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -594,6 +639,223 @@ async fn handle_testnet_mint(
     Ok(())
 }
 
+async fn handle_proposal_command(
+    command: ProposalCommands,
+    client: &Client,
+    api: &str,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        ProposalCommands::Create {
+            address,
+            amount,
+            reason,
+        } => {
+            let amount_satoshis = (amount * 100_000_000.0) as u64;
+
+            let request = json!({
+                "recipient": address,
+                "amount": amount_satoshis,
+                "reason": reason,
+            });
+
+            if !json_output {
+                println!("\n📜 Creating Treasury Grant Proposal");
+                println!("═══════════════════════════════════════");
+                println!("Recipient: {}", address);
+                println!("Amount: {} TIME ({} satoshis)", amount, amount_satoshis);
+                println!("Reason: {}", reason);
+                println!("\n📡 Submitting proposal...");
+            }
+
+            let response = client
+                .post(format!("{}/proposals/create", api))
+                .json(&request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✅ Proposal Created!");
+                    println!("ID: {}", result["id"].as_str().unwrap_or("unknown"));
+                    println!("\nMasternodes can now vote with:");
+                    println!(
+                        "  time-cli proposal vote --id {} --approve",
+                        result["id"].as_str().unwrap_or("ID")
+                    );
+                }
+            } else {
+                eprintln!("Failed to create proposal: {}", response.text().await?);
+            }
+        }
+
+        ProposalCommands::Vote { id, approve } => {
+            let request = json!({
+                "proposal_id": id,
+                "approve": approve,
+            });
+
+            if !json_output {
+                println!("\n🗳️  Voting on Proposal");
+                println!("═══════════════════════════════");
+                println!("Proposal ID: {}", id);
+                println!("Vote: {}", if approve { "✅ APPROVE" } else { "❌ REJECT" });
+                println!("\n📡 Submitting vote...");
+            }
+
+            let response = client
+                .post(format!("{}/proposals/vote", api))
+                .json(&request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✅ Vote Recorded!");
+                    if let Some(status) = result["status"].as_str() {
+                        println!("Proposal Status: {}", status);
+                    }
+                }
+            } else {
+                eprintln!("Failed to vote: {}", response.text().await?);
+            }
+        }
+
+        ProposalCommands::List { pending } => {
+            let url = if pending {
+                format!("{}/proposals/list?pending=true", api)
+            } else {
+                format!("{}/proposals/list", api)
+            };
+
+            let response = client.get(&url).send().await?;
+
+            if response.status().is_success() {
+                let proposals: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&proposals)?);
+                } else {
+                    println!("\n📋 Treasury Grant Proposals");
+                    println!("═══════════════════════════════════════");
+
+                    if let Some(list) = proposals["proposals"].as_array() {
+                        if list.is_empty() {
+                            println!("No proposals found.");
+                        } else {
+                            for proposal in list {
+                                println!(
+                                    "\n🆔 ID: {}",
+                                    proposal["id"].as_str().unwrap_or("unknown")
+                                );
+                                println!(
+                                    "   Recipient: {}",
+                                    proposal["recipient"].as_str().unwrap_or("unknown")
+                                );
+                                println!(
+                                    "   Amount: {} TIME",
+                                    proposal["amount"].as_u64().unwrap_or(0) as f64 / 100_000_000.0
+                                );
+                                println!(
+                                    "   Status: {}",
+                                    proposal["status"].as_str().unwrap_or("unknown")
+                                );
+                                println!(
+                                    "   Votes: {} for, {} against",
+                                    proposal["votes_for"]
+                                        .as_array()
+                                        .map(|v| v.len())
+                                        .unwrap_or(0),
+                                    proposal["votes_against"]
+                                        .as_array()
+                                        .map(|v| v.len())
+                                        .unwrap_or(0)
+                                );
+                                println!(
+                                    "   Reason: {}",
+                                    proposal["reason"].as_str().unwrap_or("")
+                                );
+                            }
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Failed to list proposals: {}", response.text().await?);
+            }
+        }
+
+        ProposalCommands::Get { id } => {
+            let response = client
+                .get(format!("{}/proposals/{}", api, id))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let proposal: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&proposal)?);
+                } else {
+                    println!("\n📜 Proposal Details");
+                    println!("═══════════════════════════════════════");
+                    println!("ID: {}", proposal["id"].as_str().unwrap_or("unknown"));
+                    println!(
+                        "Proposer: {}",
+                        proposal["proposer"].as_str().unwrap_or("unknown")
+                    );
+                    println!(
+                        "Recipient: {}",
+                        proposal["recipient"].as_str().unwrap_or("unknown")
+                    );
+                    println!(
+                        "Amount: {} TIME",
+                        proposal["amount"].as_u64().unwrap_or(0) as f64 / 100_000_000.0
+                    );
+                    println!(
+                        "Status: {}",
+                        proposal["status"].as_str().unwrap_or("unknown")
+                    );
+                    println!("Reason: {}", proposal["reason"].as_str().unwrap_or(""));
+                    println!(
+                        "\nVotes For ({}):",
+                        proposal["votes_for"]
+                            .as_array()
+                            .map(|v| v.len())
+                            .unwrap_or(0)
+                    );
+                    if let Some(votes) = proposal["votes_for"].as_array() {
+                        for vote in votes {
+                            println!("  ✅ {}", vote.as_str().unwrap_or("unknown"));
+                        }
+                    }
+                    println!(
+                        "\nVotes Against ({}):",
+                        proposal["votes_against"]
+                            .as_array()
+                            .map(|v| v.len())
+                            .unwrap_or(0)
+                    );
+                    if let Some(votes) = proposal["votes_against"].as_array() {
+                        for vote in votes {
+                            println!("  ❌ {}", vote.as_str().unwrap_or("unknown"));
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Failed to get proposal: {}", response.text().await?);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -768,6 +1030,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rpc_url,
         } => {
             handle_testnet_mint(&client, &rpc_url, address, amount, reason, cli.json).await?;
+        }
+
+        Commands::Proposal { command } => {
+            handle_proposal_command(command, &client, &cli.api, cli.json).await?;
         }
     }
 
