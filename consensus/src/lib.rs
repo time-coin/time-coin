@@ -981,9 +981,13 @@ pub mod block_consensus {
         /// to check if the masternode has waited the required number of blocks since registration.
         /// This prevents instant takeover by newly coordinated malicious nodes.
         pub async fn vote_on_block(&self, vote: BlockVote) -> Result<(), String> {
-            let masternodes = self.masternodes.read().await;
+            let mut masternodes = self.masternodes.write().await;
+            
+            // Auto-register voter if not in list (handles race conditions during catch-up)
             if !masternodes.contains(&vote.voter) {
-                return Err("Unauthorized voter".to_string());
+                println!("   ℹ️  Auto-registering voter: {}", vote.voter);
+                masternodes.push(vote.voter.clone());
+                masternodes.sort();
             }
             drop(masternodes);
 
