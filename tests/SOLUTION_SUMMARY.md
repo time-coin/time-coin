@@ -1,5 +1,8 @@
 # Implementation Summary: Issues #131, #132, #133
 
+> **⚠️ DEPRECATED**: Issue #133 (Testnet Minting) has been replaced with Treasury Grant Proposals (governance-based system).
+> See `docs/treasury-proposals.md` for the new implementation.
+
 ## Executive Summary
 
 This document summarizes the comprehensive solution implemented for three TIME Coin blockchain issues related to block rewards, transaction fees, and testnet minting.

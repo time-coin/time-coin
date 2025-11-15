@@ -433,7 +433,7 @@ Check your masternode's balance and reward history using a blockchain explorer o
 - [Transaction Fees Guide](transaction-fees.md) - How fees add to rewards
 - [Masternode Setup](masternodes/setup-guide.md) - Setting up a masternode
 - [Economics Overview](economics/overview.md) - Full economic model
-- [Testnet Minting](testnet-minting.md) - Testing with minted coins
+- [Treasury Proposals](treasury-proposals.md) - Governance-based treasury grants
 
 ## References
 

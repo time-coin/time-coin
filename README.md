@@ -99,8 +99,11 @@ time-cli status
 # Validate blockchain
 time-cli validate-chain --verbose
 
-# Mint testnet coins
-time-cli testnet-mint --address TIME1... --amount 1000
+# Create treasury grant proposal (requires masternode voting)
+time-cli proposal create --address TIME1... --amount 1000 --reason "Development funding"
+
+# Vote on proposal (masternodes only)
+time-cli proposal vote --id proposal_xxx --approve
 
 # RPC operations
 time-cli rpc get-blockchain-info
