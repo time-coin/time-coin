@@ -661,7 +661,7 @@ pub enum NetworkMessage {
     MempoolAdd(time_core::Transaction),
     MempoolQuery,
     MempoolResponse(Vec<time_core::Transaction>),
-    
+
     // Consensus messages for TCP communication
     ConsensusBlockProposal(String), // JSON serialized BlockProposal
     ConsensusBlockVote(String),     // JSON serialized BlockVote

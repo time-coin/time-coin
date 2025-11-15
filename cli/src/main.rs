@@ -544,7 +544,7 @@ fn detect_public_ip() -> Option<String> {
         "https://api.ipify.org",
         "https://icanhazip.com",
     ];
-    
+
     for service in &services {
         if let Ok(response) = reqwest::blocking::get(*service) {
             if let Ok(ip) = response.text() {
@@ -556,7 +556,7 @@ fn detect_public_ip() -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
@@ -804,14 +804,17 @@ async fn main() {
         // Try to auto-detect public IP via HTTP
         println!("🔍 Auto-detecting public IP address...");
         let public_ip = detect_public_ip();
-        
+
         if let Some(ip) = public_ip {
             println!("✓ Auto-detected public IP: {}", ip);
             ip
         } else if let Ok(ip) = local_ip_address::local_ip() {
             let ip_str = ip.to_string();
             eprintln!("⚠️  WARNING: Could not auto-detect public IP!");
-            eprintln!("⚠️  Using local IP: {} (this may cause consensus issues)", ip_str);
+            eprintln!(
+                "⚠️  Using local IP: {} (this may cause consensus issues)",
+                ip_str
+            );
             eprintln!("⚠️  Set NODE_PUBLIC_IP environment variable if this is incorrect");
             ip_str
         } else {
