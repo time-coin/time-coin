@@ -777,9 +777,39 @@ async fn main() {
     // STEP 2: Peer discovery and connection
     // ═══════════════════════════════════════════════════════════════
 
+    // Detect public IP for peer-to-peer handshakes
+    let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+        if let Ok(ip) = local_ip_address::local_ip() {
+            let ip_str = ip.to_string();
+            let is_private = ip_str.starts_with("10.")
+                || ip_str.starts_with("192.168.")
+                || ip_str.starts_with("172.16.")
+                || ip_str.starts_with("127.");
+            if !is_private {
+                println!("✓ Using public IP: {}", ip_str);
+            } else {
+                eprintln!("⚠️  WARNING: NODE_PUBLIC_IP not set!");
+                eprintln!(
+                    "⚠️  Using private/local IP: {} (this may cause issues)",
+                    ip_str
+                );
+                eprintln!("⚠️  Set NODE_PUBLIC_IP environment variable in systemd service");
+            }
+            ip_str
+        } else {
+            eprintln!("⚠️  CRITICAL: Cannot determine local IP address!");
+            eprintln!("⚠️  Please set NODE_PUBLIC_IP environment variable");
+            "unknown".to_string()
+        }
+    });
     let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
-    let listen_addr = "0.0.0.0:24100".parse().unwrap();
-    let peer_manager = Arc::new(PeerManager::new(network_type.clone(), listen_addr));
+    let p2p_listen_addr = "0.0.0.0:24100".parse().unwrap();
+    let p2p_manager_public = format!("{}:24100", node_id).parse().unwrap();
+    let peer_manager = Arc::new(PeerManager::new(
+        network_type.clone(),
+        p2p_listen_addr,
+        p2p_manager_public,
+    ));
 
     let discovery_quiet = std::env::var("TIMECOIN_QUIET_DISCOVERY").is_ok();
     let strict_discovery = std::env::var("TIMECOIN_STRICT_DISCOVERY").is_ok();
@@ -1178,32 +1208,7 @@ async fn main() {
         network_str.to_string(),
     ));
 
-    let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
-        if let Ok(ip) = local_ip_address::local_ip() {
-            let ip_str = ip.to_string();
-            // Check if it's a private IP address
-            let is_private = ip_str.starts_with("10.")
-                || ip_str.starts_with("192.168.")
-                || ip_str.starts_with("172.16.")
-                || ip_str.starts_with("127.");
-
-            if !is_private {
-                println!("✓ Using public IP: {}", ip_str);
-            } else {
-                eprintln!("⚠️  WARNING: NODE_PUBLIC_IP not set!");
-                eprintln!(
-                    "⚠️  Using private/local IP: {} (this may cause issues)",
-                    ip_str
-                );
-                eprintln!("⚠️  Set NODE_PUBLIC_IP environment variable in systemd service");
-            }
-            ip_str
-        } else {
-            eprintln!("⚠️  CRITICAL: Cannot determine local IP address!");
-            eprintln!("⚠️  Please set NODE_PUBLIC_IP environment variable");
-            "unknown".to_string()
-        }
-    });
+    // node_id already defined earlier for peer manager
 
     println!("Node ID: {}", node_id);
     consensus.add_masternode(node_id.clone()).await;

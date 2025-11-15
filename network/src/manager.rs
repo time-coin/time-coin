@@ -25,6 +25,7 @@ pub struct Snapshot {
 pub struct PeerManager {
     pub network: NetworkType,
     listen_addr: SocketAddr,
+    public_addr: SocketAddr,
     peers: Arc<RwLock<HashMap<IpAddr, PeerInfo>>>,
     peer_exchange: Arc<RwLock<crate::peer_exchange::PeerExchange>>,
     last_seen: Arc<RwLock<HashMap<IpAddr, Instant>>>,
@@ -38,10 +39,11 @@ pub struct PeerManager {
 }
 
 impl PeerManager {
-    pub fn new(network: NetworkType, listen_addr: SocketAddr) -> Self {
+    pub fn new(network: NetworkType, listen_addr: SocketAddr, public_addr: SocketAddr) -> Self {
         let manager = PeerManager {
             network: network.clone(),
             listen_addr,
+            public_addr,
             peers: Arc::new(RwLock::new(HashMap::new())),
             peer_exchange: Arc::new(RwLock::new(crate::peer_exchange::PeerExchange::new(
                 "/root/time-coin-node/data/peers.json".to_string(),
@@ -103,7 +105,7 @@ impl PeerManager {
         match PeerConnection::connect(
             peer_arc.clone(),
             self.network.clone(),
-            self.listen_addr,
+            self.public_addr,
             None, // No blockchain for outgoing connections
             None, // No consensus for outgoing connections
         )
@@ -921,6 +923,7 @@ impl Clone for PeerManager {
     fn clone(&self) -> Self {
         PeerManager {
             network: self.network.clone(),
+            public_addr: self.public_addr,
             listen_addr: self.listen_addr,
             peers: self.peers.clone(),
             peer_exchange: self.peer_exchange.clone(),
@@ -942,7 +945,11 @@ mod tests {
     #[tokio::test]
     async fn test_peer_manager_stale_timeout() {
         // Test that the stale_after timeout is set correctly to 90 seconds
-        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:8333".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:8333".parse().unwrap(),
+            "127.0.0.1:8333".parse().unwrap(),
+        );
 
         assert_eq!(
             manager.stale_after,
@@ -954,7 +961,11 @@ mod tests {
     #[tokio::test]
     async fn test_peer_manager_reaper_interval() {
         // Test that the reaper interval is set correctly
-        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:8333".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:8333".parse().unwrap(),
+            "127.0.0.1:8333".parse().unwrap(),
+        );
 
         assert_eq!(
             manager.reaper_interval,
@@ -966,7 +977,11 @@ mod tests {
     #[tokio::test]
     async fn test_reconnection_task_spawned() {
         // Test that the manager spawns properly with reconnection task
-        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:8333".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:8333".parse().unwrap(),
+            "127.0.0.1:8333".parse().unwrap(),
+        );
 
         // If we can create the manager without panicking, the tasks were spawned successfully
         assert_eq!(manager.network, NetworkType::Testnet);
@@ -978,7 +993,11 @@ mod tests {
     #[tokio::test]
     async fn test_broadcast_new_peer() {
         // Test that broadcast_new_peer sends notifications to connected peers
-        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:24100".parse().unwrap(),
+            "127.0.0.1:24100".parse().unwrap(),
+        );
 
         // Create a new peer to broadcast
         let new_peer = PeerInfo::new("192.168.1.100:24100".parse().unwrap(), NetworkType::Testnet);
@@ -993,7 +1012,11 @@ mod tests {
     #[tokio::test]
     async fn test_add_connected_peer_triggers_broadcast() {
         // Test that adding a new connected peer triggers a broadcast
-        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:24100".parse().unwrap(),
+            "127.0.0.1:24100".parse().unwrap(),
+        );
 
         // Create a test peer
         let test_peer = PeerInfo::with_version(
@@ -1021,7 +1044,11 @@ mod tests {
     #[tokio::test]
     async fn test_network_aware_ports_mainnet() {
         // Test that mainnet uses correct ports (24000 for P2P, 24001 for API)
-        let manager = PeerManager::new(NetworkType::Mainnet, "127.0.0.1:24000".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Mainnet,
+            "127.0.0.1:24000".parse().unwrap(),
+            "127.0.0.1:24000".parse().unwrap(),
+        );
 
         // Verify network type is set correctly
         assert_eq!(manager.network, NetworkType::Mainnet);
@@ -1033,7 +1060,11 @@ mod tests {
     #[tokio::test]
     async fn test_network_aware_ports_testnet() {
         // Test that testnet uses correct ports (24100 for P2P, 24101 for API)
-        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:24100".parse().unwrap(),
+            "127.0.0.1:24100".parse().unwrap(),
+        );
 
         // Verify network type is set correctly
         assert_eq!(manager.network, NetworkType::Testnet);
@@ -1046,7 +1077,7 @@ mod tests {
     //     async fn test_same_ip_different_ports_counted_once() {
     //         // Test that multiple connections from the same IP with different ports
     //         // are counted as a single peer (fixes the duplicate peer counting issue)
-    //         let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+    //         let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap(), "127.0.0.1:24100".parse().unwrap());
     //
     //         // Create three peers with the same IP but different ports (simulating ephemeral ports)
     //         let peer1 = PeerInfo::with_version(
@@ -1094,7 +1125,11 @@ mod tests {
     #[tokio::test]
     async fn test_different_ips_counted_separately() {
         // Test that connections from different IPs are counted separately
-        let manager = PeerManager::new(NetworkType::Testnet, "127.0.0.1:24100".parse().unwrap());
+        let manager = PeerManager::new(
+            NetworkType::Testnet,
+            "127.0.0.1:24100".parse().unwrap(),
+            "127.0.0.1:24100".parse().unwrap(),
+        );
 
         // Create three peers with different IPs
         let peer1 = PeerInfo::with_version(
