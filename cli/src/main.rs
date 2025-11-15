@@ -1558,12 +1558,8 @@ async fn main() {
                                 );
                             }
 
-                            // Spawn keep_alive task with cloned Arc
-                            let conn_clone = conn_arc.clone();
-                            tokio::spawn(async move {
-                                let conn = conn_clone.lock().await;
-                                conn.keep_alive().await;
-                            });
+                            // Connection is now stored in manager - no need for separate keep_alive
+                            // The manager will maintain the connection
                         }
                     }
                 });
