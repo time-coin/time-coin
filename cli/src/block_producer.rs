@@ -1834,55 +1834,24 @@ impl BlockProducer {
             })
             .collect();
 
-        // Build outputs with masternode rewards AND treasury allocation
-        let mut outputs = vec![];
-
         println!(
             "      💰 Distributing rewards to {} registered masternodes",
             all_masternodes.len()
         );
 
-        // Distribute rewards to all registered masternodes and get outputs
-        let masternode_outputs =
-            distribute_masternode_rewards(&all_masternodes, &masternode_counts);
+        // Use the standard coinbase creation function which handles treasury correctly
+        let coinbase_tx = time_core::block::create_coinbase_transaction(
+            block_num,
+            &all_masternodes,
+            &masternode_counts,
+            0, // No transaction fees in catch-up blocks
+            timestamp.timestamp(),
+        );
 
-        // Calculate total rewards from the outputs
-        let total_masternode_rewards: u64 = masternode_outputs.iter().map(|o| o.amount).sum();
-
-        // Add treasury output (10% of total masternode rewards)
-        let treasury_amount =
-            time_core::block::calculate_treasury_allocation(total_masternode_rewards);
-        if treasury_amount > 0 {
-            outputs.push(time_core::transaction::TxOutput {
-                amount: treasury_amount,
-                address: "TREASURY".to_string(),
-            });
-            println!(
-                "      💰 Added treasury allocation: {} TIME",
-                treasury_amount
-            );
-        }
-
-        // Add masternode reward outputs
-        outputs.extend(masternode_outputs);
-
-        if !all_masternodes.is_empty() {
-            println!(
-                "      ✓ Added {} masternode reward outputs",
-                all_masternodes.len()
-            );
-        } else {
-            println!("      ⚠️  No registered masternodes - treasury reward only");
-        }
-
-        let coinbase_tx = Transaction {
-            txid: format!("coinbase_{}", block_num),
-            version: 1,
-            inputs: vec![],
-            outputs,
-            lock_time: 0,
-            timestamp: timestamp.timestamp(),
-        };
+        println!(
+            "      ✓ Created coinbase with {} outputs (incl. treasury)",
+            coinbase_tx.outputs.len()
+        );
 
         let mut block = Block {
             hash: String::new(),
