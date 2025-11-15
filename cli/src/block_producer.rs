@@ -1556,8 +1556,19 @@ impl BlockProducer {
                     )
                     .await;
 
-                foolproof.log_summary().await;
-                return success;
+                if success {
+                    foolproof.log_summary().await;
+                    return true;
+                } else {
+                    // Finalization failed - try next strategy
+                    println!("   ⚠️  Finalization failed despite consensus - trying next strategy");
+                    if foolproof.advance_strategy().await.is_some() {
+                        continue;
+                    } else {
+                        foolproof.log_summary().await;
+                        return false;
+                    }
+                }
             } else {
                 foolproof
                     .record_attempt(
