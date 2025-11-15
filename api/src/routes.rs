@@ -39,7 +39,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/proposals/create", post(create_proposal))
         .route("/proposals/vote", post(vote_proposal))
         .route("/proposals/list", get(list_proposals))
-        .route("/proposals/:id", get(get_proposal))
+        .route("/proposals/{id}", get(get_proposal))
         // Quarantine management endpoints
         .route("/network/quarantine", get(get_quarantined_peers))
         .route("/network/quarantine/release", post(release_peer))
