@@ -960,6 +960,14 @@ pub mod block_consensus {
             *masternodes = nodes;
         }
 
+        pub async fn add_masternode(&self, address: String) {
+            let mut masternodes = self.masternodes.write().await;
+            if !masternodes.contains(&address) {
+                masternodes.push(address);
+                masternodes.sort(); // Keep deterministic ordering
+            }
+        }
+
         pub async fn propose_block(&self, proposal: BlockProposal) {
             let mut proposals = self.proposals.write().await;
             proposals.insert(proposal.block_height, proposal);

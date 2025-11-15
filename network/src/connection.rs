@@ -34,6 +34,7 @@ impl PeerConnection {
         // Add optional blockchain state for registration
         blockchain: Option<StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
         consensus: Option<StdArc<time_consensus::ConsensusEngine>>,
+        block_consensus: Option<StdArc<time_consensus::block_consensus::BlockConsensusManager>>,
     ) -> Result<Self, String> {
         let peer_addr = peer.lock().await.address;
         let mut stream = TcpStream::connect(peer_addr)
@@ -84,6 +85,7 @@ impl PeerConnection {
                     wallet_addr.clone(),
                     blockchain.clone(),
                     consensus.clone(),
+                    block_consensus.clone(),
                 )
                 .await;
             }
@@ -116,6 +118,7 @@ impl PeerConnection {
         wallet_address: String,
         blockchain: StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
         consensus: StdArc<time_consensus::ConsensusEngine>,
+        block_consensus: Option<StdArc<time_consensus::block_consensus::BlockConsensusManager>>,
     ) {
         use time_core::MasternodeTier;
 
@@ -140,6 +143,11 @@ impl PeerConnection {
                 consensus
                     .register_wallet(node_ip.clone(), wallet_address.clone())
                     .await;
+
+                // Also register in block consensus if available
+                if let Some(bc) = block_consensus {
+                    bc.add_masternode(node_ip.clone()).await;
+                }
 
                 println!(
                     "✅ Masternode auto-registered: {} -> {}",
@@ -306,6 +314,7 @@ pub struct PeerListener {
     our_listen_addr: SocketAddr,
     blockchain: Option<StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
     consensus: Option<StdArc<time_consensus::ConsensusEngine>>,
+    block_consensus: Option<StdArc<time_consensus::block_consensus::BlockConsensusManager>>,
 }
 
 impl PeerListener {
@@ -315,6 +324,7 @@ impl PeerListener {
         public_addr: SocketAddr,
         blockchain: Option<StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
         consensus: Option<StdArc<time_consensus::ConsensusEngine>>,
+        block_consensus: Option<StdArc<time_consensus::block_consensus::BlockConsensusManager>>,
     ) -> Result<Self, String> {
         let listener = TcpListener::bind(bind_addr)
             .await
@@ -327,6 +337,7 @@ impl PeerListener {
             our_listen_addr: public_addr,
             blockchain,
             consensus,
+            block_consensus,
         })
     }
 
@@ -369,6 +380,7 @@ impl PeerListener {
                     wallet_addr.clone(),
                     blockchain.clone(),
                     consensus.clone(),
+                    self.block_consensus.clone(),
                 )
                 .await;
             }

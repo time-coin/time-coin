@@ -1254,9 +1254,8 @@ async fn main() {
         let peers = peer_manager.get_connected_peers().await;
         let peer_count = peers.len();
         for peer in peers {
-            consensus
-                .add_masternode(peer.address.ip().to_string())
-                .await;
+            let peer_ip = peer.address.ip().to_string();
+            consensus.add_masternode(peer_ip.clone()).await;
         }
         if peer_count > 0 {
             println!(
@@ -1433,6 +1432,7 @@ async fn main() {
             p2p_public_addr,
             Some(blockchain.clone()),
             Some(consensus.clone()),
+            Some(block_consensus.clone()),
         )
         .await
         {
