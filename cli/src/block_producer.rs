@@ -432,6 +432,7 @@ impl BlockProducer {
                     previous_hash: previous_hash.clone(),
                     timestamp: block.header.timestamp.timestamp(),
                     is_reward_only: true,
+                    strategy: None, // Regular block production doesn't use foolproof strategies
                 };
 
                 self.block_consensus.store_proposal(proposal.clone()).await;
@@ -675,6 +676,7 @@ impl BlockProducer {
                 previous_hash: previous_hash.clone(),
                 timestamp: now.timestamp(),
                 is_reward_only: false,
+                strategy: None, // Regular block production doesn't use foolproof strategies
             };
 
             self.block_consensus.store_proposal(proposal.clone()).await;
@@ -1293,7 +1295,7 @@ impl BlockProducer {
                 "unknown".to_string()
             }
         });
-        
+
         println!("   🆔 My node ID: {}", my_id);
         println!("   📋 Masternode list: {:?}", masternodes);
 
@@ -1338,8 +1340,12 @@ impl BlockProducer {
             // Notify the leader if I'm not the leader
             if !am_i_leader {
                 if let Some(ref leader_ip) = selected_producer {
-                    println!("   📨 Notifying leader {} to create block proposal...", leader_ip);
-                    self.notify_leader_to_produce_block(leader_ip, block_num, &my_id).await;
+                    println!(
+                        "   📨 Notifying leader {} to create block proposal...",
+                        leader_ip
+                    );
+                    self.notify_leader_to_produce_block(leader_ip, block_num, &my_id)
+                        .await;
                 }
             }
 
@@ -1705,17 +1711,23 @@ impl BlockProducer {
             "leader_ip": leader_ip,
             "requester_ip": requester_ip,
         });
-        
-        let url = format!("http://{}:24101/consensus/request-block-proposal", leader_ip);
+
+        let url = format!(
+            "http://{}:24101/consensus/request-block-proposal",
+            leader_ip
+        );
         let result = reqwest::Client::new()
             .post(&url)
             .json(&request)
             .timeout(Duration::from_secs(3))
             .send()
             .await;
-            
+
         if result.is_err() {
-            println!("   ⚠️ Failed to notify leader {} - they may be offline", leader_ip);
+            println!(
+                "   ⚠️ Failed to notify leader {} - they may be offline",
+                leader_ip
+            );
         }
     }
 

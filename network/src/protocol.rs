@@ -665,7 +665,7 @@ pub enum NetworkMessage {
     // Consensus messages for TCP communication
     ConsensusBlockProposal(String), // JSON serialized BlockProposal
     ConsensusBlockVote(String),     // JSON serialized BlockVote
-    
+
     // Leader election notification
     RequestBlockProposal {
         block_height: u64,

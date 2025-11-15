@@ -984,7 +984,7 @@ pub mod block_consensus {
         /// This prevents instant takeover by newly coordinated malicious nodes.
         pub async fn vote_on_block(&self, vote: BlockVote) -> Result<(), String> {
             let mut masternodes = self.masternodes.write().await;
-            
+
             // Auto-register voter if not in list (handles race conditions during catch-up)
             if !masternodes.contains(&vote.voter) {
                 println!("   ℹ️  Auto-registering voter: {}", vote.voter);

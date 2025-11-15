@@ -68,7 +68,10 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/tx-vote", post(receive_tx_vote))
         .route("/consensus/block-proposal", post(receive_block_proposal))
         .route("/consensus/block-vote", post(receive_block_vote))
-        .route("/consensus/request-block-proposal", post(request_block_proposal))
+        .route(
+            "/consensus/request-block-proposal",
+            post(request_block_proposal),
+        )
         .route("/consensus/block/{height}", get(get_consensus_block))
         .route("/consensus/finalized-block", post(receive_finalized_block))
         // Instant finality endpoints
@@ -1041,17 +1044,17 @@ async fn request_block_proposal(
     let requester_ip = request["requester_ip"]
         .as_str()
         .ok_or_else(|| ApiError::Internal("Missing requester_ip".to_string()))?;
-    
+
     println!("📢 Received block proposal request:");
     println!("   Block height: {}", block_height);
     println!("   Leader (me): {}", leader_ip);
     println!("   Requested by: {}", requester_ip);
     println!("   ⚠️  NOTE: This node should now create and broadcast a block proposal!");
-    
+
     // TODO: Trigger block production immediately
     // For now, just acknowledge the request
     // The block producer loop should detect it's the leader and create the block
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Block proposal request received"
