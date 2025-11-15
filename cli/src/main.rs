@@ -1406,7 +1406,15 @@ async fn main() {
         // Start Peer Listener for incoming connections
         let p2p_bind_addr = "0.0.0.0:24100".parse().unwrap();
         let p2p_public_addr = format!("{}:24100", node_id).parse().unwrap();
-        match PeerListener::bind(p2p_bind_addr, network_type.clone(), p2p_public_addr).await {
+        match PeerListener::bind(
+            p2p_bind_addr,
+            network_type.clone(),
+            p2p_public_addr,
+            Some(blockchain.clone()),
+            Some(consensus.clone()),
+        )
+        .await
+        {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
                 let _blockchain_clone = blockchain.clone();

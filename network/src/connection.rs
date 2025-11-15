@@ -304,6 +304,8 @@ pub struct PeerListener {
     listener: TcpListener,
     network: NetworkType,
     our_listen_addr: SocketAddr,
+    blockchain: Option<StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
+    consensus: Option<StdArc<time_consensus::ConsensusEngine>>,
 }
 
 impl PeerListener {
@@ -311,6 +313,8 @@ impl PeerListener {
         bind_addr: SocketAddr,
         network: NetworkType,
         public_addr: SocketAddr,
+        blockchain: Option<StdArc<tokio::sync::RwLock<time_core::state::BlockchainState>>>,
+        consensus: Option<StdArc<time_consensus::ConsensusEngine>>,
     ) -> Result<Self, String> {
         let listener = TcpListener::bind(bind_addr)
             .await
@@ -320,7 +324,9 @@ impl PeerListener {
         Ok(PeerListener {
             listener,
             network,
-            our_listen_addr: public_addr, // Use public address for handshakes
+            our_listen_addr: public_addr,
+            blockchain,
+            consensus,
         })
     }
 
@@ -354,6 +360,19 @@ impl PeerListener {
             their_handshake.version,
             their_handshake.commit_date.as_deref().unwrap_or("unknown")
         );
+
+        // Auto-register incoming peer as masternode if wallet provided
+        if let Some(wallet_addr) = &their_handshake.wallet_address {
+            if let (Some(blockchain), Some(consensus)) = (&self.blockchain, &self.consensus) {
+                PeerConnection::auto_register_masternode(
+                    their_handshake.listen_addr.ip().to_string(),
+                    wallet_addr.clone(),
+                    blockchain.clone(),
+                    consensus.clone(),
+                )
+                .await;
+            }
+        }
 
         Ok(PeerConnection {
             stream,
