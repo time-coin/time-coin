@@ -1173,7 +1173,10 @@ async fn main() {
 
     // Initialize Consensus Engine with network type
     let network_str = if is_testnet { "testnet" } else { "mainnet" };
-    let consensus = Arc::new(ConsensusEngine::new_with_network(is_dev_mode, network_str.to_string()));
+    let consensus = Arc::new(ConsensusEngine::new_with_network(
+        is_dev_mode,
+        network_str.to_string(),
+    ));
 
     let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
         if let Ok(ip) = local_ip_address::local_ip() {
@@ -1396,9 +1399,9 @@ async fn main() {
         .with_quarantine(quarantine.clone());
 
         // Start Peer Listener for incoming connections
-        let peer_listener_addr = "0.0.0.0:24100".parse().unwrap();
-
-        match PeerListener::bind(peer_listener_addr, network_type.clone()).await {
+        let p2p_bind_addr = "0.0.0.0:24100".parse().unwrap();
+        let p2p_public_addr = format!("{}:24100", node_id).parse().unwrap();
+        match PeerListener::bind(p2p_bind_addr, network_type.clone(), p2p_public_addr).await {
             Ok(peer_listener) => {
                 let peer_manager_clone = peer_manager.clone();
                 let _blockchain_clone = blockchain.clone();
