@@ -302,10 +302,10 @@ impl PeerManager {
 
     /// Add a connected peer WITH its connection object (for incoming connections)
     /// This ensures the connection is stored and maintained, not just the peer info
-    pub async fn add_connected_peer_with_connection(
+    pub async fn add_connected_peer_with_connection_arc(
         &self,
         peer: PeerInfo,
-        conn: crate::connection::PeerConnection,
+        conn_arc: Arc<tokio::sync::Mutex<crate::connection::PeerConnection>>,
     ) {
         if peer.address.ip().is_unspecified() || peer.address == self.listen_addr {
             return;
@@ -330,11 +330,7 @@ impl PeerManager {
         }
 
         // Store the TCP connection for two-way communication
-        let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
-        self.connections
-            .write()
-            .await
-            .insert(peer_ip, conn_arc);
+        self.connections.write().await.insert(peer_ip, conn_arc);
 
         // mark last-seen on add
         self.peer_seen(peer_ip).await;
@@ -352,6 +348,18 @@ impl PeerManager {
         if is_new_peer {
             self.broadcast_new_peer(&peer).await;
         }
+    }
+
+    /// Add a connected peer WITH its connection object (for incoming connections)
+    /// This ensures the connection is stored and maintained, not just the peer info
+    pub async fn add_connected_peer_with_connection(
+        &self,
+        peer: PeerInfo,
+        conn: crate::connection::PeerConnection,
+    ) {
+        let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
+        self.add_connected_peer_with_connection_arc(peer, conn_arc)
+            .await;
     }
 
     pub async fn get_peer_ips(&self) -> Vec<String> {

@@ -1298,8 +1298,10 @@ impl BlockProducer {
 
         println!("   🆔 My node ID: {}", my_id);
         println!("   📋 Masternode list: {:?}", masternodes);
-        println!("   ℹ️  This node is now entering catch-up mode and will check if it's the leader");
-        
+        println!(
+            "   ℹ️  This node is now entering catch-up mode and will check if it's the leader"
+        );
+
         // Test connectivity to all masternodes
         println!("   🔍 Testing connectivity to masternodes...");
         for node in masternodes {
@@ -1314,7 +1316,11 @@ impl BlockProducer {
                     println!("      ✓ {} is reachable", node);
                 }
                 Ok(response) => {
-                    println!("      ⚠️  {} responded with status: {}", node, response.status());
+                    println!(
+                        "      ⚠️  {} responded with status: {}",
+                        node,
+                        response.status()
+                    );
                 }
                 Err(e) => {
                     println!("      ✗ {} is NOT reachable: {}", node, e);

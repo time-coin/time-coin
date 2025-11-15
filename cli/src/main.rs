@@ -1508,8 +1508,16 @@ async fn main() {
                                 .green()
                             );
 
+                            // Wrap connection in Arc before storing
+                            let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
+
                             // IMPORTANT: Store both peer info AND connection to prevent ephemeral connections
-                            peer_manager_clone.add_connected_peer_with_connection(info.clone(), conn).await;
+                            peer_manager_clone
+                                .add_connected_peer_with_connection_arc(
+                                    info.clone(),
+                                    conn_arc.clone(),
+                                )
+                                .await;
 
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone
@@ -1550,7 +1558,10 @@ async fn main() {
                                 );
                             }
 
+                            // Spawn keep_alive task with cloned Arc
+                            let conn_clone = conn_arc.clone();
                             tokio::spawn(async move {
+                                let conn = conn_clone.lock().await;
                                 conn.keep_alive().await;
                             });
                         }
