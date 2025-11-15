@@ -1293,6 +1293,9 @@ impl BlockProducer {
                 "unknown".to_string()
             }
         });
+        
+        println!("   🆔 My node ID: {}", my_id);
+        println!("   📋 Masternode list: {:?}", masternodes);
 
         // Try each strategy in the foolproof chain
         loop {
@@ -1326,6 +1329,10 @@ impl BlockProducer {
             println!(
                 "   Leader: {:?} (Strategy: {:?})",
                 selected_producer, strategy
+            );
+            println!(
+                "   Am I leader? {} (my_id='{}' vs selected='{:?}')",
+                am_i_leader, my_id, selected_producer
             );
 
             // Notify the leader if I'm not the leader
