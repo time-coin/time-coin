@@ -609,7 +609,8 @@ impl PeerManager {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
-        for (peer_ip, _info) in peers {
+        for (_key, peer_info) in peers {
+            let peer_ip = peer_info.address.ip();
             let proposal_clone = proposal.clone();
             tokio::spawn(async move {
                 let url = format!("http://{}:{}/consensus/block-proposal", peer_ip, api_port);
@@ -629,7 +630,8 @@ impl PeerManager {
             NetworkType::Mainnet => 24001,
             NetworkType::Testnet => 24101,
         };
-        for (peer_ip, _info) in peers {
+        for (_key, peer_info) in peers {
+            let peer_ip = peer_info.address.ip();
             let vote_clone = vote.clone();
             tokio::spawn(async move {
                 let url = format!("http://{}:{}/consensus/block-vote", peer_ip, api_port);
@@ -712,7 +714,8 @@ impl PeerManager {
         let new_peer_addr = new_peer_info.address.to_string(); // Use full address from handshake
         let new_peer_version = new_peer_info.version.clone();
 
-        for (peer_ip, _info) in peers {
+        for (_key, peer_info) in peers {
+            let peer_ip = peer_info.address.ip();
             // Don't broadcast to the peer itself
             if peer_ip == new_peer_ip {
                 continue;
