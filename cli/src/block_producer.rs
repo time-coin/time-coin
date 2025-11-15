@@ -1805,9 +1805,7 @@ impl BlockProducer {
         timestamp: chrono::DateTime<Utc>,
         _masternodes: &[String],
     ) -> bool {
-        use time_core::block::distribute_masternode_rewards;
         use time_core::block::{Block, BlockHeader};
-        use time_core::transaction::Transaction;
 
         let mut blockchain = self.blockchain.write().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
