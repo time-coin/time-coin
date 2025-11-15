@@ -3,7 +3,6 @@ use crate::masternode_handlers::{list_masternodes, register_masternode};
 use crate::proposal_handlers::{create_proposal, get_proposal, list_proposals, vote_proposal};
 use crate::quarantine_handlers::{get_quarantine_stats, get_quarantined_peers, release_peer};
 use crate::rpc_handlers;
-use crate::testnet_handlers::{get_mint_info, mint_coins};
 use crate::treasury_handlers::{
     approve_treasury_proposal, distribute_treasury_funds, get_proposal_by_id,
     get_treasury_allocations, get_treasury_stats, get_treasury_withdrawals, submit_proposal,
@@ -23,9 +22,6 @@ use std::collections::HashMap;
 /// Create routes with TIME Coin-specific endpoints
 pub fn create_routes() -> Router<ApiState> {
     Router::new()
-        // Testnet-only endpoints
-        .route("/testnet/mint", post(mint_coins))
-        .route("/testnet/mint/info", get(get_mint_info))
         // Masternode management endpoints
         .route("/masternode/register", post(register_masternode))
         .route("/masternodes/list", get(list_masternodes))

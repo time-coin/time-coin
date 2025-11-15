@@ -6,7 +6,6 @@ pub mod quarantine_handlers;
 mod routes;
 mod rpc_handlers;
 mod state;
-pub mod testnet_handlers;
 pub mod treasury_handlers;
 
 pub use error::{ApiError, ApiResult};

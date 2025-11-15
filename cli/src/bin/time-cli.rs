@@ -88,23 +88,7 @@ enum Commands {
         rpc_url: String,
     },
 
-    /// Mint coins for testing (testnet only)
-    TestnetMint {
-        /// Address to receive the minted coins
-        #[arg(short, long)]
-        address: String,
-        /// Amount to mint in TIME (e.g., 100.5)
-        #[arg(short = 'a', long)]
-        amount: f64,
-        /// Optional reason for minting
-        #[arg(short, long)]
-        reason: Option<String>,
-        /// RPC endpoint (default: http://127.0.0.1:24101)
-        #[arg(long, default_value = "http://127.0.0.1:24101")]
-        rpc_url: String,
-    },
-
-    /// Treasury grant proposals (replaces testnet-mint)
+    /// Treasury grant proposals (governance system)
     Proposal {
         #[command(subcommand)]
         command: ProposalCommands,
@@ -591,54 +575,6 @@ async fn handle_validate_chain(
     Ok(())
 }
 
-async fn handle_testnet_mint(
-    client: &Client,
-    rpc_url: &str,
-    address: String,
-    amount: f64,
-    reason: Option<String>,
-    json_output: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let amount_satoshis = (amount * 100_000_000.0) as u64;
-
-    let request = json!({
-        "address": address,
-        "amount": amount_satoshis,
-        "reason": reason,
-    });
-
-    if !json_output {
-        println!("\n🪙 TIME Coin Testnet Minter");
-        println!("═══════════════════════════════════");
-        println!("Address: {}", address);
-        println!("Amount: {} TIME ({} satoshis)", amount, amount_satoshis);
-        if let Some(ref r) = reason {
-            println!("Reason: {}", r);
-        }
-        println!("\n📡 Sending mint request...");
-    }
-
-    let response = client
-        .post(format!("{}/testnet/mint", rpc_url))
-        .json(&request)
-        .send()
-        .await?;
-
-    if response.status().is_success() {
-        let result: serde_json::Value = response.json().await?;
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&result)?);
-        } else {
-            println!("\n✅ SUCCESS!");
-            println!("{}", serde_json::to_string_pretty(&result)?);
-        }
-    } else {
-        let error = response.text().await?;
-        eprintln!("Minting failed: {}", error);
-    }
-    Ok(())
-}
-
 async fn handle_proposal_command(
     command: ProposalCommands,
     client: &Client,
@@ -1021,15 +957,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::ValidateChain { verbose, rpc_url } => {
             handle_validate_chain(&client, &rpc_url, verbose, cli.json).await?;
-        }
-
-        Commands::TestnetMint {
-            address,
-            amount,
-            reason,
-            rpc_url,
-        } => {
-            handle_testnet_mint(&client, &rpc_url, address, amount, reason, cli.json).await?;
         }
 
         Commands::Proposal { command } => {
