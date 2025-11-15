@@ -1298,6 +1298,7 @@ impl BlockProducer {
 
         println!("   🆔 My node ID: {}", my_id);
         println!("   📋 Masternode list: {:?}", masternodes);
+        println!("   ℹ️  This node is now entering catch-up mode and will check if it's the leader");
         
         // Test connectivity to all masternodes
         println!("   🔍 Testing connectivity to masternodes...");
