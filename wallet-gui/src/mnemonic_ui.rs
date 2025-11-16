@@ -58,7 +58,8 @@ impl MnemonicInterface {
 
     /// Toggle between 12 and 24 words
     pub fn toggle_word_count(&mut self) {
-        self.use_24_words = !self.use_24_words;
+        // Note: use_24_words is already toggled by the checkbox
+        // Just resize the words vector to match
         let new_count = if self.use_24_words { 24 } else { 12 };
         self.words.resize(new_count, String::new());
     }
@@ -253,6 +254,7 @@ impl MnemonicInterface {
         egui::Grid::new("mnemonic_grid")
             .num_columns(num_columns * 2) // Label + input for each column
             .spacing([10.0, 5.0])
+            .min_col_width(150.0) // Ensure consistent column width
             .show(ui, |ui| {
                 for row in 0..words_per_column {
                     for col in 0..num_columns {
@@ -271,6 +273,13 @@ impl MnemonicInterface {
                                 egui::TextEdit::singleline(&mut self.words[index])
                                     .desired_width(150.0) // Increased from 120.0 to show full words
                                     .hint_text("word"),
+                            );
+                        } else {
+                            // Add empty cells to maintain grid alignment
+                            ui.label("");
+                            ui.add_enabled(
+                                false,
+                                egui::TextEdit::singleline(&mut String::new()).desired_width(150.0),
                             );
                         }
                     }
