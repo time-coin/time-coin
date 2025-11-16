@@ -407,6 +407,28 @@ async fn handle_peer_discovered(
 
     let peer_info = NetworkPeerInfo::with_version(peer_addr, network, req.version.clone());
 
+    // Check if we're already connected to this peer
+    let already_connected = state
+        .peer_manager
+        .get_connected_peers()
+        .await
+        .iter()
+        .any(|p| p.address.ip() == peer_addr.ip());
+
+    if already_connected {
+        // Already connected - just update peer exchange, don't log or reconnect
+        state
+            .peer_manager
+            .add_discovered_peer(peer_addr.ip().to_string(), peer_addr.port(), req.version)
+            .await;
+
+        return Ok(Json(serde_json::json!({
+            "success": true,
+            "message": "Peer already connected",
+            "already_connected": true
+        })));
+    }
+
     state
         .peer_manager
         .add_discovered_peer(peer_addr.ip().to_string(), peer_addr.port(), req.version)
