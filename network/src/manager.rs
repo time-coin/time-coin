@@ -447,6 +447,21 @@ impl PeerManager {
     }
 
     /// Broadcast a network message to all connected peers over TCP
+    /// Send a ping to a specific peer to keep the connection alive
+    pub async fn send_ping(&self, peer_ip: IpAddr) -> Result<(), String> {
+        let connections = self.connections.read().await;
+        if let Some(conn) = connections.get(&peer_ip) {
+            let mut conn_guard = conn.lock().await;
+            conn_guard
+                .send_message(NetworkMessage::Ping)
+                .await
+                .map_err(|e| format!("Failed to send ping: {}", e))?;
+            Ok(())
+        } else {
+            Err(format!("No connection found for {}", peer_ip))
+        }
+    }
+
     pub async fn broadcast_message(&self, message: crate::protocol::NetworkMessage) {
         let peers = self.peers.read().await;
 

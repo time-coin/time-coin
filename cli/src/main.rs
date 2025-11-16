@@ -1,6 +1,7 @@
 use clap::Parser;
 use wallet::{NetworkType as WalletNetworkType, Wallet};
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
@@ -1523,6 +1524,7 @@ async fn main() {
                             let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
 
                             // IMPORTANT: Store both peer info AND connection to prevent ephemeral connections
+                            let peer_ip = peer_addr.ip(); // Extract IP before moving variables
                             peer_manager_clone
                                 .add_connected_peer_with_connection_arc(
                                     info.clone(),
@@ -1568,6 +1570,59 @@ async fn main() {
                                     "═══════════════════════════════════════".green().bold()
                                 );
                             }
+
+                            // Start connection keepalive for this peer
+                            let peer_manager_ka = Arc::clone(&peer_manager_clone);
+                            let peer_ip_ka = peer_ip;
+                            tokio::spawn(async move {
+                                loop {
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                    if let Err(e) = peer_manager_ka.send_ping(peer_ip_ka).await {
+                                        eprintln!("⚠️  Failed to ping {}: {}", peer_ip_ka, e);
+                                        break;
+                                    }
+                                }
+                            });
+
+                            // Listen for incoming messages on this connection
+                            let peer_manager_listen = Arc::clone(&peer_manager_clone);
+                            let conn_arc_clone = conn_arc.clone();
+                            let peer_ip_listen = peer_ip;
+                            tokio::spawn(async move {
+                                loop {
+                                    let msg_result = {
+                                        let mut conn = conn_arc_clone.lock().await;
+                                        conn.receive_message().await
+                                    };
+
+                                    match msg_result {
+                                        Ok(msg) => {
+                                            match msg {
+                                                time_network::protocol::NetworkMessage::Ping => {
+                                                    // Respond to ping with pong
+                                                    if let Err(e) = peer_manager_listen.send_message_to_peer(
+                                                        SocketAddr::new(peer_ip_listen, 24100),
+                                                        time_network::protocol::NetworkMessage::Pong
+                                                    ).await {
+                                                        eprintln!("Failed to send pong to {}: {}", peer_ip_listen, e);
+                                                    }
+                                                }
+                                                _ => {
+                                                    // Handle other messages if needed
+                                                }
+                                            }
+                                        }
+                                        Err(_) => {
+                                            // Connection closed or error - exit loop
+                                            break;
+                                        }
+                                    }
+                                }
+                                // Connection closed - cleanup
+                                peer_manager_listen
+                                    .remove_peer_connection(peer_ip_listen)
+                                    .await;
+                            });
 
                             // Connection is now stored in manager - no need for separate keep_alive
                             // The manager will maintain the connection
