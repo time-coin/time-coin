@@ -1560,26 +1560,31 @@ async fn main() {
                             }
 
                             // Connection is now managed by the peer manager
-                            // Spawn message handler for incoming Ping/Pong
+                            // Spawn message handler for incoming Ping/Pong with timeout
                             let peer_manager_listen = Arc::clone(&peer_manager_clone);
                             let conn_arc_clone = conn_arc.clone();
                             let peer_ip_listen = peer_ip;
                             tokio::spawn(async move {
                                 loop {
-                                    let msg_result = {
-                                        let mut conn = conn_arc_clone.lock().await;
-                                        conn.receive_message().await
-                                    };
+                                    // Use timeout to prevent holding lock indefinitely
+                                    let msg_result = tokio::time::timeout(
+                                        tokio::time::Duration::from_secs(60),
+                                        async {
+                                            let mut conn = conn_arc_clone.lock().await;
+                                            conn.receive_message().await
+                                        },
+                                    )
+                                    .await;
 
                                     match msg_result {
-                                        Ok(msg) => {
+                                        Ok(Ok(msg)) => {
                                             match msg {
                                                 time_network::protocol::NetworkMessage::Ping => {
                                                     // Respond to ping with pong
-                                                    if let Err(_) = peer_manager_listen.send_message_to_peer(
+                                                    if peer_manager_listen.send_message_to_peer(
                                                         SocketAddr::new(peer_ip_listen, 24100),
                                                         time_network::protocol::NetworkMessage::Pong
-                                                    ).await {
+                                                    ).await.is_err() {
                                                         // Silently ignore pong send failures
                                                     }
                                                 }
@@ -1588,10 +1593,15 @@ async fn main() {
                                                 }
                                             }
                                         }
-                                        Err(_) => {
+                                        Ok(Err(_)) => {
                                             // Connection closed - exit loop
                                             // Manager's keep-alive will handle cleanup
                                             break;
+                                        }
+                                        Err(_) => {
+                                            // Timeout - continue loop to check for messages again
+                                            // This allows keep-alive to acquire lock periodically
+                                            continue;
                                         }
                                     }
                                 }

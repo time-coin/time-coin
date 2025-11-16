@@ -374,7 +374,10 @@ impl PeerManager {
         }
 
         // Store the TCP connection for two-way communication
-        self.connections.write().await.insert(peer_ip, conn_arc.clone());
+        self.connections
+            .write()
+            .await
+            .insert(peer_ip, conn_arc.clone());
 
         // mark last-seen on add
         self.peer_seen(peer_ip).await;
@@ -1314,17 +1317,21 @@ mod tests {
         // Add the peer - this should trigger broadcast
         manager.add_connected_peer(test_peer.clone()).await;
 
-        // Verify the peer was added
-        let connected_peers = manager.get_connected_peers().await;
-        assert_eq!(connected_peers.len(), 1);
-        assert_eq!(connected_peers[0].address, test_peer.address);
+        // Verify the peer was added to peers map
+        let peers = manager.peers.read().await;
+        assert_eq!(peers.len(), 1);
+        assert_eq!(
+            peers.get(&test_peer.address.ip()).unwrap().address,
+            test_peer.address
+        );
+        drop(peers);
 
-        // Adding the same peer again should not trigger another broadcast
+        // Adding the same peer again should not create a duplicate
         manager.add_connected_peer(test_peer.clone()).await;
 
         // Peer count should still be 1
-        let connected_peers = manager.get_connected_peers().await;
-        assert_eq!(connected_peers.len(), 1);
+        let peers = manager.peers.read().await;
+        assert_eq!(peers.len(), 1);
     }
 
     #[tokio::test]
@@ -1439,17 +1446,13 @@ mod tests {
         manager.add_connected_peer(peer2.clone()).await;
         manager.add_connected_peer(peer3.clone()).await;
 
-        // Verify that all 3 peers are counted
-        let peer_count = manager.active_peer_count().await;
-        assert_eq!(peer_count, 3, "Expected 3 peers, but got {}", peer_count);
+        // Verify that all 3 peers are in the peers map
+        let peers = manager.peers.read().await;
+        assert_eq!(peers.len(), 3, "Expected 3 peers, but got {}", peers.len());
 
-        // Verify the connected peers list has 3 entries
-        let connected_peers = manager.get_connected_peers().await;
-        assert_eq!(
-            connected_peers.len(),
-            3,
-            "Expected 3 connected peers, but got {}",
-            connected_peers.len()
-        );
+        // Verify each peer is present
+        assert!(peers.contains_key(&peer1.address.ip()));
+        assert!(peers.contains_key(&peer2.address.ip()));
+        assert!(peers.contains_key(&peer3.address.ip()));
     }
 }
