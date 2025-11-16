@@ -414,8 +414,9 @@ impl PeerManager {
         if let Some(conn_arc) = connections.get(&peer_ip) {
             // Use the stored connection
             let mut conn = conn_arc.lock().await;
+            let msg_clone = message.clone();
             return conn
-                .send_message(message)
+                .send_message(msg_clone)
                 .await
                 .map_err(|e| format!("Failed to send via stored connection: {}", e));
         }
