@@ -181,8 +181,7 @@ impl MnemonicInterface {
 
         // Action buttons
         ui.horizontal(|ui| {
-            if self.mode == MnemonicMode::Generate && ui.button("Generate New Phrase").clicked()
-            {
+            if self.mode == MnemonicMode::Generate && ui.button("Generate New Phrase").clicked() {
                 if let Err(e) = self.generate_mnemonic() {
                     self.validation_error = Some(e);
                 }
@@ -268,7 +267,7 @@ impl MnemonicInterface {
                             ui.add_enabled(
                                 enabled,
                                 egui::TextEdit::singleline(&mut self.words[index])
-                                    .desired_width(150.0)  // Increased from 120.0 to show full words
+                                    .desired_width(150.0) // Increased from 120.0 to show full words
                                     .hint_text("word"),
                             );
                         }
@@ -280,14 +279,14 @@ impl MnemonicInterface {
 
     /// Render print dialog
     fn render_print_dialog(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Print Mnemonic Phrase")
+        egui::Window::new("🖨️ Print Mnemonic Phrase")
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 ui.heading("Print Recovery Phrase");
                 ui.add_space(10.0);
 
-                ui.colored_label(egui::Color32::YELLOW, "SECURITY WARNING:");
+                ui.colored_label(egui::Color32::YELLOW, "⚠️ SECURITY WARNING:");
                 ui.label("• Store this in a safe, secure location");
                 ui.label("• Never share with anyone");
                 ui.label("• Do not store digitally");
@@ -402,12 +401,8 @@ impl MnemonicInterface {
 
     /// Generate PDF with mnemonic phrase
     fn save_as_pdf(&self, phrase: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let (doc, page1, layer1) = PdfDocument::new(
-            "TIME Coin Recovery Phrase",
-            Mm(210.0),
-            Mm(297.0),
-            "Layer 1",
-        );
+        let (doc, page1, layer1) =
+            PdfDocument::new("TIME Coin Recovery Phrase", Mm(210.0), Mm(297.0), "Layer 1");
 
         let font = doc.add_builtin_font(BuiltinFont::Helvetica)?;
         let font_bold = doc.add_builtin_font(BuiltinFont::HelveticaBold)?;
@@ -448,7 +443,13 @@ impl MnemonicInterface {
         let left_x = 20.0;
         let right_x = 120.0;
 
-        current_layer.use_text("Your Recovery Phrase:", 14.0, Mm(left_x), Mm(y_pos), &font_bold);
+        current_layer.use_text(
+            "Your Recovery Phrase:",
+            14.0,
+            Mm(left_x),
+            Mm(y_pos),
+            &font_bold,
+        );
         y_pos -= 10.0;
 
         for (i, chunk) in words.chunks(2).enumerate() {
@@ -465,13 +466,7 @@ impl MnemonicInterface {
 
         // Save instructions at bottom
         y_pos = 30.0;
-        current_layer.use_text(
-            "Instructions:",
-            12.0,
-            Mm(left_x),
-            Mm(y_pos),
-            &font_bold,
-        );
+        current_layer.use_text("Instructions:", 12.0, Mm(left_x), Mm(y_pos), &font_bold);
         y_pos -= 7.0;
         current_layer.use_text(
             "1. Write down these words in order",
