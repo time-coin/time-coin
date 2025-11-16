@@ -9,7 +9,9 @@ members = [
     "mempool",
     "masternode",
     "treasury",
-    "tools/masternode-dashboard", "wallet-gui",  # Add this line
+    "tools/masternode-dashboard",
+    "tools/tx-perf-test",
+    "wallet-gui",
 ]
 resolver = "2"
 

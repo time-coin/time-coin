@@ -79,6 +79,9 @@ FETCH_HEAD
 _timecoin_rescue_*/
 *.bak.*
 
+# ---- Fix Documentation (Local Only) ----
+fixes/
+
 # ---- Archive / Package Files ----
 *.tar
 *.gz
