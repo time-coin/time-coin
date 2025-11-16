@@ -49,11 +49,12 @@ fn default_rpc_password() -> String {
 }
 
 fn default_bootstrap_nodes() -> Vec<String> {
-    vec![
-        "161.35.129.70:24100".to_string(),
-        "178.128.199.144:24100".to_string(),
-        "165.232.154.150:24100".to_string(),
-    ]
+    // Get bootstrap nodes from environment or use empty list
+    // Use TIMECOIN_BOOTSTRAP_NODES="ip1:port1,ip2:port2"
+    std::env::var("TIMECOIN_BOOTSTRAP_NODES")
+        .ok()
+        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+        .unwrap_or_else(Vec::new)
 }
 
 fn default_api_endpoint() -> String {

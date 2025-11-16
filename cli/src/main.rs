@@ -867,17 +867,7 @@ async fn main() {
 
                     // Show peer details for the filtered set
                     for (i, peer) in peers_to_show.iter().enumerate() {
-                        // Check if this is a seed node (hardcoded)
-                        let is_seed = peer.address.to_string() == "50.28.104.50:24100" 
-                            || peer.address.to_string() == "134.199.175.106:24100"
-                            || peer.address.to_string() == "50.28.104.50:24000"
-                            || peer.address.to_string() == "134.199.175.106:24000";
-                        
-                        if is_seed {
-                            println!("    {}. {} (seed node)", i + 1, peer.address);
-                        } else {
-                            println!("    {}. {}", i + 1, peer.address);
-                        }
+                        println!("    {}. {}", i + 1, peer.address);
                     }
 
                     if peers_to_show.len() < peers.len() {

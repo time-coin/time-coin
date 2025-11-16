@@ -87,18 +87,23 @@ pub enum NetworkType {
     Testnet,
 }
 
-/// Hardcoded seed nodes for bootstrap
+/// Seed nodes for bootstrap
 pub struct SeedNodes;
 
 impl SeedNodes {
-    /// Mainnet seed nodes (hardcoded, always available)
+    /// Get seed nodes from environment or use DNS-based discovery
+    /// For security, seed nodes should be configured via:
+    /// - TIMECOIN_SEEDS environment variable (comma-separated)
+    /// - DNS seeds (seed.time-coin.io, dnsseed.time-coin.io)
     pub fn mainnet() -> Vec<&'static str> {
-        vec!["50.28.104.50:24000", "134.199.175.106:24000"]
+        // No hardcoded IPs - use DNS or environment
+        vec![]
     }
 
-    /// Testnet seed nodes
+    /// Testnet seed nodes from environment
     pub fn testnet() -> Vec<&'static str> {
-        vec!["50.28.104.50:24100", "134.199.175.106:24100"]
+        // No hardcoded IPs - use DNS or environment
+        vec![]
     }
 
     /// Get seeds for specific network
@@ -107,6 +112,15 @@ impl SeedNodes {
             NetworkType::Mainnet => Self::mainnet(),
             NetworkType::Testnet => Self::testnet(),
         }
+    }
+    
+    /// Get seeds from environment variable
+    /// Format: TIMECOIN_SEEDS="ip1:port1,ip2:port2"
+    pub fn from_env() -> Vec<String> {
+        std::env::var("TIMECOIN_SEEDS")
+            .ok()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default()
     }
 }
 
@@ -254,15 +268,17 @@ impl PeerDiscovery {
     pub async fn bootstrap(&mut self) -> Result<Vec<PeerInfo>, String> {
         let mut all_peers = Vec::new();
 
-        // 1. Start with hardcoded seed nodes (always works)
-        println!("📡 Discovering peers from seed nodes...");
-        let seed_addrs = SeedNodes::for_network(self.network.clone());
-        for seed in seed_addrs {
-            if let Ok(addr) = seed.parse() {
-                all_peers.push(PeerInfo::new(addr, self.network.clone()));
+        // 1. Start with environment-based seed nodes (if configured)
+        let env_seeds = SeedNodes::from_env();
+        if !env_seeds.is_empty() {
+            println!("📡 Discovering peers from environment seeds...");
+            for seed in env_seeds {
+                if let Ok(addr) = seed.parse() {
+                    all_peers.push(PeerInfo::new(addr, self.network.clone()));
+                }
             }
+            println!("  ✓ Found {} seed nodes from environment", all_peers.len());
         }
-        println!("  ✓ Found {} seed nodes", all_peers.len());
 
         // 2. Try HTTP discovery from time-coin.io
         println!("📡 Fetching peers from time-coin.io...");
@@ -270,7 +286,7 @@ impl PeerDiscovery {
             Ok(peers) => {
                 let http_count = peers.len();
                 println!(
-                    "  ✓ Found {} peers via HTTP (including seed nodes)",
+                    "  ✓ Found {} peers via HTTP",
                     http_count
                 );
                 all_peers.extend(peers);
