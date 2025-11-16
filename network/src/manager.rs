@@ -355,6 +355,7 @@ impl PeerManager {
         }
 
         let peer_ip = peer.address.ip();
+        let peer_addr = peer.address;
 
         let is_new_peer = {
             let peers = self.peers.read().await;
@@ -373,7 +374,7 @@ impl PeerManager {
         }
 
         // Store the TCP connection for two-way communication
-        self.connections.write().await.insert(peer_ip, conn_arc);
+        self.connections.write().await.insert(peer_ip, conn_arc.clone());
 
         // mark last-seen on add
         self.peer_seen(peer_ip).await;
@@ -391,6 +392,63 @@ impl PeerManager {
         if is_new_peer {
             self.broadcast_new_peer(&peer).await;
         }
+
+        // Spawn keep-alive loop for incoming connections (same as outgoing)
+        let peers_clone = self.peers.clone();
+        let connections_clone = self.connections.clone();
+        let manager_clone = self.clone();
+        let conn_arc_clone = conn_arc.clone();
+
+        tokio::spawn(async move {
+            let mut consecutive_failures = 0u32;
+            const MAX_FAILURES: u32 = 3;
+
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+                let mut conn_guard = conn_arc_clone.lock().await;
+                let ping_result = conn_guard.ping().await;
+                drop(conn_guard);
+
+                match ping_result {
+                    Ok(_) => {
+                        consecutive_failures = 0;
+                        manager_clone.peer_seen(peer_ip).await;
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        debug!(
+                            peer = %peer_addr,
+                            failures = consecutive_failures,
+                            error = %e,
+                            "Ping failed"
+                        );
+
+                        if consecutive_failures >= MAX_FAILURES {
+                            warn!(
+                                peer = %peer_addr,
+                                failures = consecutive_failures,
+                                "Connection lost after multiple ping failures"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+
+            debug!(peer = %peer_addr, "peer keep_alive finished");
+
+            if peers_clone.write().await.remove(&peer_ip).is_some() {
+                info!(peer = %peer_addr, "removed peer from active peers after disconnect");
+            } else {
+                debug!(peer = %peer_addr, "peer not present in active peers map at disconnect");
+            }
+
+            connections_clone.write().await.remove(&peer_ip);
+
+            let mut ls = manager_clone.last_seen.write().await;
+            ls.remove(&peer_ip);
+        });
     }
 
     /// Add a connected peer WITH its connection object (for incoming connections)
