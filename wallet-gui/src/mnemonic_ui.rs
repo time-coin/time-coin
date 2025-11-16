@@ -4,8 +4,6 @@
 use crate::wallet_manager::WalletManager;
 use eframe::egui;
 use printpdf::*;
-use std::fs::File;
-use std::io::BufWriter;
 
 #[derive(PartialEq, Clone)]
 pub enum MnemonicMode {
@@ -297,11 +295,18 @@ impl MnemonicInterface {
                 ui.heading("Print Recovery Phrase");
                 ui.add_space(10.0);
 
-                ui.colored_label(egui::Color32::YELLOW, "⚠️ SECURITY WARNING:");
-                ui.label("• Store this in a safe, secure location");
-                ui.label("• Never share with anyone");
-                ui.label("• Do not store digitally");
-                ui.label("• This is your only way to recover your wallet");
+                // Security warning with better colors
+                ui.group(|ui| {
+                    ui.label(
+                        egui::RichText::new("SECURITY WARNING:")
+                            .color(egui::Color32::RED)
+                            .strong(),
+                    );
+                    ui.label("• Store this in a safe, secure location");
+                    ui.label("• Never share with anyone");
+                    ui.label("• Do not store digitally - print only");
+                    ui.label("• This is your only way to recover your wallet");
+                });
 
                 ui.add_space(10.0);
                 ui.separator();
@@ -372,34 +377,28 @@ impl MnemonicInterface {
                         ui.ctx().copy_text(phrase.clone());
                     }
 
-                    if ui.button("Save as PDF").clicked() {
-                        if let Err(e) = self.save_as_pdf(&phrase) {
-                            eprintln!("Failed to save PDF: {}", e);
-                        }
-                    }
-
-                    if ui.button("Print PDF").clicked() {
-                        if let Err(e) = self.print_to_pdf(&phrase) {
-                            eprintln!("Failed to print: {}", e);
+                    if ui.button("Print").clicked() {
+                        // Create temporary PDF for printing only
+                        let temp_path = std::env::temp_dir().join("time_coin_recovery_temp.pdf");
+                        if let Err(e) = self.print_to_pdf_path(&phrase, &temp_path) {
+                            eprintln!("Failed to create print file: {}", e);
                         } else {
                             // Open the PDF in the default viewer for printing
                             #[cfg(target_os = "windows")]
                             {
                                 let _ = std::process::Command::new("cmd")
-                                    .args(&["/C", "start", "mnemonic_recovery_phrase.pdf"])
+                                    .args(&["/C", "start", temp_path.to_str().unwrap()])
                                     .spawn();
                             }
                             #[cfg(target_os = "linux")]
                             {
                                 let _ = std::process::Command::new("xdg-open")
-                                    .arg("mnemonic_recovery_phrase.pdf")
+                                    .arg(&temp_path)
                                     .spawn();
                             }
                             #[cfg(target_os = "macos")]
                             {
-                                let _ = std::process::Command::new("open")
-                                    .arg("mnemonic_recovery_phrase.pdf")
-                                    .spawn();
+                                let _ = std::process::Command::new("open").arg(&temp_path).spawn();
                             }
                         }
                     }
@@ -411,8 +410,12 @@ impl MnemonicInterface {
             });
     }
 
-    /// Generate PDF with mnemonic phrase
-    fn save_as_pdf(&self, phrase: &str) -> Result<(), Box<dyn std::error::Error>> {
+    /// Generate PDF with mnemonic phrase to a specific path
+    fn print_to_pdf_path(
+        &self,
+        phrase: &str,
+        path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (doc, page1, layer1) =
             PdfDocument::new("TIME Coin Recovery Phrase", Mm(210.0), Mm(297.0), "Layer 1");
 
@@ -512,17 +515,9 @@ impl MnemonicInterface {
             &font,
         );
 
-        // Save to file
-        let file = File::create("mnemonic_recovery_phrase.pdf")?;
-        let mut writer = BufWriter::new(file);
-        doc.save(&mut writer)?;
+        doc.save(&mut std::io::BufWriter::new(std::fs::File::create(path)?))?;
 
         Ok(())
-    }
-
-    /// Print to PDF (same as save, but intended for printing)
-    fn print_to_pdf(&self, phrase: &str) -> Result<(), Box<dyn std::error::Error>> {
-        self.save_as_pdf(phrase)
     }
 }
 
