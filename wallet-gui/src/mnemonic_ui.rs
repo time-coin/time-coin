@@ -246,6 +246,7 @@ impl MnemonicInterface {
 
     /// Render the word input grid
     fn render_word_grid(&mut self, ui: &mut egui::Ui) {
+        let total_words = if self.use_24_words { 24 } else { 12 };
         let words_per_column = if self.use_24_words { 12 } else { 6 };
         let num_columns = 2; // Always use 2 columns
 
@@ -255,8 +256,9 @@ impl MnemonicInterface {
             .show(ui, |ui| {
                 for row in 0..words_per_column {
                     for col in 0..num_columns {
-                        let index = col * words_per_column + row;
-                        if index < self.words.len() {
+                        // Row-major ordering: index goes 1,2,3... sequentially left to right
+                        let index = row * num_columns + col;
+                        if index < total_words {
                             // Word number
                             ui.label(format!("{}.", index + 1));
 
@@ -317,7 +319,8 @@ impl MnemonicInterface {
                 ui.label("Print Format:");
                 ui.add_space(5.0);
 
-                egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
+                // Simple readable format without dark background
+                ui.group(|ui| {
                     ui.set_width(400.0);
 
                     ui.heading("TIME Coin Recovery Phrase");
