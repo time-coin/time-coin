@@ -415,7 +415,7 @@ impl PeerManager {
             // Use the stored connection
             let mut conn = conn_arc.lock().await;
             return conn
-                .send_message(&message)
+                .send_message(message)
                 .await
                 .map_err(|e| format!("Failed to send via stored connection: {}", e));
         }
