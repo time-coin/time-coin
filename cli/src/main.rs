@@ -1867,6 +1867,10 @@ async fn main() {
                             peer.address.ip(),
                             e
                         );
+                        // Remove the dead connection
+                        peer_mgr_heartbeat
+                            .remove_peer_connection(peer.address.ip())
+                            .await;
                     }
                 }
             }

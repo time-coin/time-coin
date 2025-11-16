@@ -243,18 +243,35 @@ impl PeerManager {
     }
 
     /// Return a vector of active PeerInfo entries (live connections).
+    /// Only returns peers that have an active TCP connection stored.
     pub async fn get_connected_peers(&self) -> Vec<PeerInfo> {
-        self.peers.read().await.values().cloned().collect()
+        let peers = self.peers.read().await;
+        let connections = self.connections.read().await;
+
+        // Only return peers that have an active connection
+        peers
+            .iter()
+            .filter(|(ip, _)| connections.contains_key(ip))
+            .map(|(_, peer_info)| peer_info.clone())
+            .collect()
     }
 
     /// Return the number of currently active (live) peer connections.
+    /// Only counts peers that have an active TCP connection stored.
     pub async fn active_peer_count(&self) -> usize {
-        self.peers.read().await.len()
+        self.connections.read().await.len()
     }
 
     /// Keep the old helper name but delegate to active_peer_count for clarity.
     pub async fn peer_count(&self) -> usize {
         self.active_peer_count().await
+    }
+
+    /// Remove a peer's connection when it fails or disconnects
+    pub async fn remove_peer_connection(&self, peer_ip: IpAddr) {
+        self.connections.write().await.remove(&peer_ip);
+        // Note: We keep the peer in the peers map for discovery purposes,
+        // but it won't show up in get_connected_peers() without an active connection
     }
 
     /// Insert/update a connected peer in the active map.
@@ -384,12 +401,27 @@ impl PeerManager {
         Ok(peer_count)
     }
 
-    /// Send a network message to a specific peer over TCP
+    /// Send a network message to a specific peer over the stored TCP connection
     pub async fn send_message_to_peer(
         &self,
         peer_addr: SocketAddr,
         message: crate::protocol::NetworkMessage,
     ) -> Result<(), String> {
+        let peer_ip = peer_addr.ip();
+
+        // Try to use stored connection first
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            // Use the stored connection
+            let mut conn = conn_arc.lock().await;
+            return conn
+                .send_message(&message)
+                .await
+                .map_err(|e| format!("Failed to send via stored connection: {}", e));
+        }
+
+        // If no stored connection, fall back to creating a new one
+        // (This should be rare - mainly for one-off messages)
         let mut stream = tokio::net::TcpStream::connect(peer_addr)
             .await
             .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
