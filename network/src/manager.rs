@@ -466,7 +466,12 @@ impl PeerManager {
                 }
             }
         } else {
-            Err(format!("No connection found for {}", peer_ip))
+            // Debug: show what IPs we actually have
+            let available_ips: Vec<String> = connections.keys().map(|ip| ip.to_string()).collect();
+            Err(format!(
+                "No connection found for {} (have: {:?})",
+                peer_ip, available_ips
+            ))
         }
     }
 
