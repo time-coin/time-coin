@@ -448,18 +448,40 @@ impl PeerManager {
 
     /// Broadcast a network message to all connected peers over TCP
     /// Send a ping to a specific peer to keep the connection alive
+    /// Returns Ok if ping succeeded, Err if connection is dead
     pub async fn send_ping(&self, peer_ip: IpAddr) -> Result<(), String> {
         let connections = self.connections.read().await;
         if let Some(conn) = connections.get(&peer_ip) {
             let mut conn_guard = conn.lock().await;
-            conn_guard
-                .send_message(NetworkMessage::Ping)
-                .await
-                .map_err(|e| format!("Failed to send ping: {}", e))?;
-            Ok(())
+            match conn_guard.send_message(NetworkMessage::Ping).await {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    // Connection is dead, drop the read lock and clean it up
+                    drop(conn_guard);
+                    drop(connections);
+                    
+                    // Remove dead connection
+                    self.remove_dead_connection(peer_ip).await;
+                    Err(format!("Failed to send ping: {}", e))
+                }
+            }
         } else {
             Err(format!("No connection found for {}", peer_ip))
         }
+    }
+
+    /// Remove a dead connection from both connections and peers maps
+    async fn remove_dead_connection(&self, peer_ip: IpAddr) {
+        // Remove from connections
+        let mut connections = self.connections.write().await;
+        connections.remove(&peer_ip);
+        drop(connections);
+
+        // Remove from peers
+        let mut peers = self.peers.write().await;
+        peers.retain(|ip, _| *ip != peer_ip);
+        
+        info!("Removed dead connection for {}", peer_ip);
     }
 
     pub async fn broadcast_message(&self, message: crate::protocol::NetworkMessage) {

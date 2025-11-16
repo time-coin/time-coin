@@ -1922,10 +1922,18 @@ async fn main() {
                             peer.address.ip(),
                             e
                         );
-                        // Remove the dead connection
-                        peer_mgr_heartbeat
-                            .remove_peer_connection(peer.address.ip())
-                            .await;
+                        // Dead connection will be automatically removed by send_ping()
+                        // Try to reconnect
+                        println!("      🔄 Attempting to reconnect to {}...", peer.address);
+                        let peer_mgr_reconnect = peer_mgr_heartbeat.clone();
+                        let peer_info = peer.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = peer_mgr_reconnect.connect_to_peer(peer_info.clone()).await {
+                                eprintln!("      ✗ Failed to reconnect to {}: {}", peer_info.address, e);
+                            } else {
+                                println!("      ✓ Reconnected to {}", peer_info.address);
+                            }
+                        });
                     }
                 }
             }
