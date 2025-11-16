@@ -1094,9 +1094,22 @@ async fn receive_finalized_block(
         block.header.block_number
     );
 
+    let block_num = block.header.block_number;
+    let block_hash = block.hash.clone();
+
     let mut blockchain = state.blockchain.write().await;
     match blockchain.add_block(block) {
-        Ok(_) => Ok(Json(serde_json::json!({"success": true}))),
+        Ok(_) => {
+            drop(blockchain);
+
+            // Broadcast tip update to connected peers
+            state
+                .peer_manager
+                .broadcast_tip_update(block_num, block_hash)
+                .await;
+
+            Ok(Json(serde_json::json!({"success": true})))
+        }
         Err(e) => Err(ApiError::Internal(format!(
             "Failed to add pushed block: {:?}",
             e

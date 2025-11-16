@@ -533,6 +533,24 @@ impl PeerManager {
         Ok(())
     }
 
+    /// Broadcast chain tip update to all connected peers
+    pub async fn broadcast_tip_update(&self, height: u64, hash: String) {
+        let connections = self.connections.read().await;
+
+        for (ip, conn_arc) in connections.iter() {
+            let mut conn = conn_arc.lock().await;
+            if let Err(e) = conn
+                .send_message(crate::protocol::NetworkMessage::UpdateTip {
+                    height,
+                    hash: hash.clone(),
+                })
+                .await
+            {
+                debug!(peer = %ip, error = %e, "Failed to send tip update");
+            }
+        }
+    }
+
     /// Broadcast a network message to all connected peers over TCP
     /// Send a ping to a specific peer to keep the connection alive
     /// Returns Ok if ping succeeded, Err if connection is dead
@@ -617,29 +635,37 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let (p2p_port, api_port) = match self.network {
-            NetworkType::Mainnet => (24000, 24001),
-            NetworkType::Testnet => (24100, 24101),
-        };
-        let p2p_port_str = format!(":{}", p2p_port);
-        let url = format!(
-            "http://{}:{}/genesis",
-            peer_addr.replace(&p2p_port_str, ""),
-            api_port
-        );
+        // Parse peer address to get IP
+        let peer_ip: IpAddr = peer_addr
+            .split(':')
+            .next()
+            .ok_or("Invalid peer address")?
+            .parse()?;
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()?;
+        // Try TCP first
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
 
-        let response = client.get(&url).send().await?;
+            // Send request
+            conn.send_message(crate::protocol::NetworkMessage::GetGenesis)
+                .await?;
 
-        if response.status().is_success() {
-            let genesis: serde_json::Value = response.json().await?;
-            Ok(genesis)
-        } else {
-            Err(format!("Failed to fetch genesis: {}", response.status()).into())
+            // Wait for response with timeout
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(10), conn.receive_message())
+                    .await??;
+
+            match response {
+                crate::protocol::NetworkMessage::GenesisBlock(json_str) => {
+                    let genesis: serde_json::Value = serde_json::from_str(&json_str)?;
+                    return Ok(genesis);
+                }
+                _ => return Err("Unexpected response type".into()),
+            }
         }
+
+        Err("No TCP connection available".into())
     }
 
     /// Request mempool from a peer
@@ -647,90 +673,109 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<Vec<time_core::Transaction>, Box<dyn std::error::Error>> {
-        let (p2p_port, api_port) = match self.network {
-            NetworkType::Mainnet => (24000, 24001),
-            NetworkType::Testnet => (24100, 24101),
-        };
-        let p2p_port_str = format!(":{}", p2p_port);
-        let url = format!(
-            "http://{}:{}/mempool/all",
-            peer_addr.replace(&p2p_port_str, ""),
-            api_port
-        );
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
+        // Parse peer address to get IP
+        let peer_ip: IpAddr = peer_addr
+            .split(':')
+            .next()
+            .ok_or("Invalid peer address")?
+            .parse()?;
 
-        let response = client.get(&url).send().await?;
+        // Try TCP first
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
 
-        if !response.status().is_success() {
-            return Err(format!("Failed to get mempool: {}", response.status()).into());
+            // Send request
+            conn.send_message(crate::protocol::NetworkMessage::GetMempool)
+                .await?;
+
+            // Wait for response with timeout
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(30), conn.receive_message())
+                    .await??;
+
+            match response {
+                crate::protocol::NetworkMessage::MempoolResponse(transactions) => {
+                    return Ok(transactions);
+                }
+                _ => return Err("Unexpected response type".into()),
+            }
         }
 
-        let transactions: Vec<time_core::Transaction> = response.json().await?;
-        Ok(transactions)
+        Err("No TCP connection available".into())
     }
 
     pub async fn request_blockchain_info(
         &self,
         peer_addr: &str,
     ) -> Result<u64, Box<dyn std::error::Error>> {
-        let (p2p_port, api_port) = match self.network {
-            NetworkType::Mainnet => (24000, 24001),
-            NetworkType::Testnet => (24100, 24101),
-        };
-        let p2p_port_str = format!(":{}", p2p_port);
-        let url = format!(
-            "http://{}:{}/blockchain/info",
-            peer_addr.replace(&p2p_port_str, ""),
-            api_port
-        );
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()?;
+        // Parse peer address to get IP
+        let peer_ip: IpAddr = peer_addr
+            .split(':')
+            .next()
+            .ok_or("Invalid peer address")?
+            .parse()?;
 
-        let response = client.get(&url).send().await?;
+        // Try TCP first
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
 
-        if !response.status().is_success() {
-            return Err(format!("Failed to get blockchain info: {}", response.status()).into());
+            // Send request
+            conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
+                .await?;
+
+            // Wait for response with timeout
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
+                    .await??;
+
+            match response {
+                crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => {
+                    return Ok(height);
+                }
+                _ => return Err("Unexpected response type".into()),
+            }
         }
 
-        let info: serde_json::Value = response.json().await?;
-        let height = info
-            .get("height")
-            .and_then(|h| h.as_u64())
-            .ok_or("Invalid height in response")?;
-
-        Ok(height)
+        Err("No TCP connection available".into())
     }
 
     pub async fn request_snapshot(
         &self,
         peer_addr: &str,
     ) -> Result<Snapshot, Box<dyn std::error::Error>> {
-        let (p2p_port, api_port) = match self.network {
-            NetworkType::Mainnet => (24000, 24001),
-            NetworkType::Testnet => (24100, 24101),
-        };
-        let p2p_port_str = format!(":{}", p2p_port);
-        let url = format!(
-            "http://{}:{}/snapshot",
-            peer_addr.replace(&p2p_port_str, ""),
-            api_port
-        );
+        // Parse peer address to get IP
+        let peer_ip: IpAddr = peer_addr
+            .split(':')
+            .next()
+            .ok_or("Invalid peer address")?
+            .parse()?;
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
+        // Try TCP first
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
 
-        let response = client.get(&url).send().await?;
+            // Send request
+            conn.send_message(crate::protocol::NetworkMessage::GetSnapshot)
+                .await?;
 
-        if response.status().is_success() {
-            let snapshot: Snapshot = response.json().await?;
-            Ok(snapshot)
-        } else {
-            Err(format!("Failed to fetch snapshot: {}", response.status()).into())
+            // Wait for response with timeout
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(30), conn.receive_message())
+                    .await??;
+
+            match response {
+                crate::protocol::NetworkMessage::Snapshot(json_str) => {
+                    let snapshot: Snapshot = serde_json::from_str(&json_str)?;
+                    return Ok(snapshot);
+                }
+                _ => return Err("Unexpected response type".into()),
+            }
         }
+
+        Err("No TCP connection available".into())
     }
 
     pub async fn sync_recent_blocks(
@@ -768,77 +813,68 @@ impl PeerManager {
         exchange.peer_count()
     }
 
-    /// Fetch peer list from a connected peer's HTTP API for peer exchange
+    /// Fetch peer list from a connected peer via TCP for peer exchange
     async fn fetch_peers_from_api(
         &self,
         peer_addr: &SocketAddr,
     ) -> Result<Vec<PeerInfo>, Box<dyn std::error::Error + Send + Sync>> {
-        let api_port = match self.network {
-            NetworkType::Mainnet => 24001,
-            NetworkType::Testnet => 24101,
-        };
-        let url = format!("http://{}:{}/peers", peer_addr.ip(), api_port);
+        let peer_ip = peer_addr.ip();
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()?;
+        // Use TCP connection
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
 
-        let response = client.get(&url).send().await?;
+            // Send request
+            conn.send_message(crate::protocol::NetworkMessage::GetPeerList)
+                .await?;
 
-        if !response.status().is_success() {
-            return Err(format!("HTTP request returned status: {}", response.status()).into());
-        }
+            // Wait for response with timeout
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
+                    .await??;
 
-        #[derive(serde::Deserialize)]
-        struct ApiPeerInfo {
-            address: String,
-            version: String,
-            #[allow(dead_code)]
-            connected: bool,
-        }
+            match response {
+                crate::protocol::NetworkMessage::PeerList(peer_addresses) => {
+                    let p2p_port = match self.network {
+                        NetworkType::Mainnet => 24000,
+                        NetworkType::Testnet => 24100,
+                    };
 
-        #[derive(serde::Deserialize)]
-        struct PeersResponse {
-            peers: Vec<ApiPeerInfo>,
-        }
+                    let mut peer_infos = Vec::new();
+                    for p in peer_addresses {
+                        // Try to parse address directly as SocketAddr
+                        let parsed = format!("{}:{}", p.ip, p.port)
+                            .parse::<SocketAddr>()
+                            .or_else(|_| {
+                                // If parsing fails, try appending default peer port and parse again
+                                let with_port = format!("{}:{}", p.ip, p2p_port);
+                                with_port.parse::<SocketAddr>()
+                            });
 
-        let peers_response: PeersResponse = response.json().await?;
+                        match parsed {
+                            Ok(addr) => {
+                                let peer_info =
+                                    PeerInfo::with_version(addr, self.network.clone(), p.version);
+                                peer_infos.push(peer_info);
+                            }
+                            Err(e) => {
+                                debug!(address = %p.ip, error = %e, "Failed to parse peer address from TCP response; skipping entry");
+                            }
+                        }
+                    }
 
-        // Convert API peer info to discovery::PeerInfo
-        let p2p_port = match self.network {
-            NetworkType::Mainnet => 24000,
-            NetworkType::Testnet => 24100,
-        };
-        // Expected API address formats:
-        // - Full socket address: "192.168.1.1:24000" (mainnet) or "192.168.1.1:24100" (testnet)
-        // - IP address only: "192.168.1.1" or "::1" (will append default network port)
-        let mut peer_infos = Vec::new();
-        for api_peer in peers_response.peers {
-            // Try to parse address directly as SocketAddr
-            let parsed = api_peer.address.parse::<SocketAddr>().or_else(|_| {
-                // If parsing fails, try appending default peer port and parse again
-                let with_port = format!("{}:{}", api_peer.address, p2p_port);
-                with_port.parse::<SocketAddr>()
-            });
-
-            match parsed {
-                Ok(addr) => {
-                    let peer_info =
-                        PeerInfo::with_version(addr, self.network.clone(), api_peer.version);
-                    peer_infos.push(peer_info);
+                    return Ok(peer_infos);
                 }
-                Err(e) => {
-                    debug!(address = %api_peer.address, error = %e, "Failed to parse peer address from API; skipping entry");
-                }
+                _ => return Err("Unexpected response type".into()),
             }
         }
 
-        Ok(peer_infos)
+        Err("No TCP connection available".into())
     }
 
     /// Send a message to a peer via TCP (if connection exists)
-    /// Falls back to HTTP if TCP connection unavailable
-    async fn send_to_peer_tcp(
+    pub async fn send_to_peer_tcp(
         &self,
         peer_ip: IpAddr,
         message: crate::protocol::NetworkMessage,
@@ -857,36 +893,19 @@ impl PeerManager {
             crate::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json.clone());
 
         let peers = self.peers.read().await.clone();
-        let api_port = match self.network {
-            NetworkType::Mainnet => 24001,
-            NetworkType::Testnet => 24101,
-        };
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
             let msg_clone = message.clone();
-            let proposal_clone = proposal.clone();
             let manager_clone = self.clone();
 
             tokio::spawn(async move {
-                // Try TCP first
-                if manager_clone
-                    .send_to_peer_tcp(peer_ip, msg_clone)
-                    .await
-                    .is_ok()
-                {
+                // Send via TCP
+                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                    debug!(peer = %peer_ip, error = %e, "Failed to send block proposal via TCP");
+                } else {
                     debug!(peer = %peer_ip, "Sent block proposal via TCP");
-                    return;
                 }
-
-                // Fall back to HTTP if TCP unavailable
-                let url = format!("http://{}:{}/consensus/block-proposal", peer_ip, api_port);
-                let _ = reqwest::Client::new()
-                    .post(&url)
-                    .json(&proposal_clone)
-                    .timeout(std::time::Duration::from_secs(5))
-                    .send()
-                    .await;
             });
         }
     }
@@ -896,36 +915,19 @@ impl PeerManager {
         let message = crate::protocol::NetworkMessage::ConsensusBlockVote(vote_json.clone());
 
         let peers = self.peers.read().await.clone();
-        let api_port = match self.network {
-            NetworkType::Mainnet => 24001,
-            NetworkType::Testnet => 24101,
-        };
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
             let msg_clone = message.clone();
-            let vote_clone = vote.clone();
             let manager_clone = self.clone();
 
             tokio::spawn(async move {
-                // Try TCP first
-                if manager_clone
-                    .send_to_peer_tcp(peer_ip, msg_clone)
-                    .await
-                    .is_ok()
-                {
+                // Send via TCP
+                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                    debug!(peer = %peer_ip, error = %e, "Failed to send block vote via TCP");
+                } else {
                     debug!(peer = %peer_ip, "Sent block vote via TCP");
-                    return;
                 }
-
-                // Fall back to HTTP if TCP unavailable
-                let url = format!("http://{}:{}/consensus/block-vote", peer_ip, api_port);
-                let _ = reqwest::Client::new()
-                    .post(&url)
-                    .json(&vote_clone)
-                    .timeout(std::time::Duration::from_secs(5))
-                    .send()
-                    .await;
             });
         }
     }
@@ -989,15 +991,16 @@ impl PeerManager {
             "Broadcasting new peer to all connected peers"
         );
 
-        // Determine network-aware API port
-        let api_port = match self.network {
-            NetworkType::Mainnet => 24001,
-            NetworkType::Testnet => 24101,
-        };
-
         let new_peer_ip = new_peer_info.address.ip();
         let new_peer_addr = new_peer_info.address.to_string(); // Use full address from handshake
         let new_peer_version = new_peer_info.version.clone();
+
+        // Create peer discovery message
+        let peer_address = crate::protocol::PeerAddress {
+            ip: new_peer_ip.to_string(),
+            port: new_peer_info.address.port(),
+            version: new_peer_version.clone(),
+        };
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
@@ -1012,45 +1015,26 @@ impl PeerManager {
             }
 
             let new_peer_addr_clone = new_peer_addr.clone();
-            let new_peer_version_clone = new_peer_version.clone();
+            let peer_address_clone = peer_address.clone();
+            let manager_clone = self.clone();
 
             tokio::spawn(async move {
-                let url = format!("http://{}:{}/peers/discovered", peer_ip, api_port);
-                let payload = serde_json::json!({
-                    "address": new_peer_addr_clone,
-                    "version": new_peer_version_clone,
-                });
+                // Send peer list containing the new peer via TCP
+                let message = crate::protocol::NetworkMessage::PeerList(vec![peer_address_clone]);
 
-                let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(5))
-                    .build()
-                    .unwrap();
-
-                match client.post(&url).json(&payload).send().await {
-                    Ok(response) => {
-                        if response.status().is_success() {
-                            debug!(
-                                target_peer = %peer_ip,
-                                new_peer = %new_peer_addr_clone,
-                                "Successfully notified peer about new connection"
-                            );
-                        } else {
-                            debug!(
-                                target_peer = %peer_ip,
-                                new_peer = %new_peer_addr_clone,
-                                status = %response.status(),
-                                "Peer notification returned error status"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        debug!(
-                            target_peer = %peer_ip,
-                            new_peer = %new_peer_addr_clone,
-                            error = %e,
-                            "Failed to notify peer about new connection"
-                        );
-                    }
+                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, message).await {
+                    debug!(
+                        target_peer = %peer_ip,
+                        new_peer = %new_peer_addr_clone,
+                        error = %e,
+                        "Failed to notify peer about new connection via TCP"
+                    );
+                } else {
+                    debug!(
+                        target_peer = %peer_ip,
+                        new_peer = %new_peer_addr_clone,
+                        "Successfully notified peer about new connection via TCP"
+                    );
                 }
             });
         }

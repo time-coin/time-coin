@@ -1588,6 +1588,11 @@ async fn main() {
                                                         // Silently ignore pong send failures
                                                     }
                                                 }
+                                                time_network::protocol::NetworkMessage::UpdateTip { height, hash } => {
+                                                    println!("📡 Peer {} announced new tip: block {} ({})", 
+                                                        peer_ip_listen, height, &hash[..16]);
+                                                    // Could trigger sync here if our height is lower
+                                                }
                                                 _ => {
                                                     // Handle other messages if needed
                                                 }

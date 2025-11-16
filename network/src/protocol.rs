@@ -672,6 +672,30 @@ pub enum NetworkMessage {
         leader_ip: String,
         requester_ip: String,
     },
+
+    // Chain tip update notification
+    UpdateTip {
+        height: u64,
+        hash: String,
+    },
+
+    // Additional message types for full TCP communication
+    GetGenesis,
+    GenesisBlock(String), // JSON serialized genesis block
+    GetMempool,
+    GetBlockchainInfo,
+    BlockchainInfo {
+        height: u64,
+        best_block_hash: String,
+    },
+    GetSnapshot,
+    Snapshot(String), // JSON serialized snapshot
+    GetPeerList,
+    PeerList(Vec<PeerAddress>),
+
+    // Transaction consensus messages
+    ConsensusTxProposal(String), // JSON serialized tx proposal
+    ConsensusTxVote(String),     // JSON serialized tx vote
 }
 
 impl NetworkMessage {

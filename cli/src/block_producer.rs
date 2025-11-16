@@ -1215,7 +1215,13 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("   ✔ Block {} finalized", block_num);
+                let block_hash = block.hash.clone();
                 drop(blockchain);
+
+                // Broadcast tip update to all connected peers
+                self.peer_manager
+                    .broadcast_tip_update(block_num, block_hash)
+                    .await;
 
                 // Remove transactions from mempool (skip first transaction as it's coinbase)
                 for tx in transactions.iter().skip(1) {

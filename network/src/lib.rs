@@ -28,6 +28,7 @@ pub mod tx_broadcast {
     use std::sync::Arc;
     use time_core::Transaction;
     use time_mempool::Mempool;
+    use tracing::debug;
 
     pub struct TransactionBroadcaster {
         #[allow(dead_code)]
@@ -102,31 +103,22 @@ pub mod tx_broadcast {
             let peers = self.peer_manager.get_connected_peers().await;
 
             println!(
-                "📡 Broadcasting transaction proposal to {} peers",
+                "📡 Broadcasting transaction proposal to {} peers via TCP",
                 peers.len()
             );
 
-            // For now, keep using HTTP API for proposals as they're more complex
-            // and require maintaining compatibility with existing nodes
-            let api_port = match self.peer_manager.network {
-                crate::discovery::NetworkType::Mainnet => 24001,
-                crate::discovery::NetworkType::Testnet => 24101,
-            };
+            let proposal_json = proposal.to_string();
+            let message = crate::protocol::NetworkMessage::ConsensusTxProposal(proposal_json);
 
             for peer_info in peers {
                 let peer_ip = peer_info.address.ip();
-                let proposal_clone = proposal.clone();
+                let msg_clone = message.clone();
+                let manager_clone = self.peer_manager.clone();
 
                 tokio::spawn(async move {
-                    let client = match reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(5))
-                        .build()
-                    {
-                        Ok(c) => c,
-                        Err(_) => return,
-                    };
-                    let url = format!("http://{}:{}/consensus/tx-proposal", peer_ip, api_port);
-                    let _ = client.post(&url).json(&proposal_clone).send().await;
+                    if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                        debug!(peer = %peer_ip, error = %e, "Failed to send tx proposal via TCP");
+                    }
                 });
             }
         }
@@ -134,25 +126,19 @@ pub mod tx_broadcast {
         /// Broadcast vote on transaction set via TCP
         pub async fn broadcast_tx_vote(&self, vote: serde_json::Value) {
             let peers = self.peer_manager.get_connected_peers().await;
-            let api_port = match self.peer_manager.network {
-                crate::discovery::NetworkType::Mainnet => 24001,
-                crate::discovery::NetworkType::Testnet => 24101,
-            };
+
+            let vote_json = vote.to_string();
+            let message = crate::protocol::NetworkMessage::ConsensusTxVote(vote_json);
 
             for peer_info in peers {
                 let peer_ip = peer_info.address.ip();
-                let vote_clone = vote.clone();
+                let msg_clone = message.clone();
+                let manager_clone = self.peer_manager.clone();
 
                 tokio::spawn(async move {
-                    let client = match reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(5))
-                        .build()
-                    {
-                        Ok(c) => c,
-                        Err(_) => return,
-                    };
-                    let url = format!("http://{}:{}/consensus/tx-vote", peer_ip, api_port);
-                    let _ = client.post(&url).json(&vote_clone).send().await;
+                    if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                        debug!(peer = %peer_ip, error = %e, "Failed to send tx vote via TCP");
+                    }
                 });
             }
         }
