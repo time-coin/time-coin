@@ -67,15 +67,7 @@ impl PeerConnection {
             their_handshake.commit_count.clone(),
         );
 
-        // Log peer connection with full version info
-        let peer_date = their_handshake.commit_date.as_deref().unwrap_or("unknown");
-        println!(
-            "🔗 Connected to peer: {} | Version: {} | Committed: {} | Commits: {}",
-            peer_addr.ip(),
-            their_handshake.version,
-            peer_date,
-            their_handshake.commit_count.as_deref().unwrap_or("unknown")
-        );
+        // Silently connect to peer (reduce log verbosity)
 
         // Auto-register masternode if wallet address provided
         if let Some(wallet_addr) = &their_handshake.wallet_address {
@@ -122,10 +114,7 @@ impl PeerConnection {
     ) {
         use time_core::MasternodeTier;
 
-        println!(
-            "🔐 Auto-registering masternode: {} -> {}",
-            node_ip, wallet_address
-        );
+        // Silently auto-register masternode (reduce log verbosity)
 
         // Register in blockchain state
         let mut chain = blockchain.write().await;
@@ -342,12 +331,12 @@ impl PeerListener {
     }
 
     pub async fn accept(&self) -> Result<PeerConnection, String> {
-        let (mut stream, addr) = self
+        let (mut stream, _addr) = self
             .listener
             .accept()
             .await
             .map_err(|e| format!("Accept failed: {}", e))?;
-        println!("📥 Incoming connection from {}", addr);
+        // Silently accept connection (reduce log verbosity)
 
         let their_handshake = PeerConnection::receive_handshake(&mut stream, &self.network).await?;
         their_handshake.validate(&self.network)?;
@@ -365,12 +354,7 @@ impl PeerListener {
         peer_info.commit_date = their_handshake.commit_date.clone();
         peer_info.commit_count = their_handshake.commit_count.clone();
 
-        println!(
-            "✓ Accepted {} (v{}, committed: {})",
-            addr,
-            their_handshake.version,
-            their_handshake.commit_date.as_deref().unwrap_or("unknown")
-        );
+        // Silently accepted (reduce log verbosity)
 
         // Auto-register incoming peer as masternode if wallet provided
         if let Some(wallet_addr) = &their_handshake.wallet_address {

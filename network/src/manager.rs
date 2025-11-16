@@ -459,7 +459,7 @@ impl PeerManager {
                     // Connection is dead, drop the read lock and clean it up
                     drop(conn_guard);
                     drop(connections);
-                    
+
                     // Remove dead connection
                     self.remove_dead_connection(peer_ip).await;
                     Err(format!("Failed to send ping: {}", e))
@@ -480,7 +480,7 @@ impl PeerManager {
         // Remove from peers
         let mut peers = self.peers.write().await;
         peers.retain(|ip, _| *ip != peer_ip);
-        
+
         info!("Removed dead connection for {}", peer_ip);
     }
 

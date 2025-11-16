@@ -421,7 +421,7 @@ async fn handle_peer_discovered(
     tokio::spawn(async move {
         match peer_manager_clone.connect_to_peer(peer_info).await {
             Ok(_) => {
-                println!("✓ Successfully connected to broadcasted peer {}", peer_addr);
+                // Silently connected to broadcasted peer (reduce log verbosity)
             }
             Err(e) => {
                 println!(

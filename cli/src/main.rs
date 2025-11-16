@@ -1506,19 +1506,7 @@ async fn main() {
                                 eprintln!("{}", warning);
                             }
 
-                            println!(
-                                "{}",
-                                format!(
-                                    "✓ Connected to {} (v{}, committed: {})",
-                                    peer_addr.ip().to_string().bright_blue(),
-                                    info.version.bright_black(),
-                                    info.commit_date
-                                        .as_deref()
-                                        .unwrap_or("unknown")
-                                        .bright_black()
-                                )
-                                .green()
-                            );
+                            // Silently connected (reduce log verbosity)
 
                             // Wrap connection in Arc before storing
                             let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
@@ -1928,8 +1916,13 @@ async fn main() {
                         let peer_mgr_reconnect = peer_mgr_heartbeat.clone();
                         let peer_info = peer.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = peer_mgr_reconnect.connect_to_peer(peer_info.clone()).await {
-                                eprintln!("      ✗ Failed to reconnect to {}: {}", peer_info.address, e);
+                            if let Err(e) =
+                                peer_mgr_reconnect.connect_to_peer(peer_info.clone()).await
+                            {
+                                eprintln!(
+                                    "      ✗ Failed to reconnect to {}: {}",
+                                    peer_info.address, e
+                                );
                             } else {
                                 println!("      ✓ Reconnected to {}", peer_info.address);
                             }
