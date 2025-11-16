@@ -1559,15 +1559,29 @@ async fn main() {
                                 );
                             }
 
-                            // Start connection keepalive for this peer
+                            // Start connection keepalive for this peer with retry logic
                             let peer_manager_ka = Arc::clone(&peer_manager_clone);
                             let peer_ip_ka = peer_ip;
                             tokio::spawn(async move {
+                                let mut consecutive_failures = 0u32;
+                                const MAX_FAILURES: u32 = 3;
+                                
                                 loop {
                                     tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                                    if let Err(e) = peer_manager_ka.send_ping(peer_ip_ka).await {
-                                        eprintln!("⚠️  Failed to ping {}: {}", peer_ip_ka, e);
-                                        break;
+                                    
+                                    match peer_manager_ka.send_ping(peer_ip_ka).await {
+                                        Ok(_) => {
+                                            consecutive_failures = 0;
+                                        }
+                                        Err(e) => {
+                                            consecutive_failures += 1;
+                                            if consecutive_failures >= MAX_FAILURES {
+                                                eprintln!("⚠️  Connection to {} lost after {} failures", peer_ip_ka, consecutive_failures);
+                                                break;
+                                            }
+                                            // Log but continue retrying
+                                            eprintln!("⚠️  Ping to {} failed ({}/{}): {}", peer_ip_ka, consecutive_failures, MAX_FAILURES, e);
+                                        }
                                     }
                                 }
                             });
