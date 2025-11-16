@@ -189,17 +189,43 @@ impl PeerManager {
                 // Spawn a task to run the connection keep-alive and cleanup on exit.
                 tokio::spawn(async move {
                     // Run keep_alive loop manually using the shared connection
+                    let mut consecutive_failures = 0u32;
+                    const MAX_FAILURES: u32 = 3;
+
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
 
                         let mut conn_guard = conn_arc_clone.lock().await;
-                        if conn_guard.ping().await.is_err() {
-                            break;
-                        }
+                        let ping_result = conn_guard.ping().await;
                         drop(conn_guard);
 
-                        // Refresh last-seen timestamp for this peer using IP address
-                        manager_clone.peer_seen(peer_ip).await;
+                        match ping_result {
+                            Ok(_) => {
+                                // Successful ping - reset failure counter
+                                consecutive_failures = 0;
+                                // Refresh last-seen timestamp for this peer using IP address
+                                manager_clone.peer_seen(peer_ip).await;
+                            }
+                            Err(e) => {
+                                consecutive_failures += 1;
+                                debug!(
+                                    peer = %peer_addr,
+                                    failures = consecutive_failures,
+                                    error = %e,
+                                    "Ping failed"
+                                );
+
+                                if consecutive_failures >= MAX_FAILURES {
+                                    warn!(
+                                        peer = %peer_addr,
+                                        failures = consecutive_failures,
+                                        "Connection lost after multiple ping failures"
+                                    );
+                                    break;
+                                }
+                                // Otherwise continue and retry on next iteration
+                            }
+                        }
                     }
 
                     debug!(peer = %peer_addr, "peer keep_alive finished");
