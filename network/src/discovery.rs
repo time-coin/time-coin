@@ -113,7 +113,7 @@ impl SeedNodes {
             NetworkType::Testnet => Self::testnet(),
         }
     }
-    
+
     /// Get seeds from environment variable
     /// Format: TIMECOIN_SEEDS="ip1:port1,ip2:port2"
     pub fn from_env() -> Vec<String> {
@@ -285,10 +285,7 @@ impl PeerDiscovery {
         match self.http_discovery.fetch_peers().await {
             Ok(peers) => {
                 let http_count = peers.len();
-                println!(
-                    "  ✓ Found {} peers via HTTP",
-                    http_count
-                );
+                println!("  ✓ Found {} peers via HTTP", http_count);
                 all_peers.extend(peers);
             }
             Err(e) => {
@@ -396,14 +393,26 @@ mod tests {
     #[test]
     fn test_seed_nodes_mainnet() {
         let seeds = SeedNodes::mainnet();
-        assert!(!seeds.is_empty());
-        assert!(seeds.len() >= 2);
+        // No hardcoded seeds anymore - should be empty (use environment or DNS)
+        assert_eq!(seeds.len(), 0);
     }
 
     #[test]
     fn test_seed_nodes_testnet() {
         let seeds = SeedNodes::testnet();
-        assert!(!seeds.is_empty());
+        // No hardcoded seeds anymore - should be empty (use environment or DNS)
+        assert_eq!(seeds.len(), 0);
+    }
+
+    #[test]
+    fn test_seed_nodes_from_env() {
+        // Test that from_env works correctly
+        std::env::set_var("TIMECOIN_SEEDS", "192.168.1.1:24100,192.168.1.2:24100");
+        let seeds = SeedNodes::from_env();
+        assert_eq!(seeds.len(), 2);
+        assert_eq!(seeds[0], "192.168.1.1:24100");
+        assert_eq!(seeds[1], "192.168.1.2:24100");
+        std::env::remove_var("TIMECOIN_SEEDS");
     }
 
     #[test]

@@ -11,11 +11,13 @@ use std::sync::{Arc, Mutex};
 use wallet::NetworkType;
 
 mod config;
+mod mnemonic_ui;
 mod network;
 mod wallet_dat;
 mod wallet_manager;
 
 use config::{Config, WalletConfig};
+use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
 use wallet_manager::WalletManager;
 
@@ -53,12 +55,6 @@ enum Screen {
     Peers,
 }
 
-#[derive(PartialEq, Clone)]
-enum MnemonicMode {
-    Generate,
-    Import,
-}
-
 struct WalletApp {
     current_screen: Screen,
     wallet_manager: Option<WalletManager>,
@@ -81,12 +77,9 @@ struct WalletApp {
     network_manager: Option<Arc<Mutex<NetworkManager>>>,
     network_status: String,
 
-    // Mnemonic setup fields
-    mnemonic_phrase: String,
-    mnemonic_input: String,
-    mnemonic_mode: MnemonicMode,
+    // Mnemonic setup - NEW enhanced interface
+    mnemonic_interface: MnemonicInterface,
     mnemonic_confirmed: bool,
-    show_mnemonic: bool,
 }
 
 impl Default for WalletApp {
@@ -104,11 +97,8 @@ impl Default for WalletApp {
             config: WalletConfig::default(),
             network_manager: None,
             network_status: "Not connected".to_string(),
-            mnemonic_phrase: String::new(),
-            mnemonic_input: String::new(),
-            mnemonic_mode: MnemonicMode::Generate,
+            mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
-            show_mnemonic: false,
         }
     }
 }
@@ -246,7 +236,7 @@ impl WalletApp {
                     if ui.button(egui::RichText::new("Create Wallet").size(16.0)).clicked() {
                         // Transition to mnemonic setup screen
                         self.current_screen = Screen::MnemonicSetup;
-                        self.mnemonic_mode = MnemonicMode::Generate;
+                        self.mnemonic_interface = MnemonicInterface::new();
                         self.error_message = None;
                     }
                 }
@@ -262,213 +252,35 @@ impl WalletApp {
     fn show_mnemonic_setup_screen(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.add_space(50.0);
-                ui.heading(egui::RichText::new("Wallet Recovery Phrase").size(28.0));
-                ui.add_space(30.0);
+                ui.add_space(20.0);
 
-                // Mode selection
-                ui.horizontal(|ui| {
-                    ui.selectable_value(
-                        &mut self.mnemonic_mode,
-                        MnemonicMode::Generate,
-                        "Generate New Phrase",
-                    );
-                    ui.selectable_value(
-                        &mut self.mnemonic_mode,
-                        MnemonicMode::Import,
-                        "Import Existing Phrase",
-                    );
-                });
-
-                ui.add_space(30.0);
-
-                if self.mnemonic_mode == MnemonicMode::Generate {
-                    // Generate mode
-                    ui.label(
-                        egui::RichText::new("A 12-word recovery phrase will be generated for you.")
-                            .size(14.0),
-                    );
-                    ui.add_space(10.0);
-                    ui.label("This phrase is the ONLY way to recover your wallet.");
-                    ui.add_space(20.0);
-
-                    if ui
-                        .button(egui::RichText::new("Generate Recovery Phrase").size(16.0))
-                        .clicked()
-                    {
-                        match WalletManager::generate_mnemonic() {
-                            Ok(mnemonic) => {
-                                self.mnemonic_phrase = mnemonic;
-                                self.current_screen = Screen::MnemonicConfirm;
-                                self.error_message = None;
-                            }
-                            Err(e) => {
-                                self.error_message =
-                                    Some(format!("Failed to generate mnemonic: {}", e));
-                            }
+                // Use the new mnemonic interface
+                if let Some(action) = self.mnemonic_interface.render(ui) {
+                    match action {
+                        MnemonicAction::Confirm(phrase) => {
+                            // Store the phrase and create wallet
+                            self.create_wallet_from_mnemonic_phrase(&phrase, ctx);
+                        }
+                        MnemonicAction::Cancel => {
+                            self.current_screen = Screen::Welcome;
+                            self.mnemonic_interface = MnemonicInterface::new();
                         }
                     }
-                } else {
-                    // Import mode
-                    ui.label(egui::RichText::new("Enter your 12-word recovery phrase:").size(14.0));
-                    ui.add_space(10.0);
-
-                    let response = ui.add(
-                        egui::TextEdit::multiline(&mut self.mnemonic_input)
-                            .desired_width(500.0)
-                            .desired_rows(3)
-                            .hint_text("word1 word2 word3 ..."),
-                    );
-
-                    ui.add_space(10.0);
-
-                    // Real-time validation
-                    if !self.mnemonic_input.is_empty() {
-                        match WalletManager::validate_mnemonic(&self.mnemonic_input) {
-                            Ok(_) => {
-                                ui.colored_label(egui::Color32::GREEN, "✓ Valid recovery phrase");
-                            }
-                            Err(_) => {
-                                ui.colored_label(egui::Color32::RED, "✗ Invalid recovery phrase");
-                            }
-                        }
-                    }
-
-                    ui.add_space(20.0);
-
-                    let can_proceed = !self.mnemonic_input.is_empty()
-                        && WalletManager::validate_mnemonic(&self.mnemonic_input).is_ok();
-
-                    if ui
-                        .add_enabled(
-                            can_proceed,
-                            egui::Button::new(egui::RichText::new("Import Wallet").size(16.0)),
-                        )
-                        .clicked()
-                    {
-                        self.mnemonic_phrase = self.mnemonic_input.clone();
-                        self.create_wallet_from_mnemonic(ctx);
-                    }
-                }
-
-                ui.add_space(30.0);
-
-                if ui.button("← Back").clicked() {
-                    self.current_screen = Screen::Welcome;
-                    self.mnemonic_input.clear();
-                    self.error_message = None;
-                }
-
-                if let Some(msg) = &self.error_message {
-                    ui.add_space(20.0);
-                    ui.colored_label(egui::Color32::RED, msg);
                 }
             });
         });
     }
 
     fn show_mnemonic_confirm_screen(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(30.0);
-                ui.heading(
-                    egui::RichText::new("⚠️ Save Your Recovery Phrase")
-                        .size(28.0)
-                        .color(egui::Color32::from_rgb(255, 165, 0)),
-                );
-                ui.add_space(20.0);
-
-                // Warning messages
-                ui.group(|ui| {
-                    ui.set_max_width(600.0);
-                    ui.colored_label(
-                        egui::Color32::RED,
-                        "⚠️ Write down these 12 words in order and keep them safe",
-                    );
-                    ui.colored_label(
-                        egui::Color32::RED,
-                        "⚠️ Anyone with this phrase can access your funds",
-                    );
-                    ui.colored_label(
-                        egui::Color32::RED,
-                        "⚠️ We cannot recover your wallet without this phrase",
-                    );
-                });
-
-                ui.add_space(30.0);
-
-                // Display mnemonic words in a grid
-                ui.group(|ui| {
-                    ui.set_max_width(600.0);
-                    let words: Vec<&str> = self.mnemonic_phrase.split_whitespace().collect();
-
-                    egui::Grid::new("mnemonic_grid")
-                        .spacing([20.0, 10.0])
-                        .show(ui, |ui| {
-                            for (i, word) in words.iter().enumerate() {
-                                ui.label(format!("{}.", i + 1));
-                                ui.monospace(egui::RichText::new(*word).size(16.0).strong());
-                                if (i + 1) % 3 == 0 {
-                                    ui.end_row();
-                                }
-                            }
-                        });
-                });
-
-                ui.add_space(20.0);
-
-                // Copy button
-                if ui.button("📋 Copy to Clipboard").clicked() {
-                    ctx.copy_text(self.mnemonic_phrase.clone());
-                    self.success_message = Some("Recovery phrase copied to clipboard!".to_string());
-                }
-
-                ui.add_space(30.0);
-
-                // Confirmation checkbox
-                ui.checkbox(
-                    &mut self.mnemonic_confirmed,
-                    "I have written down my recovery phrase in a safe place",
-                );
-
-                ui.add_space(20.0);
-
-                // Create wallet button
-                if ui
-                    .add_enabled(
-                        self.mnemonic_confirmed,
-                        egui::Button::new(egui::RichText::new("Create Wallet").size(16.0)),
-                    )
-                    .clicked()
-                {
-                    self.create_wallet_from_mnemonic(ctx);
-                }
-
-                ui.add_space(20.0);
-
-                if ui.button("← Back").clicked() {
-                    self.current_screen = Screen::MnemonicSetup;
-                    self.mnemonic_confirmed = false;
-                    self.error_message = None;
-                }
-
-                if let Some(msg) = &self.success_message {
-                    ui.add_space(10.0);
-                    ui.colored_label(egui::Color32::GREEN, msg);
-                }
-
-                if let Some(msg) = &self.error_message {
-                    ui.add_space(10.0);
-                    ui.colored_label(egui::Color32::RED, msg);
-                }
-            });
-        });
+        // This screen is no longer needed - the new mnemonic interface handles confirmation
+        // Redirect to overview if somehow accessed
+        self.current_screen = Screen::Overview;
     }
 
-    fn create_wallet_from_mnemonic(&mut self, ctx: &egui::Context) {
+    fn create_wallet_from_mnemonic_phrase(&mut self, phrase: &str, ctx: &egui::Context) {
         match WalletManager::create_from_mnemonic(
             self.network,
-            &self.mnemonic_phrase,
+            phrase,
             "", // No passphrase for now
             "Default".to_string(),
         ) {
@@ -477,8 +289,8 @@ impl WalletApp {
                 self.current_screen = Screen::Overview;
                 self.success_message = Some("Wallet created successfully!".to_string());
 
-                // Clear mnemonic from memory after wallet creation
-                self.mnemonic_input.clear();
+                // Clear mnemonic from memory
+                self.mnemonic_interface.clear();
                 self.mnemonic_confirmed = false;
 
                 // Load config and initialize network
@@ -493,7 +305,6 @@ impl WalletApp {
                     self.network_manager = Some(network_mgr.clone());
                     self.network_status = "Connecting...".to_string();
 
-                    // Trigger network bootstrap in background
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                     let ctx_clone = ctx.clone();
 
@@ -525,6 +336,8 @@ impl WalletApp {
             }
         }
     }
+
+    // Old function removed - using create_wallet_from_mnemonic_phrase instead
 
     fn show_main_screen(&mut self, ctx: &egui::Context) {
         // Top menu bar
@@ -964,46 +777,22 @@ impl WalletApp {
             ui.add_space(20.0);
 
             // Recovery phrase section
-            if let Some(mnemonic) = manager.get_mnemonic() {
+            if let Some(_mnemonic) = manager.get_mnemonic() {
                 ui.group(|ui| {
                     ui.label("Recovery Phrase");
                     ui.add_space(5.0);
 
-                    ui.checkbox(&mut self.show_mnemonic, "Show Recovery Phrase");
-
-                    if self.show_mnemonic {
-                        ui.add_space(10.0);
-                        ui.colored_label(
-                            egui::Color32::RED,
-                            "⚠️ WARNING: Never share your recovery phrase!",
-                        );
-                        ui.add_space(5.0);
-
-                        ui.group(|ui| {
-                            let words: Vec<&str> = mnemonic.split_whitespace().collect();
-                            egui::Grid::new("settings_mnemonic_grid")
-                                .spacing([15.0, 8.0])
-                                .show(ui, |ui| {
-                                    for (i, word) in words.iter().enumerate() {
-                                        ui.label(format!("{}.", i + 1));
-                                        ui.monospace(egui::RichText::new(*word).size(14.0));
-                                        if (i + 1) % 4 == 0 {
-                                            ui.end_row();
-                                        }
-                                    }
-                                });
-                        });
-
-                        ui.add_space(10.0);
-                        if ui.button("📋 Copy Recovery Phrase").clicked() {
-                            ctx.copy_text(mnemonic);
-                            self.success_message =
-                                Some("Recovery phrase copied to clipboard!".to_string());
-                        }
+                    if ui.button("View Recovery Phrase...").clicked() {
+                        self.current_screen = Screen::MnemonicSetup;
+                        self.mnemonic_interface = MnemonicInterface::new();
                     }
-                });
 
-                ui.add_space(20.0);
+                    ui.add_space(5.0);
+                    ui.colored_label(
+                        egui::Color32::YELLOW,
+                        "⚠️ Use the button above to view or print your recovery phrase",
+                    );
+                });
             }
 
             // Security section
