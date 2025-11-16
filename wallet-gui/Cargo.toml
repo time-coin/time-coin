@@ -27,6 +27,7 @@ thiserror = "2.0"
 dirs = "5.0"
 resvg = "0.44"
 tiny-skia = "0.11"
+printpdf = "0.7"
 
 # Local wallet dependency from parent project
 wallet = { path = "../wallet", version = "0.1.0" }

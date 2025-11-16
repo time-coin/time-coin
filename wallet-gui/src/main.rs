@@ -789,11 +789,11 @@ impl WalletApp {
 
             // Recovery phrase section
             ui.group(|ui| {
-                ui.label("🔐 Recovery Phrase");
+                ui.label("Recovery Phrase");
                 ui.add_space(5.0);
 
                 if manager.get_mnemonic().is_some() {
-                    if ui.button("📝 View Recovery Phrase...").clicked() {
+                    if ui.button("View Recovery Phrase...").clicked() {
                         // Populate the mnemonic interface with existing phrase
                         if let Some(mnemonic) = manager.get_mnemonic() {
                             self.mnemonic_interface = MnemonicInterface::new();
@@ -818,7 +818,7 @@ impl WalletApp {
                     ui.add_space(5.0);
                     ui.colored_label(
                         egui::Color32::YELLOW,
-                        "⚠️ Use the button above to view or print your recovery phrase",
+                        "WARNING: Use the button above to view or print your recovery phrase",
                     );
                 } else {
                     ui.colored_label(
@@ -833,14 +833,14 @@ impl WalletApp {
 
             // Backup wallet section
             ui.group(|ui| {
-                ui.label("💾 Backup Wallet");
+                ui.label("Backup Wallet");
                 ui.add_space(5.0);
 
                 ui.label("Current wallet location:");
                 ui.monospace(manager.wallet_path().display().to_string());
                 ui.add_space(10.0);
 
-                if ui.button("📁 Open Wallet Directory").clicked() {
+                if ui.button("Open Wallet Directory").clicked() {
                     // Open the wallet directory in file explorer
                     let wallet_dir = manager
                         .wallet_path()
@@ -867,7 +867,7 @@ impl WalletApp {
                 ui.add_space(5.0);
                 ui.colored_label(
                     egui::Color32::LIGHT_BLUE,
-                    "💡 Tip: Copy wallet.dat to backup your wallet",
+                    "Tip: Copy wallet.dat to backup your wallet",
                 );
                 ui.label("Store backups in a secure location separate from your computer.");
             });
@@ -885,7 +885,7 @@ impl WalletApp {
                     ui.add_space(10.0);
                     ui.colored_label(
                         egui::Color32::RED,
-                        "⚠️ WARNING: Never share your private key!",
+                        "WARNING: Never share your private key!",
                     );
                     ui.add_space(5.0);
 

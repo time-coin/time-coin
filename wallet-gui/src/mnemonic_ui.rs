@@ -3,6 +3,9 @@
 
 use crate::wallet_manager::WalletManager;
 use eframe::egui;
+use printpdf::*;
+use std::fs::File;
+use std::io::BufWriter;
 
 #[derive(PartialEq, Clone)]
 pub enum MnemonicMode {
@@ -178,22 +181,22 @@ impl MnemonicInterface {
 
         // Action buttons
         ui.horizontal(|ui| {
-            if self.mode == MnemonicMode::Generate && ui.button("🎲 Generate New Phrase").clicked()
+            if self.mode == MnemonicMode::Generate && ui.button("Generate New Phrase").clicked()
             {
                 if let Err(e) = self.generate_mnemonic() {
                     self.validation_error = Some(e);
                 }
             }
 
-            if ui.button("🗑️ Clear All").clicked() {
+            if ui.button("Clear All").clicked() {
                 self.clear();
             }
 
-            if ui.button("✓ Validate").clicked() {
+            if ui.button("Validate").clicked() {
                 self.validate();
             }
 
-            if ui.button("🖨️ Print").clicked() {
+            if ui.button("Print").clicked() {
                 self.show_print_dialog = true;
             }
         });
@@ -202,9 +205,9 @@ impl MnemonicInterface {
 
         // Validation status
         if let Some(error) = &self.validation_error {
-            ui.colored_label(egui::Color32::RED, format!("❌ {}", error));
+            ui.colored_label(egui::Color32::RED, format!("Invalid: {}", error));
         } else if self.is_valid {
-            ui.colored_label(egui::Color32::GREEN, "✅ Valid mnemonic phrase");
+            ui.colored_label(egui::Color32::GREEN, "Valid mnemonic phrase");
         }
 
         ui.add_space(10.0);
@@ -265,7 +268,7 @@ impl MnemonicInterface {
                             ui.add_enabled(
                                 enabled,
                                 egui::TextEdit::singleline(&mut self.words[index])
-                                    .desired_width(120.0)
+                                    .desired_width(150.0)  // Increased from 120.0 to show full words
                                     .hint_text("word"),
                             );
                         }
@@ -277,14 +280,14 @@ impl MnemonicInterface {
 
     /// Render print dialog
     fn render_print_dialog(&mut self, ctx: &egui::Context) {
-        egui::Window::new("🖨️ Print Mnemonic Phrase")
+        egui::Window::new("Print Mnemonic Phrase")
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 ui.heading("Print Recovery Phrase");
                 ui.add_space(10.0);
 
-                ui.label("⚠️ SECURITY WARNING:");
+                ui.colored_label(egui::Color32::YELLOW, "SECURITY WARNING:");
                 ui.label("• Store this in a safe, secure location");
                 ui.label("• Never share with anyone");
                 ui.label("• Do not store digitally");
@@ -358,14 +361,161 @@ impl MnemonicInterface {
                         ui.ctx().copy_text(phrase.clone());
                     }
 
+                    if ui.button("Save as PDF").clicked() {
+                        if let Err(e) = self.save_as_pdf(&phrase) {
+                            eprintln!("Failed to save PDF: {}", e);
+                        }
+                    }
+
+                    if ui.button("Print PDF").clicked() {
+                        if let Err(e) = self.print_to_pdf(&phrase) {
+                            eprintln!("Failed to print: {}", e);
+                        } else {
+                            // Open the PDF in the default viewer for printing
+                            #[cfg(target_os = "windows")]
+                            {
+                                let _ = std::process::Command::new("cmd")
+                                    .args(&["/C", "start", "mnemonic_recovery_phrase.pdf"])
+                                    .spawn();
+                            }
+                            #[cfg(target_os = "linux")]
+                            {
+                                let _ = std::process::Command::new("xdg-open")
+                                    .arg("mnemonic_recovery_phrase.pdf")
+                                    .spawn();
+                            }
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = std::process::Command::new("open")
+                                    .arg("mnemonic_recovery_phrase.pdf")
+                                    .spawn();
+                            }
+                        }
+                    }
+
                     if ui.button("Close").clicked() {
                         self.show_print_dialog = false;
                     }
-
-                    // Note: Actual printing would require platform-specific code
-                    // This provides a print-ready format that users can print via browser/screenshot
                 });
             });
+    }
+
+    /// Generate PDF with mnemonic phrase
+    fn save_as_pdf(&self, phrase: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let (doc, page1, layer1) = PdfDocument::new(
+            "TIME Coin Recovery Phrase",
+            Mm(210.0),
+            Mm(297.0),
+            "Layer 1",
+        );
+
+        let font = doc.add_builtin_font(BuiltinFont::Helvetica)?;
+        let font_bold = doc.add_builtin_font(BuiltinFont::HelveticaBold)?;
+        let current_layer = doc.get_page(page1).get_layer(layer1);
+
+        // Title
+        current_layer.use_text(
+            "TIME Coin Recovery Phrase",
+            24.0,
+            Mm(20.0),
+            Mm(270.0),
+            &font_bold,
+        );
+
+        // Date
+        let date_str = format!("Date: {}", chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"));
+        current_layer.use_text(&date_str, 12.0, Mm(20.0), Mm(260.0), &font);
+
+        // Warning
+        current_layer.use_text(
+            "SECURITY WARNING: Keep this document safe and secure!",
+            10.0,
+            Mm(20.0),
+            Mm(250.0),
+            &font_bold,
+        );
+        current_layer.use_text(
+            "Never share with anyone. Store in a secure location.",
+            10.0,
+            Mm(20.0),
+            Mm(245.0),
+            &font,
+        );
+
+        // Recovery phrase words
+        let words: Vec<&str> = phrase.split_whitespace().collect();
+        let mut y_pos = 230.0;
+        let left_x = 20.0;
+        let right_x = 120.0;
+
+        current_layer.use_text("Your Recovery Phrase:", 14.0, Mm(left_x), Mm(y_pos), &font_bold);
+        y_pos -= 10.0;
+
+        for (i, chunk) in words.chunks(2).enumerate() {
+            if let Some(word) = chunk.get(0) {
+                let text = format!("{}. {}", i * 2 + 1, word);
+                current_layer.use_text(&text, 11.0, Mm(left_x), Mm(y_pos), &font);
+            }
+            if let Some(word) = chunk.get(1) {
+                let text = format!("{}. {}", i * 2 + 2, word);
+                current_layer.use_text(&text, 11.0, Mm(right_x), Mm(y_pos), &font);
+            }
+            y_pos -= 8.0;
+        }
+
+        // Save instructions at bottom
+        y_pos = 30.0;
+        current_layer.use_text(
+            "Instructions:",
+            12.0,
+            Mm(left_x),
+            Mm(y_pos),
+            &font_bold,
+        );
+        y_pos -= 7.0;
+        current_layer.use_text(
+            "1. Write down these words in order",
+            10.0,
+            Mm(left_x),
+            Mm(y_pos),
+            &font,
+        );
+        y_pos -= 6.0;
+        current_layer.use_text(
+            "2. Store this paper in a safe, secure location",
+            10.0,
+            Mm(left_x),
+            Mm(y_pos),
+            &font,
+        );
+        y_pos -= 6.0;
+        current_layer.use_text(
+            "3. Never share these words with anyone",
+            10.0,
+            Mm(left_x),
+            Mm(y_pos),
+            &font,
+        );
+        y_pos -= 6.0;
+        current_layer.use_text(
+            "4. These words are your ONLY way to recover your wallet",
+            10.0,
+            Mm(left_x),
+            Mm(y_pos),
+            &font,
+        );
+
+        // Save to file
+        let file = File::create("mnemonic_recovery_phrase.pdf")?;
+        let mut writer = BufWriter::new(file);
+        doc.save(&mut writer)?;
+
+        Ok(())
+    }
+
+    /// Print to PDF (same as save, but intended for printing)
+    fn print_to_pdf(&self, phrase: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.save_as_pdf(phrase)
     }
 }
 
