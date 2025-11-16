@@ -867,17 +867,17 @@ async fn main() {
 
                     // Show peer details for the filtered set
                     for (i, peer) in peers_to_show.iter().enumerate() {
-                        println!(
-                            "    {}. {} (last seen: {})",
-                            i + 1,
-                            peer.address,
-                            chrono::DateTime::<chrono::Utc>::from_timestamp(
-                                peer.last_seen as i64,
-                                0
-                            )
-                            .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
-                            .unwrap_or_else(|| "unknown".to_string())
-                        );
+                        // Check if this is a seed node (hardcoded)
+                        let is_seed = peer.address.to_string() == "50.28.104.50:24100" 
+                            || peer.address.to_string() == "134.199.175.106:24100"
+                            || peer.address.to_string() == "50.28.104.50:24000"
+                            || peer.address.to_string() == "134.199.175.106:24000";
+                        
+                        if is_seed {
+                            println!("    {}. {} (seed node)", i + 1, peer.address);
+                        } else {
+                            println!("    {}. {}", i + 1, peer.address);
+                        }
                     }
 
                     if peers_to_show.len() < peers.len() {
