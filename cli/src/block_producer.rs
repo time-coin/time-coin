@@ -672,7 +672,11 @@ impl BlockProducer {
                         "      - {:?} tier ({} weight): {} → {} satoshis ({:.2} TIME)",
                         tier,
                         tier.weight(),
-                        &wallet_addr[..20],
+                        if wallet_addr.len() >= 20 {
+                            &wallet_addr[..20]
+                        } else {
+                            wallet_addr.as_str()
+                        },
                         reward,
                         reward as f64 / 100_000_000.0
                     );
