@@ -14,6 +14,7 @@ pub mod keypair;
 pub mod mnemonic;
 pub mod transaction;
 pub mod wallet;
+pub mod metadata_db;
 
 pub use address::{Address, AddressError, NetworkType};
 pub use keypair::{Keypair, KeypairError};
@@ -22,3 +23,4 @@ pub use mnemonic::{
 };
 pub use transaction::{Transaction, TransactionError, TxInput, TxOutput};
 pub use wallet::{AddressMetadata, Wallet, WalletError, UTXO};
+pub use metadata_db::{MetadataDb, MetadataDbError};

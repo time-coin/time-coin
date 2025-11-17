@@ -114,10 +114,28 @@ struct WalletApp {
 
 impl Default for WalletApp {
     fn default() -> Self {
+        // Initialize wallet database immediately
+        let wallet_db = if let Ok(main_config) = Config::load() {
+            let wallet_dir = main_config.wallet_dir();
+            let db_path = wallet_dir.join("wallet.db");
+            match WalletDb::open(&db_path) {
+                Ok(db) => {
+                    log::info!("Wallet database initialized at {:?}", db_path);
+                    Some(db)
+                }
+                Err(e) => {
+                    log::error!("Failed to open wallet database: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        
         Self {
             current_screen: Screen::Welcome,
             wallet_manager: None,
-            wallet_db: None,
+            wallet_db,
             network: NetworkType::Testnet,
             password: String::new(),
             error_message: None,

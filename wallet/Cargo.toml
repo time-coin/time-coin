@@ -22,6 +22,7 @@ bip32 = "0.5"
 time-core = { version = "0.1.0", path = "../core" }
 qrcode = "0.14"
 time-mempool = { version = "0.1.0", path = "../mempool" }
+sled = "0.34"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
