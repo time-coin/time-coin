@@ -208,11 +208,10 @@ impl MnemonicInterface {
             }
 
             // Show "Enable Editing" button after generation (only if wallet not created)
-            if !self.wallet_created && self.mode == MnemonicMode::Generate && self.generated_phrase.is_some() && !self.edit_enabled {
-                if ui.button("Enable Editing").clicked() {
+            if !self.wallet_created && self.mode == MnemonicMode::Generate && self.generated_phrase.is_some() && !self.edit_enabled
+                && ui.button("Enable Editing").clicked() {
                     self.edit_enabled = true;
                 }
-            }
             
             // Show warning if wallet already created
             if self.wallet_created {
@@ -425,7 +424,7 @@ impl MnemonicInterface {
                             #[cfg(target_os = "windows")]
                             {
                                 let _ = std::process::Command::new("cmd")
-                                    .args(&["/C", "start", temp_path.to_str().unwrap()])
+                                    .args(["/C", "start", temp_path.to_str().unwrap()])
                                     .spawn();
                             }
                             #[cfg(target_os = "linux")]

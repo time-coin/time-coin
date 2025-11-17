@@ -1148,7 +1148,7 @@ impl WalletApp {
                 .join(&backup_filename);
 
             // Copy wallet file to backup
-            std::fs::copy(&wallet_path, &backup_path)
+            std::fs::copy(wallet_path, &backup_path)
                 .map_err(|e| format!("Failed to backup wallet: {}", e))?;
 
             Ok(backup_path.display().to_string())

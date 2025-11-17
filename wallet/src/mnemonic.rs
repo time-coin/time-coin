@@ -139,7 +139,7 @@ pub fn mnemonic_to_keypair_hd(
     let seed = mnemonic.to_seed(passphrase);
 
     // Create extended private key from seed
-    let xprv = XPrv::new(&seed).map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+    let xprv = XPrv::new(seed).map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
 
     // BIP-44 path: m/44'/coin_type'/account'/change/address_index
     // For TIME Coin, we'll use coin_type = 0 (or register a specific one later)

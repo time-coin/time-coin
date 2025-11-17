@@ -3,9 +3,7 @@
 //! Handles validation of transactions during block voting and notifies
 //! affected parties when transactions are invalid.
 
-use std::sync::Arc;
 use time_core::{Transaction, TransactionError};
-use tokio::sync::RwLock;
 
 /// Reason why a transaction was invalidated
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

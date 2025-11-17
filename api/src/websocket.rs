@@ -140,11 +140,9 @@ impl Default for WsConnectionManager {
 /// WebSocket handler for wallet notifications
 pub async fn wallet_ws_handler(
     ws: WebSocketUpgrade,
-    State(_state): State<crate::ApiState>,
+    State(state): State<crate::ApiState>,
 ) -> impl IntoResponse {
-    // Get or create WsConnectionManager from state
-    // For now, create a temporary one - in production this should be part of ApiState
-    let manager = Arc::new(WsConnectionManager::new());
+    let manager = state.ws_manager.clone();
     ws.on_upgrade(|socket| handle_wallet_socket(socket, manager))
 }
 

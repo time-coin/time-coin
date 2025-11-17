@@ -83,3 +83,14 @@ impl IntoResponse for ApiError {
         (status, body).into_response()
     }
 }
+
+impl From<(StatusCode, String)> for ApiError {
+    fn from((status, message): (StatusCode, String)) -> Self {
+        match status {
+            StatusCode::BAD_REQUEST => ApiError::BadRequest(message),
+            StatusCode::NOT_FOUND => ApiError::NotFound(message),
+            StatusCode::UNAUTHORIZED => ApiError::Unauthorized(message),
+            _ => ApiError::Internal(message),
+        }
+    }
+}

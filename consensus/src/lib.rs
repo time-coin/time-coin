@@ -24,6 +24,7 @@
 pub mod fallback;
 pub mod foolproof_block;
 pub mod heartbeat;
+pub mod instant_finality;
 pub mod leader_election;
 pub mod monitoring;
 pub mod orchestrator;

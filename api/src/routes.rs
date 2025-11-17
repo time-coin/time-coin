@@ -86,6 +86,11 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/block/{height}", get(get_consensus_block))
         .route("/consensus/finalized-block", post(receive_finalized_block))
         // Instant finality endpoints
+        .route("/finality/submit", post(crate::instant_finality_handlers::submit_transaction))
+        .route("/finality/vote", post(crate::instant_finality_handlers::vote_on_transaction))
+        .route("/finality/status", post(crate::instant_finality_handlers::get_transaction_status))
+        .route("/finality/approved", get(crate::instant_finality_handlers::get_approved_transactions))
+        .route("/finality/stats", get(crate::instant_finality_handlers::get_finality_stats))
         .route(
             "/consensus/instant-finality-request",
             post(receive_instant_finality_request),
@@ -761,6 +766,18 @@ async fn add_to_mempool(
 
     println!("📥 Transaction {} received from peer", &tx.txid[..16]);
 
+    // Notify wallets of incoming transaction
+    for output in &tx.outputs {
+        let event = crate::websocket::IncomingPaymentEvent {
+            txid: tx.txid.clone(),
+            amount: output.amount,
+            from_address: None, // TODO: Extract from inputs
+            to_address: output.address.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+        state.ws_manager.notify_incoming_payment(event).await;
+    }
+
     // Trigger instant finality via BFT consensus
     trigger_instant_finality_for_received_tx(state.clone(), tx.clone()).await;
 
@@ -1170,6 +1187,7 @@ async fn trigger_instant_finality_for_received_tx(
     let tx_broadcaster = state.tx_broadcaster.clone();
     let peer_manager = state.peer_manager.clone();
     let wallet_address = state.wallet_address.clone();
+    let ws_manager = state.ws_manager.clone();
 
     // Spawn async task to handle consensus voting
     tokio::spawn(async move {
@@ -1183,6 +1201,7 @@ async fn trigger_instant_finality_for_received_tx(
 
                 // Apply transaction to UTXO set for instant balance update
                 let mut blockchain = blockchain.write().await;
+                let block_height = blockchain.chain_tip_height();
                 if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
                     println!("❌ Failed to apply transaction to UTXO set: {}", e);
                 } else {
@@ -1195,6 +1214,17 @@ async fn trigger_instant_finality_for_received_tx(
                         println!(
                             "💾 UTXO snapshot saved - transaction will persist across restarts"
                         );
+                    }
+                    
+                    // Notify wallets of confirmation
+                    for output in &tx.outputs {
+                        let event = crate::websocket::TxConfirmationEvent {
+                            txid: txid.clone(),
+                            block_height,
+                            confirmations: 1,
+                            timestamp: chrono::Utc::now().timestamp(),
+                        };
+                        ws_manager.notify_tx_confirmed(event, &output.address).await;
                     }
                 }
             }
@@ -1250,6 +1280,7 @@ async fn trigger_instant_finality_for_received_tx(
 
                         // Apply transaction to UTXO set for instant balance update
                         let mut blockchain = blockchain.write().await;
+                        let block_height = blockchain.chain_tip_height();
                         if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
                             println!("❌ Failed to apply transaction to UTXO set: {}", e);
                         } else {
@@ -1260,6 +1291,17 @@ async fn trigger_instant_finality_for_received_tx(
                                 println!("⚠️  Failed to save UTXO snapshot: {}", e);
                             } else {
                                 println!("💾 UTXO snapshot saved - transaction will persist across restarts");
+                            }
+                            
+                            // Notify wallets of confirmation
+                            for output in &tx.outputs {
+                                let event = crate::websocket::TxConfirmationEvent {
+                                    txid: txid.clone(),
+                                    block_height,
+                                    confirmations: 1,
+                                    timestamp: chrono::Utc::now().timestamp(),
+                                };
+                                ws_manager.notify_tx_confirmed(event, &output.address).await;
                             }
                         }
                     }

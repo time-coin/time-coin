@@ -9,7 +9,7 @@
 
 use crate::simplified::{BlockProposal, SimplifiedConsensus};
 use std::sync::Arc;
-use time_core::block::{Block, BlockHeader};
+use time_core::block::Block;
 use time_core::transaction::Transaction;
 
 pub struct MidnightConsensusOrchestrator {

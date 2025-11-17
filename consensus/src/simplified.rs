@@ -11,14 +11,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use time_core::block::Block;
-use time_core::transaction::Transaction;
 use tokio::sync::RwLock;
 
 /// Simplified consensus manager
 pub struct SimplifiedConsensus {
     /// Network type
-    network: String,
+    _network: String,
     
     /// Active masternodes (IP addresses)
     masternodes: Arc<RwLock<Vec<String>>>,
@@ -30,7 +28,7 @@ pub struct SimplifiedConsensus {
     votes: Arc<RwLock<HashMap<u64, Vec<BlockVote>>>>,
     
     /// Known transactions (mempool)
-    known_transactions: Arc<RwLock<HashSet<String>>>,
+    _known_transactions: Arc<RwLock<HashSet<String>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,11 +54,11 @@ pub struct BlockVote {
 impl SimplifiedConsensus {
     pub fn new(network: String) -> Self {
         Self {
-            network,
+            _network: network.to_string(),
             masternodes: Arc::new(RwLock::new(Vec::new())),
             proposals: Arc::new(RwLock::new(HashMap::new())),
             votes: Arc::new(RwLock::new(HashMap::new())),
-            known_transactions: Arc::new(RwLock::new(HashSet::new())),
+            _known_transactions: Arc::new(RwLock::new(HashSet::new())),
         }
     }
     
@@ -73,13 +71,13 @@ impl SimplifiedConsensus {
     
     /// Add transaction to known set
     pub async fn add_known_transaction(&self, txid: String) {
-        let mut known = self.known_transactions.write().await;
+        let mut known = self._known_transactions.write().await;
         known.insert(txid);
     }
     
     /// Check if transaction is known
     pub async fn has_transaction(&self, txid: &str) -> bool {
-        let known = self.known_transactions.read().await;
+        let known = self._known_transactions.read().await;
         known.contains(txid)
     }
     
@@ -144,7 +142,7 @@ impl SimplifiedConsensus {
     
     /// Validate proposal matches local deterministic state
     pub async fn validate_proposal(&self, proposal: &BlockProposal) -> Result<(), Vec<String>> {
-        let known = self.known_transactions.read().await;
+        let known = self._known_transactions.read().await;
         
         // Check for missing transactions
         let missing: Vec<String> = proposal
@@ -228,12 +226,12 @@ impl SimplifiedConsensus {
                 .map(|v| format!("{}: {:?}", v.voter, v.reason))
                 .collect();
             
-            let required = (total * 2 + 2) / 3; // Ceiling of 2/3
+            let required = (total * 2).div_ceil(3); // Ceiling of 2/3
             let has_consensus = approvals >= required;
             
             (has_consensus, approvals, required, rejections)
         } else {
-            (false, 0, (total * 2 + 2) / 3, Vec::new())
+            (false, 0, (total * 2).div_ceil(3), Vec::new())
         }
     }
     

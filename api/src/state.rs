@@ -6,6 +6,7 @@ use time_network::{PeerDiscovery, PeerManager, PeerQuarantine};
 use tokio::sync::RwLock;
 
 use crate::{ApiError, ApiResult};
+use crate::WsConnectionManager;
 
 pub struct ApiState {
     pub dev_mode: bool,
@@ -25,6 +26,10 @@ pub struct ApiState {
     pub recent_broadcasts: Arc<RwLock<HashMap<String, Instant>>>,
     /// Peer quarantine system
     pub quarantine: Option<Arc<PeerQuarantine>>,
+    /// WebSocket connection manager for wallet notifications
+    pub ws_manager: Arc<WsConnectionManager>,
+    /// Instant finality manager for transaction validation
+    pub instant_finality: Option<Arc<time_consensus::instant_finality::InstantFinalityManager>>,
 }
 
 impl ApiState {
@@ -55,6 +60,8 @@ impl ApiState {
             tx_broadcaster: None,
             recent_broadcasts: Arc::new(RwLock::new(HashMap::new())),
             quarantine: None,
+            ws_manager: Arc::new(WsConnectionManager::new()),
+            instant_finality: None,
         };
 
         // Spawn cleanup task for recent_broadcasts
@@ -109,6 +116,20 @@ impl ApiState {
         self
     }
 
+    pub fn with_instant_finality(
+        mut self,
+        instant_finality: Arc<time_consensus::instant_finality::InstantFinalityManager>,
+    ) -> Self {
+        self.instant_finality = Some(instant_finality);
+        self
+    }
+
+    pub fn instant_finality_manager(
+        &self,
+    ) -> Option<Arc<time_consensus::instant_finality::InstantFinalityManager>> {
+        self.instant_finality.clone()
+    }
+
     pub fn require_admin(&self, token: Option<String>) -> ApiResult<()> {
         if let Some(expected) = &self.admin_token {
             if let Some(provided) = token {
@@ -142,6 +163,8 @@ impl Clone for ApiState {
             tx_broadcaster: self.tx_broadcaster.clone(),
             recent_broadcasts: self.recent_broadcasts.clone(),
             quarantine: self.quarantine.clone(),
+            ws_manager: self.ws_manager.clone(),
+            instant_finality: self.instant_finality.clone(),
         }
     }
 }

@@ -63,7 +63,7 @@ pub async fn sync_wallet_addresses(
 
     // For each address, find all UTXOs and recent transactions
     for address in &request.addresses {
-        let mut address_utxos = Vec::new();
+        let address_utxos = Vec::new();
         
         // Scan UTXO set for this address
         let balance = blockchain.get_balance(address);
