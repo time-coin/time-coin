@@ -102,11 +102,12 @@ struct WalletApp {
     mnemonic_confirmed: bool,
 
     // Receiving address management
-    selected_address_index: Option<usize>,
+    selected_address: Option<String>,
     new_address_label: String,
     edit_address_name: String,
     edit_address_email: String,
     edit_address_phone: String,
+    address_search: String,
     show_qr_for_address: Option<String>,
     is_creating_new_address: bool,
 }
@@ -129,11 +130,12 @@ impl Default for WalletApp {
             network_status: "Not connected".to_string(),
             mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
-            selected_address_index: None,
+            selected_address: None,
             new_address_label: String::new(),
             edit_address_name: String::new(),
             edit_address_email: String::new(),
             edit_address_phone: String::new(),
+            address_search: String::new(),
             show_qr_for_address: None,
             is_creating_new_address: false,
         }
@@ -177,13 +179,10 @@ impl WalletApp {
                     ui.heading("Welcome Back!");
                     ui.add_space(20.0);
 
-                    ui.label("Password:");
-                    ui.add_space(5.0);
-                    ui.add(egui::TextEdit::singleline(&mut self.password).password(true).hint_text("Enter password"));
+                    // TODO: Add password protection, fingerprint, or PIN authentication
+                    // For now, auto-load wallet without password
 
-                    ui.add_space(20.0);
-
-                    if ui.button(egui::RichText::new("Unlock Wallet").size(16.0)).clicked() {
+                    if ui.button(egui::RichText::new("Open Wallet").size(16.0)).clicked() {
                         match WalletManager::load_default(self.network) {
                             Ok(manager) => {
                                 self.wallet_manager = Some(manager);
@@ -811,6 +810,14 @@ impl WalletApp {
                         });
                     });
 
+                    ui.add_space(5.0);
+                    
+                    // Search bar
+                    ui.horizontal(|ui| {
+                        ui.label("🔍");
+                        ui.text_edit_singleline(&mut self.address_search);
+                    });
+
                     ui.add_space(10.0);
 
                     // Show dialog for new address
@@ -819,22 +826,45 @@ impl WalletApp {
                             ui.set_min_width(ui.available_width());
                             ui.label(egui::RichText::new("New Address").strong());
                             ui.add_space(5.0);
+                            
+                            ui.label("Name (optional):");
                             ui.text_edit_singleline(&mut self.new_address_label);
+                            ui.label(egui::RichText::new("Leave empty for unnamed address")
+                                .size(10.0)
+                                .color(egui::Color32::GRAY));
+                            
                             ui.add_space(5.0);
                             ui.horizontal(|ui| {
                                 if ui.button("✓ Create").clicked() {
-                                    match manager
-                                        .generate_new_key(self.new_address_label.clone(), false)
-                                    {
+                                    // Generate address with temporary label
+                                    let temp_label = format!("Address {}", manager.get_keys().len() + 1);
+                                    match manager.generate_new_key(temp_label, false) {
                                         Ok(address) => {
-                                            self.success_message =
-                                                Some(format!("Created new address: {}", address));
+                                            // Save contact info with the user-provided name
+                                            if !self.new_address_label.is_empty() {
+                                                if let Some(ref db) = self.wallet_db {
+                                                    let now = chrono::Utc::now().timestamp();
+                                                    let contact = AddressContact {
+                                                        address: address.clone(),
+                                                        label: String::new(),
+                                                        name: Some(self.new_address_label.clone()),
+                                                        email: None,
+                                                        phone: None,
+                                                        notes: None,
+                                                        is_default: false,
+                                                        created_at: now,
+                                                        updated_at: now,
+                                                    };
+                                                    let _ = db.save_contact(&contact);
+                                                }
+                                            }
+                                            
+                                            self.success_message = Some(format!("Created new address: {}", address));
                                             self.is_creating_new_address = false;
                                             self.new_address_label = String::new();
                                         }
                                         Err(e) => {
-                                            self.error_message =
-                                                Some(format!("Failed to create address: {}", e));
+                                            self.error_message = Some(format!("Failed to create address: {}", e));
                                         }
                                     }
                                 }
@@ -857,22 +887,22 @@ impl WalletApp {
                             keys.sort_by(|a, b| {
                                 let name_a = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&a.address) {
-                                        contact.name.unwrap_or_else(|| a.label.clone())
+                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
                                     } else {
-                                        a.label.clone()
+                                        "Unnamed Address".to_string()
                                     }
                                 } else {
-                                    a.label.clone()
+                                    "Unnamed Address".to_string()
                                 };
                                 
                                 let name_b = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&b.address) {
-                                        contact.name.unwrap_or_else(|| b.label.clone())
+                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
                                     } else {
-                                        b.label.clone()
+                                        "Unnamed Address".to_string()
                                     }
                                 } else {
-                                    b.label.clone()
+                                    "Unnamed Address".to_string()
                                 };
                                 
                                 // Default address always comes first
@@ -901,7 +931,27 @@ impl WalletApp {
                             }
 
                             for (idx, key) in keys.iter().enumerate() {
-                                let is_selected = self.selected_address_index == Some(idx);
+                                // Get display label for filtering
+                                let display_label = if let Some(ref db) = self.wallet_db {
+                                    if let Ok(Some(contact)) = db.get_contact(&key.address) {
+                                        contact.name.clone().unwrap_or_else(|| "Unnamed Address".to_string())
+                                    } else {
+                                        "Unnamed Address".to_string()
+                                    }
+                                } else {
+                                    "Unnamed Address".to_string()
+                                };
+                                
+                                // Apply search filter
+                                if !self.address_search.is_empty() {
+                                    let search_lower = self.address_search.to_lowercase();
+                                    if !display_label.to_lowercase().contains(&search_lower) 
+                                        && !key.address.to_lowercase().contains(&search_lower) {
+                                        continue;
+                                    }
+                                }
+
+                                let is_selected = self.selected_address.as_ref() == Some(&key.address);
 
                                 let frame = egui::Frame::group(ui.style())
                                     .fill(if is_selected {
@@ -914,56 +964,25 @@ impl WalletApp {
                                 let frame_response = frame.show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
 
-                                    // Get display label (prefer contact name, fall back to key label)
-                                    let display_label = if let Some(ref db) = self.wallet_db {
-                                        if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                            contact.name.unwrap_or_else(|| key.label.clone())
-                                        } else {
-                                            key.label.clone()
-                                        }
-                                    } else {
-                                        key.label.clone()
-                                    };
-
                                     ui.horizontal(|ui| {
                                         // Default star indicator
                                         if key.is_default {
                                             ui.label(egui::RichText::new("⭐").size(14.0));
                                         }
 
-                                        // Address label
+                                        // Address label - full name display
                                         ui.label(
                                             egui::RichText::new(&display_label)
                                                 .size(14.0)
-                                                .strong(),
+                                                .strong()
+                                                .color(egui::Color32::BLACK),
                                         );
-                                    });
-
-                                    ui.add_space(3.0);
-
-                                    // Address preview with copy button
-                                    ui.horizontal(|ui| {
-                                        ui.monospace(
-                                            egui::RichText::new(format!(
-                                                "{}...{}",
-                                                &key.address[..12],
-                                                &key.address[key.address.len() - 8..]
-                                            ))
-                                            .size(10.0)
-                                            .color(egui::Color32::GRAY),
-                                        );
-
-                                        if ui.small_button("📄").on_hover_text("Copy address").clicked() {
-                                            ctx.copy_text(key.address.clone());
-                                            self.success_message =
-                                                Some("Address copied!".to_string());
-                                        }
                                     });
                                 });
 
                                 // Make entire frame clickable
                                 if frame_response.response.interact(egui::Sense::click()).clicked() {
-                                    self.selected_address_index = Some(idx);
+                                    self.selected_address = Some(key.address.clone());
                                     self.show_qr_for_address = Some(key.address.clone());
                                     
                                     // Load contact info from database
@@ -988,24 +1007,24 @@ impl WalletApp {
 
                 // Right side - Address details and QR code
                 columns[1].vertical(|ui| {
-                    if let Some(idx) = self.selected_address_index {
+                    if let Some(ref selected_addr) = self.selected_address {
                         let keys = manager.get_keys();
-                        if let Some(key) = keys.get(idx) {
+                        if let Some(key) = keys.iter().find(|k| &k.address == selected_addr) {
                             let address_clone = key.address.clone(); // Clone for use in save button
                             
                             // Address header
                             ui.group(|ui| {
                                 ui.set_min_width(ui.available_width());
                                 
-                                // Get display label (prefer contact name, fall back to key label)
+                                // Get display label (prefer contact name, show "Unnamed Address" if none)
                                 let display_label = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                        contact.name.unwrap_or_else(|| key.label.clone())
+                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
                                     } else {
-                                        key.label.clone()
+                                        "Unnamed Address".to_string()
                                     }
                                 } else {
-                                    key.label.clone()
+                                    "Unnamed Address".to_string()
                                 };
                                 
                                 ui.heading(&display_label);
@@ -1016,7 +1035,7 @@ impl WalletApp {
                                     ui.monospace(
                                         egui::RichText::new(&key.address)
                                             .size(11.0)
-                                            .color(egui::Color32::LIGHT_GRAY),
+                                            .color(egui::Color32::BLACK),
                                     );
                                     if ui.button("📄").on_hover_text("Copy full address").clicked() {
                                         ctx.copy_text(key.address.clone());
