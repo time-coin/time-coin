@@ -365,20 +365,25 @@ impl Mempool {
     }
 
     /// Remove transactions that are now invalid and get affected addresses
-    pub async fn remove_invalid_transactions(&self, invalid_txids: Vec<String>) -> Vec<(String, Vec<String>)> {
+    pub async fn remove_invalid_transactions(
+        &self,
+        invalid_txids: Vec<String>,
+    ) -> Vec<(String, Vec<String>)> {
         let mut pool = self.transactions.write().await;
         let mut invalidated = Vec::new();
 
         for txid in invalid_txids {
             if let Some(entry) = pool.remove(&txid) {
                 // Collect affected addresses (all output addresses in the transaction)
-                let affected: Vec<String> = entry.transaction.outputs
+                let affected: Vec<String> = entry
+                    .transaction
+                    .outputs
                     .iter()
                     .map(|output| output.address.clone())
                     .collect();
-                
+
                 invalidated.push((txid, affected));
-                
+
                 drop(pool);
                 self.release_spent(&entry.transaction).await;
                 pool = self.transactions.write().await;
@@ -389,7 +394,10 @@ impl Mempool {
     }
 
     /// Validate transaction and return detailed error if invalid
-    pub async fn validate_transaction_detailed(&self, tx: &Transaction) -> Result<(), MempoolError> {
+    pub async fn validate_transaction_detailed(
+        &self,
+        tx: &Transaction,
+    ) -> Result<(), MempoolError> {
         // Validate transaction structure
         tx.validate_structure()
             .map_err(MempoolError::InvalidTransaction)?;

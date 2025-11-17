@@ -66,14 +66,23 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/mempool/add", post(add_to_mempool))
         .route("/mempool/all", get(get_all_mempool_txs))
         // Transaction endpoints
-        .route("/transactions", post(add_to_mempool))  // REST endpoint
-        .route("/transactions/{txid}", get(get_transaction))  // Get single transaction
+        .route("/transactions", post(add_to_mempool)) // REST endpoint
+        .route("/transactions/{txid}", get(get_transaction)) // Get single transaction
         // WebSocket endpoint for wallet notifications
         .route("/ws/wallet", get(crate::websocket::wallet_ws_handler))
         // Wallet sync endpoints
-        .route("/wallet/sync", post(crate::wallet_sync_handlers::sync_wallet_addresses))
-        .route("/wallet/validate", post(crate::wallet_sync_handlers::validate_transaction))
-        .route("/wallet/pending", post(crate::wallet_sync_handlers::get_pending_transactions))
+        .route(
+            "/wallet/sync",
+            post(crate::wallet_sync_handlers::sync_wallet_addresses),
+        )
+        .route(
+            "/wallet/validate",
+            post(crate::wallet_sync_handlers::validate_transaction),
+        )
+        .route(
+            "/wallet/pending",
+            post(crate::wallet_sync_handlers::get_pending_transactions),
+        )
         // Transaction consensus endpoints
         .route("/consensus/tx-proposal", post(receive_tx_proposal))
         .route("/consensus/tx-vote", post(receive_tx_vote))
@@ -86,11 +95,26 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/consensus/block/{height}", get(get_consensus_block))
         .route("/consensus/finalized-block", post(receive_finalized_block))
         // Instant finality endpoints
-        .route("/finality/submit", post(crate::instant_finality_handlers::submit_transaction))
-        .route("/finality/vote", post(crate::instant_finality_handlers::vote_on_transaction))
-        .route("/finality/status", post(crate::instant_finality_handlers::get_transaction_status))
-        .route("/finality/approved", get(crate::instant_finality_handlers::get_approved_transactions))
-        .route("/finality/stats", get(crate::instant_finality_handlers::get_finality_stats))
+        .route(
+            "/finality/submit",
+            post(crate::instant_finality_handlers::submit_transaction),
+        )
+        .route(
+            "/finality/vote",
+            post(crate::instant_finality_handlers::vote_on_transaction),
+        )
+        .route(
+            "/finality/status",
+            post(crate::instant_finality_handlers::get_transaction_status),
+        )
+        .route(
+            "/finality/approved",
+            get(crate::instant_finality_handlers::get_approved_transactions),
+        )
+        .route(
+            "/finality/stats",
+            get(crate::instant_finality_handlers::get_finality_stats),
+        )
         .route(
             "/consensus/instant-finality-request",
             post(receive_instant_finality_request),
@@ -984,9 +1008,13 @@ async fn receive_block_proposal(
             if my_id != block_proposal.proposer {
                 // Check if we already voted
                 let already_voted = block_consensus
-                    .has_voted(&my_id, block_proposal.block_height, &block_proposal.block_hash)
+                    .has_voted(
+                        &my_id,
+                        block_proposal.block_height,
+                        &block_proposal.block_hash,
+                    )
                     .await;
-                
+
                 if already_voted {
                     println!("   ℹ️  Already voted on this proposal - skipping");
                 } else {
@@ -1215,7 +1243,7 @@ async fn trigger_instant_finality_for_received_tx(
                             "💾 UTXO snapshot saved - transaction will persist across restarts"
                         );
                     }
-                    
+
                     // Notify wallets of confirmation
                     for output in &tx.outputs {
                         let event = crate::websocket::TxConfirmationEvent {
@@ -1292,7 +1320,7 @@ async fn trigger_instant_finality_for_received_tx(
                             } else {
                                 println!("💾 UTXO snapshot saved - transaction will persist across restarts");
                             }
-                            
+
                             // Notify wallets of confirmation
                             for output in &tx.outputs {
                                 let event = crate::websocket::TxConfirmationEvent {

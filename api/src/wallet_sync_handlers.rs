@@ -56,7 +56,7 @@ pub async fn sync_wallet_addresses(
 ) -> Result<Json<WalletSyncResponse>, ApiError> {
     let blockchain = state.blockchain.read().await;
     let current_height = blockchain.chain_tip_height();
-    
+
     let mut utxos_by_address: HashMap<String, Vec<UtxoInfo>> = HashMap::new();
     let mut total_balance = 0u64;
     let mut recent_transactions = Vec::new();
@@ -64,11 +64,11 @@ pub async fn sync_wallet_addresses(
     // For each address, find all UTXOs and recent transactions
     for address in &request.addresses {
         let address_utxos = Vec::new();
-        
+
         // Scan UTXO set for this address
         let balance = blockchain.get_balance(address);
         total_balance += balance;
-        
+
         // Get recent transactions (last 10 blocks)
         let start_height = current_height.saturating_sub(10);
         for height in start_height..=current_height {
@@ -79,7 +79,7 @@ pub async fn sync_wallet_addresses(
                     let mut from_address = String::new();
                     let mut to_address = String::new();
                     let mut amount = 0u64;
-                    
+
                     // Check outputs for this address (receiving)
                     for output in &tx.outputs {
                         if output.address == *address {
@@ -88,12 +88,12 @@ pub async fn sync_wallet_addresses(
                             amount = output.amount;
                         }
                     }
-                    
+
                     // Check inputs to find sender (simplified - uses first input's address)
                     if involves_address && !tx.inputs.is_empty() {
                         from_address = "Unknown".to_string();
                     }
-                    
+
                     if involves_address {
                         let confirmations = current_height.saturating_sub(height);
                         recent_transactions.push(TransactionNotification {
@@ -109,16 +109,16 @@ pub async fn sync_wallet_addresses(
                 }
             }
         }
-        
+
         utxos_by_address.insert(address.clone(), address_utxos);
     }
-    
+
     // Sort transactions by block height (most recent first)
     recent_transactions.sort_by(|a, b| b.block_height.cmp(&a.block_height));
-    
+
     // Limit to 50 most recent
     recent_transactions.truncate(50);
-    
+
     Ok(Json(WalletSyncResponse {
         utxos: utxos_by_address,
         total_balance,
@@ -149,28 +149,24 @@ pub async fn validate_transaction(
     // Decode transaction
     let tx_bytes = hex::decode(&request.transaction_hex)
         .map_err(|_| ApiError::BadRequest("Invalid hex encoding".to_string()))?;
-    
+
     let tx: CoreTransaction = serde_json::from_slice(&tx_bytes)
         .map_err(|_| ApiError::BadRequest("Invalid transaction format".to_string()))?;
-    
+
     let blockchain = state.blockchain.read().await;
-    
+
     // Validate transaction
     match blockchain.validate_transaction(&tx) {
-        Ok(_) => {
-            Ok(Json(ValidateTransactionResponse {
-                valid: true,
-                error: None,
-                tx_hash: Some(tx.txid.clone()),
-            }))
-        }
-        Err(e) => {
-            Ok(Json(ValidateTransactionResponse {
-                valid: false,
-                error: Some(e.to_string()),
-                tx_hash: None,
-            }))
-        }
+        Ok(_) => Ok(Json(ValidateTransactionResponse {
+            valid: true,
+            error: None,
+            tx_hash: Some(tx.txid.clone()),
+        })),
+        Err(e) => Ok(Json(ValidateTransactionResponse {
+            valid: false,
+            error: Some(e.to_string()),
+            tx_hash: None,
+        })),
     }
 }
 
@@ -190,12 +186,14 @@ pub async fn get_pending_transactions(
     State(state): State<ApiState>,
     Json(addresses): Json<Vec<String>>,
 ) -> Result<Json<Vec<IncomingTransactionNotification>>, ApiError> {
-    let mempool = state.mempool.as_ref()
+    let mempool = state
+        .mempool
+        .as_ref()
         .ok_or_else(|| ApiError::Internal("Mempool not available".to_string()))?;
-    
+
     let mut pending_txs = Vec::new();
     let transactions = mempool.get_all_transactions().await;
-    
+
     for tx in transactions {
         for output in &tx.outputs {
             if addresses.contains(&output.address) {
@@ -210,6 +208,6 @@ pub async fn get_pending_transactions(
             }
         }
     }
-    
+
     Ok(Json(pending_txs))
 }

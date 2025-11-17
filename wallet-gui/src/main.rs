@@ -300,11 +300,11 @@ impl WalletApp {
 
                 // Check if wallet already exists
                 let wallet_exists = self.wallet_manager.is_some();
-                
+
                 if wallet_exists {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 165, 0),
-                        "⚠️ WARNING: Creating a new wallet will backup your current wallet"
+                        "⚠️ WARNING: Creating a new wallet will backup your current wallet",
                     );
                     ui.add_space(10.0);
                     ui.label("Your old wallet will be saved with a timestamp.");
@@ -421,7 +421,8 @@ impl WalletApp {
                         if let Err(e) = self.backup_current_wallet() {
                             self.error_message = Some(format!("Backup failed: {}", e));
                         } else {
-                            self.success_message = Some("Wallet backed up successfully".to_string());
+                            self.success_message =
+                                Some("Wallet backed up successfully".to_string());
                         }
                         ui.close_menu();
                     }
@@ -588,7 +589,8 @@ impl WalletApp {
                                             let color = if peer.latency_ms < 50 {
                                                 egui::Color32::GREEN
                                             } else if peer.latency_ms < 150 {
-                                                egui::Color32::from_rgb(255, 165, 0) // Orange
+                                                egui::Color32::from_rgb(255, 165, 0)
+                                            // Orange
                                             } else {
                                                 egui::Color32::RED
                                             };
@@ -761,10 +763,11 @@ impl WalletApp {
 
                     // Button to create new address
                     if ui.button("➕ New Address").clicked() {
-                        self.new_address_label = format!("Address {}", manager.get_keys().len() + 1);
+                        self.new_address_label =
+                            format!("Address {}", manager.get_keys().len() + 1);
                         self.is_creating_new_address = true;
                     }
-                    
+
                     // Show dialog for new address
                     if self.is_creating_new_address {
                         ui.add_space(10.0);
@@ -774,14 +777,18 @@ impl WalletApp {
                             ui.add_space(5.0);
                             ui.horizontal(|ui| {
                                 if ui.button("✓ Create").clicked() {
-                                    match manager.generate_new_key(self.new_address_label.clone(), false) {
+                                    match manager
+                                        .generate_new_key(self.new_address_label.clone(), false)
+                                    {
                                         Ok(address) => {
-                                            self.success_message = Some(format!("Created new address: {}", address));
+                                            self.success_message =
+                                                Some(format!("Created new address: {}", address));
                                             self.is_creating_new_address = false;
                                             self.new_address_label = String::new();
                                         }
                                         Err(e) => {
-                                            self.error_message = Some(format!("Failed to create address: {}", e));
+                                            self.error_message =
+                                                Some(format!("Failed to create address: {}", e));
                                         }
                                     }
                                 }
@@ -917,7 +924,10 @@ impl WalletApp {
                                                 image_data,
                                                 egui::TextureOptions::default(),
                                             );
-                                            ui.add(egui::Image::new(&texture).max_size(egui::vec2(200.0, 200.0)));
+                                            ui.add(
+                                                egui::Image::new(&texture)
+                                                    .max_size(egui::vec2(200.0, 200.0)),
+                                            );
                                         } else {
                                             ui.label("Failed to render QR code");
                                         }
@@ -994,8 +1004,11 @@ impl WalletApp {
                 ui.label("For security reasons, the recovery phrase cannot be viewed after");
                 ui.label("the wallet has been created. Make sure you wrote it down safely!");
                 ui.add_space(10.0);
-                
-                if ui.button("🔄 Create New Wallet (backs up current)").clicked() {
+
+                if ui
+                    .button("🔄 Create New Wallet (backs up current)")
+                    .clicked()
+                {
                     self.current_screen = Screen::MnemonicSetup;
                     self.mnemonic_interface = MnemonicInterface::new();
                 }
@@ -1143,7 +1156,8 @@ impl WalletApp {
             // Create backup filename with timestamp
             let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
             let backup_filename = format!("time-wallet_{}.dat", timestamp);
-            let backup_path = wallet_path.parent()
+            let backup_path = wallet_path
+                .parent()
                 .ok_or("Invalid wallet path")?
                 .join(&backup_filename);
 
@@ -1160,10 +1174,10 @@ impl WalletApp {
     fn backup_and_create_new_wallet(&mut self, new_phrase: &str) -> Result<(), String> {
         // First, backup the existing wallet
         let backup_path = self.backup_current_wallet()?;
-        
+
         // Close the current wallet
         self.wallet_manager = None;
-        
+
         // Create new wallet from the new phrase using the existing method
         let manager = WalletManager::create_from_mnemonic(
             self.network,
@@ -1172,10 +1186,10 @@ impl WalletApp {
             "Default".to_string(),
         )
         .map_err(|e| format!("Failed to create wallet: {}", e))?;
-        
+
         self.wallet_manager = Some(manager);
         self.success_message = Some(format!("Old wallet backed up to: {}", backup_path));
-        
+
         Ok(())
     }
 }

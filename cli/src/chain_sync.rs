@@ -219,8 +219,6 @@ impl ChainSync {
             )
         };
 
-        println!("   Current height: {}", our_height);
-
         // Query all peers (already filters quarantined peers)
         let peer_heights = self.query_peer_heights().await;
 

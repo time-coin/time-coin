@@ -222,7 +222,7 @@ impl WalletDat {
         }
 
         let data = fs::read(path.as_ref())?;
-        
+
         // Try to deserialize the wallet
         match bincode::deserialize::<Self>(&data) {
             Ok(wallet) => Ok(wallet),
@@ -231,7 +231,7 @@ impl WalletDat {
                 // Try to migrate from old wallet.dat format
                 eprintln!("Warning: Wallet file format mismatch. Attempting migration...");
                 eprintln!("Error details: {}", e);
-                
+
                 // Backup the old file
                 let backup_path = path.as_ref().with_extension(format!(
                     "dat.backup.{}",
@@ -239,7 +239,7 @@ impl WalletDat {
                 ));
                 fs::copy(path.as_ref(), &backup_path)?;
                 eprintln!("✓ Old wallet backed up to: {:?}", backup_path);
-                
+
                 // Return error with helpful message
                 Err(WalletDatError::SerializationError(format!(
                     "Wallet file format is incompatible. Your old wallet has been backed up to {:?}. \

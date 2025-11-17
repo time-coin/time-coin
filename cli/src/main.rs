@@ -832,10 +832,7 @@ async fn main() {
                         format!("  ✓ Connected to {} peer(s)", connected).green()
                     );
                 } else if !discovery_quiet {
-                    println!(
-                        "{}",
-                        "  ⚠️  No peers connected".yellow()
-                    );
+                    println!("{}", "  ⚠️  No peers connected".yellow());
                 }
 
                 // Second wave: Connect to newly discovered peers from peer exchange
@@ -864,7 +861,7 @@ async fn main() {
                             }
                         }
                     }
-                    
+
                     if !discovery_quiet && connected_count > 0 {
                         println!(
                             "{}",

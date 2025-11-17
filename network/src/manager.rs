@@ -258,7 +258,7 @@ impl PeerManager {
     /// Connect concurrently to a list of peers.
     pub async fn connect_to_peers(&self, peer_list: Vec<PeerInfo>) {
         let mut handles = Vec::new();
-        
+
         for peer in peer_list {
             let mgr = self.clone();
             let peer_addr = peer.address;
@@ -282,15 +282,11 @@ impl PeerManager {
         let timeout = Duration::from_secs(10);
         match tokio::time::timeout(timeout, futures::future::join_all(handles)).await {
             Ok(results) => {
-                let successes = results.iter().filter(|r| {
-                    matches!(r, Ok(Ok(())))
-                }).count();
+                let successes = results.iter().filter(|r| matches!(r, Ok(Ok(())))).count();
                 let failures = results.len() - successes;
                 info!(
                     total = results.len(),
-                    successes,
-                    failures,
-                    "Peer connection batch completed"
+                    successes, failures, "Peer connection batch completed"
                 );
             }
             Err(_) => {

@@ -1098,7 +1098,7 @@ async fn handle_wallet_command(
 
             if response.status().is_success() {
                 let result: serde_json::Value = response.json().await?;
-                
+
                 if json_output {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
@@ -1143,7 +1143,7 @@ async fn handle_wallet_command(
 
             if response.status().is_success() {
                 let result: serde_json::Value = response.json().await?;
-                
+
                 if json_output {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {

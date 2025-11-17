@@ -4,10 +4,10 @@
 //! deterministic key generation and wallet recovery.
 
 use crate::keypair::{Keypair, KeypairError};
+use bip32::{DerivationPath, XPrv};
 use bip39::{Language, Mnemonic};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use bip32::{DerivationPath, XPrv};
 
 #[derive(Debug, Error)]
 pub enum MnemonicError {

@@ -163,7 +163,7 @@ async fn handle_wallet_socket(socket: WebSocket, manager: Arc<WsConnectionManage
     let manager_clone = manager.clone();
     let mut recv_task = tokio::spawn(async move {
         let mut current_address: Option<String> = None;
-        
+
         while let Some(Ok(msg)) = receiver.next().await {
             if let Message::Text(text) = msg {
                 if let Ok(sub) = serde_json::from_str::<SubscriptionRequest>(&text) {
@@ -173,7 +173,9 @@ async fn handle_wallet_socket(socket: WebSocket, manager: Arc<WsConnectionManage
                     }
 
                     // Register new address
-                    manager_clone.register(sub.address.clone(), tx.clone()).await;
+                    manager_clone
+                        .register(sub.address.clone(), tx.clone())
+                        .await;
                     current_address = Some(sub.address);
                 }
             }

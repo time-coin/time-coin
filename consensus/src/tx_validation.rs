@@ -65,7 +65,8 @@ impl ConsensusValidator {
         mempool: &time_mempool::Mempool,
     ) -> ValidationResult {
         let txid = tx.txid.clone();
-        let affected_addresses: Vec<String> = tx.outputs
+        let affected_addresses: Vec<String> = tx
+            .outputs
             .iter()
             .map(|output| output.address.clone())
             .collect();
@@ -98,7 +99,10 @@ impl ConsensusValidator {
 
     /// Create invalidation event from validation result
     /// This can be sent to a notification system
-    pub fn create_invalidation_event(&self, validation_result: ValidationResult) -> Option<TxInvalidationEvent> {
+    pub fn create_invalidation_event(
+        &self,
+        validation_result: ValidationResult,
+    ) -> Option<TxInvalidationEvent> {
         if let Some(error) = validation_result.error {
             Some(TxInvalidationEvent {
                 txid: validation_result.txid,
@@ -123,7 +127,7 @@ impl ConsensusValidator {
 
         for peer in peer_nodes {
             let url = format!("http://{}:24101/api/v1/transactions", peer);
-            
+
             match client
                 .post(&url)
                 .json(tx)
@@ -167,7 +171,7 @@ impl ConsensusValidator {
 
         for peer in peer_nodes {
             let url = format!("http://{}:24101/api/v1/transactions/{}", peer, txid);
-            
+
             match client
                 .get(&url)
                 .timeout(std::time::Duration::from_secs(5))
@@ -194,9 +198,9 @@ pub fn find_transaction_differences(
     local_txs: &[Transaction],
     remote_txs: &[Transaction],
 ) -> (Vec<String>, Vec<String>) {
-    let local_txids: std::collections::HashSet<_> = 
+    let local_txids: std::collections::HashSet<_> =
         local_txs.iter().map(|tx| tx.txid.as_str()).collect();
-    let remote_txids: std::collections::HashSet<_> = 
+    let remote_txids: std::collections::HashSet<_> =
         remote_txs.iter().map(|tx| tx.txid.as_str()).collect();
 
     // Transactions in local but not in remote

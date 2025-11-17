@@ -93,10 +93,7 @@ impl InstantFinalityManager {
     }
 
     /// Submit a new transaction for instant finality validation
-    pub async fn submit_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<String, String> {
+    pub async fn submit_transaction(&self, transaction: Transaction) -> Result<String, String> {
         let txid = transaction.txid.clone();
 
         // Check for double-spend with locked UTXOs
@@ -126,7 +123,11 @@ impl InstantFinalityManager {
             votes: HashMap::new(),
             first_seen: chrono::Utc::now().timestamp(),
             finalized_at: None,
-            spent_utxos: transaction.inputs.iter().map(|i| i.previous_output.clone()).collect(),
+            spent_utxos: transaction
+                .inputs
+                .iter()
+                .map(|i| i.previous_output.clone())
+                .collect(),
         };
 
         let mut txs = self.transactions.write().await;
@@ -138,13 +139,16 @@ impl InstantFinalityManager {
     /// Record a vote from a masternode
     pub async fn record_vote(&self, vote: TransactionVote) -> Result<TransactionStatus, String> {
         let mut txs = self.transactions.write().await;
-        
+
         let entry = txs
             .get_mut(&vote.txid)
             .ok_or_else(|| format!("Transaction {} not found", vote.txid))?;
 
         // Don't allow votes on already finalized transactions
-        if matches!(entry.status, TransactionStatus::Approved { .. } | TransactionStatus::Rejected { .. }) {
+        if matches!(
+            entry.status,
+            TransactionStatus::Approved { .. } | TransactionStatus::Rejected { .. }
+        ) {
             return Ok(entry.status.clone());
         }
 
@@ -155,7 +159,7 @@ impl InstantFinalityManager {
         let masternodes = self.masternodes.read().await;
         let total_nodes = masternodes.len();
         let required_votes = (total_nodes * self.quorum_threshold as usize) / 100;
-        
+
         let approve_votes = entry.votes.values().filter(|&&v| v).count();
         let _reject_votes = entry.votes.values().filter(|&&v| !v).count();
 
@@ -166,7 +170,7 @@ impl InstantFinalityManager {
                 total_nodes,
             };
             entry.finalized_at = Some(chrono::Utc::now().timestamp());
-            
+
             // Log to history
             let mut history = self.finality_history.write().await;
             history.push((
@@ -174,26 +178,30 @@ impl InstantFinalityManager {
                 entry.status.clone(),
                 entry.finalized_at.unwrap(),
             ));
-            
+
             return Ok(entry.status.clone());
         }
 
         // Check for rejection quorum
         let votes_remaining = total_nodes - entry.votes.len();
         let max_possible_approvals = approve_votes + votes_remaining;
-        
+
         if max_possible_approvals < required_votes {
             // Can't reach approval quorum anymore - rejected
-            let reason = vote.reason.unwrap_or_else(|| "Failed to reach approval quorum".to_string());
-            entry.status = TransactionStatus::Rejected { reason: reason.clone() };
+            let reason = vote
+                .reason
+                .unwrap_or_else(|| "Failed to reach approval quorum".to_string());
+            entry.status = TransactionStatus::Rejected {
+                reason: reason.clone(),
+            };
             entry.finalized_at = Some(chrono::Utc::now().timestamp());
-            
+
             // Unlock UTXOs
             let mut locked = self.locked_utxos.write().await;
             for outpoint in &entry.spent_utxos {
                 locked.remove(outpoint);
             }
-            
+
             // Log to history
             let mut history = self.finality_history.write().await;
             history.push((
@@ -201,7 +209,7 @@ impl InstantFinalityManager {
                 entry.status.clone(),
                 entry.finalized_at.unwrap(),
             ));
-            
+
             return Ok(entry.status.clone());
         }
 
@@ -227,7 +235,7 @@ impl InstantFinalityManager {
     /// Mark transaction as confirmed in a block
     pub async fn mark_confirmed(&self, txid: &str, block_height: u64) -> Result<(), String> {
         let mut txs = self.transactions.write().await;
-        
+
         let entry = txs
             .get_mut(txid)
             .ok_or_else(|| format!("Transaction {} not found", txid))?;
@@ -251,12 +259,14 @@ impl InstantFinalityManager {
     /// Reverse a transaction (if it was approved but later rejected by network)
     pub async fn reverse_transaction(&self, txid: &str, reason: String) -> Result<(), String> {
         let mut txs = self.transactions.write().await;
-        
+
         let entry = txs
             .get_mut(txid)
             .ok_or_else(|| format!("Transaction {} not found", txid))?;
 
-        entry.status = TransactionStatus::Rejected { reason: reason.clone() };
+        entry.status = TransactionStatus::Rejected {
+            reason: reason.clone(),
+        };
         entry.finalized_at = Some(chrono::Utc::now().timestamp());
 
         // Unlock UTXOs
@@ -280,18 +290,21 @@ impl InstantFinalityManager {
     pub async fn cleanup_old_transactions(&self, max_age_seconds: i64) {
         let now = chrono::Utc::now().timestamp();
         let mut txs = self.transactions.write().await;
-        
+
         txs.retain(|_, entry| {
             // Keep pending/validated transactions
-            if matches!(entry.status, TransactionStatus::Pending | TransactionStatus::Validated) {
+            if matches!(
+                entry.status,
+                TransactionStatus::Pending | TransactionStatus::Validated
+            ) {
                 return true;
             }
-            
+
             // Keep recent finalized transactions
             if let Some(finalized_at) = entry.finalized_at {
                 return (now - finalized_at) < max_age_seconds;
             }
-            
+
             true
         });
     }
@@ -300,7 +313,7 @@ impl InstantFinalityManager {
     pub async fn get_stats(&self) -> FinalityStats {
         let txs = self.transactions.read().await;
         let locked = self.locked_utxos.read().await;
-        
+
         let mut stats = FinalityStats {
             total_transactions: txs.len(),
             pending: 0,
@@ -343,13 +356,15 @@ mod tests {
     #[tokio::test]
     async fn test_instant_finality_approval() {
         let manager = InstantFinalityManager::new(67); // 67% quorum
-        
+
         // Setup 3 masternodes
-        manager.update_masternodes(vec![
-            "192.168.1.1".to_string(),
-            "192.168.1.2".to_string(),
-            "192.168.1.3".to_string(),
-        ]).await;
+        manager
+            .update_masternodes(vec![
+                "192.168.1.1".to_string(),
+                "192.168.1.2".to_string(),
+                "192.168.1.3".to_string(),
+            ])
+            .await;
 
         // Create a mock transaction
         let tx = Transaction {
@@ -373,7 +388,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp(),
             signature: vec![],
         };
-        
+
         let status1 = manager.record_vote(vote1).await.unwrap();
         assert_eq!(status1, TransactionStatus::Validated);
 
@@ -385,7 +400,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp(),
             signature: vec![],
         };
-        
+
         let status2 = manager.record_vote(vote2).await.unwrap();
         assert!(matches!(status2, TransactionStatus::Approved { .. }));
     }

@@ -31,7 +31,7 @@ pub struct MnemonicInterface {
 
     // Edit mode
     pub edit_enabled: bool,
-    
+
     // Wallet creation tracking
     pub wallet_created: bool, // True after wallet is created from this phrase
 }
@@ -70,18 +70,21 @@ impl MnemonicInterface {
     pub fn generate_mnemonic(&mut self) -> Result<(), String> {
         // Generate 24 words if requested, otherwise 12
         let word_count = if self.use_24_words { 24 } else { 12 };
-        
+
         // Note: WalletManager::generate_mnemonic() generates 12 words by default
         // For now, if 24 words are requested, we generate two 12-word phrases
         // TODO: Update WalletManager to support 24-word generation properly
         let phrase = if word_count == 24 {
             // Generate two 12-word mnemonics and combine (temporary solution)
-            match (WalletManager::generate_mnemonic(), WalletManager::generate_mnemonic()) {
+            match (
+                WalletManager::generate_mnemonic(),
+                WalletManager::generate_mnemonic(),
+            ) {
                 (Ok(p1), Ok(p2)) => {
                     let combined = format!("{} {}", p1, p2);
                     Ok(combined)
                 }
-                _ => Err("Failed to generate 24-word mnemonic".to_string())
+                _ => Err("Failed to generate 24-word mnemonic".to_string()),
             }
         } else {
             WalletManager::generate_mnemonic().map_err(|e| e.to_string())
@@ -208,16 +211,20 @@ impl MnemonicInterface {
             }
 
             // Show "Enable Editing" button after generation (only if wallet not created)
-            if !self.wallet_created && self.mode == MnemonicMode::Generate && self.generated_phrase.is_some() && !self.edit_enabled
-                && ui.button("Enable Editing").clicked() {
-                    self.edit_enabled = true;
-                }
-            
+            if !self.wallet_created
+                && self.mode == MnemonicMode::Generate
+                && self.generated_phrase.is_some()
+                && !self.edit_enabled
+                && ui.button("Enable Editing").clicked()
+            {
+                self.edit_enabled = true;
+            }
+
             // Show warning if wallet already created
             if self.wallet_created {
                 ui.colored_label(
                     egui::Color32::from_rgb(255, 165, 0),
-                    "⚠️ Wallet created - phrase cannot be modified"
+                    "⚠️ Wallet created - phrase cannot be modified",
                 );
             }
 
@@ -294,9 +301,12 @@ impl MnemonicInterface {
                         let index = row * num_columns + col;
                         if index < total_words {
                             // Word number - right-aligned next to the text box
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(format!("{}.", index + 1));
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(format!("{}.", index + 1));
+                                },
+                            );
 
                             // Word input - disable if wallet already created
                             let enabled = !self.wallet_created

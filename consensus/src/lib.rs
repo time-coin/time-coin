@@ -33,8 +33,8 @@ pub mod proposals;
 pub mod tx_validation;
 
 // New simplified consensus
-pub mod simplified;
 pub mod midnight_consensus;
+pub mod simplified;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1061,12 +1061,7 @@ pub mod block_consensus {
         }
 
         /// Check if a voter has already voted on a specific block
-        pub async fn has_voted(
-            &self,
-            voter: &str,
-            block_height: u64,
-            block_hash: &str,
-        ) -> bool {
+        pub async fn has_voted(&self, voter: &str, block_height: u64, block_hash: &str) -> bool {
             let votes = self.votes.read().await;
             if let Some(height_votes) = votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(block_hash) {
