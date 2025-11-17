@@ -30,6 +30,10 @@ pub mod orchestrator;
 pub mod phased_protocol;
 pub mod proposals;
 
+// New simplified consensus
+pub mod simplified;
+pub mod midnight_consensus;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
