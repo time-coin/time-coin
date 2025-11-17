@@ -202,6 +202,109 @@ impl MnemonicPhrase {
     }
 }
 
+/// Get the Extended Public Key (xpub) from a mnemonic
+///
+/// This xpub can be used to derive all child addresses without exposing private keys
+///
+/// # Arguments
+/// * `phrase` - The mnemonic phrase
+/// * `passphrase` - Optional passphrase (use "" for none)
+/// * `account_index` - Account index (typically 0)
+///
+/// # Returns
+/// * `Result<String, MnemonicError>` - The xpub as a base58-encoded string
+pub fn mnemonic_to_xpub(
+    phrase: &str,
+    passphrase: &str,
+    account_index: u32,
+) -> Result<String, MnemonicError> {
+    // Parse mnemonic
+    let mnemonic = Mnemonic::parse_in(Language::English, phrase)
+        .map_err(|e| MnemonicError::InvalidMnemonic(e.to_string()))?;
+
+    // Convert to seed
+    let seed = mnemonic.to_seed(passphrase);
+
+    // Create extended private key from seed
+    let xprv = XPrv::new(seed).map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+
+    // BIP-44 path: m/44'/0'/account'
+    let path_str = format!("m/44'/0'/{}'", account_index);
+    let path: DerivationPath = path_str
+        .parse()
+        .map_err(|e: bip32::Error| MnemonicError::DerivationError(e.to_string()))?;
+
+    // Derive to account level
+    let mut current_key = xprv;
+    for child_number in path.as_ref() {
+        current_key = current_key
+            .derive_child(*child_number)
+            .map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+    }
+
+    // Get the extended public key
+    let xpub = current_key.public_key();
+
+    // Convert to string (requires Prefix parameter)
+    Ok(xpub.to_string(bip32::Prefix::XPUB))
+}
+
+/// Derive an address from an xpub at a specific index
+///
+/// # Arguments
+/// * `xpub_str` - The extended public key as a string
+/// * `change` - 0 for receiving addresses, 1 for change addresses
+/// * `index` - Address index
+/// * `network` - Network type (mainnet/testnet)
+///
+/// # Returns
+/// * `Result<String, MnemonicError>` - The derived address in TIME1 format
+pub fn xpub_to_address(
+    xpub_str: &str,
+    change: u32,
+    index: u32,
+    network: crate::address::NetworkType,
+) -> Result<String, MnemonicError> {
+    use bip32::XPub;
+
+    // Parse the xpub
+    let xpub: XPub = xpub_str
+        .parse()
+        .map_err(|e: bip32::Error| MnemonicError::DerivationError(e.to_string()))?;
+
+    // Derive change level (0 = receiving, 1 = change)
+    let change_key = xpub
+        .derive_child(bip32::ChildNumber::new(change, false).unwrap())
+        .map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+
+    // Derive address index
+    let address_key = change_key
+        .derive_child(bip32::ChildNumber::new(index, false).unwrap())
+        .map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+
+    // Get the public key fingerprint from the derived key
+    // This is a unique identifier for this derivation path
+    use sha2::{Digest, Sha256};
+
+    // Get the key fingerprint from the extended public key itself
+    let key_fingerprint = address_key.fingerprint();
+
+    // We need 32 bytes for Address::from_public_key
+    // Hash the fingerprint with the derivation indices for deterministic address
+    let mut hasher = Sha256::new();
+    hasher.update(key_fingerprint);
+    hasher.update(change.to_le_bytes());
+    hasher.update(index.to_le_bytes());
+    let key_bytes = hasher.finalize();
+
+    // Create a proper TIME1 address using our Address type
+    // This uses the same SHA256+RIPEMD160+Base58+checksum format as regular addresses
+    let address = crate::address::Address::from_public_key(&key_bytes[..32], network)
+        .map_err(|e| MnemonicError::DerivationError(format!("Address generation failed: {}", e)))?;
+
+    Ok(address.to_string())
+}
+
 impl std::fmt::Display for MnemonicPhrase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.phrase)

@@ -70,9 +70,16 @@ impl WalletManager {
         // Create wallet from mnemonic
         let wallet = Wallet::from_mnemonic(mnemonic, passphrase, network)?;
 
+        // Generate xpub for deterministic address discovery
+        let xpub = wallet::mnemonic_to_xpub(mnemonic, passphrase, 0)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+
         // Create wallet_dat and add the keypair
         let wallet_path = WalletDat::ensure_data_dir(network)?;
         let mut wallet_dat = WalletDat::new(network);
+
+        // Store the xpub for masternode sync
+        wallet_dat.xpub = Some(xpub);
 
         // DO NOT store the mnemonic - it should only be shown during creation
         // The user must write it down and keep it safe offline
@@ -210,6 +217,11 @@ impl WalletManager {
     /// Get primary address
     pub fn get_primary_address(&self) -> Option<String> {
         self.get_primary_key().map(|k| k.address.clone())
+    }
+
+    /// Get the xpub for this wallet (if available)
+    pub fn get_xpub(&self) -> Option<&str> {
+        self.wallet_dat.xpub.as_deref()
     }
 
     /// Add UTXO to active wallet

@@ -76,6 +76,10 @@ pub fn create_routes() -> Router<ApiState> {
             post(crate::wallet_sync_handlers::sync_wallet_addresses),
         )
         .route(
+            "/wallet/sync-xpub",
+            post(crate::wallet_sync_handlers::sync_wallet_xpub),
+        )
+        .route(
             "/wallet/validate",
             post(crate::wallet_sync_handlers::validate_transaction),
         )

@@ -211,3 +211,133 @@ pub async fn get_pending_transactions(
 
     Ok(Json(pending_txs))
 }
+
+/// Request to sync wallet using xpub (deterministic address discovery)
+#[derive(Debug, Deserialize)]
+pub struct WalletSyncXpubRequest {
+    /// Extended public key for deriving addresses
+    pub xpub: String,
+    /// Optional: starting index (default 0)
+    #[serde(default)]
+    pub start_index: u32,
+}
+
+/// Sync wallet using extended public key (xpub)
+/// Automatically discovers all used addresses using gap limit
+pub async fn sync_wallet_xpub(
+    State(state): State<ApiState>,
+    Json(request): Json<WalletSyncXpubRequest>,
+) -> Result<Json<WalletSyncResponse>, ApiError> {
+    const GAP_LIMIT: u32 = 20; // BIP-44 standard gap limit
+    const MAX_ADDRESSES: u32 = 1000; // Safety limit to prevent infinite loops
+
+    let blockchain = state.blockchain.read().await;
+    let current_height = blockchain.chain_tip_height();
+
+    let mut utxos_by_address: HashMap<String, Vec<UtxoInfo>> = HashMap::new();
+    let mut total_balance = 0u64;
+    let mut recent_transactions = Vec::new();
+    let mut gap_count = 0u32;
+    let mut index = request.start_index;
+
+    tracing::info!("Starting xpub scan from index {}", index);
+
+    // Derive addresses and scan until gap limit reached
+    while gap_count < GAP_LIMIT && index < MAX_ADDRESSES {
+        // Derive address at this index
+        // change=0 for receiving addresses
+        // Determine network type from state
+        let network = if state.network.to_lowercase() == "testnet" {
+            wallet::NetworkType::Testnet
+        } else {
+            wallet::NetworkType::Mainnet
+        };
+
+        let address = match wallet::xpub_to_address(&request.xpub, 0, index, network) {
+            Ok(addr) => addr,
+            Err(e) => {
+                tracing::error!("Failed to derive address at index {}: {}", index, e);
+                return Err(ApiError::BadRequest(format!(
+                    "Failed to derive address: {}",
+                    e
+                )));
+            }
+        };
+
+        tracing::debug!("Scanning address {} at index {}", address, index);
+
+        // Check if this address has any transactions
+        let balance = blockchain.get_balance(&address);
+        let has_activity = balance > 0;
+
+        if has_activity {
+            tracing::info!(
+                "Found activity at index {}: {} with balance {}",
+                index,
+                address,
+                balance
+            );
+            gap_count = 0; // Reset gap counter
+            total_balance += balance;
+
+            // Scan recent transactions for this address
+            let start_height = current_height.saturating_sub(100);
+            for height in start_height..=current_height {
+                if let Some(block) = blockchain.get_block_by_height(height) {
+                    for tx in &block.transactions {
+                        let mut involves_address = false;
+                        let from_address = String::new();
+                        let mut to_address = String::new();
+                        let mut amount = 0u64;
+
+                        // Check outputs for this address
+                        for output in &tx.outputs {
+                            if output.address == address {
+                                involves_address = true;
+                                to_address = address.clone();
+                                amount = output.amount;
+                            }
+                        }
+
+                        if involves_address {
+                            let confirmations = current_height.saturating_sub(height);
+                            recent_transactions.push(TransactionNotification {
+                                tx_hash: tx.txid.clone(),
+                                from_address: from_address.clone(),
+                                to_address: to_address.clone(),
+                                amount,
+                                block_height: height,
+                                timestamp: block.header.timestamp.timestamp() as u64,
+                                confirmations,
+                            });
+                        }
+                    }
+                }
+            }
+
+            utxos_by_address.insert(address, Vec::new());
+        } else {
+            gap_count += 1;
+            tracing::debug!("No activity at index {}, gap count: {}", index, gap_count);
+        }
+
+        index += 1;
+    }
+
+    tracing::info!(
+        "xpub scan complete: checked {} addresses, found {} with activity",
+        index - request.start_index,
+        utxos_by_address.len()
+    );
+
+    // Sort transactions by block height (most recent first)
+    recent_transactions.sort_by(|a, b| b.block_height.cmp(&a.block_height));
+    recent_transactions.truncate(50);
+
+    Ok(Json(WalletSyncResponse {
+        utxos: utxos_by_address,
+        total_balance,
+        recent_transactions,
+        current_height,
+    }))
+}

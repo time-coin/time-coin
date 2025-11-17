@@ -20,7 +20,8 @@ pub use address::{Address, AddressError, NetworkType};
 pub use keypair::{Keypair, KeypairError};
 pub use metadata_db::{MetadataDb, MetadataDbError};
 pub use mnemonic::{
-    generate_mnemonic, mnemonic_to_keypair, validate_mnemonic, MnemonicError, MnemonicPhrase,
+    generate_mnemonic, mnemonic_to_keypair, mnemonic_to_xpub, validate_mnemonic, xpub_to_address,
+    MnemonicError, MnemonicPhrase,
 };
 pub use transaction::{Transaction, TransactionError, TxInput, TxOutput};
 pub use wallet::{AddressMetadata, Wallet, WalletError, UTXO};

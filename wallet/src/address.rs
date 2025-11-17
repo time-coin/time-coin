@@ -33,18 +33,24 @@ impl NetworkType {
             NetworkType::Testnet => 0x6F,
         }
     }
+
+    /// Get address prefix for this network
+    pub fn address_prefix(&self) -> &'static str {
+        match self {
+            NetworkType::Mainnet => "TIME1",
+            NetworkType::Testnet => "TIME0",
+        }
+    }
 }
 
 /// TIME Coin address
-/// Format: TIME1 + base58(version + hash + checksum)
+/// Format: TIME1 (mainnet) or TIME0 (testnet) + base58(version + hash + checksum)
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Address {
     bytes: Vec<u8>, // version + hash160
 }
 
 impl Address {
-    const PREFIX: &'static str = "TIME1";
-
     /// Create an address from a public key
     pub fn from_public_key(public_key: &[u8], network: NetworkType) -> Result<Self, AddressError> {
         if public_key.len() != 32 {
@@ -67,11 +73,16 @@ impl Address {
 
     /// Create an address from a string
     pub fn from_string(s: &str) -> Result<Self, AddressError> {
-        if !s.starts_with(Self::PREFIX) {
+        // Accept either TIME1 (mainnet) or TIME0 (testnet) prefix
+        let (prefix_len, expected_network) = if s.starts_with("TIME1") {
+            (5, Some(NetworkType::Mainnet))
+        } else if s.starts_with("TIME0") {
+            (5, Some(NetworkType::Testnet))
+        } else {
             return Err(AddressError::InvalidAddress);
-        }
+        };
 
-        let encoded = &s[Self::PREFIX.len()..];
+        let encoded = &s[prefix_len..];
         let decoded = bs58::decode(encoded)
             .into_vec()
             .map_err(|_| AddressError::InvalidAddress)?;
@@ -89,6 +100,13 @@ impl Address {
             return Err(AddressError::InvalidChecksum);
         }
 
+        // Verify version byte matches prefix
+        if let Some(network) = expected_network {
+            if payload[0] != network.version_byte() {
+                return Err(AddressError::InvalidVersion);
+            }
+        }
+
         Ok(Self {
             bytes: payload.to_vec(),
         })
@@ -104,7 +122,10 @@ impl Address {
         // Base58 encode
         let encoded = bs58::encode(full).into_string();
 
-        format!("{}{}", Self::PREFIX, encoded)
+        // Use appropriate prefix based on network
+        let network = self.network();
+        let prefix = network.address_prefix();
+        format!("{}{}", prefix, encoded)
     }
 
     /// Get the version byte

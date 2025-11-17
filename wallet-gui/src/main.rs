@@ -86,6 +86,22 @@ struct WalletApp {
     // Send screen fields
     send_address: String,
     send_amount: String,
+    selected_contact: Option<String>, // Selected contact address
+    new_contact_address: String,
+    new_contact_name: String,
+    new_contact_email: String,
+    new_contact_phone: String,
+    edit_contact_address: String,
+    edit_contact_name: String,
+    edit_contact_email: String,
+    edit_contact_phone: String,
+    contact_search: String,
+    is_adding_new_contact: bool,
+    is_scanning_qr: bool,
+
+    // Transaction sync
+    last_sync_time: Option<std::time::Instant>,
+    is_syncing_transactions: bool,
 
     // UI state
     // Network manager (wrapped for thread safety)
@@ -111,7 +127,7 @@ impl Default for WalletApp {
     fn default() -> Self {
         // Don't initialize wallet database here - it will be opened when wallet is loaded
         // to avoid lock conflicts with WalletManager's database
-        
+
         Self {
             current_screen: Screen::Welcome,
             wallet_manager: None,
@@ -122,6 +138,20 @@ impl Default for WalletApp {
             success_message: None,
             send_address: String::new(),
             send_amount: String::new(),
+            selected_contact: None,
+            new_contact_address: String::new(),
+            new_contact_name: String::new(),
+            new_contact_email: String::new(),
+            new_contact_phone: String::new(),
+            edit_contact_address: String::new(),
+            edit_contact_name: String::new(),
+            edit_contact_email: String::new(),
+            edit_contact_phone: String::new(),
+            contact_search: String::new(),
+            is_adding_new_contact: false,
+            is_scanning_qr: false,
+            last_sync_time: None,
+            is_syncing_transactions: false,
             network_manager: None,
             network_status: "Not connected".to_string(),
             mnemonic_interface: MnemonicInterface::new(),
@@ -225,6 +255,9 @@ impl WalletApp {
                                                     let mut net = network_mgr.lock().unwrap();
                                                     *net = temp_net;
                                                 }
+
+                                                // Trigger initial transaction sync
+                                                ctx_clone.request_repaint();
 
                                                 // Start periodic latency refresh task
                                                 let network_refresh = network_mgr.clone();
@@ -360,7 +393,7 @@ impl WalletApp {
 
     fn create_wallet_from_mnemonic_phrase(&mut self, phrase: &str, ctx: &egui::Context) {
         log::info!("Creating wallet from mnemonic phrase...");
-        
+
         match WalletManager::create_from_mnemonic(
             self.network,
             phrase,
@@ -430,7 +463,7 @@ impl WalletApp {
                         ctx_clone.request_repaint();
                     });
                 }
-                
+
                 // Force UI repaint to show new screen
                 log::info!("Requesting UI repaint");
                 ctx.request_repaint();
@@ -446,6 +479,20 @@ impl WalletApp {
     // Old function removed - using create_wallet_from_mnemonic_phrase instead
 
     fn show_main_screen(&mut self, ctx: &egui::Context) {
+        // Check if we should auto-sync transactions (every 30 seconds)
+        let should_sync = if let Some(last_sync) = self.last_sync_time {
+            last_sync.elapsed().as_secs() >= 30
+        } else {
+            // First time sync after 5 seconds of wallet being loaded
+            self.wallet_manager.is_some() && self.network_manager.is_some()
+        };
+
+        if should_sync {
+            log::info!("Auto-triggering transaction sync");
+            self.trigger_transaction_sync();
+            self.last_sync_time = Some(std::time::Instant::now());
+        }
+
         // Top menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -752,22 +799,402 @@ impl WalletApp {
         }
     }
 
-    fn show_send_screen(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+    fn show_send_screen(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Send TIME Coins");
         ui.add_space(20.0);
 
+        enum ContactAction {
+            SelectForSend(String),
+            Edit(String),
+            Delete(String),
+        }
+        let mut pending_action: Option<ContactAction> = None;
+
         if let Some(_manager) = &self.wallet_manager {
-            ui.label("Pay To:");
-            ui.text_edit_singleline(&mut self.send_address);
-            ui.add_space(10.0);
+            // Two column layout
+            ui.columns(2, |columns| {
+                // Left side - Contact list
+                columns[0].vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Address Book");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("➕ New Contact").clicked() {
+                                self.is_adding_new_contact = true;
+                                self.new_contact_address.clear();
+                                self.new_contact_name.clear();
+                                self.new_contact_email.clear();
+                                self.new_contact_phone.clear();
+                            }
+                        });
+                    });
 
-            ui.label("Amount:");
-            ui.text_edit_singleline(&mut self.send_amount);
-            ui.add_space(20.0);
+                    ui.add_space(10.0);
 
-            if ui.button("Send").clicked() {
-                self.success_message =
-                    Some("Transaction sent! (Network integration pending)".to_string());
+                    // Search box
+                    ui.horizontal(|ui| {
+                        ui.label("🔍");
+                        ui.text_edit_singleline(&mut self.contact_search)
+                            .on_hover_text("Search contacts");
+                    });
+
+                    ui.add_space(10.0);
+
+                    // New contact form
+                    if self.is_adding_new_contact {
+                        ui.group(|ui| {
+                            ui.label("New Contact");
+                            ui.add_space(5.0);
+                            ui.horizontal(|ui| {
+                                ui.label("Address:");
+                                ui.text_edit_singleline(&mut self.new_contact_address);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Name:");
+                                ui.text_edit_singleline(&mut self.new_contact_name);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Email:");
+                                ui.text_edit_singleline(&mut self.new_contact_email);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Phone:");
+                                ui.text_edit_singleline(&mut self.new_contact_phone);
+                            });
+
+                            ui.add_space(5.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("✓ Save").clicked() {
+                                    if !self.new_contact_address.is_empty()
+                                        && !self.new_contact_name.is_empty()
+                                    {
+                                        if let Some(ref db) = self.wallet_db {
+                                            let now = chrono::Utc::now().timestamp();
+                                            let contact = AddressContact {
+                                                address: self.new_contact_address.clone(),
+                                                label: String::new(),
+                                                name: Some(self.new_contact_name.clone()),
+                                                email: if self.new_contact_email.is_empty() {
+                                                    None
+                                                } else {
+                                                    Some(self.new_contact_email.clone())
+                                                },
+                                                phone: if self.new_contact_phone.is_empty() {
+                                                    None
+                                                } else {
+                                                    Some(self.new_contact_phone.clone())
+                                                },
+                                                notes: None,
+                                                is_default: false,
+                                                is_owned: false, // External contact for sending
+                                                created_at: now,
+                                                updated_at: now,
+                                            };
+                                            match db.save_contact(&contact) {
+                                                Ok(_) => {
+                                                    self.success_message =
+                                                        Some("Contact saved!".to_string());
+                                                    self.is_adding_new_contact = false;
+                                                }
+                                                Err(e) => {
+                                                    self.error_message =
+                                                        Some(format!("Failed to save: {}", e));
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        self.error_message =
+                                            Some("Address and name are required".to_string());
+                                    }
+                                }
+                                if ui.button("✗ Cancel").clicked() {
+                                    self.is_adding_new_contact = false;
+                                }
+                            });
+                        });
+                        ui.add_space(10.0);
+                    }
+
+                    // Contact list with scrolling
+                    egui::ScrollArea::vertical()
+                        .max_height(500.0)
+                        .show(ui, |ui| {
+                            if let Some(ref db) = self.wallet_db {
+                                match db.get_external_contacts() {
+                                    Ok(mut contacts) => {
+                                        // Sort contacts by name
+                                        contacts.sort_by(|a, b| {
+                                            let name_a = a.name.as_deref().unwrap_or("Unnamed");
+                                            let name_b = b.name.as_deref().unwrap_or("Unnamed");
+                                            name_a.cmp(name_b)
+                                        });
+
+                                        if contacts.is_empty() {
+                                            ui.label("No contacts yet. Add one to get started!");
+                                            return;
+                                        }
+
+                                        for contact in contacts.iter() {
+                                            let display_name = contact
+                                                .name
+                                                .as_deref()
+                                                .unwrap_or("Unnamed Contact");
+
+                                            // Apply search filter
+                                            if !self.contact_search.is_empty() {
+                                                let search_lower =
+                                                    self.contact_search.to_lowercase();
+                                                if !display_name
+                                                    .to_lowercase()
+                                                    .contains(&search_lower)
+                                                    && !contact
+                                                        .address
+                                                        .to_lowercase()
+                                                        .contains(&search_lower)
+                                                {
+                                                    continue;
+                                                }
+                                            }
+
+                                            let is_selected = self.selected_contact.as_ref()
+                                                == Some(&contact.address);
+
+                                            let frame = egui::Frame::group(ui.style())
+                                                .fill(if is_selected {
+                                                    ui.visuals().selection.bg_fill
+                                                } else {
+                                                    ui.visuals().window_fill
+                                                })
+                                                .inner_margin(egui::Margin::same(10));
+
+                                            let frame_response = frame.show(ui, |ui| {
+                                                ui.set_min_width(ui.available_width());
+
+                                                ui.vertical(|ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(display_name)
+                                                                .size(14.0)
+                                                                .strong()
+                                                                .color(egui::Color32::BLACK),
+                                                        );
+                                                    });
+
+                                                    ui.label(
+                                                        egui::RichText::new(&contact.address)
+                                                            .size(10.0)
+                                                            .color(egui::Color32::DARK_GRAY),
+                                                    );
+                                                });
+                                            });
+
+                                            // Make entire frame clickable
+                                            if frame_response
+                                                .response
+                                                .interact(egui::Sense::click())
+                                                .clicked()
+                                            {
+                                                pending_action =
+                                                    Some(ContactAction::SelectForSend(
+                                                        contact.address.clone(),
+                                                    ));
+                                            }
+
+                                            ui.add_space(6.0);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        ui.label(format!("Error loading contacts: {}", e));
+                                    }
+                                }
+                            } else {
+                                ui.label("Database not initialized");
+                            }
+                        });
+                });
+
+                // Right side - Send form and contact details
+                columns[1].vertical(|ui| {
+                    if let Some(ref selected_addr) = self.selected_contact.clone() {
+                        // Show contact details
+                        if let Some(ref db) = self.wallet_db {
+                            if let Ok(Some(contact)) = db.get_contact(selected_addr) {
+                                ui.group(|ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    let display_name = contact
+                                        .name
+                                        .unwrap_or_else(|| "Unnamed Contact".to_string());
+                                    ui.heading(&display_name);
+                                    ui.add_space(5.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.monospace(
+                                            egui::RichText::new(&contact.address)
+                                                .size(11.0)
+                                                .color(egui::Color32::BLACK),
+                                        );
+                                        if ui.button("📄").on_hover_text("Copy address").clicked()
+                                        {
+                                            ctx.copy_text(contact.address.clone());
+                                            self.success_message =
+                                                Some("Address copied!".to_string());
+                                        }
+                                    });
+
+                                    ui.add_space(10.0);
+
+                                    // Contact info display
+                                    if let Some(ref email) = contact.email {
+                                        if !email.is_empty() {
+                                            ui.horizontal(|ui| {
+                                                ui.label("📧");
+                                                ui.label(email);
+                                            });
+                                        }
+                                    }
+                                    if let Some(ref phone) = contact.phone {
+                                        if !phone.is_empty() {
+                                            ui.horizontal(|ui| {
+                                                ui.label("📱");
+                                                ui.label(phone);
+                                            });
+                                        }
+                                    }
+
+                                    ui.add_space(10.0);
+
+                                    ui.horizontal(|ui| {
+                                        if ui.button("✏️ Edit").clicked() {
+                                            pending_action =
+                                                Some(ContactAction::Edit(contact.address.clone()));
+                                        }
+                                        if ui.button("🗑️ Delete").clicked() {
+                                            pending_action = Some(ContactAction::Delete(
+                                                contact.address.clone(),
+                                            ));
+                                        }
+                                    });
+                                });
+
+                                ui.add_space(20.0);
+                            }
+                        }
+                    }
+
+                    // Send form
+                    ui.group(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.heading("💸 Send Transaction");
+                        ui.add_space(15.0);
+
+                        // Pay To field
+                        ui.label("Recipient Address:");
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut self.send_address);
+
+                            if self.selected_contact.is_some()
+                                && ui.button("📋 Use Contact").on_hover_text("Use selected contact's address").clicked() {
+                                if let Some(ref addr) = self.selected_contact {
+                                    self.send_address = addr.clone();
+                                }
+                            }
+
+                            if ui.button("📷 Scan QR").on_hover_text("Scan QR code with camera").clicked() {
+                                self.is_scanning_qr = true;
+                            }
+                        });
+
+                        if self.send_address.is_empty() {
+                            ui.label(egui::RichText::new("💡 Select a contact, scan QR code, or enter an address manually")
+                                .color(egui::Color32::GRAY)
+                                .size(11.0));
+                        }
+
+                        ui.add_space(15.0);
+
+                        // Amount field
+                        ui.label("Amount (TIME):");
+                        ui.text_edit_singleline(&mut self.send_amount);
+
+                        ui.add_space(20.0);
+
+                        // Send button
+                        let send_button = ui.add_sized(
+                            [ui.available_width(), 40.0],
+                            egui::Button::new(egui::RichText::new("📤 Send Transaction").size(16.0))
+                        );
+
+                        if send_button.clicked() {
+                            if self.send_address.is_empty() {
+                                self.error_message =
+                                    Some("Please enter a recipient address".to_string());
+                            } else if self.send_amount.is_empty() {
+                                self.error_message = Some("Please enter an amount".to_string());
+                            } else {
+                                self.success_message = Some(
+                                    "Transaction sent! (Network integration pending)".to_string(),
+                                );
+                                // TODO: Implement actual transaction sending
+                            }
+                        }
+                    });
+                });
+            });
+
+            // Handle pending actions
+            if let Some(action) = pending_action {
+                match action {
+                    ContactAction::SelectForSend(address) => {
+                        self.selected_contact = Some(address.clone());
+                        if let Some(ref db) = self.wallet_db {
+                            if let Ok(Some(contact)) = db.get_contact(&address) {
+                                self.edit_contact_address = contact.address.clone();
+                                self.edit_contact_name = contact.name.unwrap_or_default();
+                                self.edit_contact_email = contact.email.unwrap_or_default();
+                                self.edit_contact_phone = contact.phone.unwrap_or_default();
+                            }
+                        }
+                    }
+                    ContactAction::Edit(address) => {
+                        // TODO: Open edit dialog
+                        self.error_message = Some("Edit functionality coming soon".to_string());
+                    }
+                    ContactAction::Delete(address) => {
+                        if let Some(ref db) = self.wallet_db {
+                            match db.delete_contact(&address) {
+                                Ok(_) => {
+                                    self.success_message = Some("Contact deleted".to_string());
+                                    if self.selected_contact.as_ref() == Some(&address) {
+                                        self.selected_contact = None;
+                                    }
+                                }
+                                Err(e) => {
+                                    self.error_message = Some(format!("Failed to delete: {}", e));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // QR Code scanning dialog
+            if self.is_scanning_qr {
+                egui::Window::new("📷 Scan QR Code")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.add_space(10.0);
+                        ui.label("QR Code scanning feature coming soon!");
+                        ui.add_space(10.0);
+                        ui.label("This will enable:");
+                        ui.label("  • Camera access for QR code scanning");
+                        ui.label("  • Automatic address detection");
+                        ui.label("  • Optional contact info entry");
+                        ui.add_space(15.0);
+
+                        if ui.button("Close").clicked() {
+                            self.is_scanning_qr = false;
+                        }
+                    });
             }
         }
 
@@ -842,25 +1269,6 @@ impl WalletApp {
                                         format!("Address {}", manager.get_keys().len() + 1);
                                     match manager.generate_new_key(temp_label, false) {
                                         Ok(address) => {
-                                            // Save contact info with the user-provided name
-                                            if !self.new_address_label.is_empty() {
-                                                if let Some(ref db) = self.wallet_db {
-                                                    let now = chrono::Utc::now().timestamp();
-                                                    let contact = AddressContact {
-                                                        address: address.clone(),
-                                                        label: String::new(),
-                                                        name: Some(self.new_address_label.clone()),
-                                                        email: None,
-                                                        phone: None,
-                                                        notes: None,
-                                                        is_default: false,
-                                                        created_at: now,
-                                                        updated_at: now,
-                                                    };
-                                                    let _ = db.save_contact(&contact);
-                                                }
-                                            }
-
                                             self.success_message =
                                                 Some(format!("Created new address: {}", address));
                                             self.is_creating_new_address = false;
@@ -887,24 +1295,32 @@ impl WalletApp {
                         .show(ui, |ui| {
                             let mut keys = manager.get_keys().to_vec();
 
-                            // Sort addresses by display name
+                            // Sort addresses by label or contact name
                             keys.sort_by(|a, b| {
                                 let name_a = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&a.address) {
-                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.unwrap_or_else(|| a.label.clone())
+                                    } else if !a.label.is_empty() {
+                                        a.label.clone()
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
+                                } else if !a.label.is_empty() {
+                                    a.label.clone()
                                 } else {
                                     "Unnamed Address".to_string()
                                 };
 
                                 let name_b = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&b.address) {
-                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.unwrap_or_else(|| b.label.clone())
+                                    } else if !b.label.is_empty() {
+                                        b.label.clone()
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
+                                } else if !b.label.is_empty() {
+                                    b.label.clone()
                                 } else {
                                     "Unnamed Address".to_string()
                                 };
@@ -935,13 +1351,23 @@ impl WalletApp {
                             }
 
                             for (idx, key) in keys.iter().enumerate() {
-                                // Get display label for filtering
+                                // Get display label from contact database or key label
                                 let display_label = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                        contact.name.clone().unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.unwrap_or_else(|| {
+                                            if !key.label.is_empty() {
+                                                key.label.clone()
+                                            } else {
+                                                "Unnamed Address".to_string()
+                                            }
+                                        })
+                                    } else if !key.label.is_empty() {
+                                        key.label.clone()
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
+                                } else if !key.label.is_empty() {
+                                    key.label.clone()
                                 } else {
                                     "Unnamed Address".to_string()
                                 };
@@ -998,9 +1424,12 @@ impl WalletApp {
                                     // Load contact info from database
                                     if let Some(ref db) = self.wallet_db {
                                         if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                            self.edit_address_name = contact.name.unwrap_or_default();
-                                            self.edit_address_email = contact.email.unwrap_or_default();
-                                            self.edit_address_phone = contact.phone.unwrap_or_default();
+                                            self.edit_address_name =
+                                                contact.name.unwrap_or_default();
+                                            self.edit_address_email =
+                                                contact.email.unwrap_or_default();
+                                            self.edit_address_phone =
+                                                contact.phone.unwrap_or_default();
                                         } else {
                                             self.edit_address_name = String::new();
                                             self.edit_address_email = String::new();
@@ -1025,13 +1454,23 @@ impl WalletApp {
                             ui.group(|ui| {
                                 ui.set_min_width(ui.available_width());
 
-                                // Get display label (prefer contact name, show "Unnamed Address" if none)
+                                // Get display label from contact database or key label
                                 let display_label = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.unwrap_or_else(|| {
+                                            if !key.label.is_empty() {
+                                                key.label.clone()
+                                            } else {
+                                                "Unnamed Address".to_string()
+                                            }
+                                        })
+                                    } else if !key.label.is_empty() {
+                                        key.label.clone()
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
+                                } else if !key.label.is_empty() {
+                                    key.label.clone()
                                 } else {
                                     "Unnamed Address".to_string()
                                 };
@@ -1195,17 +1634,14 @@ impl WalletApp {
             // Execute pending action outside the columns closure
             if let Some(action) = pending_action {
                 match action {
-                    AddressAction::SetDefault(address) => {
-                        match manager.set_default_key(&address) {
-                            Ok(_) => {
-                                self.success_message =
-                                    Some("Set as default address".to_string());
-                            }
-                            Err(e) => {
-                                self.error_message = Some(format!("Failed to set default: {}", e));
-                            }
+                    AddressAction::SetDefault(address) => match manager.set_default_key(&address) {
+                        Ok(_) => {
+                            self.success_message = Some("Set as default address".to_string());
                         }
-                    }
+                        Err(e) => {
+                            self.error_message = Some(format!("Failed to set default: {}", e));
+                        }
+                    },
                     AddressAction::ClearInfo(address) => {
                         if let Some(ref db) = self.wallet_db {
                             match db.delete_contact(&address) {
@@ -1218,7 +1654,8 @@ impl WalletApp {
                                     ctx.request_repaint();
                                 }
                                 Err(e) => {
-                                    self.error_message = Some(format!("Failed to clear info: {}", e));
+                                    self.error_message =
+                                        Some(format!("Failed to clear info: {}", e));
                                 }
                             }
                         } else {
@@ -1236,19 +1673,18 @@ impl WalletApp {
                                 phone,
                                 notes: None,
                                 is_default: false,
+                                is_owned: true, // This is MY receiving address
                                 created_at: now,
                                 updated_at: now,
                             };
-                            
+
                             match db.save_contact(&contact) {
                                 Ok(_) => {
-                                    self.success_message =
-                                        Some("Contact info saved!".to_string());
+                                    self.success_message = Some("Contact info saved!".to_string());
                                     ctx.request_repaint();
                                 }
                                 Err(e) => {
-                                    self.error_message =
-                                        Some(format!("Failed to save: {}", e));
+                                    self.error_message = Some(format!("Failed to save: {}", e));
                                 }
                             }
                         } else {
@@ -1267,16 +1703,301 @@ impl WalletApp {
 
     fn show_transactions_screen(&mut self, ui: &mut egui::Ui) {
         ui.heading("Transaction History");
-        ui.add_space(20.0);
-
-        ui.label(
-            "Transaction history will be displayed here once network integration is complete.",
-        );
         ui.add_space(10.0);
-        ui.label("Features coming soon:");
-        ui.label("  📥 Received transactions");
-        ui.label("  📤 Sent transactions");
-        ui.label("  ⚡ Masternode rewards");
+
+        // Sync button and status
+        ui.horizontal(|ui| {
+            if ui.button("🔄 Sync Transactions").clicked() {
+                // Trigger sync
+                self.trigger_transaction_sync();
+            }
+
+            if let Some(last_sync) = self.last_sync_time {
+                let elapsed = last_sync.elapsed().as_secs();
+                let time_str = if elapsed < 60 {
+                    format!("{} seconds ago", elapsed)
+                } else {
+                    format!("{} minutes ago", elapsed / 60)
+                };
+                ui.label(format!("Last synced: {}", time_str));
+            }
+        });
+
+        ui.add_space(15.0);
+
+        // Display transactions
+        if let Some(ref db) = self.wallet_db {
+            match db.get_all_transactions() {
+                Ok(transactions) => {
+                    if transactions.is_empty() {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(50.0);
+                            ui.label(
+                                egui::RichText::new("No transactions yet")
+                                    .size(16.0)
+                                    .color(egui::Color32::GRAY),
+                            );
+                            ui.add_space(10.0);
+                            ui.label("Click 'Sync Transactions' to fetch from network");
+                        });
+                    } else {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            for tx in transactions.iter() {
+                                self.show_transaction_item(ui, tx);
+                                ui.add_space(5.0);
+                            }
+                        });
+                    }
+                }
+                Err(e) => {
+                    ui.colored_label(
+                        egui::Color32::RED,
+                        format!("Error loading transactions: {}", e),
+                    );
+                }
+            }
+        } else {
+            ui.label("Database not initialized");
+        }
+
+        if let Some(msg) = &self.success_message {
+            ui.add_space(10.0);
+            ui.colored_label(egui::Color32::GREEN, msg);
+        }
+        if let Some(msg) = &self.error_message {
+            ui.add_space(10.0);
+            ui.colored_label(egui::Color32::RED, msg);
+        }
+    }
+
+    fn show_transaction_item(&self, ui: &mut egui::Ui, tx: &wallet_db::TransactionRecord) {
+        use wallet_db::TransactionStatus;
+
+        ui.group(|ui| {
+            ui.set_min_width(ui.available_width());
+
+            ui.horizontal(|ui| {
+                // Direction icon and amount
+                let is_received = if let Some(ref manager) = self.wallet_manager {
+                    manager
+                        .get_keys()
+                        .iter()
+                        .any(|k| k.address == tx.to_address)
+                } else {
+                    false
+                };
+
+                let (icon, color) = if is_received {
+                    ("📥", egui::Color32::GREEN)
+                } else {
+                    ("📤", egui::Color32::from_rgb(255, 165, 0))
+                };
+
+                ui.label(egui::RichText::new(icon).size(20.0));
+
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        let direction = if is_received { "Received" } else { "Sent" };
+                        ui.label(egui::RichText::new(direction).strong());
+
+                        // Status badge
+                        let (status_text, status_color) = match tx.status {
+                            TransactionStatus::Confirmed => ("✓ Confirmed", egui::Color32::GREEN),
+                            TransactionStatus::Pending => ("⏳ Pending", egui::Color32::YELLOW),
+                            TransactionStatus::Failed => ("✗ Failed", egui::Color32::RED),
+                        };
+                        ui.label(
+                            egui::RichText::new(status_text)
+                                .color(status_color)
+                                .size(11.0),
+                        );
+                    });
+
+                    // Amount
+                    let amount_time = tx.amount as f64 / 100_000_000.0;
+                    ui.label(
+                        egui::RichText::new(format!("{:.8} TIME", amount_time))
+                            .size(14.0)
+                            .color(color),
+                    );
+                });
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Date/time
+                    let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp, 0)
+                        .unwrap_or_else(chrono::Utc::now);
+                    ui.label(
+                        egui::RichText::new(datetime.format("%Y-%m-%d %H:%M").to_string())
+                            .size(11.0)
+                            .color(egui::Color32::GRAY),
+                    );
+                });
+            });
+
+            ui.add_space(5.0);
+
+            // Addresses (collapsed)
+            ui.horizontal(|ui| {
+                if let Some(ref from) = tx.from_address {
+                    ui.label(
+                        egui::RichText::new("From:")
+                            .size(10.0)
+                            .color(egui::Color32::GRAY),
+                    );
+                    ui.monospace(
+                        egui::RichText::new(Self::truncate_address(from))
+                            .size(10.0)
+                            .color(egui::Color32::DARK_GRAY),
+                    );
+                }
+
+                ui.label(
+                    egui::RichText::new("To:")
+                        .size(10.0)
+                        .color(egui::Color32::GRAY),
+                );
+                ui.monospace(
+                    egui::RichText::new(Self::truncate_address(&tx.to_address))
+                        .size(10.0)
+                        .color(egui::Color32::DARK_GRAY),
+                );
+            });
+
+            // Transaction hash
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("TX:")
+                        .size(10.0)
+                        .color(egui::Color32::GRAY),
+                );
+                ui.monospace(
+                    egui::RichText::new(Self::truncate_hash(&tx.tx_hash))
+                        .size(10.0)
+                        .color(egui::Color32::DARK_GRAY),
+                );
+            });
+
+            if let Some(ref notes) = tx.notes {
+                if !notes.is_empty() {
+                    ui.add_space(3.0);
+                    ui.label(
+                        egui::RichText::new(format!("Note: {}", notes))
+                            .size(10.0)
+                            .color(egui::Color32::GRAY)
+                            .italics(),
+                    );
+                }
+            }
+        });
+    }
+
+    fn truncate_address(address: &str) -> String {
+        if address.len() > 16 {
+            format!("{}...{}", &address[..8], &address[address.len() - 8..])
+        } else {
+            address.to_string()
+        }
+    }
+
+    fn truncate_hash(hash: &str) -> String {
+        if hash.len() > 16 {
+            format!("{}...{}", &hash[..8], &hash[hash.len() - 8..])
+        } else {
+            hash.to_string()
+        }
+    }
+
+    fn trigger_transaction_sync(&mut self) {
+        // Check if we have xpub for more efficient syncing
+        let xpub_opt = match &self.wallet_manager {
+            Some(mgr) => mgr.get_xpub().map(|s| s.to_string()),
+            None => {
+                self.error_message = Some("Wallet not loaded".to_string());
+                return;
+            }
+        };
+
+        // Clone what we need for the async task
+        let network_mgr = match &self.network_manager {
+            Some(mgr) => mgr.clone(),
+            None => {
+                self.error_message = Some("Network not connected".to_string());
+                return;
+            }
+        };
+
+        let wallet_db = match &self.wallet_db {
+            Some(db) => db.clone(),
+            None => {
+                self.error_message = Some("Database not initialized".to_string());
+                return;
+            }
+        };
+
+        // Clone API endpoint before spawning
+        let api_endpoint = {
+            let network = match network_mgr.lock() {
+                Ok(n) => n,
+                Err(e) => {
+                    log::error!("Failed to lock network manager: {}", e);
+                    return;
+                }
+            };
+            network.api_endpoint().to_string()
+        };
+
+        // Spawn sync task
+        tokio::spawn(async move {
+            // Create temporary network manager for this request
+            let temp_network = NetworkManager::new(api_endpoint);
+
+            let sync_result = if let Some(xpub) = xpub_opt {
+                log::info!("Starting xpub-based transaction sync");
+                temp_network.sync_wallet_transactions_xpub(xpub).await
+            } else {
+                log::warn!("No xpub available, falling back to address-based sync");
+                log::warn!("For better privacy and efficiency, recreate wallet from mnemonic");
+                // Fallback: This shouldn't happen for wallets created from mnemonic
+                // but might happen for old wallets
+                Err("xpub not available - please recreate wallet from mnemonic".to_string())
+            };
+
+            match sync_result {
+                Ok(response) => {
+                    log::info!(
+                        "Sync successful: {} transactions",
+                        response.recent_transactions.len()
+                    );
+
+                    // Save transactions to database
+                    for tx_notif in response.recent_transactions {
+                        let tx_record = wallet_db::TransactionRecord {
+                            tx_hash: tx_notif.tx_hash,
+                            timestamp: tx_notif.timestamp as i64,
+                            from_address: Some(tx_notif.from_address),
+                            to_address: tx_notif.to_address,
+                            amount: tx_notif.amount,
+                            status: if tx_notif.confirmations > 0 {
+                                wallet_db::TransactionStatus::Confirmed
+                            } else {
+                                wallet_db::TransactionStatus::Pending
+                            },
+                            block_height: Some(tx_notif.block_height),
+                            notes: None,
+                        };
+
+                        if let Err(e) = wallet_db.save_transaction(&tx_record) {
+                            log::error!("Failed to save transaction {}: {}", tx_record.tx_hash, e);
+                        }
+                    }
+
+                    log::info!("Transaction sync complete");
+                }
+                Err(e) => {
+                    log::error!("Transaction sync failed: {}", e);
+                }
+            }
+        });
     }
 
     fn show_settings_screen(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {

@@ -74,6 +74,10 @@ pub struct WalletDat {
     /// In future, this will be properly encrypted. For now it's base64 encoded.
     #[serde(default)]
     pub encrypted_mnemonic: Option<String>,
+    /// Extended Public Key (xpub) for deterministic address derivation
+    /// Used by masternode to discover all wallet addresses
+    #[serde(default)]
+    pub xpub: Option<String>,
 }
 
 impl WalletDat {
@@ -92,6 +96,7 @@ impl WalletDat {
             encryption_salt: None,
             is_encrypted: false,
             encrypted_mnemonic: None,
+            xpub: None,
         }
     }
 

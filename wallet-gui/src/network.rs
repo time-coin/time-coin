@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +32,44 @@ pub struct BlockchainInfo {
     pub best_block_hash: String,
     pub total_supply: u64,
     pub timestamp: i64,
+}
+
+/// Request to sync wallet addresses
+#[derive(Debug, Serialize)]
+pub struct WalletSyncRequest {
+    pub addresses: Vec<String>,
+}
+
+/// UTXO information from masternode
+#[derive(Debug, Deserialize, Clone)]
+pub struct UtxoInfo {
+    pub tx_hash: String,
+    pub output_index: u32,
+    pub amount: u64,
+    pub address: String,
+    pub block_height: u64,
+    pub confirmations: u64,
+}
+
+/// Transaction notification from masternode
+#[derive(Debug, Deserialize, Clone)]
+pub struct TransactionNotification {
+    pub tx_hash: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount: u64,
+    pub block_height: u64,
+    pub timestamp: u64,
+    pub confirmations: u64,
+}
+
+/// Response from wallet sync
+#[derive(Debug, Deserialize)]
+pub struct WalletSyncResponse {
+    pub utxos: HashMap<String, Vec<UtxoInfo>>,
+    pub total_balance: u64,
+    pub recent_transactions: Vec<TransactionNotification>,
+    pub current_height: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -510,5 +549,95 @@ impl NetworkManager {
         }
 
         log::info!("Latency refresh complete");
+    }
+
+    /// Sync wallet transactions from the masternode
+    /// Sends wallet addresses and receives all related transactions
+    pub async fn sync_wallet_transactions(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<WalletSyncResponse, String> {
+        if addresses.is_empty() {
+            return Err("No addresses to sync".to_string());
+        }
+
+        let url = format!("{}/wallet/sync", self.api_endpoint);
+        log::info!("Syncing {} wallet addresses from: {}", addresses.len(), url);
+
+        let request = WalletSyncRequest { addresses };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to sync wallet: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("API returned error: {}", response.status()));
+        }
+
+        let sync_response: WalletSyncResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+        log::info!(
+            "Received {} transactions, total balance: {}",
+            sync_response.recent_transactions.len(),
+            sync_response.total_balance
+        );
+
+        Ok(sync_response)
+    }
+
+    /// Sync wallet transactions from the masternode using xpub (deterministic address discovery)
+    /// Sends xpub and masternode automatically discovers all addresses
+    pub async fn sync_wallet_transactions_xpub(
+        &self,
+        xpub: String,
+    ) -> Result<WalletSyncResponse, String> {
+        let url = format!("{}/wallet/sync-xpub", self.api_endpoint);
+        log::info!("Syncing wallet using xpub from: {}", url);
+
+        #[derive(serde::Serialize)]
+        struct XpubRequest {
+            xpub: String,
+            #[serde(default)]
+            start_index: u32,
+        }
+
+        let request = XpubRequest {
+            xpub,
+            start_index: 0,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .timeout(Duration::from_secs(60)) // Longer timeout for address scanning
+            .send()
+            .await
+            .map_err(|e| format!("Failed to sync wallet via xpub: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("API returned error: {}", response.status()));
+        }
+
+        let sync_response: WalletSyncResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+        log::info!(
+            "xpub sync received {} transactions, total balance: {}",
+            sync_response.recent_transactions.len(),
+            sync_response.total_balance
+        );
+
+        Ok(sync_response)
     }
 }

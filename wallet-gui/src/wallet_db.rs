@@ -18,6 +18,20 @@ pub enum WalletDbError {
     NotFound(String),
 }
 
+/// Contact information for an address (OLD VERSION - for migration)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AddressContactV1 {
+    pub address: String,
+    pub label: String,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub notes: Option<String>,
+    pub is_default: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 /// Contact information for an address
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddressContact {
@@ -28,6 +42,7 @@ pub struct AddressContact {
     pub phone: Option<String>,
     pub notes: Option<String>,
     pub is_default: bool,
+    pub is_owned: bool, // true = my address (receive), false = external contact (send)
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -53,6 +68,7 @@ pub enum TransactionStatus {
 }
 
 /// Wallet metadata database
+#[derive(Clone)]
 pub struct WalletDb {
     db: Db,
 }
@@ -90,13 +106,59 @@ impl WalletDb {
         let prefix = b"contact:";
 
         for item in self.db.scan_prefix(prefix) {
-            let (_key, value) = item?;
-            let contact: AddressContact = bincode::deserialize(&value)?;
+            let (key, value) = item?;
+
+            // Try to deserialize as new format first
+            let contact = match bincode::deserialize::<AddressContact>(&value) {
+                Ok(c) => c,
+                Err(_) => {
+                    // Try old format and migrate
+                    match bincode::deserialize::<AddressContactV1>(&value) {
+                        Ok(old) => {
+                            // Migrate to new format with is_owned = false (assume external contact)
+                            let new_contact = AddressContact {
+                                address: old.address,
+                                label: old.label,
+                                name: old.name,
+                                email: old.email,
+                                phone: old.phone,
+                                notes: old.notes,
+                                is_default: old.is_default,
+                                is_owned: false, // Default to external contact
+                                created_at: old.created_at,
+                                updated_at: old.updated_at,
+                            };
+                            // Save migrated version
+                            let encoded = bincode::serialize(&new_contact)?;
+                            self.db.insert(&key, encoded)?;
+                            new_contact
+                        }
+                        Err(e) => {
+                            // Skip corrupted entries
+                            log::warn!("Failed to deserialize contact, skipping: {}", e);
+                            continue;
+                        }
+                    }
+                }
+            };
             contacts.push(contact);
         }
 
+        self.db.flush()?;
         contacts.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(contacts)
+    }
+
+    /// Get only owned addresses (receive addresses)
+    pub fn get_owned_addresses(&self) -> Result<Vec<AddressContact>, WalletDbError> {
+        let all = self.get_all_contacts()?;
+        Ok(all.into_iter().filter(|c| c.is_owned).collect())
+    }
+
+    /// Get only external contacts (send addresses)
+    pub fn get_external_contacts(&self) -> Result<Vec<AddressContact>, WalletDbError> {
+        let all = self.get_all_contacts()?;
+        Ok(all.into_iter().filter(|c| !c.is_owned).collect())
     }
 
     /// Delete contact
