@@ -90,25 +90,25 @@ impl NetworkManager {
             return Err(format!("API returned error: {}", response.status()));
         }
 
-        let api_response: ApiPeersResponse = response
+        // API returns a simple array of "ip:port" strings
+        let peer_addresses: Vec<String> = response
             .json()
             .await
             .map_err(|e| format!("Failed to parse peer response: {}", e))?;
 
-        log::info!("Fetched {} peers from API", api_response.count);
+        log::info!("Fetched {} peers from API", peer_addresses.len());
 
-        // Convert ApiPeer to PeerInfo
-        let peer_infos: Vec<PeerInfo> = api_response
-            .peers
+        // Convert address strings to PeerInfo
+        let peer_infos: Vec<PeerInfo> = peer_addresses
             .iter()
-            .map(|api_peer| {
-                let parts: Vec<&str> = api_peer.address.split(':').collect();
-                let ip = parts.get(0).unwrap_or(&"").to_string();
+            .filter_map(|addr| {
+                let parts: Vec<&str> = addr.split(':').collect();
+                let ip = parts.get(0)?.to_string();
                 let port = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(24100);
-                PeerInfo {
+                Some(PeerInfo {
                     address: ip,
                     port,
-                    version: Some(api_peer.version.clone()),
+                    version: None,
                     last_seen: Some(
                         std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -116,7 +116,7 @@ impl NetworkManager {
                             .as_secs(),
                     ),
                     latency_ms: 0,
-                }
+                })
             })
             .collect();
         Ok(peer_infos)
@@ -230,7 +230,11 @@ impl NetworkManager {
         match self.fetch_peers().await {
             Ok(peers) => {
                 log::info!("Successfully fetched {} peers from API", peers.len());
-                self.connect_to_peers(peers).await?;
+                if !peers.is_empty() {
+                    self.connect_to_peers(peers).await?;
+                } else {
+                    log::warn!("API returned 0 peers");
+                }
             }
             Err(e) => {
                 log::warn!("Failed to fetch peers from API: {}", e);
@@ -255,17 +259,28 @@ impl NetworkManager {
                     })
                     .collect();
 
-                self.connect_to_peers(fallback_peers).await?;
+                if !fallback_peers.is_empty() {
+                    self.connect_to_peers(fallback_peers).await?;
+                } else {
+                    log::warn!("No bootstrap nodes available");
+                }
             }
         }
 
-        // Start blockchain sync
-        self.start_sync().await?;
+        // Only sync if we have peers
+        if !self.connected_peers.is_empty() {
+            // Start blockchain sync
+            if let Err(e) = self.start_sync().await {
+                log::warn!("Blockchain sync failed: {}", e);
+            }
 
-        // Discover more peers and optimize connections
-        log::info!("Discovering additional peers...");
-        if let Err(e) = self.discover_and_connect_peers().await {
-            log::warn!("Peer discovery had issues: {}", e);
+            // Discover more peers and optimize connections
+            log::info!("Discovering additional peers...");
+            if let Err(e) = self.discover_and_connect_peers().await {
+                log::warn!("Peer discovery had issues: {}", e);
+            }
+        } else {
+            log::info!("No peers available - wallet running in offline mode");
         }
 
         Ok(())

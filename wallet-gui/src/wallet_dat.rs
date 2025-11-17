@@ -48,15 +48,6 @@ pub struct KeyEntry {
     pub created_at: i64,
     /// Whether this is the default key
     pub is_default: bool,
-    /// Optional: Name for address book
-    #[serde(default)]
-    pub name: Option<String>,
-    /// Optional: Email for address book
-    #[serde(default)]
-    pub email: Option<String>,
-    /// Optional: Phone for address book
-    #[serde(default)]
-    pub phone: Option<String>,
 }
 
 /// time-wallet.dat file format
@@ -148,9 +139,6 @@ impl WalletDat {
             label,
             created_at: chrono::Utc::now().timestamp(),
             is_default,
-            name: None,
-            email: None,
-            phone: None,
         };
 
         self.keys.push(entry);
@@ -277,25 +265,6 @@ impl WalletDat {
             fs::create_dir_all(parent)?;
         }
         Ok(wallet_path)
-    }
-
-    /// Update contact information for a specific address
-    pub fn update_contact_info(
-        &mut self,
-        address: &str,
-        name: Option<String>,
-        email: Option<String>,
-        phone: Option<String>,
-    ) -> Result<(), WalletDatError> {
-        if let Some(key) = self.keys.iter_mut().find(|k| k.address == address) {
-            key.name = name;
-            key.email = email;
-            key.phone = phone;
-            self.modified_at = chrono::Utc::now().timestamp();
-            Ok(())
-        } else {
-            Err(WalletDatError::InvalidFormat)
-        }
     }
 }
 

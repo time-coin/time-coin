@@ -17,7 +17,7 @@ mod wallet_dat;
 mod wallet_db;
 mod wallet_manager;
 
-use config::{Config, WalletConfig};
+use config::Config;
 use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
 use wallet_db::{AddressContact, WalletDb};
@@ -88,11 +88,6 @@ struct WalletApp {
     send_amount: String,
 
     // UI state
-    show_private_key: bool,
-
-    // Configuration
-    config: WalletConfig,
-
     // Network manager (wrapped for thread safety)
     network_manager: Option<Arc<Mutex<NetworkManager>>>,
     network_status: String,
@@ -114,36 +109,19 @@ struct WalletApp {
 
 impl Default for WalletApp {
     fn default() -> Self {
-        // Initialize wallet database immediately
-        let wallet_db = if let Ok(main_config) = Config::load() {
-            let wallet_dir = main_config.wallet_dir();
-            let db_path = wallet_dir.join("wallet.db");
-            match WalletDb::open(&db_path) {
-                Ok(db) => {
-                    log::info!("Wallet database initialized at {:?}", db_path);
-                    Some(db)
-                }
-                Err(e) => {
-                    log::error!("Failed to open wallet database: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
+        // Don't initialize wallet database here - it will be opened when wallet is loaded
+        // to avoid lock conflicts with WalletManager's database
+        
         Self {
             current_screen: Screen::Welcome,
             wallet_manager: None,
-            wallet_db,
+            wallet_db: None,
             network: NetworkType::Testnet,
             password: String::new(),
             error_message: None,
             success_message: None,
             send_address: String::new(),
             send_amount: String::new(),
-            show_private_key: false,
-            config: WalletConfig::default(),
             network_manager: None,
             network_status: "Not connected".to_string(),
             mnemonic_interface: MnemonicInterface::new(),
@@ -215,7 +193,7 @@ impl WalletApp {
                                             log::info!("Wallet database initialized");
                                         }
                                         Err(e) => {
-                                            log::error!("Failed to open wallet database: {}", e);
+                                            log::warn!("Failed to open wallet database: {}", e);
                                         }
                                     }
                                 }
@@ -225,10 +203,6 @@ impl WalletApp {
 
                                 // Load config and initialize network
                                 if let Ok(main_config) = Config::load() {
-                                    let wallet_dir = main_config.wallet_dir();
-                                    if let Ok(wallet_config) = WalletConfig::load(&wallet_dir) {
-                                        self.config = wallet_config.clone();
-                                    }
                                     let network_mgr = Arc::new(Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
                                     self.network_manager = Some(network_mgr.clone());
                                     self.network_status = "Connecting...".to_string();
@@ -385,6 +359,8 @@ impl WalletApp {
     }
 
     fn create_wallet_from_mnemonic_phrase(&mut self, phrase: &str, ctx: &egui::Context) {
+        log::info!("Creating wallet from mnemonic phrase...");
+        
         match WalletManager::create_from_mnemonic(
             self.network,
             phrase,
@@ -392,6 +368,7 @@ impl WalletApp {
             "Default".to_string(),
         ) {
             Ok(manager) => {
+                log::info!("Wallet manager created successfully");
                 self.wallet_manager = Some(manager);
 
                 // Initialize wallet database
@@ -404,11 +381,12 @@ impl WalletApp {
                             log::info!("Wallet database initialized");
                         }
                         Err(e) => {
-                            log::error!("Failed to open wallet database: {}", e);
+                            log::warn!("Failed to open wallet database: {}", e);
                         }
                     }
                 }
 
+                log::info!("Transitioning to Overview screen");
                 self.current_screen = Screen::Overview;
                 self.success_message = Some("Wallet created successfully!".to_string());
 
@@ -421,10 +399,6 @@ impl WalletApp {
 
                 // Load config and initialize network
                 if let Ok(main_config) = Config::load() {
-                    let wallet_dir = main_config.wallet_dir();
-                    if let Ok(wallet_config) = WalletConfig::load(&wallet_dir) {
-                        self.config = wallet_config.clone();
-                    }
                     let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
                         main_config.api_endpoint.clone(),
                     )));
@@ -456,9 +430,15 @@ impl WalletApp {
                         ctx_clone.request_repaint();
                     });
                 }
+                
+                // Force UI repaint to show new screen
+                log::info!("Requesting UI repaint");
+                ctx.request_repaint();
             }
             Err(e) => {
+                log::error!("Failed to create wallet: {}", e);
                 self.error_message = Some(format!("Failed to create wallet: {}", e));
+                ctx.request_repaint();
             }
         }
     }
@@ -809,6 +789,7 @@ impl WalletApp {
         enum AddressAction {
             SetDefault(String),
             ClearInfo(String),
+            SaveContactInfo(String, Option<String>, Option<String>, Option<String>),
         }
         let mut pending_action: Option<AddressAction> = None;
 
@@ -910,9 +891,7 @@ impl WalletApp {
                             keys.sort_by(|a, b| {
                                 let name_a = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&a.address) {
-                                        contact
-                                            .name
-                                            .unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
@@ -922,9 +901,7 @@ impl WalletApp {
 
                                 let name_b = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&b.address) {
-                                        contact
-                                            .name
-                                            .unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
@@ -961,10 +938,7 @@ impl WalletApp {
                                 // Get display label for filtering
                                 let display_label = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                        contact
-                                            .name
-                                            .clone()
-                                            .unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.clone().unwrap_or_else(|| "Unnamed Address".to_string())
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
@@ -1024,14 +998,10 @@ impl WalletApp {
                                     // Load contact info from database
                                     if let Some(ref db) = self.wallet_db {
                                         if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                            self.edit_address_name =
-                                                contact.name.unwrap_or_default();
-                                            self.edit_address_email =
-                                                contact.email.unwrap_or_default();
-                                            self.edit_address_phone =
-                                                contact.phone.unwrap_or_default();
+                                            self.edit_address_name = contact.name.unwrap_or_default();
+                                            self.edit_address_email = contact.email.unwrap_or_default();
+                                            self.edit_address_phone = contact.phone.unwrap_or_default();
                                         } else {
-                                            // No contact info saved yet
                                             self.edit_address_name = String::new();
                                             self.edit_address_email = String::new();
                                             self.edit_address_phone = String::new();
@@ -1058,9 +1028,7 @@ impl WalletApp {
                                 // Get display label (prefer contact name, show "Unnamed Address" if none)
                                 let display_label = if let Some(ref db) = self.wallet_db {
                                     if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                        contact
-                                            .name
-                                            .unwrap_or_else(|| "Unnamed Address".to_string())
+                                        contact.name.unwrap_or_else(|| "Unnamed Address".to_string())
                                     } else {
                                         "Unnamed Address".to_string()
                                     }
@@ -1185,49 +1153,28 @@ impl WalletApp {
                                 ui.add_space(10.0);
 
                                 if ui.button("💾 Save Contact Info").clicked() {
-                                    // Save contact info to database
-                                    if let Some(ref db) = self.wallet_db {
-                                        let now = chrono::Utc::now().timestamp();
-                                        let contact = AddressContact {
-                                            address: address_clone.clone(),
-                                            label: key.label.clone(),
-                                            name: if self.edit_address_name.is_empty() {
-                                                None
-                                            } else {
-                                                Some(self.edit_address_name.clone())
-                                            },
-                                            email: if self.edit_address_email.is_empty() {
-                                                None
-                                            } else {
-                                                Some(self.edit_address_email.clone())
-                                            },
-                                            phone: if self.edit_address_phone.is_empty() {
-                                                None
-                                            } else {
-                                                Some(self.edit_address_phone.clone())
-                                            },
-                                            notes: None,
-                                            is_default: key.is_default,
-                                            created_at: now,
-                                            updated_at: now,
-                                        };
-
-                                        match db.save_contact(&contact) {
-                                            Ok(_) => {
-                                                self.success_message =
-                                                    Some("Contact info saved!".to_string());
-                                                // Request repaint to update the label in the list
-                                                ctx.request_repaint();
-                                            }
-                                            Err(e) => {
-                                                self.error_message =
-                                                    Some(format!("Failed to save: {}", e));
-                                            }
-                                        }
+                                    // Collect data and queue action
+                                    let name = if self.edit_address_name.is_empty() {
+                                        None
                                     } else {
-                                        self.error_message =
-                                            Some("Database not initialized".to_string());
-                                    }
+                                        Some(self.edit_address_name.clone())
+                                    };
+                                    let email = if self.edit_address_email.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.edit_address_email.clone())
+                                    };
+                                    let phone = if self.edit_address_phone.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.edit_address_phone.clone())
+                                    };
+                                    pending_action = Some(AddressAction::SaveContactInfo(
+                                        address_clone.clone(),
+                                        name,
+                                        email,
+                                        phone,
+                                    ));
                                 }
                             });
                         }
@@ -1251,19 +1198,8 @@ impl WalletApp {
                     AddressAction::SetDefault(address) => {
                         match manager.set_default_key(&address) {
                             Ok(_) => {
-                                // Also update in database
-                                if let Some(ref db) = self.wallet_db {
-                                    if let Err(e) = db.set_default_address(&address) {
-                                        self.error_message =
-                                            Some(format!("Failed to update database: {}", e));
-                                    } else {
-                                        self.success_message =
-                                            Some("Set as default address".to_string());
-                                    }
-                                } else {
-                                    self.success_message =
-                                        Some("Set as default address".to_string());
-                                }
+                                self.success_message =
+                                    Some("Set as default address".to_string());
                             }
                             Err(e) => {
                                 self.error_message = Some(format!("Failed to set default: {}", e));
@@ -1271,35 +1207,52 @@ impl WalletApp {
                         }
                     }
                     AddressAction::ClearInfo(address) => {
-                        match manager.remove_address_metadata(&address) {
-                            Ok(_) => {
-                                // Also clear from database
-                                if let Some(ref db) = self.wallet_db {
-                                    if let Err(e) = db.delete_contact(&address) {
-                                        self.error_message =
-                                            Some(format!("Failed to clear from database: {}", e));
-                                    } else {
-                                        self.success_message =
-                                            Some("Contact information cleared".to_string());
-                                        // Also clear from UI fields
-                                        self.edit_address_name.clear();
-                                        self.edit_address_email.clear();
-                                        self.edit_address_phone.clear();
-                                        ctx.request_repaint();
-                                    }
-                                } else {
+                        if let Some(ref db) = self.wallet_db {
+                            match db.delete_contact(&address) {
+                                Ok(_) => {
                                     self.success_message =
                                         Some("Contact information cleared".to_string());
-                                    // Also clear from UI fields
                                     self.edit_address_name.clear();
                                     self.edit_address_email.clear();
                                     self.edit_address_phone.clear();
                                     ctx.request_repaint();
                                 }
+                                Err(e) => {
+                                    self.error_message = Some(format!("Failed to clear info: {}", e));
+                                }
                             }
-                            Err(e) => {
-                                self.error_message = Some(format!("Failed to clear info: {}", e));
+                        } else {
+                            self.error_message = Some("Database not initialized".to_string());
+                        }
+                    }
+                    AddressAction::SaveContactInfo(address, name, email, phone) => {
+                        if let Some(ref db) = self.wallet_db {
+                            let now = chrono::Utc::now().timestamp();
+                            let contact = AddressContact {
+                                address: address.clone(),
+                                label: String::new(),
+                                name,
+                                email,
+                                phone,
+                                notes: None,
+                                is_default: false,
+                                created_at: now,
+                                updated_at: now,
+                            };
+                            
+                            match db.save_contact(&contact) {
+                                Ok(_) => {
+                                    self.success_message =
+                                        Some("Contact info saved!".to_string());
+                                    ctx.request_repaint();
+                                }
+                                Err(e) => {
+                                    self.error_message =
+                                        Some(format!("Failed to save: {}", e));
+                                }
                             }
+                        } else {
+                            self.error_message = Some("Database not initialized".to_string());
                         }
                     }
                 }
@@ -1419,26 +1372,8 @@ impl WalletApp {
             ui.group(|ui| {
                 ui.label("Security");
                 ui.add_space(5.0);
-
-                ui.checkbox(&mut self.show_private_key, "Show Private Key");
-
-                if self.show_private_key {
-                    ui.add_space(10.0);
-                    ui.colored_label(
-                        egui::Color32::RED,
-                        "⚠️ WARNING: Never share your private key!",
-                    );
-                    ui.add_space(5.0);
-
-                    if let Some(address) = manager.get_primary_address() {
-                        if let Some(private_key) = manager.export_private_key(&address) {
-                            ui.monospace(&private_key);
-                            if ui.button("📋 Copy Private Key").clicked() {
-                                ctx.copy_text(private_key);
-                            }
-                        }
-                    }
-                }
+                ui.label("Private keys are stored securely in time-wallet.dat");
+                ui.label("Never share your wallet file or mnemonic phrase with anyone.");
             });
         }
 
