@@ -219,12 +219,10 @@ impl WalletDat {
         // Try to deserialize the wallet
         match bincode::deserialize::<Self>(&data) {
             Ok(wallet) => Ok(wallet),
-            Err(e) => {
-                Err(WalletDatError::SerializationError(format!(
-                    "Failed to deserialize wallet file: {}",
-                    e
-                )))
-            }
+            Err(e) => Err(WalletDatError::SerializationError(format!(
+                "Failed to deserialize wallet file: {}",
+                e
+            ))),
         }
     }
 

@@ -578,6 +578,33 @@ impl PeerManager {
         }
     }
 
+    /// Request wallet transactions from a connected masternode
+    pub async fn request_wallet_transactions(
+        &self,
+        xpub: String,
+    ) -> Result<Vec<crate::protocol::WalletTransaction>, String> {
+        let connections = self.connections.read().await;
+
+        // Try to request from first available masternode connection
+        for (_ip, conn_arc) in connections.iter() {
+            let mut conn = conn_arc.lock().await;
+            if conn
+                .send_message(crate::protocol::NetworkMessage::RequestWalletTransactions {
+                    xpub: xpub.clone(),
+                })
+                .await
+                .is_ok()
+            {
+                // TODO: Wait for response - need to implement response handling
+                // For now, return empty list
+                info!("Sent wallet transaction request to masternode");
+            }
+        }
+
+        // TODO: Implement proper request/response pattern
+        Ok(vec![])
+    }
+
     /// Broadcast a network message to all connected peers over TCP
     /// Send a ping to a specific peer to keep the connection alive
     /// Returns Ok if ping succeeded, Err if connection is dead

@@ -6,6 +6,17 @@ use crate::discovery::NetworkType;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletTransaction {
+    pub tx_hash: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount: u64,
+    pub timestamp: u64,
+    pub block_height: u64,
+    pub confirmations: u32,
+}
+
 /// Current TIME Coin version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -677,6 +688,15 @@ pub enum NetworkMessage {
     UpdateTip {
         height: u64,
         hash: String,
+    },
+
+    // Wallet transaction sync
+    RequestWalletTransactions {
+        xpub: String,
+    },
+    WalletTransactionsResponse {
+        transactions: Vec<WalletTransaction>,
+        last_synced_height: u64,
     },
 
     // Additional message types for full TCP communication

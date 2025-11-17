@@ -1960,7 +1960,15 @@ impl WalletApp {
 
         // Spawn sync task
         tokio::spawn(async move {
-            // Create temporary network manager for this request
+            // TODO: This currently uses HTTP API, but should use P2P network in the future
+            // The proper flow is:
+            // 1. Wallet → time-coin.io/api/peers → get masternode list
+            // 2. Wallet → P2P connect to masternodes
+            // 3. Wallet → send RequestWalletTransactions message via P2P
+            // 4. Masternode → derive addresses from xpub and search blockchain
+            // 5. Masternode → send WalletTransactionsResponse via P2P
+            //
+            // For now, using HTTP as a temporary solution:
             let temp_network = NetworkManager::new(api_endpoint);
 
             let sync_result = if let Some(xpub) = xpub_opt {
