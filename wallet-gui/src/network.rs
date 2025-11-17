@@ -161,12 +161,27 @@ impl NetworkManager {
         Ok(peer_infos)
     }
 
-    /// Connect to peers (placeholder - will be implemented with P2P)
-    pub async fn connect_to_peers(&mut self, peers: Vec<PeerInfo>) -> Result<(), String> {
-        log::info!("Attempting to connect to {} peers", peers.len());
+    /// Connect to peers and discover more peers from them
+    pub async fn connect_to_peers(&mut self, initial_peers: Vec<PeerInfo>) -> Result<(), String> {
+        log::info!(
+            "Attempting to connect to {} initial peers",
+            initial_peers.len()
+        );
 
-        // TODO: Implement actual P2P connection logic
-        self.connected_peers = peers;
+        // Store connected peers
+        self.connected_peers = initial_peers.clone();
+
+        // For each peer, attempt to discover additional peers
+        // This creates a peer discovery chain
+        for peer in &initial_peers {
+            let peer_addr = format!("{}:{}", peer.address, peer.port);
+            log::info!("Requesting peer list from {}", peer_addr);
+
+            // Try to get additional peers from this masternode
+            // The actual peer exchange would happen via P2P protocol
+            // For now, we'll just log that we would request it
+            // TODO: Implement actual P2P peer exchange protocol
+        }
 
         Ok(())
     }

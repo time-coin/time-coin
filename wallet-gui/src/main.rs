@@ -1926,9 +1926,18 @@ impl WalletApp {
     }
 
     fn trigger_transaction_sync(&mut self) {
-        // Check if we have xpub for more efficient syncing
-        let xpub_opt = match &self.wallet_manager {
-            Some(mgr) => mgr.get_xpub().map(|s| s.to_string()),
+        // Check if we have xpub
+        let xpub = match &self.wallet_manager {
+            Some(mgr) => match mgr.get_xpub() {
+                Some(xpub) => xpub.to_string(),
+                None => {
+                    log::error!("Transaction sync failed: xpub not available - please recreate wallet from mnemonic");
+                    self.error_message = Some(
+                        "xpub not available - please recreate wallet from mnemonic".to_string(),
+                    );
+                    return;
+                }
+            },
             None => {
                 self.error_message = Some("Wallet not loaded".to_string());
                 return;
@@ -1952,7 +1961,7 @@ impl WalletApp {
             }
         };
 
-        // Clone API endpoint before spawning
+        // Get API endpoint
         let api_endpoint = {
             let network = match network_mgr.lock() {
                 Ok(n) => n,
@@ -1966,27 +1975,23 @@ impl WalletApp {
 
         // Spawn sync task
         tokio::spawn(async move {
-            // TODO: This currently uses HTTP API, but should use P2P network in the future
-            // The proper flow is:
-            // 1. Wallet → time-coin.io/api/peers → get masternode list
-            // 2. Wallet → P2P connect to masternodes
-            // 3. Wallet → send RequestWalletTransactions message via P2P
+            // TODO: In the future, this should use P2P network instead of HTTP API
+            // DESIRED FLOW:
+            // 1. Wallet → time-coin.io/api/peers (HTTP) → get initial masternode list (DONE)
+            // 2. Wallet → P2P connect to ONE masternode (DONE via time_network)
+            // 3. Wallet → P2P → send RequestWalletTransactions { xpub }
             // 4. Masternode → derive addresses from xpub and search blockchain
-            // 5. Masternode → send WalletTransactionsResponse via P2P
+            // 5. Masternode → P2P → send WalletTransactionsResponse
+            // 6. Wallet → updates local transaction database
+            // 7. Wallet → P2P → send GetPeerList
+            // 8. Masternode → P2P → send PeerList(addresses)
+            // 9. Wallet → connects to newly discovered peers
             //
-            // For now, using HTTP as a temporary solution:
-            let temp_network = NetworkManager::new(api_endpoint);
+            // CURRENT: Using HTTP as temporary solution until P2P response handling is complete
+            let temp_network = network::NetworkManager::new(api_endpoint);
 
-            let sync_result = if let Some(xpub) = xpub_opt {
-                log::info!("Starting xpub-based transaction sync");
-                temp_network.sync_wallet_transactions_xpub(xpub).await
-            } else {
-                log::warn!("No xpub available, falling back to address-based sync");
-                log::warn!("For better privacy and efficiency, recreate wallet from mnemonic");
-                // Fallback: This shouldn't happen for wallets created from mnemonic
-                // but might happen for old wallets
-                Err("xpub not available - please recreate wallet from mnemonic".to_string())
-            };
+            log::info!("Starting xpub-based transaction sync");
+            let sync_result = temp_network.sync_wallet_transactions_xpub(xpub).await;
 
             match sync_result {
                 Ok(response) => {

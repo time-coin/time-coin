@@ -514,7 +514,7 @@ impl MnemonicInterface {
             &font,
         );
 
-        // Recovery phrase words
+        // Recovery phrase words - vertical layout to match UI
         let words: Vec<&str> = phrase.split_whitespace().collect();
         let mut y_pos = 230.0;
         let left_x = 20.0;
@@ -529,14 +529,20 @@ impl MnemonicInterface {
         );
         y_pos -= 10.0;
 
-        for (i, chunk) in words.chunks(2).enumerate() {
-            if let Some(word) = chunk.get(0) {
-                let text = format!("{}. {}", i * 2 + 1, word);
-                current_layer.use_text(&text, 11.0, Mm(left_x), Mm(y_pos), &font);
+        // Split into two columns vertically (1-6 left, 7-12 right)
+        let mid = words.len().div_ceil(2);
+        for i in 0..mid {
+            let start_y = y_pos;
+            // Left column
+            if let Some(word) = words.get(i) {
+                let text = format!("{}. {}", i + 1, word);
+                current_layer.use_text(&text, 11.0, Mm(left_x), Mm(start_y), &font);
             }
-            if let Some(word) = chunk.get(1) {
-                let text = format!("{}. {}", i * 2 + 2, word);
-                current_layer.use_text(&text, 11.0, Mm(right_x), Mm(y_pos), &font);
+            // Right column
+            let right_idx = i + mid;
+            if let Some(word) = words.get(right_idx) {
+                let text = format!("{}. {}", right_idx + 1, word);
+                current_layer.use_text(&text, 11.0, Mm(right_x), Mm(start_y), &font);
             }
             y_pos -= 8.0;
         }

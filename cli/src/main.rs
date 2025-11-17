@@ -1380,6 +1380,7 @@ async fn main() {
                 let tx_consensus_clone = tx_consensus.clone();
                 let block_consensus_clone = block_consensus.clone();
                 let quarantine_clone = quarantine.clone();
+                let blockchain_clone = blockchain.clone();
 
                 tokio::spawn(async move {
                     loop {
@@ -1489,6 +1490,7 @@ async fn main() {
                             let peer_manager_listen = Arc::clone(&peer_manager_clone);
                             let conn_arc_clone = conn_arc.clone();
                             let peer_ip_listen = peer_ip;
+                            let blockchain_listen = Arc::clone(&blockchain_clone);
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -1539,6 +1541,36 @@ async fn main() {
                                                         .is_err()
                                                     {
                                                         // Silently ignore send failures
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::RequestWalletTransactions { xpub: _ } => {
+                                                    println!("📨 Received wallet transaction request from {}", peer_ip_listen);
+
+                                                    // TODO: Implement xpub → address derivation and blockchain search
+                                                    // For now, send empty response
+                                                    // Steps:
+                                                    // 1. Derive addresses from xpub (use BIP44 m/44'/0'/0'/0/0 through m/44'/0'/0'/0/19 for gap limit 20)
+                                                    // 2. Search blockchain for transactions to/from these addresses
+                                                    // 3. Send WalletTransactionsResponse with results
+
+                                                    let current_height = {
+                                                        let blockchain_guard = blockchain_listen.read().await;
+                                                        blockchain_guard.chain_tip_height()
+                                                    };
+
+                                                    let transactions = vec![];
+                                                    if peer_manager_listen
+                                                        .send_message_to_peer(
+                                                            SocketAddr::new(peer_ip_listen, 24100),
+                                                            time_network::protocol::NetworkMessage::WalletTransactionsResponse {
+                                                                transactions,
+                                                                last_synced_height: current_height,
+                                                            },
+                                                        )
+                                                        .await
+                                                        .is_err()
+                                                    {
+                                                        eprintln!("Failed to send wallet transactions response to {}", peer_ip_listen);
                                                     }
                                                 }
                                                 _ => {

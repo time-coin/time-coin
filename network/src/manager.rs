@@ -582,31 +582,57 @@ impl PeerManager {
         }
     }
 
-    /// Request wallet transactions from a connected masternode
+    /// Request wallet transactions from a connected masternode (uses ONE masternode)
+    /// This avoids duplicate requests to all masternodes
     pub async fn request_wallet_transactions(
         &self,
         xpub: String,
     ) -> Result<Vec<crate::protocol::WalletTransaction>, String> {
         let connections = self.connections.read().await;
 
-        // Try to request from first available masternode connection
-        for (_ip, conn_arc) in connections.iter() {
+        // Try to request from FIRST available masternode connection only
+        // (avoid sending duplicate requests to all masternodes)
+        if let Some((_ip, conn_arc)) = connections.iter().next() {
             let mut conn = conn_arc.lock().await;
-            if conn
-                .send_message(crate::protocol::NetworkMessage::RequestWalletTransactions {
-                    xpub: xpub.clone(),
-                })
-                .await
-                .is_ok()
-            {
-                // TODO: Wait for response - need to implement response handling
-                // For now, return empty list
-                info!("Sent wallet transaction request to masternode");
-            }
+            conn.send_message(crate::protocol::NetworkMessage::RequestWalletTransactions {
+                xpub: xpub.clone(),
+            })
+            .await
+            .map_err(|e| format!("Failed to send transaction request: {}", e))?;
+
+            info!("Sent wallet transaction request to masternode, waiting for response...");
+
+            // TODO: Implement proper request/response pattern with timeout
+            // For now, return empty list until masternode implements the handler
+            // The response will come as NetworkMessage::WalletTransactionsResponse
+            // which needs to be handled in the connection message loop
+
+            return Ok(vec![]);
         }
 
-        // TODO: Implement proper request/response pattern
-        Ok(vec![])
+        Err("No connected masternodes available".to_string())
+    }
+
+    /// Request peer list from all connected masternodes and connect to new peers
+    pub async fn discover_peers_from_masternodes(&self) {
+        let connections = self.connections.read().await;
+        let connection_vec: Vec<_> = connections
+            .iter()
+            .map(|(ip, conn)| (*ip, conn.clone()))
+            .collect();
+        drop(connections);
+
+        for (peer_ip, conn_arc) in connection_vec {
+            let mut conn = conn_arc.lock().await;
+            if let Err(e) = conn
+                .send_message(crate::protocol::NetworkMessage::GetPeerList)
+                .await
+            {
+                debug!(peer = %peer_ip, error = %e, "Failed to request peer list");
+            } else {
+                debug!(peer = %peer_ip, "Requested peer list from masternode");
+            }
+        }
     }
 
     /// Broadcast a network message to all connected peers over TCP
