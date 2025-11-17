@@ -132,9 +132,11 @@ struct SyncConfig {
 /// Genesis file structure
 #[derive(Debug, Deserialize)]
 struct GenesisFile {
+    #[allow(dead_code)]
     network: String,
     #[allow(dead_code)]
     version: u32,
+    #[allow(dead_code)]
     #[serde(default)]
     message: String,
     block: Block,
@@ -174,69 +176,10 @@ fn ensure_data_directories(base_dir: &str) -> Result<(), Box<dyn std::error::Err
 }
 
 fn display_genesis(genesis: &GenesisFile) {
-    println!("\n{}", "╔══════════════════════════════════════╗".cyan());
     println!(
-        "{}",
-        "║         GENESIS BLOCK LOADED         ║".cyan().bold()
-    );
-    println!("{}", "╚══════════════════════════════════════╝".cyan());
-
-    println!("\n{}: {}", "Network".yellow().bold(), genesis.network);
-
-    println!(
-        "{}: {}",
-        "Software Version".yellow().bold(),
-        time_network::protocol::full_version()
-    );
-
-    if !genesis.message.is_empty() {
-        println!("{}: {}", "Message".yellow().bold(), genesis.message);
-    }
-
-    println!(
-        "{}: {}...",
-        "Block Hash".yellow().bold(),
+        "✓ Genesis block loaded ({})",
         genesis.block.hash[..16].to_string().bright_blue()
     );
-
-    let formatted = genesis
-        .block
-        .header
-        .timestamp
-        .format("%Y-%m-%d %H:%M:%S UTC");
-    println!("{}: {}", "Timestamp".yellow().bold(), formatted);
-
-    let total_supply: u64 = genesis
-        .block
-        .transactions
-        .iter()
-        .flat_map(|tx| tx.outputs.iter())
-        .map(|output| output.amount)
-        .sum();
-
-    println!(
-        "{}: {} TIME",
-        "Total Supply".yellow().bold(),
-        (total_supply / 100_000_000).to_string().green()
-    );
-
-    println!(
-        "\n{} ({})",
-        "Allocations".yellow().bold(),
-        genesis.block.transactions.len()
-    );
-
-    for (i, tx) in genesis.block.transactions.iter().enumerate() {
-        for output in &tx.outputs {
-            let amount_time = output.amount / 100_000_000;
-            println!(
-                "  {}. {} TIME - {}",
-                i + 1,
-                amount_time.to_string().green(),
-                output.address.bright_white()
-            );
-        }
-    }
 
     println!();
 }
