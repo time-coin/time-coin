@@ -91,8 +91,14 @@ impl WalletManager {
         Ok(Self {
             wallet_dat,
             active_wallet: wallet,
-            next_address_index: 0,
+            next_address_index: 0, // Will be updated when wallet.db is available
         })
+    }
+
+    /// Update next_address_index based on existing addresses in the database
+    /// Should be called after wallet.db is opened
+    pub fn sync_address_index(&mut self, max_index: u32) {
+        self.next_address_index = max_index + 1;
     }
 
     /// Check if wallet exists
