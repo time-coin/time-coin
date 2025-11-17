@@ -23,10 +23,10 @@ pub async fn register_masternode(
     State(state): State<ApiState>,
     Json(req): Json<RegisterMasternodeRequest>,
 ) -> ApiResult<Json<RegisterMasternodeResponse>> {
-    // Validate wallet address format
-    if !req.wallet_address.starts_with("TIME1") {
+    // Validate wallet address format (TIME0 for testnet, TIME1 for mainnet)
+    if !req.wallet_address.starts_with("TIME0") && !req.wallet_address.starts_with("TIME1") {
         return Err(ApiError::InvalidAddress(
-            "Wallet address must start with TIME1".to_string(),
+            "Wallet address must start with TIME0 (testnet) or TIME1 (mainnet)".to_string(),
         ));
     }
 
