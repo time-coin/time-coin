@@ -788,6 +788,13 @@ impl WalletApp {
         ui.heading("Receive TIME Coins");
         ui.add_space(20.0);
 
+        // Collect actions to perform after rendering (to avoid borrow checker issues)
+        enum AddressAction {
+            SetDefault(String),
+            ClearInfo(String),
+        }
+        let mut pending_action: Option<AddressAction> = None;
+
         if let Some(manager) = &mut self.wallet_manager {
             // Two column layout
             ui.columns(2, |columns| {
@@ -874,46 +881,33 @@ impl WalletApp {
                                     })
                                     .inner_margin(egui::Margin::same(10));
 
-                                frame.show(ui, |ui| {
+                                let frame_response = frame.show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
 
-                                    let response = ui.horizontal(|ui| {
+                                    // Get display label (prefer contact name, fall back to key label)
+                                    let display_label = if let Some(ref db) = self.wallet_db {
+                                        if let Ok(Some(contact)) = db.get_contact(&key.address) {
+                                            contact.name.unwrap_or_else(|| key.label.clone())
+                                        } else {
+                                            key.label.clone()
+                                        }
+                                    } else {
+                                        key.label.clone()
+                                    };
+
+                                    ui.horizontal(|ui| {
                                         // Default star indicator
                                         if key.is_default {
                                             ui.label(egui::RichText::new("⭐").size(14.0));
                                         }
 
                                         // Address label
-                                        let label_response = ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(&key.label)
-                                                    .size(14.0)
-                                                    .strong(),
-                                            )
-                                            .sense(egui::Sense::click()),
+                                        ui.label(
+                                            egui::RichText::new(&display_label)
+                                                .size(14.0)
+                                                .strong(),
                                         );
-
-                                        label_response
-                                    }).inner;
-
-                                    if response.clicked() {
-                                        self.selected_address_index = Some(idx);
-                                        self.show_qr_for_address = Some(key.address.clone());
-                                        
-                                        // Load contact info from database
-                                        if let Some(ref db) = self.wallet_db {
-                                            if let Ok(Some(contact)) = db.get_contact(&key.address) {
-                                                self.edit_address_name = contact.name.unwrap_or_default();
-                                                self.edit_address_email = contact.email.unwrap_or_default();
-                                                self.edit_address_phone = contact.phone.unwrap_or_default();
-                                            } else {
-                                                // No contact info saved yet
-                                                self.edit_address_name = String::new();
-                                                self.edit_address_email = String::new();
-                                                self.edit_address_phone = String::new();
-                                            }
-                                        }
-                                    }
+                                    });
 
                                     ui.add_space(3.0);
 
@@ -929,13 +923,33 @@ impl WalletApp {
                                             .color(egui::Color32::GRAY),
                                         );
 
-                                        if ui.small_button("📋").on_hover_text("Copy address").clicked() {
+                                        if ui.small_button("📄").on_hover_text("Copy address").clicked() {
                                             ctx.copy_text(key.address.clone());
                                             self.success_message =
                                                 Some("Address copied!".to_string());
                                         }
                                     });
                                 });
+
+                                // Make entire frame clickable
+                                if frame_response.response.interact(egui::Sense::click()).clicked() {
+                                    self.selected_address_index = Some(idx);
+                                    self.show_qr_for_address = Some(key.address.clone());
+                                    
+                                    // Load contact info from database
+                                    if let Some(ref db) = self.wallet_db {
+                                        if let Ok(Some(contact)) = db.get_contact(&key.address) {
+                                            self.edit_address_name = contact.name.unwrap_or_default();
+                                            self.edit_address_email = contact.email.unwrap_or_default();
+                                            self.edit_address_phone = contact.phone.unwrap_or_default();
+                                        } else {
+                                            // No contact info saved yet
+                                            self.edit_address_name = String::new();
+                                            self.edit_address_email = String::new();
+                                            self.edit_address_phone = String::new();
+                                        }
+                                    }
+                                }
 
                                 ui.add_space(6.0);
                             }
@@ -952,7 +966,19 @@ impl WalletApp {
                             // Address header
                             ui.group(|ui| {
                                 ui.set_min_width(ui.available_width());
-                                ui.heading(&key.label);
+                                
+                                // Get display label (prefer contact name, fall back to key label)
+                                let display_label = if let Some(ref db) = self.wallet_db {
+                                    if let Ok(Some(contact)) = db.get_contact(&key.address) {
+                                        contact.name.unwrap_or_else(|| key.label.clone())
+                                    } else {
+                                        key.label.clone()
+                                    }
+                                } else {
+                                    key.label.clone()
+                                };
+                                
+                                ui.heading(&display_label);
                                 ui.add_space(5.0);
 
                                 // Full address with copy button
@@ -962,7 +988,7 @@ impl WalletApp {
                                             .size(11.0)
                                             .color(egui::Color32::LIGHT_GRAY),
                                     );
-                                    if ui.button("📋").on_hover_text("Copy full address").clicked() {
+                                    if ui.button("📄").on_hover_text("Copy full address").clicked() {
                                         ctx.copy_text(key.address.clone());
                                         self.success_message =
                                             Some("Address copied to clipboard!".to_string());
@@ -971,14 +997,20 @@ impl WalletApp {
 
                                 ui.add_space(5.0);
 
-                                // Set as default button
-                                if !key.is_default {
-                                    if ui.button("⭐ Set as Default").clicked() {
-                                        // TODO: Implement set as default
-                                        self.success_message =
-                                            Some("Set as default address".to_string());
+                                // Action buttons
+                                ui.horizontal(|ui| {
+                                    // Set as default button
+                                    if !key.is_default {
+                                        if ui.button("⭐ Set as Default").clicked() {
+                                            pending_action = Some(AddressAction::SetDefault(key.address.clone()));
+                                        }
                                     }
-                                }
+                                    
+                                    // Clear contact info button (addresses are never deleted)
+                                    if ui.button("🗑 Clear Info").clicked() {
+                                        pending_action = Some(AddressAction::ClearInfo(key.address.clone()));
+                                    }
+                                });
                             });
 
                             ui.add_space(15.0);
@@ -1093,6 +1125,8 @@ impl WalletApp {
                                         match db.save_contact(&contact) {
                                             Ok(_) => {
                                                 self.success_message = Some("Contact info saved!".to_string());
+                                                // Request repaint to update the label in the list
+                                                ctx.request_repaint();
                                             }
                                             Err(e) => {
                                                 self.error_message = Some(format!("Failed to save: {}", e));
@@ -1117,6 +1151,36 @@ impl WalletApp {
                     }
                 });
             });
+            
+            // Execute pending action outside the columns closure
+            if let Some(action) = pending_action {
+                match action {
+                    AddressAction::SetDefault(address) => {
+                        match manager.set_default_key(&address) {
+                            Ok(_) => {
+                                self.success_message = Some("Set as default address".to_string());
+                            }
+                            Err(e) => {
+                                self.error_message = Some(format!("Failed to set default: {}", e));
+                            }
+                        }
+                    }
+                    AddressAction::ClearInfo(address) => {
+                        match manager.remove_address_metadata(&address) {
+                            Ok(_) => {
+                                self.success_message = Some("Contact information cleared".to_string());
+                                // Also clear from UI fields
+                                self.edit_address_name.clear();
+                                self.edit_address_email.clear();
+                                self.edit_address_phone.clear();
+                            }
+                            Err(e) => {
+                                self.error_message = Some(format!("Failed to clear info: {}", e));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if let Some(msg) = &self.success_message {
