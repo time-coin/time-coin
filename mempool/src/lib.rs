@@ -364,16 +364,53 @@ impl Mempool {
         spent.clear();
     }
 
-    /// Remove transactions that are now invalid
-    pub async fn remove_invalid_transactions(&self, invalid_txids: Vec<String>) {
+    /// Remove transactions that are now invalid and get affected addresses
+    pub async fn remove_invalid_transactions(&self, invalid_txids: Vec<String>) -> Vec<(String, Vec<String>)> {
         let mut pool = self.transactions.write().await;
+        let mut invalidated = Vec::new();
+
         for txid in invalid_txids {
             if let Some(entry) = pool.remove(&txid) {
+                // Collect affected addresses (all output addresses in the transaction)
+                let affected: Vec<String> = entry.transaction.outputs
+                    .iter()
+                    .map(|output| output.address.clone())
+                    .collect();
+                
+                invalidated.push((txid, affected));
+                
                 drop(pool);
                 self.release_spent(&entry.transaction).await;
                 pool = self.transactions.write().await;
             }
         }
+
+        invalidated
+    }
+
+    /// Validate transaction and return detailed error if invalid
+    pub async fn validate_transaction_detailed(&self, tx: &Transaction) -> Result<(), MempoolError> {
+        // Validate transaction structure
+        tx.validate_structure()
+            .map_err(MempoolError::InvalidTransaction)?;
+
+        // Check for double-spend in mempool
+        self.check_double_spend(tx).await?;
+
+        // Verify signatures
+        self.verify_signatures(tx).await?;
+
+        // Validate UTXO if blockchain is available
+        if let Some(blockchain) = &self.blockchain {
+            self.validate_utxo(tx, blockchain).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Get addresses affected by a transaction (all output addresses)
+    pub fn get_affected_addresses(tx: &Transaction) -> Vec<String> {
+        tx.outputs.iter().map(|o| o.address.clone()).collect()
     }
 
     /// Save mempool to disk

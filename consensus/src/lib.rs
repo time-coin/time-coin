@@ -29,6 +29,7 @@ pub mod monitoring;
 pub mod orchestrator;
 pub mod phased_protocol;
 pub mod proposals;
+pub mod tx_validation;
 
 // New simplified consensus
 pub mod simplified;

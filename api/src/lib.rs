@@ -7,9 +7,12 @@ mod routes;
 mod rpc_handlers;
 mod state;
 pub mod treasury_handlers;
+pub mod wallet_sync_handlers;
+pub mod websocket;
 
 pub use error::{ApiError, ApiResult};
 pub use state::ApiState;
+pub use websocket::WsConnectionManager;
 
 // Re-export create_routes for testing
 pub use routes::create_routes;

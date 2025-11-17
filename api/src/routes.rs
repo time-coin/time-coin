@@ -65,6 +65,15 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/mempool/status", get(get_mempool_status))
         .route("/mempool/add", post(add_to_mempool))
         .route("/mempool/all", get(get_all_mempool_txs))
+        // Transaction endpoints
+        .route("/transactions", post(add_to_mempool))  // REST endpoint
+        .route("/transactions/:txid", get(get_transaction))  // Get single transaction
+        // WebSocket endpoint for wallet notifications
+        .route("/ws/wallet", get(crate::websocket::wallet_ws_handler))
+        // Wallet sync endpoints
+        .route("/wallet/sync", post(crate::wallet_sync_handlers::sync_wallet_addresses))
+        .route("/wallet/validate", post(crate::wallet_sync_handlers::validate_transaction))
+        .route("/wallet/pending", post(crate::wallet_sync_handlers::get_pending_transactions))
         // Transaction consensus endpoints
         .route("/consensus/tx-proposal", post(receive_tx_proposal))
         .route("/consensus/tx-vote", post(receive_tx_vote))
@@ -776,6 +785,24 @@ async fn get_all_mempool_txs(
 
     let transactions = mempool.get_all_transactions().await;
     Ok(Json(transactions))
+}
+
+async fn get_transaction(
+    State(state): State<ApiState>,
+    Path(txid): Path<String>,
+) -> ApiResult<Json<time_core::Transaction>> {
+    let mempool = state
+        .mempool
+        .as_ref()
+        .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
+
+    match mempool.get_transaction(&txid).await {
+        Some(tx) => Ok(Json(tx)),
+        None => Err(ApiError::TransactionNotFound(format!(
+            "Transaction {} not found",
+            txid
+        ))),
+    }
 }
 
 async fn receive_tx_proposal(
