@@ -149,6 +149,130 @@ Generate a new keypair for testing.
 
 ---
 
+### Sync Wallet with xpub
+
+**POST** `/wallet/sync-xpub`
+
+Synchronize HD wallet using extended public key (xpub). Masternode automatically discovers all used addresses using BIP-44 gap limit algorithm.
+
+**Request Body:**
+```json
+{
+  "xpub": "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8",
+  "start_index": 0
+}
+```
+
+**Response:**
+```json
+{
+  "utxos": {
+    "TIME1abc123...": [
+      {
+        "tx_hash": "a1b2c3d4e5f6...",
+        "output_index": 0,
+        "amount": 100000000,
+        "address": "TIME1abc123...",
+        "block_height": 1234,
+        "confirmations": 6
+      }
+    ]
+  },
+  "total_balance": 100000000,
+  "recent_transactions": [
+    {
+      "tx_hash": "a1b2c3d4e5f6...",
+      "from_address": "TIME1xyz...",
+      "to_address": "TIME1abc123...",
+      "amount": 100000000,
+      "block_height": 1234,
+      "timestamp": 1700000000,
+      "confirmations": 6
+    }
+  ],
+  "current_height": 1240,
+  "addresses_scanned": 42,
+  "addresses_with_activity": 15
+}
+```
+
+**Notes:**
+- Uses BIP-44 derivation path: `m/44'/0'/account'/0/index`
+- Gap limit: 20 consecutive unused addresses
+- Maximum: 1000 addresses per scan
+- Timeout: 60 seconds (address derivation can take time)
+- Recommended for all HD wallets
+
+**See also:** [WALLET_SYNC_API.md](WALLET_SYNC_API.md) for detailed documentation
+
+---
+
+### Sync Wallet with Addresses (Legacy)
+
+**POST** `/wallet/sync`
+
+Synchronize wallet by providing a list of addresses. Used for non-HD wallets or when xpub is not available.
+
+**Request Body:**
+```json
+{
+  "addresses": [
+    "TIME1abc123...",
+    "TIME1def456...",
+    "TIME1ghi789..."
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "utxos": {
+    "TIME1abc123...": [
+      {
+        "tx_hash": "a1b2c3d4e5f6...",
+        "output_index": 0,
+        "amount": 100000000,
+        "address": "TIME1abc123...",
+        "block_height": 1234,
+        "confirmations": 6
+      }
+    ]
+  },
+  "total_balance": 100000000,
+  "recent_transactions": [...],
+  "current_height": 1240
+}
+```
+
+**Notes:**
+- Up to 100 addresses per request
+- For non-HD wallets only
+- Consider using `/wallet/sync-xpub` for HD wallets
+
+---
+
+## Address Format
+
+TIME Coin uses network-specific address prefixes:
+
+- **TIME1** = Mainnet addresses (version byte `0x00`)
+- **TIME0** = Testnet addresses (version byte `0x6F`)
+
+**Examples:**
+```
+TIME1aBc123DeF456GhI789JkL012MnO345  // Mainnet
+TIME0xYz789qWe4rT5uI6oP7aS8dF9gH0jK  // Testnet
+```
+
+**Benefits:**
+- Instant visual identification
+- Prevents mixing testnet and mainnet coins
+- Same structure, just one character different
+- Validated with checksum
+
+---
+
 ## Error Responses
 
 All errors return:
