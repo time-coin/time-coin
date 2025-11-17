@@ -278,6 +278,25 @@ impl WalletDat {
         }
         Ok(wallet_path)
     }
+
+    /// Update contact information for a specific address
+    pub fn update_contact_info(
+        &mut self,
+        address: &str,
+        name: Option<String>,
+        email: Option<String>,
+        phone: Option<String>,
+    ) -> Result<(), WalletDatError> {
+        if let Some(key) = self.keys.iter_mut().find(|k| k.address == address) {
+            key.name = name;
+            key.email = email;
+            key.phone = phone;
+            self.modified_at = chrono::Utc::now().timestamp();
+            Ok(())
+        } else {
+            Err(WalletDatError::InvalidFormat)
+        }
+    }
 }
 
 #[cfg(test)]

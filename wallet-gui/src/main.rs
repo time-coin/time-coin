@@ -14,11 +14,13 @@ mod config;
 mod mnemonic_ui;
 mod network;
 mod wallet_dat;
+mod wallet_db;
 mod wallet_manager;
 
 use config::{Config, WalletConfig};
 use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
+use wallet_db::{AddressContact, WalletDb};
 use wallet_manager::WalletManager;
 
 fn main() -> Result<(), eframe::Error> {
@@ -75,6 +77,7 @@ enum Screen {
 struct WalletApp {
     current_screen: Screen,
     wallet_manager: Option<WalletManager>,
+    wallet_db: Option<WalletDb>,
     network: NetworkType,
     password: String,
     error_message: Option<String>,
@@ -113,6 +116,7 @@ impl Default for WalletApp {
         Self {
             current_screen: Screen::Welcome,
             wallet_manager: None,
+            wallet_db: None,
             network: NetworkType::Testnet,
             password: String::new(),
             error_message: None,
@@ -183,6 +187,22 @@ impl WalletApp {
                         match WalletManager::load_default(self.network) {
                             Ok(manager) => {
                                 self.wallet_manager = Some(manager);
+                                
+                                // Initialize wallet database
+                                if let Ok(main_config) = Config::load() {
+                                    let wallet_dir = main_config.wallet_dir();
+                                    let db_path = wallet_dir.join("wallet.db");
+                                    match WalletDb::open(&db_path) {
+                                        Ok(db) => {
+                                            self.wallet_db = Some(db);
+                                            log::info!("Wallet database initialized");
+                                        }
+                                        Err(e) => {
+                                            log::error!("Failed to open wallet database: {}", e);
+                                        }
+                                    }
+                                }
+                                
                                 self.current_screen = Screen::Overview;
                                 self.success_message = Some("Wallet unlocked successfully!".to_string());
 
@@ -356,6 +376,22 @@ impl WalletApp {
         ) {
             Ok(manager) => {
                 self.wallet_manager = Some(manager);
+                
+                // Initialize wallet database
+                if let Ok(main_config) = Config::load() {
+                    let wallet_dir = main_config.wallet_dir();
+                    let db_path = wallet_dir.join("wallet.db");
+                    match WalletDb::open(&db_path) {
+                        Ok(db) => {
+                            self.wallet_db = Some(db);
+                            log::info!("Wallet database initialized");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to open wallet database: {}", e);
+                        }
+                    }
+                }
+                
                 self.current_screen = Screen::Overview;
                 self.success_message = Some("Wallet created successfully!".to_string());
 
@@ -754,25 +790,28 @@ impl WalletApp {
 
         if let Some(manager) = &mut self.wallet_manager {
             // Two column layout
-            ui.horizontal(|ui| {
+            ui.columns(2, |columns| {
                 // Left side - Address list
-                ui.vertical(|ui| {
-                    ui.set_width(ui.available_width() * 0.5);
-                    ui.heading("Your Addresses");
-                    ui.add_space(10.0);
+                columns[0].vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Your Addresses");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("➕ New").clicked() {
+                                self.new_address_label =
+                                    format!("Address {}", manager.get_keys().len() + 1);
+                                self.is_creating_new_address = true;
+                            }
+                        });
+                    });
 
-                    // Button to create new address
-                    if ui.button("➕ New Address").clicked() {
-                        self.new_address_label =
-                            format!("Address {}", manager.get_keys().len() + 1);
-                        self.is_creating_new_address = true;
-                    }
+                    ui.add_space(10.0);
 
                     // Show dialog for new address
                     if self.is_creating_new_address {
-                        ui.add_space(10.0);
                         ui.group(|ui| {
-                            ui.label("New Address Label:");
+                            ui.set_min_width(ui.available_width());
+                            ui.label(egui::RichText::new("New Address").strong());
+                            ui.add_space(5.0);
                             ui.text_edit_singleline(&mut self.new_address_label);
                             ui.add_space(5.0);
                             ui.horizontal(|ui| {
@@ -798,142 +837,272 @@ impl WalletApp {
                                 }
                             });
                         });
+                        ui.add_space(10.0);
                     }
-
-                    ui.add_space(10.0);
 
                     // List all addresses
                     egui::ScrollArea::vertical()
-                        .max_height(400.0)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             let keys = manager.get_keys();
+                            
+                            if keys.is_empty() {
+                                ui.vertical_centered(|ui| {
+                                    ui.add_space(50.0);
+                                    ui.label(
+                                        egui::RichText::new("No addresses yet")
+                                            .color(egui::Color32::GRAY)
+                                            .italics(),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new("Click '➕ New' to create one")
+                                            .size(12.0)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                });
+                                return;
+                            }
+
                             for (idx, key) in keys.iter().enumerate() {
                                 let is_selected = self.selected_address_index == Some(idx);
 
-                                ui.group(|ui| {
-                                    ui.set_min_width(ui.available_width() - 20.0);
+                                let frame = egui::Frame::group(ui.style())
+                                    .fill(if is_selected {
+                                        ui.visuals().selection.bg_fill
+                                    } else {
+                                        ui.visuals().window_fill
+                                    })
+                                    .inner_margin(egui::Margin::same(10));
 
-                                    let response = ui.selectable_label(
-                                        is_selected,
-                                        format!(
-                                            "{} {}",
-                                            if key.is_default { "⭐" } else { "  " },
-                                            key.label
-                                        ),
-                                    );
+                                frame.show(ui, |ui| {
+                                    ui.set_min_width(ui.available_width());
+
+                                    let response = ui.horizontal(|ui| {
+                                        // Default star indicator
+                                        if key.is_default {
+                                            ui.label(egui::RichText::new("⭐").size(14.0));
+                                        }
+
+                                        // Address label
+                                        let label_response = ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(&key.label)
+                                                    .size(14.0)
+                                                    .strong(),
+                                            )
+                                            .sense(egui::Sense::click()),
+                                        );
+
+                                        label_response
+                                    }).inner;
 
                                     if response.clicked() {
                                         self.selected_address_index = Some(idx);
                                         self.show_qr_for_address = Some(key.address.clone());
-                                        // Don't clear fields - preserve any entered data
+                                        
+                                        // Load contact info from database
+                                        if let Some(ref db) = self.wallet_db {
+                                            if let Ok(Some(contact)) = db.get_contact(&key.address) {
+                                                self.edit_address_name = contact.name.unwrap_or_default();
+                                                self.edit_address_email = contact.email.unwrap_or_default();
+                                                self.edit_address_phone = contact.phone.unwrap_or_default();
+                                            } else {
+                                                // No contact info saved yet
+                                                self.edit_address_name = String::new();
+                                                self.edit_address_email = String::new();
+                                                self.edit_address_phone = String::new();
+                                            }
+                                        }
                                     }
 
-                                    ui.add_space(5.0);
+                                    ui.add_space(3.0);
+
+                                    // Address preview with copy button
                                     ui.horizontal(|ui| {
                                         ui.monospace(
                                             egui::RichText::new(format!(
                                                 "{}...{}",
-                                                &key.address[..8],
-                                                &key.address[key.address.len() - 6..]
+                                                &key.address[..12],
+                                                &key.address[key.address.len() - 8..]
                                             ))
-                                            .size(11.0)
+                                            .size(10.0)
                                             .color(egui::Color32::GRAY),
                                         );
 
-                                        if ui.small_button("📋").clicked() {
+                                        if ui.small_button("📋").on_hover_text("Copy address").clicked() {
                                             ctx.copy_text(key.address.clone());
                                             self.success_message =
                                                 Some("Address copied!".to_string());
                                         }
-
-                                        if ui.small_button("🔍").clicked() {
-                                            self.selected_address_index = Some(idx);
-                                            self.show_qr_for_address = Some(key.address.clone());
-                                        }
                                     });
                                 });
-                                ui.add_space(5.0);
+
+                                ui.add_space(6.0);
                             }
                         });
                 });
 
-                ui.separator();
-
                 // Right side - Address details and QR code
-                ui.vertical(|ui| {
+                columns[1].vertical(|ui| {
                     if let Some(idx) = self.selected_address_index {
                         let keys = manager.get_keys();
                         if let Some(key) = keys.get(idx) {
-                            ui.heading(&key.label);
-                            ui.add_space(10.0);
+                            let address_clone = key.address.clone(); // Clone for use in save button
+                            
+                            // Address header
+                            ui.group(|ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.heading(&key.label);
+                                ui.add_space(5.0);
 
-                            // Full address with copy button
-                            ui.horizontal(|ui| {
-                                ui.label("Address:");
-                            });
-                            ui.horizontal(|ui| {
-                                ui.monospace(&key.address);
-                                if ui.button("📋 Copy").clicked() {
-                                    ctx.copy_text(key.address.clone());
-                                    self.success_message =
-                                        Some("Address copied to clipboard!".to_string());
+                                // Full address with copy button
+                                ui.horizontal(|ui| {
+                                    ui.monospace(
+                                        egui::RichText::new(&key.address)
+                                            .size(11.0)
+                                            .color(egui::Color32::LIGHT_GRAY),
+                                    );
+                                    if ui.button("📋").on_hover_text("Copy full address").clicked() {
+                                        ctx.copy_text(key.address.clone());
+                                        self.success_message =
+                                            Some("Address copied to clipboard!".to_string());
+                                    }
+                                });
+
+                                ui.add_space(5.0);
+
+                                // Set as default button
+                                if !key.is_default {
+                                    if ui.button("⭐ Set as Default").clicked() {
+                                        // TODO: Implement set as default
+                                        self.success_message =
+                                            Some("Set as default address".to_string());
+                                    }
                                 }
                             });
 
-                            ui.add_space(20.0);
+                            ui.add_space(15.0);
 
-                            // Contact information section
-                            ui.heading("Contact Information");
-                            ui.add_space(10.0);
-
-                            ui.horizontal(|ui| {
-                                ui.label("Name:");
-                                ui.text_edit_singleline(&mut self.edit_address_name);
-                            });
-
-                            ui.horizontal(|ui| {
-                                ui.label("Email:");
-                                ui.text_edit_singleline(&mut self.edit_address_email);
-                            });
-
-                            ui.horizontal(|ui| {
-                                ui.label("Phone:");
-                                ui.text_edit_singleline(&mut self.edit_address_phone);
-                            });
-
-                            ui.add_space(10.0);
-
-                            if ui.button("💾 Save Contact Info").clicked() {
-                                // TODO: Save contact info to wallet metadata
-                                self.success_message = Some("Contact info saved!".to_string());
-                            }
-
-                            ui.add_space(20.0);
-
-                            // QR Code
+                            // QR Code section
                             if let Some(address) = &self.show_qr_for_address {
                                 if let Ok(svg_string) = manager.get_address_qr_code_svg(address) {
-                                    ui.vertical_centered(|ui| {
-                                        ui.label("📱 Scan QR Code:");
-                                        ui.add_space(10.0);
+                                    ui.group(|ui| {
+                                        ui.set_min_width(ui.available_width());
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(
+                                                egui::RichText::new("📱 QR Code")
+                                                    .strong()
+                                                    .size(14.0),
+                                            );
+                                            ui.add_space(10.0);
 
-                                        // Convert SVG to image and display (smaller size)
-                                        if let Ok(image_data) = Self::svg_to_image(&svg_string) {
-                                            let texture = ctx.load_texture(
-                                                "qr_code",
-                                                image_data,
-                                                egui::TextureOptions::default(),
-                                            );
-                                            ui.add(
-                                                egui::Image::new(&texture)
-                                                    .max_size(egui::vec2(200.0, 200.0)),
-                                            );
-                                        } else {
-                                            ui.label("Failed to render QR code");
-                                        }
+                                            // Convert SVG to image and display
+                                            if let Ok(image_data) = Self::svg_to_image(&svg_string)
+                                            {
+                                                let texture = ctx.load_texture(
+                                                    "qr_code",
+                                                    image_data,
+                                                    egui::TextureOptions::default(),
+                                                );
+                                                ui.add(
+                                                    egui::Image::new(&texture)
+                                                        .max_size(egui::vec2(220.0, 220.0)),
+                                                );
+                                            } else {
+                                                ui.label("Failed to render QR code");
+                                            }
+                                        });
                                     });
                                 }
                             }
+
+                            ui.add_space(15.0);
+
+                            // Contact information section
+                            ui.group(|ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.label(
+                                    egui::RichText::new("Contact Information")
+                                        .strong()
+                                        .size(14.0),
+                                );
+                                ui.add_space(10.0);
+
+                                egui::Grid::new("contact_grid")
+                                    .num_columns(2)
+                                    .spacing([10.0, 8.0])
+                                    .show(ui, |ui| {
+                                        ui.label("Name:");
+                                        ui.add(
+                                            egui::TextEdit::singleline(
+                                                &mut self.edit_address_name,
+                                            )
+                                            .desired_width(200.0),
+                                        );
+                                        ui.end_row();
+
+                                        ui.label("Email:");
+                                        ui.add(
+                                            egui::TextEdit::singleline(
+                                                &mut self.edit_address_email,
+                                            )
+                                            .desired_width(200.0),
+                                        );
+                                        ui.end_row();
+
+                                        ui.label("Phone:");
+                                        ui.add(
+                                            egui::TextEdit::singleline(
+                                                &mut self.edit_address_phone,
+                                            )
+                                            .desired_width(200.0),
+                                        );
+                                        ui.end_row();
+                                    });
+
+                                ui.add_space(10.0);
+
+                                if ui.button("💾 Save Contact Info").clicked() {
+                                    // Save contact info to database
+                                    if let Some(ref db) = self.wallet_db {
+                                        let now = chrono::Utc::now().timestamp();
+                                        let contact = AddressContact {
+                                            address: address_clone.clone(),
+                                            label: key.label.clone(),
+                                            name: if self.edit_address_name.is_empty() {
+                                                None
+                                            } else {
+                                                Some(self.edit_address_name.clone())
+                                            },
+                                            email: if self.edit_address_email.is_empty() {
+                                                None
+                                            } else {
+                                                Some(self.edit_address_email.clone())
+                                            },
+                                            phone: if self.edit_address_phone.is_empty() {
+                                                None
+                                            } else {
+                                                Some(self.edit_address_phone.clone())
+                                            },
+                                            notes: None,
+                                            is_default: key.is_default,
+                                            created_at: now,
+                                            updated_at: now,
+                                        };
+                                        
+                                        match db.save_contact(&contact) {
+                                            Ok(_) => {
+                                                self.success_message = Some("Contact info saved!".to_string());
+                                            }
+                                            Err(e) => {
+                                                self.error_message = Some(format!("Failed to save: {}", e));
+                                            }
+                                        }
+                                    } else {
+                                        self.error_message = Some("Database not initialized".to_string());
+                                    }
+                                }
+                            });
                         }
                     } else {
                         ui.vertical_centered(|ui| {

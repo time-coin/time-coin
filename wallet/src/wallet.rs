@@ -43,6 +43,16 @@ pub struct UTXO {
     pub address: String,
 }
 
+/// Address metadata for contact information
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AddressMetadata {
+    pub label: String,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub is_default: bool,
+}
+
 /// Wallet for managing keys, addresses, and transactions
 #[derive(Serialize, Deserialize)]
 pub struct Wallet {
@@ -61,6 +71,8 @@ pub struct Wallet {
     mnemonic_phrase: Option<String>,
     #[serde(default)]
     next_address_index: u32,
+    #[serde(default)]
+    address_metadata: std::collections::HashMap<String, AddressMetadata>,
 }
 
 impl Wallet {
@@ -80,6 +92,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: None,
             next_address_index: 0,
+            address_metadata: std::collections::HashMap::new(),
         })
     }
 
@@ -99,6 +112,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: None,
             next_address_index: 0,
+            address_metadata: std::collections::HashMap::new(),
         })
     }
 
@@ -118,6 +132,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: None,
             next_address_index: 0,
+            address_metadata: std::collections::HashMap::new(),
         })
     }
 
@@ -157,6 +172,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: Some(mnemonic.to_string()),
             next_address_index: 0,
+            address_metadata: std::collections::HashMap::new(),
         })
     }
 
@@ -413,6 +429,46 @@ impl Wallet {
 
     pub fn keypair(&self) -> &Keypair {
         &self.keypair
+    }
+
+    /// Set metadata for an address
+    pub fn set_address_metadata(&mut self, address: &str, metadata: AddressMetadata) {
+        self.address_metadata.insert(address.to_string(), metadata);
+    }
+
+    /// Get metadata for an address
+    pub fn get_address_metadata(&self, address: &str) -> Option<&AddressMetadata> {
+        self.address_metadata.get(address)
+    }
+
+    /// Get all addresses with their metadata
+    pub fn get_all_address_metadata(&self) -> &std::collections::HashMap<String, AddressMetadata> {
+        &self.address_metadata
+    }
+
+    /// Remove metadata for an address
+    pub fn remove_address_metadata(&mut self, address: &str) -> Option<AddressMetadata> {
+        self.address_metadata.remove(address)
+    }
+
+    /// Set an address as the default receiving address
+    pub fn set_default_address(&mut self, address: &str) {
+        // Clear all default flags
+        for metadata in self.address_metadata.values_mut() {
+            metadata.is_default = false;
+        }
+        // Set the specified address as default
+        if let Some(metadata) = self.address_metadata.get_mut(address) {
+            metadata.is_default = true;
+        }
+    }
+
+    /// Get the default receiving address
+    pub fn get_default_address(&self) -> Option<String> {
+        self.address_metadata
+            .iter()
+            .find(|(_, metadata)| metadata.is_default)
+            .map(|(addr, _)| addr.clone())
     }
 }
 

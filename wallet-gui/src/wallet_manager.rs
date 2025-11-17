@@ -248,6 +248,27 @@ impl WalletManager {
             .map(|k| hex::encode(k.keypair_bytes))
     }
 
+    /// Update contact information for an address
+    pub fn update_contact_info(
+        &mut self,
+        address: &str,
+        name: Option<String>,
+        email: Option<String>,
+        phone: Option<String>,
+    ) -> Result<(), WalletDatError> {
+        self.wallet_dat.update_contact_info(address, name, email, phone)?;
+        self.save()
+    }
+
+    /// Get contact information for an address
+    pub fn get_contact_info(&self, address: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+        self.wallet_dat
+            .get_keys()
+            .iter()
+            .find(|k| k.address == address)
+            .map(|k| (k.name.clone(), k.email.clone(), k.phone.clone()))
+    }
+
     /// Import private key
     /// Get QR code for an address as SVG
     pub fn get_address_qr_code_svg(&self, address: &str) -> Result<String, String> {
