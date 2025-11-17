@@ -430,10 +430,7 @@ impl WalletManager {
     pub fn get_address_metadata(
         &self,
         address: &str,
-    ) -> Result<
-        Option<(String, Option<String>, Option<String>, Option<String>, bool)>,
-        WalletDatError,
-    > {
+    ) -> Result<Option<AddressMetadata>, WalletDatError> {
         let key = format!("addr_meta:{}", address);
 
         if let Some(data) = self
@@ -444,13 +441,7 @@ impl WalletManager {
             let metadata: AddressMetadata = bincode::deserialize(&data)
                 .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
 
-            Ok(Some((
-                metadata.label.unwrap_or_default(),
-                metadata.name,
-                metadata.email,
-                metadata.phone,
-                metadata.is_default,
-            )))
+            Ok(Some(metadata))
         } else {
             Ok(None)
         }
