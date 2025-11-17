@@ -195,8 +195,17 @@ impl WalletApp {
                         ui.add_space(padding);
                     }
 
-                    ui.selectable_value(&mut self.network, NetworkType::Mainnet, "Mainnet");
-                    ui.selectable_value(&mut self.network, NetworkType::Testnet, "Testnet");
+                    // Disable network selector if wallet is loaded
+                    let is_wallet_loaded = self.wallet_manager.is_some();
+
+                    ui.add_enabled_ui(!is_wallet_loaded, |ui| {
+                        ui.selectable_value(&mut self.network, NetworkType::Mainnet, "Mainnet");
+                        ui.selectable_value(&mut self.network, NetworkType::Testnet, "Testnet");
+
+                        if is_wallet_loaded {
+                            ui.label(egui::RichText::new("(Wallet network)").size(10.0).color(egui::Color32::GRAY));
+                        }
+                    });
                 });
 
                 ui.add_space(40.0);
@@ -211,6 +220,9 @@ impl WalletApp {
                     if ui.button(egui::RichText::new("Open Wallet").size(16.0)).clicked() {
                         match WalletManager::load_default(self.network) {
                             Ok(manager) => {
+                                // IMPORTANT: Set UI network to match the loaded wallet's network
+                                self.network = manager.get_network();
+
                                 self.wallet_manager = Some(manager);
 
                                 // Initialize wallet database

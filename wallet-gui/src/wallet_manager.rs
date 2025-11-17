@@ -68,18 +68,22 @@ impl WalletManager {
             .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
 
         // Create wallet from mnemonic
-        let wallet = Wallet::from_mnemonic(mnemonic, passphrase, network)?;
+        let mut wallet = Wallet::from_mnemonic(mnemonic, passphrase, network)?;
 
         // Generate xpub for deterministic address discovery
         let xpub = wallet::mnemonic_to_xpub(mnemonic, passphrase, 0)
             .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+
+        // Store xpub in the wallet
+        wallet.set_xpub(xpub.clone());
 
         // Create wallet_dat and add the keypair
         let wallet_path = WalletDat::ensure_data_dir(network)?;
         let mut wallet_dat = WalletDat::new(network);
 
         // Store the xpub for masternode sync
-        wallet_dat.xpub = Some(xpub);
+        wallet_dat.xpub = Some(xpub.clone());
+        log::info!("Created wallet with xpub: {}", xpub);
 
         // DO NOT store the mnemonic - it should only be shown during creation
         // The user must write it down and keep it safe offline
@@ -174,6 +178,11 @@ impl WalletManager {
         self.wallet_dat.get_primary_key()
     }
 
+    /// Get the network type of this wallet
+    pub fn get_network(&self) -> NetworkType {
+        self.wallet_dat.network
+    }
+
     /// Generate a new key
     pub fn generate_new_key(
         &mut self,
@@ -221,7 +230,9 @@ impl WalletManager {
 
     /// Get the xpub for this wallet (if available)
     pub fn get_xpub(&self) -> Option<&str> {
-        self.wallet_dat.xpub.as_deref()
+        let xpub = self.wallet_dat.xpub.as_deref();
+        log::info!("get_xpub called, returning: {:?}", xpub);
+        xpub
     }
 
     /// Add UTXO to active wallet

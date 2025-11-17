@@ -71,6 +71,8 @@ pub struct Wallet {
     mnemonic_phrase: Option<String>,
     #[serde(default)]
     next_address_index: u32,
+    #[serde(default)]
+    xpub: Option<String>,
 }
 
 impl Wallet {
@@ -90,6 +92,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: None,
             next_address_index: 0,
+            xpub: None,
         })
     }
 
@@ -109,6 +112,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: None,
             next_address_index: 0,
+            xpub: None,
         })
     }
 
@@ -128,6 +132,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: None,
             next_address_index: 0,
+            xpub: None,
         })
     }
 
@@ -167,6 +172,7 @@ impl Wallet {
             additional_addresses: Vec::new(),
             mnemonic_phrase: Some(mnemonic.to_string()),
             next_address_index: 0,
+            xpub: None,
         })
     }
 
@@ -423,6 +429,16 @@ impl Wallet {
 
     pub fn keypair(&self) -> &Keypair {
         &self.keypair
+    }
+
+    /// Get the xpub (extended public key) if available
+    pub fn xpub(&self) -> Option<&str> {
+        self.xpub.as_deref()
+    }
+
+    /// Set the xpub (extended public key)
+    pub fn set_xpub(&mut self, xpub: String) {
+        self.xpub = Some(xpub);
     }
 }
 

@@ -220,24 +220,9 @@ impl WalletDat {
         match bincode::deserialize::<Self>(&data) {
             Ok(wallet) => Ok(wallet),
             Err(e) => {
-                // If deserialization fails, it might be an old format
-                // Try to migrate from old wallet.dat format
-                eprintln!("Warning: Wallet file format mismatch. Attempting migration...");
-                eprintln!("Error details: {}", e);
-
-                // Backup the old file
-                let backup_path = path.as_ref().with_extension(format!(
-                    "dat.backup.{}",
-                    chrono::Utc::now().format("%Y%m%d_%H%M%S")
-                ));
-                fs::copy(path.as_ref(), &backup_path)?;
-                eprintln!("✓ Old wallet backed up to: {:?}", backup_path);
-
-                // Return error with helpful message
                 Err(WalletDatError::SerializationError(format!(
-                    "Wallet file format is incompatible. Your old wallet has been backed up to {:?}. \
-                    Please delete the wallet file and create a new one, or restore from your recovery phrase.",
-                    backup_path
+                    "Failed to deserialize wallet file: {}",
+                    e
                 )))
             }
         }
