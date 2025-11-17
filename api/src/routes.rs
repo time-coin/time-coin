@@ -67,7 +67,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/mempool/all", get(get_all_mempool_txs))
         // Transaction endpoints
         .route("/transactions", post(add_to_mempool))  // REST endpoint
-        .route("/transactions/:txid", get(get_transaction))  // Get single transaction
+        .route("/transactions/{txid}", get(get_transaction))  // Get single transaction
         // WebSocket endpoint for wallet notifications
         .route("/ws/wallet", get(crate::websocket::wallet_ws_handler))
         // Wallet sync endpoints
