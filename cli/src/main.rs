@@ -881,17 +881,17 @@ async fn main() {
                 // Connect to the chosen set (filtered if strict_discovery, otherwise all discovered peers)
                 peer_manager.connect_to_peers(peers_to_connect).await;
 
-                // Give peers time to connect and perform peer exchange
-                if !discovery_quiet {
-                    println!("{}", "  ⏳ Waiting for peer connections...".bright_black());
-                }
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
+                // connect_to_peers now waits internally, just check results
                 let connected = peer_manager.get_connected_peers().await.len();
                 if connected > 0 && !discovery_quiet {
                     println!(
                         "{}",
                         format!("  ✓ Connected to {} peer(s)", connected).green()
+                    );
+                } else if !discovery_quiet {
+                    println!(
+                        "{}",
+                        "  ⚠️  No peers connected".yellow()
                     );
                 }
 

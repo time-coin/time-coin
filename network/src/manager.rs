@@ -257,14 +257,45 @@ impl PeerManager {
 
     /// Connect concurrently to a list of peers.
     pub async fn connect_to_peers(&self, peer_list: Vec<PeerInfo>) {
+        let mut handles = Vec::new();
+        
         for peer in peer_list {
             let mgr = self.clone();
             let peer_addr = peer.address;
-            tokio::spawn(async move {
-                if let Err(e) = mgr.connect_to_peer(peer).await {
-                    warn!(peer = %peer_addr, error = %e, "Failed to connect to peer");
+            let handle = tokio::spawn(async move {
+                debug!(peer = %peer_addr, "Attempting connection...");
+                match mgr.connect_to_peer(peer).await {
+                    Ok(_) => {
+                        info!(peer = %peer_addr, "Successfully connected");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        warn!(peer = %peer_addr, error = %e, "Failed to connect to peer");
+                        Err(e)
+                    }
                 }
             });
+            handles.push(handle);
+        }
+
+        // Wait for all connection attempts to complete (with timeout)
+        let timeout = Duration::from_secs(10);
+        match tokio::time::timeout(timeout, futures::future::join_all(handles)).await {
+            Ok(results) => {
+                let successes = results.iter().filter(|r| {
+                    matches!(r, Ok(Ok(())))
+                }).count();
+                let failures = results.len() - successes;
+                info!(
+                    total = results.len(),
+                    successes,
+                    failures,
+                    "Peer connection batch completed"
+                );
+            }
+            Err(_) => {
+                warn!("Peer connection batch timed out after {:?}", timeout);
+            }
         }
     }
 
