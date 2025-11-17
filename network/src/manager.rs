@@ -1283,7 +1283,11 @@ impl PeerManager {
             .entry(xpub.to_string())
             .or_insert_with(Vec::new)
             .push(peer_ip);
-        info!("Subscribed wallet {} to notifications for xpub: {}...", peer_ip, &xpub[..8]);
+        info!(
+            "Subscribed wallet {} to notifications for xpub: {}...",
+            peer_ip,
+            &xpub[..8]
+        );
     }
 
     /// Unsubscribe a wallet (called when peer disconnects)
@@ -1297,13 +1301,17 @@ impl PeerManager {
 
     /// Notify subscribed wallets about a new transaction
     /// Call this when a transaction is added to mempool or confirmed in a block
-    pub async fn notify_wallet_transaction(&self, transaction: crate::protocol::WalletTransaction, _addresses: &[String]) {
+    pub async fn notify_wallet_transaction(
+        &self,
+        transaction: crate::protocol::WalletTransaction,
+        _addresses: &[String],
+    ) {
         let subscriptions = self.wallet_subscriptions.read().await;
-        
+
         // For each address in the transaction, check if we have subscribed wallets
         // Note: In practice, you'd derive addresses from each xpub and check matches
         // For now, we'll notify all subscribed wallets as a placeholder
-        
+
         if subscriptions.is_empty() {
             return;
         }
@@ -1327,7 +1335,10 @@ impl PeerManager {
                 )
                 .await
             {
-                debug!("Failed to send transaction notification to {}: {}", peer_ip, e);
+                debug!(
+                    "Failed to send transaction notification to {}: {}",
+                    peer_ip, e
+                );
             } else {
                 info!("📬 Sent transaction notification to wallet at {}", peer_ip);
             }
