@@ -295,7 +295,7 @@ impl ChainSync {
                 .ok_or("No valid peer heights")?;
 
             if *max_height <= our_height {
-                println!("   ✓ Already at latest height");
+                // Chain is up to date - message already printed in calling code
                 return Ok(0);
             }
 
@@ -306,7 +306,7 @@ impl ChainSync {
         }
 
         if *max_height <= our_height {
-            println!("   ✓ Already at latest height");
+            // Chain is up to date - message already printed in calling code
             return Ok(0);
         }
 

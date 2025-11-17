@@ -150,7 +150,10 @@ impl PeerExchange {
         if let Ok(data) = fs::read_to_string(&self.storage_path) {
             if let Ok(peers) = serde_json::from_str(&data) {
                 self.peers = peers;
-                println!("✓ Loaded {} known peers from disk", self.peers.len());
+                // Only log if we have a reasonable number of fresh peers
+                if self.peers.len() <= 100 {
+                    println!("✓ Loaded {} known peers from disk", self.peers.len());
+                }
             }
         }
     }

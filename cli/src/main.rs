@@ -910,18 +910,27 @@ async fn main() {
                     .collect();
 
                 if !new_peers_to_connect.is_empty() {
-                    if !discovery_quiet {
+                    // Convert and connect to newly discovered peers
+                    let mut connected_count = 0;
+                    for pex_peer in new_peers_to_connect.iter() {
+                        if let Ok(addr) = pex_peer.full_address().parse() {
+                            let peer_info = time_network::PeerInfo::new(addr, network_type.clone());
+                            let mgr = peer_manager.clone();
+                            if mgr.connect_to_peer(peer_info).await.is_ok() {
+                                connected_count += 1;
+                            }
+                        }
+                    }
+                    
+                    if !discovery_quiet && connected_count > 0 {
                         println!(
                             "{}",
-                            format!(
-                                "  ⏳ Connecting to {} newly discovered peer(s)...",
-                                new_peers_to_connect.len()
-                            )
-                            .bright_black()
+                            format!("  ✓ Connected to {} additional peer(s)", connected_count)
+                                .bright_black()
                         );
                     }
 
-                    // Convert and connect to newly discovered peers
+                    // Also spawn async connections for any remaining
                     for pex_peer in new_peers_to_connect {
                         if let Ok(addr) = pex_peer.full_address().parse() {
                             let peer_info = time_network::PeerInfo::new(addr, network_type.clone());
@@ -1351,23 +1360,9 @@ async fn main() {
 
     // Use 25% of available RAM for mempool (leave plenty for other operations)
     let available_for_mempool = (available_gb * 0.25 * 1_073_741_824.0) as u64;
-    let estimated_capacity = (available_for_mempool / avg_tx_size_bytes).min(10_000_000);
+    let _estimated_capacity = (available_for_mempool / avg_tx_size_bytes).min(10_000_000);
 
     println!("{}", "✓ Mempool initialized".to_string().green());
-    println!("   Available RAM: {:.2} GB", available_gb);
-    println!(
-        "   Mempool capacity: {} transactions (~{:.0} MB)",
-        estimated_capacity.to_string().green().bold(),
-        (estimated_capacity * avg_tx_size_bytes) as f64 / 1_048_576.0
-    );
-    println!(
-        "   Warning threshold: {} transactions",
-        (estimated_capacity as f64 * 0.75) as u64
-    );
-    println!(
-        "   Critical threshold: {} transactions",
-        (estimated_capacity as f64 * 0.90) as u64
-    );
 
     // Sync mempool from network peers
     if !peer_manager.get_peer_ips().await.is_empty() {
