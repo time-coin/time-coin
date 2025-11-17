@@ -307,13 +307,8 @@ impl WalletManager {
 
     /// Remove metadata for an address (address itself is never deleted)
     pub fn remove_address_metadata(&mut self, address: &str) -> Result<(), WalletDatError> {
-        // Clear contact info in wallet.dat
+        // Clear contact info in database only
         self.wallet_dat.update_contact_info(address, None, None, None)?;
-        
-        // Also clear in active wallet if present
-        if let Some(wallet) = self.active_wallet.as_mut() {
-            wallet.remove_address_metadata(address);
-        }
         
         self.save()
     }

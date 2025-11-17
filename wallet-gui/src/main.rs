@@ -851,7 +851,37 @@ impl WalletApp {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            let keys = manager.get_keys();
+                            let mut keys = manager.get_keys().to_vec();
+                            
+                            // Sort addresses by display name
+                            keys.sort_by(|a, b| {
+                                let name_a = if let Some(ref db) = self.wallet_db {
+                                    if let Ok(Some(contact)) = db.get_contact(&a.address) {
+                                        contact.name.unwrap_or_else(|| a.label.clone())
+                                    } else {
+                                        a.label.clone()
+                                    }
+                                } else {
+                                    a.label.clone()
+                                };
+                                
+                                let name_b = if let Some(ref db) = self.wallet_db {
+                                    if let Ok(Some(contact)) = db.get_contact(&b.address) {
+                                        contact.name.unwrap_or_else(|| b.label.clone())
+                                    } else {
+                                        b.label.clone()
+                                    }
+                                } else {
+                                    b.label.clone()
+                                };
+                                
+                                // Default address always comes first
+                                match (a.is_default, b.is_default) {
+                                    (true, false) => std::cmp::Ordering::Less,
+                                    (false, true) => std::cmp::Ordering::Greater,
+                                    _ => name_a.to_lowercase().cmp(&name_b.to_lowercase()),
+                                }
+                            });
                             
                             if keys.is_empty() {
                                 ui.vertical_centered(|ui| {
@@ -1158,7 +1188,16 @@ impl WalletApp {
                     AddressAction::SetDefault(address) => {
                         match manager.set_default_key(&address) {
                             Ok(_) => {
-                                self.success_message = Some("Set as default address".to_string());
+                                // Also update in database
+                                if let Some(ref db) = self.wallet_db {
+                                    if let Err(e) = db.set_default_address(&address) {
+                                        self.error_message = Some(format!("Failed to update database: {}", e));
+                                    } else {
+                                        self.success_message = Some("Set as default address".to_string());
+                                    }
+                                } else {
+                                    self.success_message = Some("Set as default address".to_string());
+                                }
                             }
                             Err(e) => {
                                 self.error_message = Some(format!("Failed to set default: {}", e));
@@ -1168,11 +1207,26 @@ impl WalletApp {
                     AddressAction::ClearInfo(address) => {
                         match manager.remove_address_metadata(&address) {
                             Ok(_) => {
-                                self.success_message = Some("Contact information cleared".to_string());
-                                // Also clear from UI fields
-                                self.edit_address_name.clear();
-                                self.edit_address_email.clear();
-                                self.edit_address_phone.clear();
+                                // Also clear from database
+                                if let Some(ref db) = self.wallet_db {
+                                    if let Err(e) = db.delete_contact(&address) {
+                                        self.error_message = Some(format!("Failed to clear from database: {}", e));
+                                    } else {
+                                        self.success_message = Some("Contact information cleared".to_string());
+                                        // Also clear from UI fields
+                                        self.edit_address_name.clear();
+                                        self.edit_address_email.clear();
+                                        self.edit_address_phone.clear();
+                                        ctx.request_repaint();
+                                    }
+                                } else {
+                                    self.success_message = Some("Contact information cleared".to_string());
+                                    // Also clear from UI fields
+                                    self.edit_address_name.clear();
+                                    self.edit_address_email.clear();
+                                    self.edit_address_phone.clear();
+                                    ctx.request_repaint();
+                                }
                             }
                             Err(e) => {
                                 self.error_message = Some(format!("Failed to clear info: {}", e));
