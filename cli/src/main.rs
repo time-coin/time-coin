@@ -666,7 +666,7 @@ async fn main() {
         println!();
     }
 
-    println!("{}", "🚀 Starting TIME node...".green().bold());
+    println!("{}", "🚀 Starting TIME Daemon...".green().bold());
     println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black());
 
     let network_type = if is_testnet {
