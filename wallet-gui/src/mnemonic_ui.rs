@@ -155,125 +155,133 @@ impl MnemonicInterface {
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<MnemonicAction> {
         let mut action = None;
 
-        // Header
-        ui.heading("🔐 BIP-39 Mnemonic Phrase");
-        ui.add_space(10.0);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            // Header
+            ui.heading("🔐 BIP-39 Mnemonic Phrase");
+            ui.add_space(10.0);
 
-        // Mode selection
-        ui.horizontal(|ui| {
-            ui.label("Mode:");
-            if ui
-                .selectable_label(self.mode == MnemonicMode::Generate, "Generate")
-                .clicked()
-            {
-                self.mode = MnemonicMode::Generate;
-                self.edit_enabled = false;
-            }
-            if ui
-                .selectable_label(self.mode == MnemonicMode::Import, "Import")
-                .clicked()
-            {
-                self.mode = MnemonicMode::Import;
-                self.edit_enabled = true;
-            }
-            if ui
-                .selectable_label(self.mode == MnemonicMode::Edit, "Edit")
-                .clicked()
-            {
-                self.mode = MnemonicMode::Edit;
-                self.edit_enabled = true;
-            }
-        });
-
-        ui.add_space(10.0);
-
-        // Word count toggle
-        ui.horizontal(|ui| {
-            if ui
-                .checkbox(&mut self.use_24_words, "Use 24 words (advanced security)")
-                .changed()
-            {
-                self.toggle_word_count();
-            }
-
-            ui.label(format!("({} words)", self.words.len()));
-        });
-
-        ui.add_space(10.0);
-
-        // Action buttons
-        ui.horizontal(|ui| {
-            if self.mode == MnemonicMode::Generate && ui.button("Generate New Phrase").clicked() {
-                if let Err(e) = self.generate_mnemonic() {
-                    self.validation_error = Some(e);
-                }
-                self.edit_enabled = false; // Disable editing on new generation
-            }
-
-            // Show "Enable Editing" button after generation (only if wallet not created)
-            if !self.wallet_created
-                && self.mode == MnemonicMode::Generate
-                && self.generated_phrase.is_some()
-                && !self.edit_enabled
-                && ui.button("Enable Editing").clicked()
-            {
-                self.edit_enabled = true;
-            }
-
-            // Show warning if wallet already created
-            if self.wallet_created {
-                ui.colored_label(
-                    egui::Color32::from_rgb(255, 165, 0),
-                    "⚠️ Wallet created - phrase cannot be modified",
-                );
-            }
-
-            if ui.button("Clear All").clicked() {
-                self.clear();
-            }
-
-            if ui.button("Validate").clicked() {
-                self.validate();
-            }
-
-            if ui.button("Print").clicked() {
-                self.show_print_dialog = true;
-            }
-        });
-
-        ui.add_space(10.0);
-
-        // Validation status
-        if let Some(error) = &self.validation_error {
-            ui.colored_label(egui::Color32::RED, format!("Invalid: {}", error));
-        } else if self.is_valid {
-            ui.colored_label(egui::Color32::GREEN, "Valid mnemonic phrase");
-        }
-
-        ui.add_space(10.0);
-
-        // Word input grid
-        self.render_word_grid(ui);
-
-        ui.add_space(20.0);
-
-        // Confirmation buttons
-        ui.horizontal(|ui| {
-            if ui.button("Cancel").clicked() {
-                action = Some(MnemonicAction::Cancel);
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let can_proceed = self.is_valid
-                    || (!self.get_phrase().is_empty() && self.mode == MnemonicMode::Import);
-
+            // Mode selection
+            ui.horizontal(|ui| {
+                ui.label("Mode:");
                 if ui
-                    .add_enabled(can_proceed, egui::Button::new("Continue ➡"))
+                    .selectable_label(self.mode == MnemonicMode::Generate, "Generate")
                     .clicked()
-                    && self.validate()
                 {
-                    action = Some(MnemonicAction::Confirm(self.get_phrase()));
+                    self.mode = MnemonicMode::Generate;
+                    self.edit_enabled = false;
                 }
+                if ui
+                    .selectable_label(self.mode == MnemonicMode::Import, "Import")
+                    .clicked()
+                {
+                    self.mode = MnemonicMode::Import;
+                    self.edit_enabled = true;
+                }
+                if ui
+                    .selectable_label(self.mode == MnemonicMode::Edit, "Edit")
+                    .clicked()
+                {
+                    self.mode = MnemonicMode::Edit;
+                    self.edit_enabled = true;
+                }
+            });
+
+            ui.add_space(10.0);
+
+            // Word count toggle
+            ui.horizontal(|ui| {
+                if ui
+                    .checkbox(&mut self.use_24_words, "Use 24 words (advanced security)")
+                    .changed()
+                {
+                    self.toggle_word_count();
+                }
+
+                ui.label(format!("({} words)", self.words.len()));
+            });
+
+            ui.add_space(10.0);
+
+            // Action buttons
+            ui.horizontal(|ui| {
+                if self.mode == MnemonicMode::Generate && ui.button("Generate New Phrase").clicked() {
+                    if let Err(e) = self.generate_mnemonic() {
+                        self.validation_error = Some(e);
+                    }
+                    self.edit_enabled = false; // Disable editing on new generation
+                }
+
+                // Show "Enable Editing" button after generation (only if wallet not created)
+                if !self.wallet_created
+                    && self.mode == MnemonicMode::Generate
+                    && self.generated_phrase.is_some()
+                    && !self.edit_enabled
+                    && ui.button("Enable Editing").clicked()
+                {
+                    self.edit_enabled = true;
+                }
+
+                // Show warning if wallet already created
+                if self.wallet_created {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 165, 0),
+                        "⚠️ Wallet created - phrase cannot be modified",
+                    );
+                }
+
+                if ui.button("Clear All").clicked() {
+                    self.clear();
+                }
+
+                if ui.button("Print").clicked() {
+                    self.show_print_dialog = true;
+                }
+            });
+
+            ui.add_space(10.0);
+
+            // Validation status
+            if let Some(error) = &self.validation_error {
+                ui.colored_label(egui::Color32::RED, format!("Invalid: {}", error));
+            } else if self.is_valid {
+                ui.colored_label(egui::Color32::GREEN, "✓ Valid mnemonic phrase");
+            }
+
+            ui.add_space(10.0);
+
+            // Word input grid
+            self.render_word_grid(ui);
+
+            ui.add_space(20.0);
+
+            // Validate button - only show if phrase is filled
+            if !self.get_phrase().is_empty() && !self.is_valid {
+                ui.horizontal(|ui| {
+                    if ui.button("Validate").clicked() {
+                        self.validate();
+                    }
+                });
+                ui.add_space(10.0);
+            }
+
+            // Confirmation buttons - at bottom
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    action = Some(MnemonicAction::Cancel);
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let can_proceed = self.is_valid
+                        || (!self.get_phrase().is_empty() && self.mode == MnemonicMode::Import);
+
+                    if ui
+                        .add_enabled(can_proceed, egui::Button::new("Continue ➡"))
+                        .clicked()
+                        && self.validate()
+                    {
+                        action = Some(MnemonicAction::Confirm(self.get_phrase()));
+                    }
+                });
             });
         });
 
@@ -293,7 +301,7 @@ impl MnemonicInterface {
 
         egui::Grid::new("mnemonic_grid")
             .num_columns(num_columns * 2) // Label + input for each column
-            .spacing([2.0, 5.0]) // Minimal horizontal spacing between number and box
+            .spacing([10.0, 8.0]) // Spacing between columns and rows
             .show(ui, |ui| {
                 for row in 0..words_per_column {
                     for col in 0..num_columns {
@@ -304,11 +312,14 @@ impl MnemonicInterface {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    ui.label(format!("{}.", index + 1));
+                                    ui.label(
+                                        egui::RichText::new(format!("{}.", index + 1))
+                                            .size(16.0),
+                                    );
                                 },
                             );
 
-                            // Word input - disable if wallet already created
+                            // Word input - wider and larger font
                             let enabled = !self.wallet_created
                                 && (self.edit_enabled
                                     || self.mode != MnemonicMode::Generate
@@ -316,7 +327,8 @@ impl MnemonicInterface {
                             ui.add_enabled(
                                 enabled,
                                 egui::TextEdit::singleline(&mut self.words[index])
-                                    .desired_width(120.0)
+                                    .desired_width(180.0)
+                                    .font(egui::TextStyle::Body)
                                     .hint_text("word"),
                             );
                         } else {
@@ -324,7 +336,8 @@ impl MnemonicInterface {
                             ui.label("");
                             ui.add_enabled(
                                 false,
-                                egui::TextEdit::singleline(&mut String::new()).desired_width(120.0),
+                                egui::TextEdit::singleline(&mut String::new())
+                                    .desired_width(180.0),
                             );
                         }
                     }
