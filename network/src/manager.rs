@@ -503,6 +503,10 @@ impl PeerManager {
             .collect()
     }
 
+    pub async fn get_peers(&self) -> Vec<PeerInfo> {
+        self.peers.read().await.values().cloned().collect()
+    }
+
     pub async fn broadcast_transaction(&self, tx: TransactionMessage) -> Result<usize, String> {
         let peers = self.peers.read().await;
         let peer_count = peers.len();

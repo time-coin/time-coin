@@ -414,6 +414,12 @@ impl WalletApp {
         ) {
             Ok(manager) => {
                 log::info!("Wallet manager created successfully");
+                // Verify xpub is set
+                if let Some(xpub) = manager.get_xpub() {
+                    log::info!("Wallet created with xpub: {}", xpub);
+                } else {
+                    log::error!("WARNING: Wallet created but xpub is missing!");
+                }
                 self.wallet_manager = Some(manager);
 
                 // Initialize wallet database

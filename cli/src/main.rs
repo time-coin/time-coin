@@ -1518,6 +1518,29 @@ async fn main() {
                                                         peer_ip_listen, height, &hash[..16]);
                                                     // Could trigger sync here if our height is lower
                                                 }
+                                                time_network::protocol::NetworkMessage::GetPeerList => {
+                                                    // Respond with our known peers
+                                                    let peers = peer_manager_listen.get_peers().await;
+                                                    let peer_list: Vec<time_network::protocol::PeerAddress> = peers
+                                                        .iter()
+                                                        .map(|p| time_network::protocol::PeerAddress {
+                                                            ip: p.address.ip().to_string(),
+                                                            port: p.address.port(),
+                                                            version: p.version.clone(),
+                                                        })
+                                                        .collect();
+
+                                                    if peer_manager_listen
+                                                        .send_message_to_peer(
+                                                            SocketAddr::new(peer_ip_listen, 24100),
+                                                            time_network::protocol::NetworkMessage::PeerList(peer_list),
+                                                        )
+                                                        .await
+                                                        .is_err()
+                                                    {
+                                                        // Silently ignore send failures
+                                                    }
+                                                }
                                                 _ => {
                                                     // Handle other messages if needed
                                                 }
