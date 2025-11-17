@@ -1892,6 +1892,14 @@ impl BlockProducer {
         use time_core::block::{Block, BlockHeader};
 
         let mut blockchain = self.blockchain.write().await;
+        
+        // Check if block already exists at this height
+        if let Some(existing_block) = blockchain.get_block_by_height(block_num) {
+            println!("      ℹ️  Block #{} already exists (hash: {}...), skipping creation", 
+                block_num, &existing_block.hash[..16]);
+            return true; // Not an error, just already done
+        }
+        
         let previous_hash = blockchain.chain_tip_hash().to_string();
         let masternode_counts = blockchain.masternode_counts().clone();
 

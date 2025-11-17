@@ -232,6 +232,35 @@ enum WalletCommands {
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
+
+    /// Send coins from one address to another
+    SendFrom {
+        /// Source address (from)
+        from: String,
+
+        /// Destination address (to)
+        to: String,
+
+        /// Amount to send in TIME
+        amount: f64,
+
+        /// Database path
+        #[arg(long, default_value = "/var/lib/time-coin/wallets")]
+        db_path: PathBuf,
+    },
+
+    /// Send coins to an address (automatically selects from available UTXOs)
+    Send {
+        /// Destination address
+        to: String,
+
+        /// Amount to send in TIME
+        amount: f64,
+
+        /// Database path
+        #[arg(long, default_value = "/var/lib/time-coin/wallets")]
+        db_path: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1046,6 +1075,97 @@ async fn handle_wallet_command(
             } else {
                 println!("Address: {}", addr);
                 println!("This wallet command requires local database access");
+            }
+        }
+
+        WalletCommands::SendFrom {
+            from,
+            to,
+            amount,
+            db_path: _,
+        } => {
+            // Create transaction via API
+            let client = reqwest::Client::new();
+            let response = client
+                .post(format!("{}/wallet/send", api))
+                .json(&json!({
+                    "from": from,
+                    "to": to,
+                    "amount": amount
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✓ Transaction created successfully");
+                    println!("From:   {}", from);
+                    println!("To:     {}", to);
+                    println!("Amount: {} TIME", amount);
+                    if let Some(txid) = result.get("txid") {
+                        println!("TxID:   {}", txid);
+                    }
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("✗ Failed to send transaction: {}", error);
+                }
+            }
+        }
+
+        WalletCommands::Send {
+            to,
+            amount,
+            db_path: _,
+        } => {
+            // Create transaction via API (without specifying from address)
+            let client = reqwest::Client::new();
+            let response = client
+                .post(format!("{}/wallet/send", api))
+                .json(&json!({
+                    "to": to,
+                    "amount": amount
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+                
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✓ Transaction created successfully");
+                    println!("To:     {}", to);
+                    println!("Amount: {} TIME", amount);
+                    if let Some(txid) = result.get("txid") {
+                        println!("TxID:   {}", txid);
+                    }
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("✗ Failed to send transaction: {}", error);
+                }
             }
         }
 

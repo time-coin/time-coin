@@ -355,7 +355,7 @@ impl ChainSync {
                                     // InvalidCoinbase: Don't quarantine, just log and skip
                                     // This could be due to:
                                     // - Different network rules (mainnet vs testnet coinbase acceptance)
-                                    // - Sync timing issues  
+                                    // - Sync timing issues
                                     // - Temporary network inconsistencies
                                     // We discard this block and maintain network integrity
                                     println!(
@@ -380,7 +380,10 @@ impl ChainSync {
                                             )
                                             .await;
                                     }
-                                    return Err(format!("Failed to import block {}: {:?}", height, e));
+                                    return Err(format!(
+                                        "Failed to import block {}: {:?}",
+                                        height, e
+                                    ));
                                 }
                             }
                         }

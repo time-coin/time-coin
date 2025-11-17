@@ -54,7 +54,7 @@ fn default_bootstrap_nodes() -> Vec<String> {
     std::env::var("TIMECOIN_BOOTSTRAP_NODES")
         .ok()
         .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_else(Vec::new)
+        .unwrap_or_default()
 }
 
 fn default_api_endpoint() -> String {

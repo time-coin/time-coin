@@ -31,6 +31,9 @@ pub struct MnemonicInterface {
 
     // Edit mode
     pub edit_enabled: bool,
+    
+    // Wallet creation tracking
+    pub wallet_created: bool, // True after wallet is created from this phrase
 }
 
 impl Default for MnemonicInterface {
@@ -45,6 +48,7 @@ impl Default for MnemonicInterface {
             validation_error: None,
             is_valid: false,
             edit_enabled: false,
+            wallet_created: false,
         }
     }
 }
@@ -64,14 +68,30 @@ impl MnemonicInterface {
 
     /// Generate new mnemonic phrase
     pub fn generate_mnemonic(&mut self) -> Result<(), String> {
-        match WalletManager::generate_mnemonic() {
+        // Generate 24 words if requested, otherwise 12
+        let word_count = if self.use_24_words { 24 } else { 12 };
+        
+        // Note: WalletManager::generate_mnemonic() generates 12 words by default
+        // For now, if 24 words are requested, we generate two 12-word phrases
+        // TODO: Update WalletManager to support 24-word generation properly
+        let phrase = if word_count == 24 {
+            // Generate two 12-word mnemonics and combine (temporary solution)
+            match (WalletManager::generate_mnemonic(), WalletManager::generate_mnemonic()) {
+                (Ok(p1), Ok(p2)) => {
+                    let combined = format!("{} {}", p1, p2);
+                    Ok(combined)
+                }
+                _ => Err("Failed to generate 24-word mnemonic".to_string())
+            }
+        } else {
+            WalletManager::generate_mnemonic().map_err(|e| e.to_string())
+        };
+
+        match phrase {
             Ok(phrase) => {
                 self.generated_phrase = Some(phrase.clone());
                 self.words = phrase.split_whitespace().map(|s| s.to_string()).collect();
-
-                // Pad to 12 or 24 words if needed
-                let target = if self.use_24_words { 24 } else { 12 };
-                self.words.resize(target, String::new());
+                self.words.resize(word_count, String::new());
 
                 self.is_valid = true;
                 self.validation_error = None;
@@ -184,6 +204,22 @@ impl MnemonicInterface {
                 if let Err(e) = self.generate_mnemonic() {
                     self.validation_error = Some(e);
                 }
+                self.edit_enabled = false; // Disable editing on new generation
+            }
+
+            // Show "Enable Editing" button after generation (only if wallet not created)
+            if !self.wallet_created && self.mode == MnemonicMode::Generate && self.generated_phrase.is_some() && !self.edit_enabled {
+                if ui.button("Enable Editing").clicked() {
+                    self.edit_enabled = true;
+                }
+            }
+            
+            // Show warning if wallet already created
+            if self.wallet_created {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 165, 0),
+                    "⚠️ Wallet created - phrase cannot be modified"
+                );
             }
 
             if ui.button("Clear All").clicked() {
@@ -251,25 +287,27 @@ impl MnemonicInterface {
 
         egui::Grid::new("mnemonic_grid")
             .num_columns(num_columns * 2) // Label + input for each column
-            .spacing([10.0, 5.0])
-            .min_col_width(150.0) // Ensure consistent column width
+            .spacing([2.0, 5.0]) // Minimal horizontal spacing between number and box
             .show(ui, |ui| {
                 for row in 0..words_per_column {
                     for col in 0..num_columns {
-                        // Row-major ordering: index goes 1,2,3... sequentially left to right
+                        // Row-major ordering: numbers go across rows (1-2 top row, 3-4 next, etc.)
                         let index = row * num_columns + col;
                         if index < total_words {
-                            // Word number
-                            ui.label(format!("{}.", index + 1));
+                            // Word number - right-aligned next to the text box
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(format!("{}.", index + 1));
+                            });
 
-                            // Word input
-                            let enabled = self.edit_enabled
-                                || self.mode != MnemonicMode::Generate
-                                || self.generated_phrase.is_none();
+                            // Word input - disable if wallet already created
+                            let enabled = !self.wallet_created
+                                && (self.edit_enabled
+                                    || self.mode != MnemonicMode::Generate
+                                    || self.generated_phrase.is_none());
                             ui.add_enabled(
                                 enabled,
                                 egui::TextEdit::singleline(&mut self.words[index])
-                                    .desired_width(150.0) // Increased from 120.0 to show full words
+                                    .desired_width(120.0)
                                     .hint_text("word"),
                             );
                         } else {
@@ -277,7 +315,7 @@ impl MnemonicInterface {
                             ui.label("");
                             ui.add_enabled(
                                 false,
-                                egui::TextEdit::singleline(&mut String::new()).desired_width(150.0),
+                                egui::TextEdit::singleline(&mut String::new()).desired_width(120.0),
                             );
                         }
                     }
@@ -288,7 +326,7 @@ impl MnemonicInterface {
 
     /// Render print dialog
     fn render_print_dialog(&mut self, ctx: &egui::Context) {
-        egui::Window::new("🖨️ Print Mnemonic Phrase")
+        egui::Window::new("Print Mnemonic Phrase")
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {

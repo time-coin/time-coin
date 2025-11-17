@@ -936,44 +936,53 @@ async fn receive_block_proposal(
 
         // Get my node ID from environment
         if let Ok(my_id) = std::env::var("NODE_PUBLIC_IP") {
-            // Auto-vote if I'm not the proposer
+            // Auto-vote if I'm not the proposer and haven't voted already
             if my_id != block_proposal.proposer {
-                println!("   🗳️  Auto-voting on received proposal...");
-
-                // Validate the proposal
-                let blockchain = state.blockchain.read().await;
-                let chain_tip_hash = blockchain.chain_tip_hash().to_string();
-                let chain_tip_height = blockchain.chain_tip_height();
-                drop(blockchain);
-
-                let is_valid = block_consensus.validate_proposal(
-                    &block_proposal,
-                    &chain_tip_hash,
-                    chain_tip_height,
-                );
-
-                // Create and register vote
-                let vote = time_consensus::block_consensus::BlockVote {
-                    block_height: block_proposal.block_height,
-                    block_hash: block_proposal.block_hash.clone(),
-                    voter: my_id.clone(),
-                    approve: is_valid,
-                    timestamp: chrono::Utc::now().timestamp(),
-                };
-
-                if let Err(e) = block_consensus.vote_on_block(vote.clone()).await {
-                    println!("   ⚠️  Failed to record vote: {}", e);
+                // Check if we already voted
+                let already_voted = block_consensus
+                    .has_voted(&my_id, block_proposal.block_height, &block_proposal.block_hash)
+                    .await;
+                
+                if already_voted {
+                    println!("   ℹ️  Already voted on this proposal - skipping");
                 } else {
-                    let vote_type = if is_valid {
-                        "APPROVE ✓"
-                    } else {
-                        "REJECT ✗"
-                    };
-                    println!("   ✓ Auto-voted: {}", vote_type);
+                    println!("   🗳️  Auto-voting on received proposal...");
 
-                    // Broadcast the vote
-                    let vote_json = serde_json::to_value(&vote).unwrap();
-                    state.peer_manager.broadcast_block_vote(vote_json).await;
+                    // Validate the proposal
+                    let blockchain = state.blockchain.read().await;
+                    let chain_tip_hash = blockchain.chain_tip_hash().to_string();
+                    let chain_tip_height = blockchain.chain_tip_height();
+                    drop(blockchain);
+
+                    let is_valid = block_consensus.validate_proposal(
+                        &block_proposal,
+                        &chain_tip_hash,
+                        chain_tip_height,
+                    );
+
+                    // Create and register vote
+                    let vote = time_consensus::block_consensus::BlockVote {
+                        block_height: block_proposal.block_height,
+                        block_hash: block_proposal.block_hash.clone(),
+                        voter: my_id.clone(),
+                        approve: is_valid,
+                        timestamp: chrono::Utc::now().timestamp(),
+                    };
+
+                    if let Err(e) = block_consensus.vote_on_block(vote.clone()).await {
+                        println!("   ⚠️  Failed to record vote: {}", e);
+                    } else {
+                        let vote_type = if is_valid {
+                            "APPROVE ✓"
+                        } else {
+                            "REJECT ✗"
+                        };
+                        println!("   ✓ Auto-voted: {}", vote_type);
+
+                        // Broadcast the vote
+                        let vote_json = serde_json::to_value(&vote).unwrap();
+                        state.peer_manager.broadcast_block_vote(vote_json).await;
+                    }
                 }
             }
         }
@@ -1039,10 +1048,10 @@ async fn receive_block_vote(
             .has_block_consensus(block_vote.block_height, &block_vote.block_hash)
             .await;
 
+        let required = (total * 2).div_ceil(3);
         if has_consensus {
-            println!("   ✅ CONSENSUS REACHED ({}/{})", approvals, total);
+            println!("   ✅ CONSENSUS REACHED ({}/{})", approvals, required);
         } else {
-            let required = (total * 2).div_ceil(3);
             println!(
                 "   ⏳ Waiting... ({}/{}, need {})",
                 approvals, total, required

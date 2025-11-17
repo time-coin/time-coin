@@ -1054,6 +1054,22 @@ pub mod block_consensus {
             (false, 0, total_nodes)
         }
 
+        /// Check if a voter has already voted on a specific block
+        pub async fn has_voted(
+            &self,
+            voter: &str,
+            block_height: u64,
+            block_hash: &str,
+        ) -> bool {
+            let votes = self.votes.read().await;
+            if let Some(height_votes) = votes.get(&block_height) {
+                if let Some(vote_list) = height_votes.get(block_hash) {
+                    return vote_list.iter().any(|v| v.voter == voter);
+                }
+            }
+            false
+        }
+
         /// Register peer version WITH build info when they connect
         pub async fn register_peer_version_with_build_info(
             &self,

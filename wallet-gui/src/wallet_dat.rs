@@ -1,4 +1,4 @@
-//! wallet.dat File Format
+//! time-wallet.dat File Format
 //!
 //! Similar to Bitcoin's wallet.dat, this file stores all keys and wallet metadata.
 //! Currently uses unencrypted bincode serialization, with structure ready for future encryption.
@@ -48,9 +48,18 @@ pub struct KeyEntry {
     pub created_at: i64,
     /// Whether this is the default key
     pub is_default: bool,
+    /// Optional: Name for address book
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Optional: Email for address book
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Optional: Phone for address book
+    #[serde(default)]
+    pub phone: Option<String>,
 }
 
-/// wallet.dat file format
+/// time-wallet.dat file format
 /// This structure will be encrypted in future versions
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WalletDat {
@@ -70,16 +79,17 @@ pub struct WalletDat {
     /// Future: encrypted flag (placeholder for now)
     #[serde(default)]
     pub is_encrypted: bool,
-    /// BIP-39 mnemonic phrase (if wallet was created from mnemonic)
+    /// Encrypted mnemonic phrase for HD wallet (only stored if wallet was created from mnemonic)
+    /// In future, this will be properly encrypted. For now it's base64 encoded.
     #[serde(default)]
-    pub mnemonic_phrase: Option<String>,
+    pub encrypted_mnemonic: Option<String>,
 }
 
 impl WalletDat {
-    /// Current wallet.dat format version
+    /// Current time-wallet.dat format version
     pub const VERSION: u32 = 1;
 
-    /// Create a new empty wallet.dat
+    /// Create a new empty time-wallet.dat
     pub fn new(network: NetworkType) -> Self {
         let now = chrono::Utc::now().timestamp();
         Self {
@@ -90,7 +100,7 @@ impl WalletDat {
             modified_at: now,
             encryption_salt: None,
             is_encrypted: false,
-            mnemonic_phrase: None,
+            encrypted_mnemonic: None,
         }
     }
 
@@ -138,6 +148,9 @@ impl WalletDat {
             label,
             created_at: chrono::Utc::now().timestamp(),
             is_default,
+            name: None,
+            email: None,
+            phone: None,
         };
 
         self.keys.push(entry);
@@ -208,11 +221,33 @@ impl WalletDat {
             return Err(WalletDatError::WalletNotFound);
         }
 
-        let data = fs::read(path)?;
-        let wallet: Self = bincode::deserialize(&data)
-            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
-
-        Ok(wallet)
+        let data = fs::read(path.as_ref())?;
+        
+        // Try to deserialize the wallet
+        match bincode::deserialize::<Self>(&data) {
+            Ok(wallet) => Ok(wallet),
+            Err(e) => {
+                // If deserialization fails, it might be an old format
+                // Try to migrate from old wallet.dat format
+                eprintln!("Warning: Wallet file format mismatch. Attempting migration...");
+                eprintln!("Error details: {}", e);
+                
+                // Backup the old file
+                let backup_path = path.as_ref().with_extension(format!(
+                    "dat.backup.{}",
+                    chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                ));
+                fs::copy(path.as_ref(), &backup_path)?;
+                eprintln!("✓ Old wallet backed up to: {:?}", backup_path);
+                
+                // Return error with helpful message
+                Err(WalletDatError::SerializationError(format!(
+                    "Wallet file format is incompatible. Your old wallet has been backed up to {:?}. \
+                    Please delete the wallet file and create a new one, or restore from your recovery phrase.",
+                    backup_path
+                )))
+            }
+        }
     }
 
     /// Get the default wallet path for the given network
@@ -222,7 +257,7 @@ impl WalletDat {
             NetworkType::Mainnet => "mainnet",
             NetworkType::Testnet => "testnet",
         };
-        data_dir.join(network_dir).join("wallet.dat")
+        data_dir.join(network_dir).join("time-wallet.dat")
     }
 
     /// Get the TIME Coin data directory

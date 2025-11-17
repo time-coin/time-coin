@@ -7,6 +7,7 @@ use crate::keypair::{Keypair, KeypairError};
 use bip39::{Language, Mnemonic};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use bip32::{DerivationPath, XPrv};
 
 #[derive(Debug, Error)]
 pub enum MnemonicError {
@@ -18,6 +19,9 @@ pub enum MnemonicError {
 
     #[error("Invalid word count: {0} (must be 12, 15, 18, 21, or 24)")]
     InvalidWordCount(usize),
+
+    #[error("Derivation error: {0}")]
+    DerivationError(String),
 }
 
 /// Generate a new random mnemonic phrase with the specified number of words.
@@ -101,6 +105,62 @@ pub fn mnemonic_to_keypair(phrase: &str, passphrase: &str) -> Result<Keypair, Mn
 
     let mut key_array = [0u8; 32];
     key_array.copy_from_slice(&key_bytes[..32]);
+
+    Keypair::from_bytes(&key_array).map_err(MnemonicError::KeypairError)
+}
+
+/// Derive a keypair from a mnemonic phrase using BIP-32/BIP-44 derivation path
+///
+/// # Arguments
+/// * `phrase` - The mnemonic phrase (space-separated words)
+/// * `passphrase` - Optional passphrase for additional security (use "" for none)
+/// * `account_index` - Account index for BIP-44 derivation (typically 0)
+///
+/// # Returns
+/// * `Result<Keypair, MnemonicError>` - The derived keypair
+///
+/// # Example
+/// ```
+/// use wallet::mnemonic::{generate_mnemonic, mnemonic_to_keypair_hd};
+///
+/// let mnemonic = generate_mnemonic(12).unwrap();
+/// let keypair = mnemonic_to_keypair_hd(&mnemonic, "", 0).unwrap();
+/// ```
+pub fn mnemonic_to_keypair_hd(
+    phrase: &str,
+    passphrase: &str,
+    account_index: u32,
+) -> Result<Keypair, MnemonicError> {
+    // Parse mnemonic
+    let mnemonic = Mnemonic::parse_in(Language::English, phrase)
+        .map_err(|e| MnemonicError::InvalidMnemonic(e.to_string()))?;
+
+    // Convert to seed (512 bits / 64 bytes)
+    let seed = mnemonic.to_seed(passphrase);
+
+    // Create extended private key from seed
+    let xprv = XPrv::new(&seed).map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+
+    // BIP-44 path: m/44'/coin_type'/account'/change/address_index
+    // For TIME Coin, we'll use coin_type = 0 (or register a specific one later)
+    // For receiving addresses: change = 0, for change addresses: change = 1
+    let path_str = format!("m/44'/0'/{}'", account_index);
+    let path: DerivationPath = path_str
+        .parse()
+        .map_err(|e: bip32::Error| MnemonicError::DerivationError(e.to_string()))?;
+
+    // Derive the key using iterator approach
+    let mut current_key = xprv;
+    for child_number in path.as_ref() {
+        current_key = current_key
+            .derive_child(*child_number)
+            .map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+    }
+
+    // Get the private key bytes
+    let private_key_bytes = current_key.private_key().to_bytes();
+    let mut key_array = [0u8; 32];
+    key_array.copy_from_slice(&private_key_bytes);
 
     Keypair::from_bytes(&key_array).map_err(MnemonicError::KeypairError)
 }

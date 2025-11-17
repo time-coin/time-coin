@@ -1,6 +1,6 @@
 //! Wallet Manager
 //!
-//! Manages wallet.dat file and provides high-level wallet operations
+//! Manages time-wallet.dat file and provides high-level wallet operations
 
 use crate::wallet_dat::{KeyEntry, WalletDat, WalletDatError};
 use std::path::PathBuf;
@@ -35,6 +35,7 @@ impl WalletManager {
     }
 
     /// Create a wallet from a BIP-39 mnemonic phrase
+    /// NOTE: The mnemonic is NOT stored in the wallet file for security
     pub fn create_from_mnemonic(
         network: NetworkType,
         mnemonic: &str,
@@ -52,8 +53,8 @@ impl WalletManager {
         let wallet_path = WalletDat::ensure_data_dir(network)?;
         let mut wallet_dat = WalletDat::new(network);
 
-        // Store the mnemonic in wallet_dat
-        wallet_dat.mnemonic_phrase = Some(mnemonic.to_string());
+        // DO NOT store the mnemonic - it should only be shown during creation
+        // The user must write it down and keep it safe offline
 
         // Add the keypair from the mnemonic
         let keypair = Keypair::from_secret_key(&wallet.secret_key())?;
@@ -82,11 +83,6 @@ impl WalletManager {
     pub fn validate_mnemonic(phrase: &str) -> Result<(), WalletDatError> {
         wallet::validate_mnemonic(phrase)
             .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))
-    }
-
-    /// Get the mnemonic phrase if the wallet was created from one
-    pub fn get_mnemonic(&self) -> Option<String> {
-        self.wallet_dat.mnemonic_phrase.clone()
     }
 
     /// Load existing wallet from default path
@@ -132,7 +128,7 @@ impl WalletManager {
         self.active_wallet.as_mut()
     }
 
-    /// Get wallet.dat reference
+    /// Get time-wallet.dat reference
     pub fn wallet_dat(&self) -> &WalletDat {
         &self.wallet_dat
     }
@@ -223,7 +219,7 @@ impl WalletManager {
         }
     }
 
-    /// Save wallet.dat to disk
+    /// Save time-wallet.dat to disk
     pub fn save(&self) -> Result<(), WalletDatError> {
         self.wallet_dat.save(&self.wallet_path)
     }

@@ -1,6 +1,6 @@
 use crate::address::{Address, AddressError, NetworkType};
 use crate::keypair::{Keypair, KeypairError};
-use crate::mnemonic::{mnemonic_to_keypair, MnemonicError};
+use crate::mnemonic::{mnemonic_to_keypair, mnemonic_to_keypair_hd, MnemonicError};
 use crate::transaction::{Transaction, TransactionError, TxInput, TxOutput};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -55,6 +55,12 @@ pub struct Wallet {
     nonce: u64,
     #[serde(default)]
     utxos: Vec<UTXO>,
+    #[serde(default)]
+    additional_addresses: Vec<(Keypair, Address)>,
+    #[serde(default)]
+    mnemonic_phrase: Option<String>,
+    #[serde(default)]
+    next_address_index: u32,
 }
 
 impl Wallet {
@@ -71,6 +77,9 @@ impl Wallet {
             balance: 0,
             nonce: 0,
             utxos: Vec::new(),
+            additional_addresses: Vec::new(),
+            mnemonic_phrase: None,
+            next_address_index: 0,
         })
     }
 
@@ -87,6 +96,9 @@ impl Wallet {
             balance: 0,
             nonce: 0,
             utxos: Vec::new(),
+            additional_addresses: Vec::new(),
+            mnemonic_phrase: None,
+            next_address_index: 0,
         })
     }
 
@@ -103,6 +115,9 @@ impl Wallet {
             balance: 0,
             nonce: 0,
             utxos: Vec::new(),
+            additional_addresses: Vec::new(),
+            mnemonic_phrase: None,
+            next_address_index: 0,
         })
     }
 
@@ -139,6 +154,9 @@ impl Wallet {
             balance: 0,
             nonce: 0,
             utxos: Vec::new(),
+            additional_addresses: Vec::new(),
+            mnemonic_phrase: Some(mnemonic.to_string()),
+            next_address_index: 0,
         })
     }
 
@@ -224,6 +242,41 @@ impl Wallet {
     /// Get all UTXOs
     pub fn utxos(&self) -> &[UTXO] {
         &self.utxos
+    }
+
+    /// Generate a new receiving address (HD wallet derivation if mnemonic exists)
+    pub fn generate_new_address(&mut self) -> Result<String, WalletError> {
+        let (keypair, address) = if let Some(ref mnemonic) = self.mnemonic_phrase {
+            // Use HD wallet derivation
+            let account_index = self.next_address_index;
+            self.next_address_index += 1;
+
+            let keypair = mnemonic_to_keypair_hd(mnemonic, "", account_index)?;
+            let public_key = keypair.public_key_bytes();
+            let address = Address::from_public_key(&public_key, self.network)?;
+            (keypair, address)
+        } else {
+            // Fall back to random generation for non-mnemonic wallets
+            let keypair = Keypair::generate()?;
+            let public_key = keypair.public_key_bytes();
+            let address = Address::from_public_key(&public_key, self.network)?;
+            (keypair, address)
+        };
+
+        let address_string = address.to_string();
+        self.additional_addresses.push((keypair, address));
+        Ok(address_string)
+    }
+
+    /// Get all addresses (primary + additional)
+    pub fn get_all_addresses(&self) -> Vec<String> {
+        let mut addresses = vec![self.address.to_string()];
+        addresses.extend(
+            self.additional_addresses
+                .iter()
+                .map(|(_, addr)| addr.to_string()),
+        );
+        addresses
     }
 
     /// Create a transaction with fee support

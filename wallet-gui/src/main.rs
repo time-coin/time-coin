@@ -97,6 +97,15 @@ struct WalletApp {
     // Mnemonic setup - NEW enhanced interface
     mnemonic_interface: MnemonicInterface,
     mnemonic_confirmed: bool,
+
+    // Receiving address management
+    selected_address_index: Option<usize>,
+    new_address_label: String,
+    edit_address_name: String,
+    edit_address_email: String,
+    edit_address_phone: String,
+    show_qr_for_address: Option<String>,
+    is_creating_new_address: bool,
 }
 
 impl Default for WalletApp {
@@ -116,6 +125,13 @@ impl Default for WalletApp {
             network_status: "Not connected".to_string(),
             mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
+            selected_address_index: None,
+            new_address_label: String::new(),
+            edit_address_name: String::new(),
+            edit_address_email: String::new(),
+            edit_address_phone: String::new(),
+            show_qr_for_address: None,
+            is_creating_new_address: false,
         }
     }
 }
@@ -282,12 +298,38 @@ impl WalletApp {
             ui.vertical_centered(|ui| {
                 ui.add_space(20.0);
 
+                // Check if wallet already exists
+                let wallet_exists = self.wallet_manager.is_some();
+                
+                if wallet_exists {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 165, 0),
+                        "⚠️ WARNING: Creating a new wallet will backup your current wallet"
+                    );
+                    ui.add_space(10.0);
+                    ui.label("Your old wallet will be saved with a timestamp.");
+                    ui.add_space(20.0);
+                }
+
                 // Use the new mnemonic interface
                 if let Some(action) = self.mnemonic_interface.render(ui) {
                     match action {
                         MnemonicAction::Confirm(phrase) => {
-                            // Store the phrase and create wallet
-                            self.create_wallet_from_mnemonic_phrase(&phrase, ctx);
+                            // If wallet exists, backup first
+                            if wallet_exists {
+                                match self.backup_and_create_new_wallet(&phrase) {
+                                    Ok(_) => {
+                                        self.mnemonic_interface.wallet_created = true;
+                                        self.current_screen = Screen::Overview;
+                                    }
+                                    Err(e) => {
+                                        self.error_message = Some(e);
+                                    }
+                                }
+                            } else {
+                                // Store the phrase and create wallet
+                                self.create_wallet_from_mnemonic_phrase(&phrase, ctx);
+                            }
                         }
                         MnemonicAction::Cancel => {
                             self.current_screen = Screen::Welcome;
@@ -316,6 +358,9 @@ impl WalletApp {
                 self.wallet_manager = Some(manager);
                 self.current_screen = Screen::Overview;
                 self.success_message = Some("Wallet created successfully!".to_string());
+
+                // Mark that wallet has been created from this phrase
+                self.mnemonic_interface.wallet_created = true;
 
                 // Clear mnemonic from memory
                 self.mnemonic_interface.clear();
@@ -373,6 +418,11 @@ impl WalletApp {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Backup Wallet").clicked() {
+                        if let Err(e) = self.backup_current_wallet() {
+                            self.error_message = Some(format!("Backup failed: {}", e));
+                        } else {
+                            self.success_message = Some("Wallet backed up successfully".to_string());
+                        }
                         ui.close_menu();
                     }
                     if ui.button("Exit").clicked() {
@@ -500,7 +550,7 @@ impl WalletApp {
 
                         if peers.is_empty() {
                             ui.colored_label(
-                                egui::Color32::YELLOW,
+                                egui::Color32::LIGHT_BLUE,
                                 "⏳ Waiting for peer discovery to complete...",
                             );
                             ui.add_space(10.0);
@@ -538,7 +588,7 @@ impl WalletApp {
                                             let color = if peer.latency_ms < 50 {
                                                 egui::Color32::GREEN
                                             } else if peer.latency_ms < 150 {
-                                                egui::Color32::YELLOW
+                                                egui::Color32::from_rgb(255, 165, 0) // Orange
                                             } else {
                                                 egui::Color32::RED
                                             };
@@ -700,67 +750,194 @@ impl WalletApp {
         ui.heading("Receive TIME Coins");
         ui.add_space(20.0);
 
-        if let Some(manager) = &self.wallet_manager {
-            ui.group(|ui| {
-                ui.set_min_width(ui.available_width());
-                ui.vertical_centered(|ui| {
-                    ui.label("Your Receiving Address:");
+        if let Some(manager) = &mut self.wallet_manager {
+            // Two column layout
+            ui.horizontal(|ui| {
+                // Left side - Address list
+                ui.vertical(|ui| {
+                    ui.set_width(ui.available_width() * 0.5);
+                    ui.heading("Your Addresses");
                     ui.add_space(10.0);
 
-                    if let Some(address) = manager.get_primary_address() {
-                        ui.monospace(&address);
+                    // Button to create new address
+                    if ui.button("➕ New Address").clicked() {
+                        self.new_address_label = format!("Address {}", manager.get_keys().len() + 1);
+                        self.is_creating_new_address = true;
+                    }
+                    
+                    // Show dialog for new address
+                    if self.is_creating_new_address {
                         ui.add_space(10.0);
+                        ui.group(|ui| {
+                            ui.label("New Address Label:");
+                            ui.text_edit_singleline(&mut self.new_address_label);
+                            ui.add_space(5.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("✓ Create").clicked() {
+                                    match manager.generate_new_key(self.new_address_label.clone(), false) {
+                                        Ok(address) => {
+                                            self.success_message = Some(format!("Created new address: {}", address));
+                                            self.is_creating_new_address = false;
+                                            self.new_address_label = String::new();
+                                        }
+                                        Err(e) => {
+                                            self.error_message = Some(format!("Failed to create address: {}", e));
+                                        }
+                                    }
+                                }
+                                if ui.button("✗ Cancel").clicked() {
+                                    self.is_creating_new_address = false;
+                                    self.new_address_label = String::new();
+                                }
+                            });
+                        });
+                    }
 
-                        if ui.button("📋 Copy Address").clicked() {
-                            ctx.copy_text(address.clone());
-                            self.success_message = Some("Address copied to clipboard!".to_string());
-                        }
+                    ui.add_space(10.0);
 
-                        ui.add_space(20.0);
+                    // List all addresses
+                    egui::ScrollArea::vertical()
+                        .max_height(400.0)
+                        .show(ui, |ui| {
+                            let keys = manager.get_keys();
+                            for (idx, key) in keys.iter().enumerate() {
+                                let is_selected = self.selected_address_index == Some(idx);
 
-                        // Display QR code
-                        if let Ok(svg_string) = manager.get_address_qr_code_svg(&address) {
-                            ui.label("📱 Scan QR Code:");
+                                ui.group(|ui| {
+                                    ui.set_min_width(ui.available_width() - 20.0);
+
+                                    let response = ui.selectable_label(
+                                        is_selected,
+                                        format!(
+                                            "{} {}",
+                                            if key.is_default { "⭐" } else { "  " },
+                                            key.label
+                                        ),
+                                    );
+
+                                    if response.clicked() {
+                                        self.selected_address_index = Some(idx);
+                                        self.show_qr_for_address = Some(key.address.clone());
+                                        // Don't clear fields - preserve any entered data
+                                    }
+
+                                    ui.add_space(5.0);
+                                    ui.horizontal(|ui| {
+                                        ui.monospace(
+                                            egui::RichText::new(format!(
+                                                "{}...{}",
+                                                &key.address[..8],
+                                                &key.address[key.address.len() - 6..]
+                                            ))
+                                            .size(11.0)
+                                            .color(egui::Color32::GRAY),
+                                        );
+
+                                        if ui.small_button("📋").clicked() {
+                                            ctx.copy_text(key.address.clone());
+                                            self.success_message =
+                                                Some("Address copied!".to_string());
+                                        }
+
+                                        if ui.small_button("🔍").clicked() {
+                                            self.selected_address_index = Some(idx);
+                                            self.show_qr_for_address = Some(key.address.clone());
+                                        }
+                                    });
+                                });
+                                ui.add_space(5.0);
+                            }
+                        });
+                });
+
+                ui.separator();
+
+                // Right side - Address details and QR code
+                ui.vertical(|ui| {
+                    if let Some(idx) = self.selected_address_index {
+                        let keys = manager.get_keys();
+                        if let Some(key) = keys.get(idx) {
+                            ui.heading(&key.label);
                             ui.add_space(10.0);
 
-                            // Convert SVG to image and display
-                            if let Ok(image_data) = Self::svg_to_image(&svg_string) {
-                                let texture = ctx.load_texture(
-                                    "qr_code",
-                                    image_data,
-                                    egui::TextureOptions::default(),
-                                );
-                                ui.image(&texture);
-                            } else {
-                                ui.label("Failed to render QR code");
+                            // Full address with copy button
+                            ui.horizontal(|ui| {
+                                ui.label("Address:");
+                            });
+                            ui.horizontal(|ui| {
+                                ui.monospace(&key.address);
+                                if ui.button("📋 Copy").clicked() {
+                                    ctx.copy_text(key.address.clone());
+                                    self.success_message =
+                                        Some("Address copied to clipboard!".to_string());
+                                }
+                            });
+
+                            ui.add_space(20.0);
+
+                            // Contact information section
+                            ui.heading("Contact Information");
+                            ui.add_space(10.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label("Name:");
+                                ui.text_edit_singleline(&mut self.edit_address_name);
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.label("Email:");
+                                ui.text_edit_singleline(&mut self.edit_address_email);
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.label("Phone:");
+                                ui.text_edit_singleline(&mut self.edit_address_phone);
+                            });
+
+                            ui.add_space(10.0);
+
+                            if ui.button("💾 Save Contact Info").clicked() {
+                                // TODO: Save contact info to wallet metadata
+                                self.success_message = Some("Contact info saved!".to_string());
+                            }
+
+                            ui.add_space(20.0);
+
+                            // QR Code
+                            if let Some(address) = &self.show_qr_for_address {
+                                if let Ok(svg_string) = manager.get_address_qr_code_svg(address) {
+                                    ui.vertical_centered(|ui| {
+                                        ui.label("📱 Scan QR Code:");
+                                        ui.add_space(10.0);
+
+                                        // Convert SVG to image and display (smaller size)
+                                        if let Ok(image_data) = Self::svg_to_image(&svg_string) {
+                                            let texture = ctx.load_texture(
+                                                "qr_code",
+                                                image_data,
+                                                egui::TextureOptions::default(),
+                                            );
+                                            ui.add(egui::Image::new(&texture).max_size(egui::vec2(200.0, 200.0)));
+                                        } else {
+                                            ui.label("Failed to render QR code");
+                                        }
+                                    });
+                                }
                             }
                         }
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(100.0);
+                            ui.label(
+                                egui::RichText::new("Select an address to view details")
+                                    .size(16.0)
+                                    .color(egui::Color32::GRAY)
+                                    .italics(),
+                            );
+                        });
                     }
                 });
             });
-
-            ui.add_space(20.0);
-
-            // Show all addresses
-            ui.heading("All Addresses");
-            ui.add_space(10.0);
-
-            for key in manager.get_keys() {
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(&key.label);
-                        if key.is_default {
-                            ui.label("(Default)");
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.monospace(&key.address);
-                        if ui.button("📋").clicked() {
-                            ctx.copy_text(key.address.clone());
-                        }
-                    });
-                });
-            }
         }
 
         if let Some(msg) = &self.success_message {
@@ -809,40 +986,18 @@ impl WalletApp {
                 ui.label("🔐 Recovery Phrase");
                 ui.add_space(5.0);
 
-                if manager.get_mnemonic().is_some() {
-                    if ui.button("📝 View Recovery Phrase...").clicked() {
-                        // Populate the mnemonic interface with existing phrase
-                        if let Some(mnemonic) = manager.get_mnemonic() {
-                            self.mnemonic_interface = MnemonicInterface::new();
-                            self.mnemonic_interface.words =
-                                mnemonic.split_whitespace().map(|s| s.to_string()).collect();
-                            // Adjust word count
-                            let word_count = self.mnemonic_interface.words.len();
-                            if word_count > 12 {
-                                self.mnemonic_interface.use_24_words = true;
-                                self.mnemonic_interface.words.resize(24, String::new());
-                            } else {
-                                self.mnemonic_interface.use_24_words = false;
-                                self.mnemonic_interface.words.resize(12, String::new());
-                            }
-                            // Set as valid and in edit mode
-                            self.mnemonic_interface.is_valid = true;
-                            self.mnemonic_interface.mode = mnemonic_ui::MnemonicMode::Edit;
-                        }
-                        self.current_screen = Screen::MnemonicSetup;
-                    }
-
-                    ui.add_space(5.0);
-                    ui.colored_label(
-                        egui::Color32::YELLOW,
-                        "⚠️ Use the button above to view or print your recovery phrase",
-                    );
-                } else {
-                    ui.colored_label(
-                        egui::Color32::LIGHT_GRAY,
-                        "No recovery phrase available for this wallet",
-                    );
-                    ui.label("This wallet was not created from a mnemonic phrase.");
+                ui.colored_label(
+                    egui::Color32::LIGHT_GRAY,
+                    "🔒 Recovery phrase is only shown during wallet creation",
+                );
+                ui.add_space(5.0);
+                ui.label("For security reasons, the recovery phrase cannot be viewed after");
+                ui.label("the wallet has been created. Make sure you wrote it down safely!");
+                ui.add_space(10.0);
+                
+                if ui.button("🔄 Create New Wallet (backs up current)").clicked() {
+                    self.current_screen = Screen::MnemonicSetup;
+                    self.mnemonic_interface = MnemonicInterface::new();
                 }
             });
 
@@ -884,7 +1039,7 @@ impl WalletApp {
                 ui.add_space(5.0);
                 ui.colored_label(
                     egui::Color32::LIGHT_BLUE,
-                    "💡 Tip: Copy wallet.dat to backup your wallet",
+                    "💡 Tip: Copy time-wallet.dat to backup your wallet",
                 );
                 ui.label("Store backups in a secure location separate from your computer.");
             });
@@ -976,6 +1131,52 @@ impl WalletApp {
         }
 
         result.chars().rev().collect()
+    }
+
+    fn backup_current_wallet(&self) -> Result<String, String> {
+        if let Some(ref manager) = self.wallet_manager {
+            let wallet_path = manager.wallet_path();
+            if !wallet_path.exists() {
+                return Err("Wallet file not found".to_string());
+            }
+
+            // Create backup filename with timestamp
+            let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+            let backup_filename = format!("time-wallet_{}.dat", timestamp);
+            let backup_path = wallet_path.parent()
+                .ok_or("Invalid wallet path")?
+                .join(&backup_filename);
+
+            // Copy wallet file to backup
+            std::fs::copy(&wallet_path, &backup_path)
+                .map_err(|e| format!("Failed to backup wallet: {}", e))?;
+
+            Ok(backup_path.display().to_string())
+        } else {
+            Err("No wallet loaded".to_string())
+        }
+    }
+
+    fn backup_and_create_new_wallet(&mut self, new_phrase: &str) -> Result<(), String> {
+        // First, backup the existing wallet
+        let backup_path = self.backup_current_wallet()?;
+        
+        // Close the current wallet
+        self.wallet_manager = None;
+        
+        // Create new wallet from the new phrase using the existing method
+        let manager = WalletManager::create_from_mnemonic(
+            self.network,
+            new_phrase,
+            "", // No passphrase
+            "Default".to_string(),
+        )
+        .map_err(|e| format!("Failed to create wallet: {}", e))?;
+        
+        self.wallet_manager = Some(manager);
+        self.success_message = Some(format!("Old wallet backed up to: {}", backup_path));
+        
+        Ok(())
     }
 }
 

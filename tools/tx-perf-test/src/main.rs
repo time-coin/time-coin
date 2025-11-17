@@ -152,10 +152,8 @@ async fn submit_transaction(
         anyhow::bail!("Transaction submission failed: {} - {}", status, body);
     }
 
-    let tx_response: TransactionResponse = response
-        .json()
-        .await
-        .context("Failed to parse response")?;
+    let tx_response: TransactionResponse =
+        response.json().await.context("Failed to parse response")?;
 
     if !tx_response.success {
         anyhow::bail!("Transaction rejected: {}", tx_response.message);
@@ -166,28 +164,25 @@ async fn submit_transaction(
 
 /// Generate testnet coins by creating a coinbase-like transaction
 /// This simulates minting coins for testing purposes in testnet/devnet
-async fn generate_testnet_coins(
-    wallet: &mut Wallet,
-    amount: u64,
-) -> Result<()> {
+async fn generate_testnet_coins(wallet: &mut Wallet, amount: u64) -> Result<()> {
     println!("💰 Generating {} testnet coins...", amount);
-    
+
     // Create a synthetic UTXO that simulates minted coins
     // In a real blockchain, this would be a coinbase transaction
     let mut tx_hash = [0u8; 32];
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
-    
+
     // Create a unique hash based on wallet address and timestamp
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(wallet.address_string().as_bytes());
-    hasher.update(&timestamp.to_le_bytes());
+    hasher.update(timestamp.to_le_bytes());
     hasher.update(b"testnet_mint");
     let hash_result = hasher.finalize();
     tx_hash.copy_from_slice(&hash_result[..32]);
-    
+
     // Add the UTXO to wallet
     let utxo = UTXO {
         tx_hash,
@@ -195,13 +190,16 @@ async fn generate_testnet_coins(
         amount,
         address: wallet.address_string(),
     };
-    
+
     wallet.add_utxo(utxo);
-    
-    println!("✅ Generated {} coins (new balance: {})", amount, wallet.balance());
+
+    println!(
+        "✅ Generated {} coins (new balance: {})",
+        amount,
+        wallet.balance()
+    );
     Ok(())
 }
-
 
 async fn run_performance_test(args: Args) -> Result<PerformanceReport> {
     println!("🚀 TIME Coin Transaction Performance Test");
@@ -227,7 +225,7 @@ async fn run_performance_test(args: Args) -> Result<PerformanceReport> {
 
     println!("✅ Wallet loaded: {}", wallet.address_string());
     println!("   Balance: {} TIME", wallet.balance());
-    
+
     // Generate testnet coins if requested
     if args.mint_coins > 0 {
         if network == NetworkType::Mainnet {
@@ -237,7 +235,7 @@ async fn run_performance_test(args: Args) -> Result<PerformanceReport> {
             .await
             .context("Failed to generate testnet coins")?;
     }
-    
+
     println!();
 
     // Check if we have enough funds
@@ -382,15 +380,16 @@ async fn run_performance_test(args: Args) -> Result<PerformanceReport> {
     );
     println!("Min submit time:      {} ms", report.min_submission_time_ms);
     println!("Max submit time:      {} ms", report.max_submission_time_ms);
-    println!("Throughput:           {:.2} TPS", report.transactions_per_second);
+    println!(
+        "Throughput:           {:.2} TPS",
+        report.transactions_per_second
+    );
     println!();
 
     // Save to file if requested
     if let Some(output_path) = &args.output {
-        let json = serde_json::to_string_pretty(&report)
-            .context("Failed to serialize report")?;
-        std::fs::write(output_path, json)
-            .context("Failed to write report to file")?;
+        let json = serde_json::to_string_pretty(&report).context("Failed to serialize report")?;
+        std::fs::write(output_path, json).context("Failed to write report to file")?;
         println!("✅ Report saved to: {}", output_path);
     }
 
