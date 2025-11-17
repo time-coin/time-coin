@@ -29,6 +29,8 @@ pub struct AddressContact {
     pub notes: Option<String>,
     pub is_default: bool,
     pub is_owned: bool, // true = my address (receive), false = external contact (send)
+    #[serde(default)]
+    pub derivation_index: Option<u32>, // For owned addresses derived from xpub
     pub created_at: i64,
     pub updated_at: i64,
 }

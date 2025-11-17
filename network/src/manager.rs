@@ -37,6 +37,8 @@ pub struct PeerManager {
     /// Track broadcast rate limiting (broadcasts per minute)
     broadcast_count: Arc<RwLock<u32>>,
     broadcast_count_reset: Arc<RwLock<Instant>>,
+    /// Track connected wallets and their xpubs for push notifications
+    wallet_subscriptions: Arc<RwLock<HashMap<String, Vec<IpAddr>>>>, // xpub -> connected peer IPs
 }
 
 impl PeerManager {
@@ -57,6 +59,7 @@ impl PeerManager {
             recent_peer_broadcasts: Arc::new(RwLock::new(HashMap::new())),
             broadcast_count: Arc::new(RwLock::new(0)),
             broadcast_count_reset: Arc::new(RwLock::new(Instant::now())),
+            wallet_subscriptions: Arc::new(RwLock::new(HashMap::new())),
         };
 
         manager.spawn_reaper();
@@ -1272,6 +1275,64 @@ impl PeerManager {
             }
         });
     }
+
+    /// Subscribe a wallet to transaction notifications
+    pub async fn subscribe_wallet(&self, xpub: &str, peer_ip: IpAddr) {
+        let mut subscriptions = self.wallet_subscriptions.write().await;
+        subscriptions
+            .entry(xpub.to_string())
+            .or_insert_with(Vec::new)
+            .push(peer_ip);
+        info!("Subscribed wallet {} to notifications for xpub: {}...", peer_ip, &xpub[..8]);
+    }
+
+    /// Unsubscribe a wallet (called when peer disconnects)
+    pub async fn unsubscribe_wallet(&self, peer_ip: IpAddr) {
+        let mut subscriptions = self.wallet_subscriptions.write().await;
+        subscriptions.retain(|_, peers| {
+            peers.retain(|ip| *ip != peer_ip);
+            !peers.is_empty()
+        });
+    }
+
+    /// Notify subscribed wallets about a new transaction
+    /// Call this when a transaction is added to mempool or confirmed in a block
+    pub async fn notify_wallet_transaction(&self, transaction: crate::protocol::WalletTransaction, _addresses: &[String]) {
+        let subscriptions = self.wallet_subscriptions.read().await;
+        
+        // For each address in the transaction, check if we have subscribed wallets
+        // Note: In practice, you'd derive addresses from each xpub and check matches
+        // For now, we'll notify all subscribed wallets as a placeholder
+        
+        if subscriptions.is_empty() {
+            return;
+        }
+
+        // Collect all subscribed peer IPs
+        let mut notified = std::collections::HashSet::new();
+        for peers in subscriptions.values() {
+            for peer_ip in peers {
+                notified.insert(*peer_ip);
+            }
+        }
+
+        // Send notification to each subscribed peer
+        for peer_ip in notified {
+            if let Err(e) = self
+                .send_message_to_peer(
+                    SocketAddr::new(peer_ip, 24100),
+                    crate::protocol::NetworkMessage::NewTransactionNotification {
+                        transaction: transaction.clone(),
+                    },
+                )
+                .await
+            {
+                debug!("Failed to send transaction notification to {}: {}", peer_ip, e);
+            } else {
+                info!("📬 Sent transaction notification to wallet at {}", peer_ip);
+            }
+        }
+    }
 }
 
 // Implement Clone trait for PeerManager so `.clone()` is idiomatic.
@@ -1290,6 +1351,7 @@ impl Clone for PeerManager {
             recent_peer_broadcasts: self.recent_peer_broadcasts.clone(),
             broadcast_count: self.broadcast_count.clone(),
             broadcast_count_reset: self.broadcast_count_reset.clone(),
+            wallet_subscriptions: self.wallet_subscriptions.clone(),
         }
     }
 }

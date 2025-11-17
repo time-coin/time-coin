@@ -1543,8 +1543,11 @@ async fn main() {
                                                         // Silently ignore send failures
                                                     }
                                                 }
-                                                time_network::protocol::NetworkMessage::RequestWalletTransactions { xpub: _ } => {
-                                                    println!("📨 Received wallet transaction request from {}", peer_ip_listen);
+                                                time_network::protocol::NetworkMessage::RequestWalletTransactions { xpub } => {
+                                                    println!("📨 Received wallet transaction request from {} for xpub: {}", peer_ip_listen, xpub);
+
+                                                    // Subscribe this peer to transaction notifications for this xpub
+                                                    peer_manager_listen.subscribe_wallet(&xpub, peer_ip_listen).await;
 
                                                     // TODO: Implement xpub → address derivation and blockchain search
                                                     // For now, send empty response

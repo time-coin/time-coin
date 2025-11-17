@@ -3,9 +3,10 @@
 //! Similar to Bitcoin's wallet.dat, this file stores all keys and wallet metadata.
 //! Currently uses unencrypted bincode serialization, with structure ready for future encryption.
 
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use thiserror::Error;
 use wallet::{Keypair, NetworkType};
 
@@ -33,33 +34,15 @@ pub enum WalletDatError {
     WalletError(#[from] wallet::WalletError),
 }
 
-/// A stored key entry with metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyEntry {
-    /// The keypair (secret + public key)
-    pub keypair_bytes: [u8; 32],
-    /// Public key bytes for quick lookup
-    pub public_key: [u8; 32],
-    /// Address string
-    pub address: String,
-    /// Label/name for this key
-    pub label: String,
-    /// Creation timestamp
-    pub created_at: i64,
-    /// Whether this is the default key
-    pub is_default: bool,
-}
-
 /// time-wallet.dat file format
 /// This structure will be encrypted in future versions
+/// Stores ONLY cryptographic material - no addresses or metadata
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WalletDat {
     /// Format version for future compatibility
     pub version: u32,
     /// Network type (mainnet/testnet)
     pub network: NetworkType,
-    /// All keys stored in the wallet
-    pub keys: Vec<KeyEntry>,
     /// Wallet creation timestamp
     pub created_at: i64,
     /// Last modified timestamp
@@ -70,151 +53,129 @@ pub struct WalletDat {
     /// Future: encrypted flag (placeholder for now)
     #[serde(default)]
     pub is_encrypted: bool,
-    /// Encrypted mnemonic phrase for HD wallet (only stored if wallet was created from mnemonic)
+    /// Encrypted mnemonic phrase for HD wallet
     /// In future, this will be properly encrypted. For now it's base64 encoded.
-    #[serde(default)]
-    pub encrypted_mnemonic: Option<String>,
+    pub encrypted_mnemonic: String,
     /// Extended Public Key (xpub) for deterministic address derivation
     /// Used by masternode to discover all wallet addresses
-    #[serde(default)]
-    pub xpub: Option<String>,
+    pub xpub: String,
+    /// Master private key (encrypted, for signing transactions)
+    /// Derived from mnemonic, stored for quick access
+    pub master_key: [u8; 32],
 }
 
 impl WalletDat {
     /// Current time-wallet.dat format version
-    pub const VERSION: u32 = 1;
+    pub const VERSION: u32 = 2;
 
-    /// Create a new empty time-wallet.dat
-    pub fn new(network: NetworkType) -> Self {
+    /// Create a new wallet from mnemonic
+    pub fn from_mnemonic(mnemonic: &str, network: NetworkType) -> Result<Self, WalletDatError> {
+        // Generate xpub from mnemonic
+        use wallet::mnemonic::mnemonic_to_xpub;
+        let xpub = mnemonic_to_xpub(mnemonic, "", 0)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+
+        // Get master key (first derived key)
+        use wallet::mnemonic::mnemonic_to_keypair_hd;
+        let keypair = mnemonic_to_keypair_hd(mnemonic, "", 0)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+        let master_key = keypair.secret_key_bytes();
+
+        // Store encrypted mnemonic (TODO: proper encryption)
+        let encrypted_mnemonic = general_purpose::STANDARD.encode(mnemonic.as_bytes());
+
         let now = chrono::Utc::now().timestamp();
-        Self {
+        Ok(Self {
             version: Self::VERSION,
             network,
-            keys: Vec::new(),
             created_at: now,
             modified_at: now,
             encryption_salt: None,
             is_encrypted: false,
-            encrypted_mnemonic: None,
-            xpub: None,
-        }
+            encrypted_mnemonic,
+            xpub,
+            master_key,
+        })
     }
 
-    /// Create a new wallet with a generated key
-    pub fn new_with_key(network: NetworkType, label: String) -> Result<Self, WalletDatError> {
-        let mut wallet = Self::new(network);
-        wallet.generate_key(label, true)?;
-        Ok(wallet)
+    /// Derive a keypair at the given index
+    pub fn derive_keypair(&self, index: u32) -> Result<Keypair, WalletDatError> {
+        // Decrypt mnemonic (TODO: proper decryption)
+        let mnemonic_bytes = general_purpose::STANDARD
+            .decode(&self.encrypted_mnemonic)
+            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+        let mnemonic = String::from_utf8(mnemonic_bytes)
+            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+
+        use wallet::mnemonic::mnemonic_to_keypair_hd;
+        let keypair = mnemonic_to_keypair_hd(&mnemonic, "", index)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+        Ok(keypair)
     }
 
-    /// Generate a new key and add it to the wallet
-    pub fn generate_key(
-        &mut self,
-        label: String,
-        is_default: bool,
-    ) -> Result<&KeyEntry, WalletDatError> {
-        let keypair = Keypair::generate()?;
-        self.add_keypair(keypair, label, is_default)
-    }
-
-    /// Add an existing keypair to the wallet
-    pub fn add_keypair(
-        &mut self,
-        keypair: Keypair,
-        label: String,
-        is_default: bool,
-    ) -> Result<&KeyEntry, WalletDatError> {
+    /// Derive an address at the given index
+    pub fn derive_address(&self, index: u32) -> Result<String, WalletDatError> {
+        let keypair = self.derive_keypair(index)?;
         let public_key = keypair.public_key_bytes();
-        let keypair_bytes = keypair.secret_key_bytes();
         let address = wallet::Address::from_public_key(&public_key, self.network)
             .map_err(|_| WalletDatError::KeyGenerationError)?
             .to_string();
-
-        // If this is set as default, unset all other defaults
-        if is_default {
-            for key in &mut self.keys {
-                key.is_default = false;
-            }
-        }
-
-        let entry = KeyEntry {
-            keypair_bytes,
-            public_key,
-            address,
-            label,
-            created_at: chrono::Utc::now().timestamp(),
-            is_default,
-        };
-
-        self.keys.push(entry);
-        self.modified_at = chrono::Utc::now().timestamp();
-
-        Ok(self.keys.last().unwrap())
+        Ok(address)
     }
 
-    /// Get the default key
-    pub fn get_default_key(&self) -> Option<&KeyEntry> {
-        self.keys.iter().find(|k| k.is_default)
+    /// Get the xpub for this wallet
+    pub fn get_xpub(&self) -> &str {
+        &self.xpub
     }
 
-    /// Get default key or first key
-    pub fn get_primary_key(&self) -> Option<&KeyEntry> {
-        self.get_default_key().or_else(|| self.keys.first())
-    }
-
-    /// Get all keys
-    pub fn get_keys(&self) -> &[KeyEntry] {
-        &self.keys
-    }
-
-    /// Set a key as default
-    pub fn set_default_key(&mut self, address: &str) -> Result<(), WalletDatError> {
-        let mut found = false;
-        for key in &mut self.keys {
-            if key.address == address {
-                key.is_default = true;
-                found = true;
-            } else {
-                key.is_default = false;
-            }
-        }
-
-        if found {
-            self.modified_at = chrono::Utc::now().timestamp();
-            Ok(())
-        } else {
-            Err(WalletDatError::InvalidFormat)
-        }
+    /// Get the mnemonic (decrypted)
+    pub fn get_mnemonic(&self) -> Result<String, WalletDatError> {
+        // Decrypt mnemonic (TODO: proper decryption)
+        let mnemonic_bytes = general_purpose::STANDARD
+            .decode(&self.encrypted_mnemonic)
+            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+        let mnemonic = String::from_utf8(mnemonic_bytes)
+            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+        Ok(mnemonic)
     }
 
     /// Save wallet to file
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), WalletDatError> {
+    pub fn save(&self) -> Result<(), WalletDatError> {
+        let path = Self::default_path(self.network);
+
+        // Ensure directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
         // Serialize to bincode (unencrypted for now)
         let data = bincode::serialize(self)
             .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
 
         // Write to file with proper permissions
-        fs::write(path.as_ref(), data)?;
+        fs::write(&path, data)?;
 
         // On Unix, set restrictive permissions (owner read/write only)
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(path.as_ref())?.permissions();
+            let mut perms = fs::metadata(&path)?.permissions();
             perms.set_mode(0o600); // rw-------
-            fs::set_permissions(path.as_ref(), perms)?;
+            fs::set_permissions(&path, perms)?;
         }
 
         Ok(())
     }
 
     /// Load wallet from file
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, WalletDatError> {
-        if !path.as_ref().exists() {
+    pub fn load(network: NetworkType) -> Result<Self, WalletDatError> {
+        let path = Self::default_path(network);
+
+        if !path.exists() {
             return Err(WalletDatError::WalletNotFound);
         }
 
-        let data = fs::read(path.as_ref())?;
+        let data = fs::read(&path)?;
 
         // Try to deserialize the wallet
         match bincode::deserialize::<Self>(&data) {
@@ -261,61 +222,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_wallet_dat_creation() {
-        let wallet = WalletDat::new(NetworkType::Testnet);
+    fn test_wallet_from_mnemonic() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let wallet = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
         assert_eq!(wallet.version, WalletDat::VERSION);
         assert_eq!(wallet.network, NetworkType::Testnet);
-        assert_eq!(wallet.keys.len(), 0);
         assert!(!wallet.is_encrypted);
+        assert!(!wallet.xpub.is_empty());
     }
 
     #[test]
-    fn test_wallet_dat_with_key() {
-        let wallet = WalletDat::new_with_key(NetworkType::Testnet, "Default".to_string()).unwrap();
-        assert_eq!(wallet.keys.len(), 1);
-        assert!(wallet.get_default_key().is_some());
-        assert!(wallet.get_primary_key().is_some());
-    }
+    fn test_derive_address() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let wallet = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
 
-    #[test]
-    fn test_add_multiple_keys() {
-        let mut wallet = WalletDat::new(NetworkType::Testnet);
-        wallet.generate_key("Key 1".to_string(), true).unwrap();
-        wallet.generate_key("Key 2".to_string(), false).unwrap();
-        wallet.generate_key("Key 3".to_string(), false).unwrap();
+        let addr0 = wallet.derive_address(0).unwrap();
+        let addr1 = wallet.derive_address(1).unwrap();
 
-        assert_eq!(wallet.keys.len(), 3);
-        let default_key = wallet.get_default_key().unwrap();
-        assert_eq!(default_key.label, "Key 1");
-    }
+        // Addresses should be different
+        assert_ne!(addr0, addr1);
 
-    #[test]
-    fn test_set_default_key() {
-        let mut wallet = WalletDat::new(NetworkType::Testnet);
-        wallet.generate_key("Key 1".to_string(), true).unwrap();
-        let key2 = wallet.generate_key("Key 2".to_string(), false).unwrap();
-        let key2_address = key2.address.clone();
-
-        wallet.set_default_key(&key2_address).unwrap();
-        let default = wallet.get_default_key().unwrap();
-        assert_eq!(default.label, "Key 2");
+        // Should be deterministic - derive again and get same result
+        let addr0_again = wallet.derive_address(0).unwrap();
+        assert_eq!(addr0, addr0_again);
     }
 
     #[test]
     fn test_save_and_load() {
-        let mut wallet = WalletDat::new(NetworkType::Testnet);
-        wallet.generate_key("Test Key".to_string(), true).unwrap();
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let wallet = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
+        let original_xpub = wallet.xpub.clone();
 
-        let temp_path = "/tmp/test_wallet.dat";
-        wallet.save(temp_path).unwrap();
+        wallet.save().unwrap();
+        let loaded = WalletDat::load(NetworkType::Testnet).unwrap();
 
-        let loaded = WalletDat::load(temp_path).unwrap();
         assert_eq!(loaded.version, wallet.version);
         assert_eq!(loaded.network, wallet.network);
-        assert_eq!(loaded.keys.len(), wallet.keys.len());
-        assert_eq!(loaded.keys[0].label, "Test Key");
+        assert_eq!(loaded.xpub, original_xpub);
 
         // Cleanup
-        let _ = fs::remove_file(temp_path);
+        let _ = std::fs::remove_file(WalletDat::default_path(NetworkType::Testnet));
     }
 }

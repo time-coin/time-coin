@@ -24,4 +24,4 @@ pub use mnemonic::{
     MnemonicError, MnemonicPhrase,
 };
 pub use transaction::{Transaction, TransactionError, TxInput, TxOutput};
-pub use wallet::{AddressMetadata, Wallet, WalletError, UTXO};
+pub use wallet::{Wallet, WalletError, UTXO};

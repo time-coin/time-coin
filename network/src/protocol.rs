@@ -698,6 +698,10 @@ pub enum NetworkMessage {
         transactions: Vec<WalletTransaction>,
         last_synced_height: u64,
     },
+    // Real-time notification when a wallet receives a new transaction
+    NewTransactionNotification {
+        transaction: WalletTransaction,
+    },
 
     // Additional message types for full TCP communication
     GetGenesis,

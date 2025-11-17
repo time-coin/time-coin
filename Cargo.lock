@@ -5684,6 +5684,7 @@ dependencies = [
 name = "wallet-gui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bincode",
  "chrono",
  "dirs",
