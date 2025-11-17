@@ -16,7 +16,7 @@ pub struct AddressMetadata {
 pub enum MetadataDbError {
     #[error("Database error: {0}")]
     DbError(#[from] sled::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] bincode::Error),
 }
@@ -34,7 +34,11 @@ impl MetadataDb {
     }
 
     /// Save address metadata
-    pub fn save_metadata(&self, address: &str, metadata: &AddressMetadata) -> Result<(), MetadataDbError> {
+    pub fn save_metadata(
+        &self,
+        address: &str,
+        metadata: &AddressMetadata,
+    ) -> Result<(), MetadataDbError> {
         let key = address.as_bytes();
         let value = bincode::serialize(metadata)?;
         self.db.insert(key, value)?;
@@ -56,14 +60,14 @@ impl MetadataDb {
     /// Get all address metadata entries
     pub fn get_all_metadata(&self) -> Result<Vec<(String, AddressMetadata)>, MetadataDbError> {
         let mut result = Vec::new();
-        
+
         for item in self.db.iter() {
             let (key, value) = item?;
             let address = String::from_utf8_lossy(&key).to_string();
             let metadata: AddressMetadata = bincode::deserialize(&value)?;
             result.push((address, metadata));
         }
-        
+
         Ok(result)
     }
 

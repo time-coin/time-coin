@@ -42,10 +42,10 @@ impl WalletManager {
     fn init_database(network: NetworkType) -> Result<sled::Db, WalletDatError> {
         let data_dir = WalletDat::ensure_data_dir(network)?;
         let db_path = data_dir.parent().unwrap().join("wallet.db");
-        
+
         let db = sled::open(&db_path)
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-        
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
         Ok(db)
     }
 
@@ -134,7 +134,10 @@ impl WalletManager {
     }
 
     /// Load wallet from specific path
-    pub fn load_from_path(wallet_path: PathBuf, network: NetworkType) -> Result<Self, WalletDatError> {
+    pub fn load_from_path(
+        wallet_path: PathBuf,
+        network: NetworkType,
+    ) -> Result<Self, WalletDatError> {
         let wallet_dat = WalletDat::load(&wallet_path)?;
 
         // Create active wallet from primary key
@@ -302,12 +305,16 @@ impl WalletManager {
         email: Option<String>,
         phone: Option<String>,
     ) -> Result<(), WalletDatError> {
-        self.wallet_dat.update_contact_info(address, name, email, phone)?;
+        self.wallet_dat
+            .update_contact_info(address, name, email, phone)?;
         self.save()
     }
 
     /// Get contact information for an address
-    pub fn get_contact_info(&self, address: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    pub fn get_contact_info(
+        &self,
+        address: &str,
+    ) -> Option<(Option<String>, Option<String>, Option<String>)> {
         self.wallet_dat
             .get_keys()
             .iter()
@@ -354,30 +361,34 @@ impl WalletManager {
     /// Remove metadata for an address (address itself is never deleted)
     pub fn remove_address_metadata(&mut self, address: &str) -> Result<(), WalletDatError> {
         let key = format!("addr_meta:{}", address);
-        
+
         // Get existing metadata
-        if let Some(data) = self.db.get(key.as_bytes())
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))? {
-            
+        if let Some(data) = self
+            .db
+            .get(key.as_bytes())
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?
+        {
             let mut metadata: AddressMetadata = bincode::deserialize(&data)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-            
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
             // Clear contact info but keep address and default status
             metadata.name = None;
             metadata.email = None;
             metadata.phone = None;
             metadata.label = None;
-            
+
             let encoded = bincode::serialize(&metadata)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-            
-            self.db.insert(key.as_bytes(), encoded)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
+            self.db
+                .insert(key.as_bytes(), encoded)
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
         }
-        
-        self.db.flush()
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-        
+
+        self.db
+            .flush()
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
         Ok(())
     }
 
@@ -399,30 +410,40 @@ impl WalletManager {
             phone: phone.map(|s| s.to_string()),
             is_default,
         };
-        
+
         let key = format!("addr_meta:{}", address);
         let encoded = bincode::serialize(&metadata)
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-        
-        self.db.insert(key.as_bytes(), encoded)
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-        
-        self.db.flush()
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-        
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
+        self.db
+            .insert(key.as_bytes(), encoded)
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
+        self.db
+            .flush()
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
         Ok(())
     }
 
     /// Get address metadata from database
-    pub fn get_address_metadata(&self, address: &str) -> Result<Option<(String, Option<String>, Option<String>, Option<String>, bool)>, WalletDatError> {
+    pub fn get_address_metadata(
+        &self,
+        address: &str,
+    ) -> Result<
+        Option<(String, Option<String>, Option<String>, Option<String>, bool)>,
+        WalletDatError,
+    > {
         let key = format!("addr_meta:{}", address);
-        
-        if let Some(data) = self.db.get(key.as_bytes())
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))? {
-            
+
+        if let Some(data) = self
+            .db
+            .get(key.as_bytes())
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?
+        {
             let metadata: AddressMetadata = bincode::deserialize(&data)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-            
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
             Ok(Some((
                 metadata.label.unwrap_or_default(),
                 metadata.name,
@@ -439,41 +460,46 @@ impl WalletManager {
     pub fn set_default_address(&mut self, address: &str) -> Result<(), WalletDatError> {
         // First, unset all defaults
         for item in self.db.scan_prefix(b"addr_meta:") {
-            let (key, value) = item
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-            
+            let (key, value) =
+                item.map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
             let mut metadata: AddressMetadata = bincode::deserialize(&value)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-            
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
             if metadata.is_default {
                 metadata.is_default = false;
                 let encoded = bincode::serialize(&metadata)
-                    .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-                self.db.insert(&key, encoded)
-                    .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+                    .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+                self.db
+                    .insert(&key, encoded)
+                    .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
             }
         }
-        
+
         // Then set the new default
         let key = format!("addr_meta:{}", address);
-        if let Some(data) = self.db.get(key.as_bytes())
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))? {
-            
+        if let Some(data) = self
+            .db
+            .get(key.as_bytes())
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?
+        {
             let mut metadata: AddressMetadata = bincode::deserialize(&data)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-            
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
             metadata.is_default = true;
-            
+
             let encoded = bincode::serialize(&metadata)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-            
-            self.db.insert(key.as_bytes(), encoded)
-                .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
+            self.db
+                .insert(key.as_bytes(), encoded)
+                .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
         }
-        
-        self.db.flush()
-            .map_err(|e| WalletDatError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-        
+
+        self.db
+            .flush()
+            .map_err(|e| WalletDatError::IoError(std::io::Error::other(e.to_string())))?;
+
         Ok(())
     }
 }

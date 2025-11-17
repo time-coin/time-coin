@@ -10,10 +10,10 @@ use thiserror::Error;
 pub enum WalletDbError {
     #[error("Database error: {0}")]
     DatabaseError(#[from] sled::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] bincode::Error),
-    
+
     #[error("Not found: {0}")]
     NotFound(String),
 }
@@ -88,13 +88,13 @@ impl WalletDb {
     pub fn get_all_contacts(&self) -> Result<Vec<AddressContact>, WalletDbError> {
         let mut contacts = Vec::new();
         let prefix = b"contact:";
-        
+
         for item in self.db.scan_prefix(prefix) {
             let (_key, value) = item?;
             let contact: AddressContact = bincode::deserialize(&value)?;
             contacts.push(contact);
         }
-        
+
         contacts.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(contacts)
     }
@@ -151,7 +151,10 @@ impl WalletDb {
     }
 
     /// Get transaction by hash
-    pub fn get_transaction(&self, tx_hash: &str) -> Result<Option<TransactionRecord>, WalletDbError> {
+    pub fn get_transaction(
+        &self,
+        tx_hash: &str,
+    ) -> Result<Option<TransactionRecord>, WalletDbError> {
         let key = format!("tx:{}", tx_hash);
         match self.db.get(key.as_bytes())? {
             Some(data) => Ok(Some(bincode::deserialize(&data)?)),
@@ -163,24 +166,28 @@ impl WalletDb {
     pub fn get_all_transactions(&self) -> Result<Vec<TransactionRecord>, WalletDbError> {
         let mut transactions = Vec::new();
         let prefix = b"tx:";
-        
+
         for item in self.db.scan_prefix(prefix) {
             let (_key, value) = item?;
             let tx: TransactionRecord = bincode::deserialize(&value)?;
             transactions.push(tx);
         }
-        
+
         transactions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         Ok(transactions)
     }
 
     /// Get transactions for a specific address
-    pub fn get_transactions_for_address(&self, address: &str) -> Result<Vec<TransactionRecord>, WalletDbError> {
+    pub fn get_transactions_for_address(
+        &self,
+        address: &str,
+    ) -> Result<Vec<TransactionRecord>, WalletDbError> {
         let all_txs = self.get_all_transactions()?;
-        Ok(all_txs.into_iter()
+        Ok(all_txs
+            .into_iter()
             .filter(|tx| {
-                tx.to_address == address || 
-                tx.from_address.as_ref().map_or(false, |from| from == address)
+                tx.to_address == address
+                    || tx.from_address.as_ref().is_some_and(|from| from == address)
             })
             .collect())
     }

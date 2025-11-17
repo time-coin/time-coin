@@ -11,16 +11,16 @@
 
 pub mod address;
 pub mod keypair;
+pub mod metadata_db;
 pub mod mnemonic;
 pub mod transaction;
 pub mod wallet;
-pub mod metadata_db;
 
 pub use address::{Address, AddressError, NetworkType};
 pub use keypair::{Keypair, KeypairError};
+pub use metadata_db::{MetadataDb, MetadataDbError};
 pub use mnemonic::{
     generate_mnemonic, mnemonic_to_keypair, validate_mnemonic, MnemonicError, MnemonicPhrase,
 };
 pub use transaction::{Transaction, TransactionError, TxInput, TxOutput};
 pub use wallet::{AddressMetadata, Wallet, WalletError, UTXO};
-pub use metadata_db::{MetadataDb, MetadataDbError};
