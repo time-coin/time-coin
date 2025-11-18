@@ -1228,6 +1228,11 @@ pub async fn trigger_instant_finality_for_received_tx(
         // Get connected masternodes (real peers only)
         let masternodes = peer_manager.get_peer_ips().await;
 
+        println!("🔍 Debug: peer_manager.get_peer_ips() returned {} masternodes", masternodes.len());
+        for (i, mn) in masternodes.iter().enumerate() {
+            println!("   [{}] {}", i, mn);
+        }
+
         if masternodes.is_empty() {
             println!("⚠️  No masternodes connected - auto-finalizing in dev mode");
             if let Some(mempool) = mempool.as_ref() {
