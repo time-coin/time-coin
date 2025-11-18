@@ -2,6 +2,7 @@ use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use time_core::transaction::{Transaction, TxInput, TxOutput};
+use wallet::Wallet;
 
 #[derive(Debug, Deserialize)]
 pub struct WalletSendRequest {
@@ -23,12 +24,14 @@ pub async fn wallet_send(
     State(state): State<ApiState>,
     Json(req): Json<WalletSendRequest>,
 ) -> ApiResult<Json<WalletSendResponse>> {
-    // Get the node's wallet address
-    let wallet_address = if let Some(from) = req.from {
-        from
-    } else {
-        state.wallet_address.clone()
-    };
+    // Load the node's wallet to get keypair
+    let wallet_path = std::env::var("WALLET_PATH")
+        .unwrap_or_else(|_| "/var/lib/time-coin/wallets/node.json".to_string());
+    
+    let wallet = Wallet::load_from_file(&wallet_path)
+        .map_err(|e| ApiError::Internal(format!("Failed to load wallet: {}", e)))?;
+
+    let from_address = wallet.address_string();
 
     // Validate destination address format
     if !req.to.starts_with("TIME0") && !req.to.starts_with("TIME") {
@@ -48,14 +51,14 @@ pub async fn wallet_send(
 
     // Find UTXOs for the sender
     let sender_utxos: Vec<_> = utxo_set
-        .get_utxos_by_address(&wallet_address)
+        .get_utxos_by_address(&from_address)
         .into_iter()
         .collect();
 
     if sender_utxos.is_empty() {
         return Err(ApiError::BadRequest(format!(
             "No UTXOs found for address {}",
-            wallet_address
+            from_address
         )));
     }
 
@@ -76,9 +79,9 @@ pub async fn wallet_send(
     for (outpoint, output) in sender_utxos {
         inputs.push(TxInput {
             previous_output: outpoint.clone(),
-            signature: Vec::new(), // Will be signed later
+            signature: Vec::new(), // Will be signed
             public_key: Vec::new(),
-            sequence: 0xffffffff, // Default sequence
+            sequence: 0xffffffff,
         });
         input_total += output.amount;
 
@@ -93,7 +96,7 @@ pub async fn wallet_send(
     // Add change output if necessary
     if input_total > req.amount {
         let change = input_total - req.amount;
-        outputs.push(TxOutput::new(change, wallet_address.clone()));
+        outputs.push(TxOutput::new(change, from_address.clone()));
     }
 
     // Create transaction with calculated TXID
@@ -109,7 +112,7 @@ pub async fn wallet_send(
         tx_temp.calculate_txid()
     };
     
-    let tx = Transaction {
+    let mut tx = Transaction {
         txid: txid.clone(),
         version: 1,
         inputs,
@@ -120,6 +123,30 @@ pub async fn wallet_send(
 
     drop(blockchain);
 
+    // Sign each input using the wallet's keypair
+    // Get the signing hash for the transaction (use hex encoding instead of sha2)
+    let tx_hash = {
+        let serialized = serde_json::to_string(&tx)
+            .map_err(|e| ApiError::Internal(format!("Failed to serialize tx: {}", e)))?;
+        hex::decode(&txid)
+            .map_err(|e| ApiError::Internal(format!("Failed to decode txid: {}", e)))?
+    };
+
+    // Sign with keypair
+    let keypair = wallet.keypair();
+    let signature = keypair.sign(&tx_hash);
+    let public_key = keypair.public_key_bytes().to_vec();
+
+    // Apply signature to all inputs
+    for input in &mut tx.inputs {
+        input.signature = signature.clone();
+        input.public_key = public_key.clone();
+    }
+
+    // Recalculate TXID after signing
+    tx.txid = tx.calculate_txid();
+    let final_txid = tx.txid.clone();
+
     // Add to mempool
     if let Some(mempool) = state.mempool.as_ref() {
         mempool
@@ -128,10 +155,10 @@ pub async fn wallet_send(
             .map_err(|e| ApiError::Internal(format!("Failed to add to mempool: {}", e)))?;
 
         println!("📤 Transaction created and added to mempool:");
-        println!("   From:   {}", wallet_address);
+        println!("   From:   {}", from_address);
         println!("   To:     {}", req.to);
-        println!("   Amount: {} TIME", req.amount);
-        println!("   TxID:   {}", &txid[..16]);
+        println!("   Amount: {} TIME", req.amount as f64 / 100_000_000.0);
+        println!("   TxID:   {}", &final_txid[..16]);
 
         // Broadcast to network
         if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
@@ -141,7 +168,7 @@ pub async fn wallet_send(
 
         Ok(Json(WalletSendResponse {
             success: true,
-            txid,
+            txid: final_txid,
             message: "Transaction created and broadcast to network".to_string(),
         }))
     } else {
