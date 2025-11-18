@@ -1,0 +1,26 @@
+# TIME Coin Wallet v0.1.0-alpha - Windows x64
+# Release Date: November 17, 2025
+
+## SHA256 Checksums
+
+```
+time-coin-wallet-windows-x64-v0.1.0-alpha.zip
+SHA256: FDE20B2662988A296258675C3CC6B23D4FB58B3C566CC221CA8E4780D7E3C520
+```
+
+## Verification
+
+To verify the download:
+
+### Windows PowerShell:
+```powershell
+$hash = Get-FileHash -Path "time-coin-wallet-windows-x64-v0.1.0-alpha.zip" -Algorithm SHA256
+Write-Host $hash.Hash
+```
+
+### Windows Command Prompt:
+```cmd
+certutil -hashfile time-coin-wallet-windows-x64-v0.1.0-alpha.zip SHA256
+```
+
+Compare the output with the hash above. They should match exactly.

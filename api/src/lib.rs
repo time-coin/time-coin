@@ -8,6 +8,7 @@ mod routes;
 mod rpc_handlers;
 mod state;
 pub mod treasury_handlers;
+pub mod wallet_send_handler;
 pub mod wallet_sync_handlers;
 pub mod websocket;
 

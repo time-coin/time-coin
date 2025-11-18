@@ -8,6 +8,7 @@ use crate::treasury_handlers::{
     get_treasury_allocations, get_treasury_stats, get_treasury_withdrawals, submit_proposal,
     vote_on_proposal,
 };
+use crate::wallet_send_handler::wallet_send;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
 use axum::{
@@ -87,6 +88,7 @@ pub fn create_routes() -> Router<ApiState> {
             "/wallet/pending",
             post(crate::wallet_sync_handlers::get_pending_transactions),
         )
+        .route("/wallet/send", post(wallet_send))
         // Transaction consensus endpoints
         .route("/consensus/tx-proposal", post(receive_tx_proposal))
         .route("/consensus/tx-vote", post(receive_tx_vote))
