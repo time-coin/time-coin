@@ -3,6 +3,7 @@
 //! Integrates the UTXO state protocol with the P2P network layer,
 //! enabling instant finality through masternode consensus.
 
+use crate::{TransactionNotification, WsBridge};
 use std::net::IpAddr;
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOStateNotification};
@@ -15,6 +16,7 @@ use tracing::{debug, info, warn};
 /// - UTXO State Protocol (consensus layer)
 /// - P2P Network (communication layer)
 /// - Instant Finality (voting layer)
+/// - WebSocket clients (wallet notifications)
 pub struct MasternodeUTXOIntegration {
     /// UTXO state manager
     utxo_manager: Arc<UTXOStateManager>,
@@ -22,6 +24,8 @@ pub struct MasternodeUTXOIntegration {
     utxo_handler: Arc<UTXOProtocolHandler>,
     /// P2P peer manager
     peer_manager: Arc<PeerManager>,
+    /// WebSocket bridge for wallet notifications
+    ws_bridge: Option<Arc<WsBridge>>,
     /// Node identifier
     node_id: String,
 }
@@ -39,8 +43,15 @@ impl MasternodeUTXOIntegration {
             utxo_manager,
             utxo_handler,
             peer_manager,
+            ws_bridge: None,
             node_id,
         }
+    }
+
+    /// Set WebSocket bridge for wallet notifications
+    pub fn set_ws_bridge(&mut self, ws_bridge: Arc<WsBridge>) {
+        self.ws_bridge = Some(ws_bridge);
+        info!(node = %self.node_id, "WebSocket bridge connected for transaction notifications");
     }
 
     /// Initialize the integration - sets up notification handlers
@@ -91,6 +102,23 @@ impl MasternodeUTXOIntegration {
             | time_network::protocol::NetworkMessage::TransactionBroadcast(_) => {
                 // Handle via UTXO protocol handler
                 self.utxo_handler.handle_message(message, peer_ip).await
+            }
+            // NEW: Handle transaction notifications from P2P network
+            time_network::protocol::NetworkMessage::NewTransactionNotification { transaction } => {
+                info!(
+                    node = %self.node_id,
+                    txid = %transaction.tx_hash,
+                    "Received transaction notification from P2P network"
+                );
+
+                // Broadcast to WebSocket clients if bridge is available
+                if let Some(ref bridge) = self.ws_bridge {
+                    self.broadcast_transaction_to_wallets(bridge, transaction)
+                        .await;
+                }
+
+                // Return Ok - transaction notification doesn't need a response
+                Ok(None)
             }
             _ => {
                 // Not a UTXO protocol message
@@ -221,6 +249,38 @@ impl MasternodeUTXOIntegration {
     /// Get UTXO statistics
     pub async fn get_utxo_stats(&self) -> time_consensus::utxo_state_protocol::UTXOStateStats {
         self.utxo_manager.get_stats().await
+    }
+
+    /// Broadcast transaction to WebSocket wallet clients
+    async fn broadcast_transaction_to_wallets(
+        &self,
+        bridge: &Arc<WsBridge>,
+        transaction: &time_network::protocol::WalletTransaction,
+    ) {
+        // WalletTransaction already has from/to addresses
+        let input_addresses = vec![transaction.from_address.clone()];
+        let output_addresses = vec![transaction.to_address.clone()];
+
+        // Create notification
+        let notification = TransactionNotification {
+            txid: transaction.tx_hash.clone(),
+            inputs: input_addresses,
+            outputs: output_addresses,
+            amount: transaction.amount,
+            timestamp: transaction.timestamp as i64,
+        };
+
+        // Broadcast to subscribed clients
+        bridge.broadcast_transaction(notification).await;
+
+        info!(
+            node = %self.node_id,
+            txid = %transaction.tx_hash,
+            from = %transaction.from_address,
+            to = %transaction.to_address,
+            amount = %transaction.amount,
+            "Broadcasted transaction to WebSocket clients"
+        );
     }
 }
 

@@ -51,7 +51,10 @@ impl WalletManager {
         // Check if wallet already exists
         let wallet_path = WalletDat::default_path(network);
         if wallet_path.exists() {
-            log::warn!("Wallet already exists at: {}. Loading existing wallet instead.", wallet_path.display());
+            log::warn!(
+                "Wallet already exists at: {}. Loading existing wallet instead.",
+                wallet_path.display()
+            );
             return Self::load(network);
         }
 

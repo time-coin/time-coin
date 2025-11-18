@@ -34,8 +34,8 @@ enum WsMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionNotification {
     pub txid: String,
-    pub inputs: Vec<String>,   // Addresses spending
-    pub outputs: Vec<String>,  // Addresses receiving
+    pub inputs: Vec<String>,  // Addresses spending
+    pub outputs: Vec<String>, // Addresses receiving
     pub amount: u64,
     pub timestamp: i64,
 }
@@ -57,16 +57,17 @@ impl WsBridge {
 
         for (client_id, client) in clients.iter() {
             // Check if client is subscribed to any of the addresses in this transaction
-            let is_relevant = client.addresses.iter().any(|addr| {
-                relevant_addresses.contains(addr)
-            });
+            let is_relevant = client
+                .addresses
+                .iter()
+                .any(|addr| relevant_addresses.contains(addr));
 
             if is_relevant {
                 let msg = serde_json::json!({
                     "type": "NewTransaction",
                     "transaction": notification
                 });
-                
+
                 if let Ok(json) = serde_json::to_string(&msg) {
                     let _ = client.tx.send(Message::Text(json.into()));
                     log::info!("Sent transaction notification to client {}", client_id);

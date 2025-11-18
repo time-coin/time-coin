@@ -152,7 +152,10 @@ impl WalletDat {
         // Wallet should only be saved once during creation
         // If it already exists, something is wrong
         if path.exists() {
-            log::warn!("Wallet file already exists at: {}. This should only happen during replacement.", path.display());
+            log::warn!(
+                "Wallet file already exists at: {}. This should only happen during replacement.",
+                path.display()
+            );
         }
 
         // Serialize to bincode (unencrypted for now)

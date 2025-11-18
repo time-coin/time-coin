@@ -371,7 +371,7 @@ pub mod ws_bridge;
 
 pub use registry::MasternodeRegistry;
 pub use utxo_integration::MasternodeUTXOIntegration;
-pub use ws_bridge::{WsBridge, TransactionNotification};
+pub use ws_bridge::{TransactionNotification, WsBridge};
 
 // --- Tests
 #[cfg(test)]
