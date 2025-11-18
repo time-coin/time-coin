@@ -123,8 +123,17 @@ pub async fn wallet_send(
 
     drop(blockchain);
 
-    // Sign each input using the wallet's keypair
-    // Calculate the signing hash the same way mempool does
+    // Get keypair to use for signing
+    let keypair = wallet.keypair();
+    let public_key = keypair.public_key_bytes().to_vec();
+
+    // Set public keys on all inputs BEFORE calculating signing hash
+    for input in &mut tx.inputs {
+        input.public_key = public_key.clone();
+    }
+
+    // Now calculate the signing hash with public_keys set
+    // This must match how mempool calculates it
     let tx_hash = {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
@@ -136,7 +145,7 @@ pub async fn wallet_send(
         for input in &tx.inputs {
             hasher.update(input.previous_output.txid.as_bytes());
             hasher.update(input.previous_output.vout.to_le_bytes());
-            hasher.update(&input.public_key);
+            hasher.update(&input.public_key); // Now has the real public key!
             hasher.update(input.sequence.to_le_bytes());
         }
         
@@ -151,15 +160,12 @@ pub async fn wallet_send(
         hasher.finalize().to_vec()
     };
 
-    // Sign with keypair
-    let keypair = wallet.keypair();
+    // Sign the hash
     let signature = keypair.sign(&tx_hash);
-    let public_key = keypair.public_key_bytes().to_vec();
 
-    // Apply signature to all inputs
+    // Apply signatures to all inputs
     for input in &mut tx.inputs {
         input.signature = signature.clone();
-        input.public_key = public_key.clone();
     }
 
     // Recalculate TXID after signing
