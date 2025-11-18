@@ -1938,24 +1938,69 @@ impl WalletApp {
 
         // Spawn sync task
         tokio::spawn(async move {
-            // P2P Transaction Sync Architecture:
-            // 1. Wallet connects to masternode via P2P (already done during bootstrap)
-            // 2. Masternode receives RequestWalletTransactions via P2P handler
-            // 3. Masternode derives addresses from xpub and searches blockchain
-            // 4. Masternode sends WalletTransactionsResponse back via P2P
-            // 5. Masternode subscribes wallet for real-time push notifications
-            // 6. New transactions trigger NewTransactionNotification instantly
-            //
-            // This happens automatically through the P2P connection established during
-            // bootstrap, so no additional sync call is needed here.
+            log::info!(
+                "🔄 Starting wallet transaction sync for xpub: {}",
+                &xpub[..20]
+            );
 
-            log::info!("Transaction sync will happen via P2P connection");
-            log::info!("Masternode will push transactions for xpub: {}", xpub);
+            // Send xpub registration request to masternode via HTTP API
+            let url = format!("{}/wallet/sync-xpub", api_endpoint);
 
-            // Transaction sync is now handled entirely via P2P:
-            // - Initial sync: Triggered by RequestWalletTransactions message
-            // - Ongoing updates: Via NewTransactionNotification push messages
-            // No HTTP API calls needed!
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap();
+
+            let request_body = serde_json::json!({
+                "xpub": xpub,
+                "start_index": 0
+            });
+
+            log::info!("📡 Sending xpub sync request to {}", url);
+
+            match client.post(&url).json(&request_body).send().await {
+                Ok(response) if response.status().is_success() => {
+                    match response.json::<serde_json::Value>().await {
+                        Ok(data) => {
+                            log::info!("✅ Wallet sync successful!");
+
+                            // Extract transaction data
+                            if let Some(total_balance) =
+                                data.get("total_balance").and_then(|v| v.as_u64())
+                            {
+                                log::info!("💰 Total balance: {} TIME", total_balance);
+                            }
+
+                            if let Some(txs) =
+                                data.get("recent_transactions").and_then(|v| v.as_array())
+                            {
+                                log::info!("📊 Found {} recent transactions", txs.len());
+
+                                // TODO: Store transactions in wallet_db
+                                for tx in txs {
+                                    log::debug!("   Transaction: {:?}", tx);
+                                }
+                            }
+
+                            if let Some(utxos) = data.get("utxos").and_then(|v| v.as_object()) {
+                                log::info!("🔗 Found UTXOs for {} addresses", utxos.len());
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("❌ Failed to parse sync response: {}", e);
+                        }
+                    }
+                }
+                Ok(response) => {
+                    log::error!("❌ Sync failed with status: {}", response.status());
+                    if let Ok(text) = response.text().await {
+                        log::error!("Error details: {}", text);
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to send sync request: {}", e);
+                }
+            }
         });
     }
 
