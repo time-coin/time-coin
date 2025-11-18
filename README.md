@@ -6,24 +6,39 @@
 
 A next-generation cryptocurrency featuring 24-hour time blocks, instant transaction finality, and masternode-powered consensus.
 
+**Powered by the [TIME Coin Protocol](TIME_COIN_PROTOCOL.md)** - UTXO-based instant finality for real-world adoption.
+
 ## Key features
 
-- ⚡ Instant finality — sub-3 second transaction confirmation
-- 🕐 24-hour blocks — daily checkpoints for immutable settlement
-- 🔗 Masternode network — BFT-style consensus for instant validation
-- 💰 Tiered staking — competitive APY across collateral tiers
-- 🛡️ Community treasury — on-chain governance and funding
-- 🚀 Fair launch — no pre-mine, purchase-based minting model
+- ⚡ **Instant finality** — sub-3 second transaction confirmation via TIME Coin Protocol
+- 🕐 **24-hour blocks** — daily checkpoints for immutable settlement
+- 🔗 **Masternode network** — BFT-style consensus for instant validation
+- 🏦 **UTXO model** — Bitcoin-compatible accounting with instant finality
+- 💰 **Tiered staking** — competitive APY across collateral tiers
+- 🛡️ **Community treasury** — on-chain governance and funding
+- 🚀 **Fair launch** — no pre-mine, purchase-based minting model
+
+## The TIME Coin Protocol
+
+TIME Coin's unique protocol combines Bitcoin's proven UTXO model with instant finality:
+
+```
+Transaction → UTXO Locked → Masternode Voting → 67%+ Consensus 
+    → INSTANT FINALITY (<3 sec) → Block Inclusion → Confirmed
+```
+
+**Read more**: [TIME Coin Protocol Documentation](TIME_COIN_PROTOCOL.md)
 
 ## Architecture overview
 
 TIME separates transaction finality from block production:
 
-1. Instant transactions validated by masternodes in real time
-2. Daily blocks used as periodic immutable checkpoints
-3. BFT consensus: validators must reach a 67% agreement threshold
-4. Masternode rewards: block rewards distributed to masternodes by tier
-5. Treasury funding: a portion of each block funds ecosystem development
+1. **Instant transactions** validated by masternodes in real time via TIME Coin Protocol
+2. **UTXO state tracking** prevents double-spends through immediate locking
+3. **Daily blocks** used as periodic immutable checkpoints
+4. **BFT consensus**: validators must reach a 67% agreement threshold
+5. **Masternode rewards**: block rewards distributed to masternodes by tier
+6. **Treasury funding**: a portion of each block funds ecosystem development
 
 ## Masternode tiers
 

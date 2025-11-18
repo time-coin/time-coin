@@ -720,6 +720,25 @@ pub enum NetworkMessage {
     // Transaction consensus messages
     ConsensusTxProposal(String), // JSON serialized tx proposal
     ConsensusTxVote(String),     // JSON serialized tx vote
+
+    // UTXO State Protocol messages
+    UTXOStateQuery {
+        outpoints: Vec<String>, // JSON serialized OutPoints
+    },
+    UTXOStateResponse {
+        states: String, // JSON serialized Vec<(OutPoint, UTXOState)>
+    },
+    UTXOStateNotification {
+        notification: String, // JSON serialized UTXOStateNotification
+    },
+    UTXOSubscribe {
+        outpoints: Vec<String>, // JSON serialized OutPoints
+        addresses: Vec<String>, // Addresses to watch
+        subscriber_id: String,
+    },
+    UTXOUnsubscribe {
+        subscriber_id: String,
+    },
 }
 
 impl NetworkMessage {

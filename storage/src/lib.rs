@@ -14,10 +14,10 @@ use thiserror::Error;
 pub enum StorageError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(String),
-    
+
     #[error("Snapshot not found: {0}")]
     SnapshotNotFound(String),
 }
@@ -31,12 +31,12 @@ impl Storage {
     /// Open storage directory
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
         let data_dir = path.as_ref().to_path_buf();
-        
+
         // Create directory if it doesn't exist
         if !data_dir.exists() {
             fs::create_dir_all(&data_dir)?;
         }
-        
+
         Ok(Self { data_dir })
     }
 
@@ -44,39 +44,42 @@ impl Storage {
     pub fn save_snapshot<T: Serialize>(&self, name: &str, data: &T) -> Result<(), StorageError> {
         let json_path = self.data_dir.join(format!("{}.json", name));
         let bin_path = self.data_dir.join(format!("{}.bin", name));
-        
+
         // Save as JSON (human-readable backup)
         let json = serde_json::to_string_pretty(data)
             .map_err(|e| StorageError::SerializationError(e.to_string()))?;
         fs::write(&json_path, json)?;
-        
+
         // Save as Bincode (fast loading)
         let bin = bincode::serialize(data)
             .map_err(|e| StorageError::SerializationError(e.to_string()))?;
         fs::write(&bin_path, bin)?;
-        
+
         Ok(())
     }
 
     /// Load a snapshot (tries Bincode first, falls back to JSON)
-    pub fn load_snapshot<T: for<'de> Deserialize<'de>>(&self, name: &str) -> Result<T, StorageError> {
+    pub fn load_snapshot<T: for<'de> Deserialize<'de>>(
+        &self,
+        name: &str,
+    ) -> Result<T, StorageError> {
         let bin_path = self.data_dir.join(format!("{}.bin", name));
         let json_path = self.data_dir.join(format!("{}.json", name));
-        
+
         // Try bincode first (faster)
         if bin_path.exists() {
             let data = fs::read(&bin_path)?;
             return bincode::deserialize(&data)
                 .map_err(|e| StorageError::SerializationError(e.to_string()));
         }
-        
+
         // Fall back to JSON
         if json_path.exists() {
             let data = fs::read_to_string(&json_path)?;
             return serde_json::from_str(&data)
                 .map_err(|e| StorageError::SerializationError(e.to_string()));
         }
-        
+
         Err(StorageError::SnapshotNotFound(name.to_string()))
     }
 
@@ -90,11 +93,11 @@ impl Storage {
     /// List all snapshots
     pub fn list_snapshots(&self) -> Result<Vec<String>, StorageError> {
         let mut snapshots = Vec::new();
-        
+
         for entry in fs::read_dir(&self.data_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if let Some(name) = path.file_stem() {
                 if let Some(name_str) = name.to_str() {
                     if !snapshots.contains(&name_str.to_string()) {
@@ -103,7 +106,7 @@ impl Storage {
                 }
             }
         }
-        
+
         Ok(snapshots)
     }
 
@@ -111,14 +114,14 @@ impl Storage {
     pub fn delete_snapshot(&self, name: &str) -> Result<(), StorageError> {
         let bin_path = self.data_dir.join(format!("{}.bin", name));
         let json_path = self.data_dir.join(format!("{}.json", name));
-        
+
         if bin_path.exists() {
             fs::remove_file(bin_path)?;
         }
         if json_path.exists() {
             fs::remove_file(json_path)?;
         }
-        
+
         Ok(())
     }
 
@@ -131,8 +134,8 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use serde::{Deserialize, Serialize};
+    use tempfile::tempdir;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct TestData {
@@ -177,8 +180,14 @@ mod tests {
         let dir = tempdir().unwrap();
         let storage = Storage::open(dir.path()).unwrap();
 
-        let data1 = TestData { value: 1, name: "one".to_string() };
-        let data2 = TestData { value: 2, name: "two".to_string() };
+        let data1 = TestData {
+            value: 1,
+            name: "one".to_string(),
+        };
+        let data2 = TestData {
+            value: 2,
+            name: "two".to_string(),
+        };
 
         storage.save_snapshot("snapshot1", &data1).unwrap();
         storage.save_snapshot("snapshot2", &data2).unwrap();

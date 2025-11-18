@@ -31,6 +31,7 @@ pub mod orchestrator;
 pub mod phased_protocol;
 pub mod proposals;
 pub mod tx_validation;
+pub mod utxo_state_protocol;
 
 // New simplified consensus
 pub mod midnight_consensus;

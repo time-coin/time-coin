@@ -3,6 +3,7 @@ mod handlers;
 pub mod instant_finality_handlers;
 pub mod masternode_handlers;
 pub mod proposal_handlers;
+pub mod protocol_ws;
 pub mod quarantine_handlers;
 mod routes;
 mod rpc_handlers;
@@ -13,6 +14,7 @@ pub mod wallet_sync_handlers;
 pub mod websocket;
 
 pub use error::{ApiError, ApiResult};
+pub use protocol_ws::SubscriptionManager;
 pub use state::ApiState;
 pub use websocket::WsConnectionManager;
 

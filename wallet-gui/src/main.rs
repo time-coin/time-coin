@@ -13,6 +13,7 @@ use wallet::NetworkType;
 mod config;
 mod mnemonic_ui;
 mod network;
+mod protocol_client;
 mod wallet_dat;
 mod wallet_db;
 mod wallet_manager;
@@ -20,6 +21,8 @@ mod wallet_manager;
 use config::Config;
 use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
+use protocol_client::{ProtocolClient, WalletNotification};
+use tokio::sync::mpsc;
 use wallet_db::{AddressContact, WalletDb};
 use wallet_manager::WalletManager;
 
@@ -110,6 +113,11 @@ struct WalletApp {
     network_manager: Option<Arc<Mutex<NetworkManager>>>,
     network_status: String,
 
+    // TIME Coin Protocol client for real-time notifications
+    protocol_client: Option<Arc<ProtocolClient>>,
+    notification_rx: Option<mpsc::UnboundedReceiver<WalletNotification>>,
+    recent_notifications: Vec<WalletNotification>,
+
     // Mnemonic setup - NEW enhanced interface
     mnemonic_interface: MnemonicInterface,
     mnemonic_confirmed: bool,
@@ -158,6 +166,9 @@ impl Default for WalletApp {
             is_syncing_transactions: false,
             network_manager: None,
             network_status: "Not connected".to_string(),
+            protocol_client: None,
+            notification_rx: None,
+            recent_notifications: Vec::new(),
             mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
             selected_address: None,
@@ -2158,6 +2169,121 @@ impl WalletApp {
         self.error_message_time = Some(std::time::Instant::now());
     }
 
+    /// Initialize TIME Coin Protocol client for real-time transaction notifications
+    fn initialize_protocol_client(&mut self) {
+        if self.protocol_client.is_some() {
+            return; // Already initialized
+        }
+
+        let network_mgr = match &self.network_manager {
+            Some(mgr) => mgr,
+            None => {
+                log::warn!("Cannot initialize protocol client: no network manager");
+                return;
+            }
+        };
+
+        // Get connected masternodes
+        let masternodes = {
+            let net = match network_mgr.lock() {
+                Ok(n) => n,
+                Err(e) => {
+                    log::error!("Failed to lock network manager: {}", e);
+                    return;
+                }
+            };
+            net.get_connected_peers()
+                .into_iter()
+                .map(|p| format!("http://{}:24101", p.address))
+                .collect::<Vec<_>>()
+        };
+
+        if masternodes.is_empty() {
+            log::warn!("No masternodes available for protocol client");
+            return;
+        }
+
+        log::info!(
+            "Initializing TIME Coin Protocol client with {} masternodes",
+            masternodes.len()
+        );
+
+        let (client, rx) = ProtocolClient::new(masternodes);
+        let client = Arc::new(client);
+
+        // Connect in background
+        let client_clone = client.clone();
+        tokio::spawn(async move {
+            match client_clone.connect().await {
+                Ok(_) => log::info!("✅ TIME Coin Protocol client connected!"),
+                Err(e) => log::error!("❌ Protocol client connection failed: {}", e),
+            }
+        });
+
+        // Subscribe to wallet addresses
+        if let Some(manager) = &self.wallet_manager {
+            // Generate addresses to subscribe to (derive first 20 addresses)
+            let mut addresses = Vec::new();
+            for i in 0..20 {
+                if let Ok(addr) = manager.derive_address(i) {
+                    addresses.push(addr);
+                }
+            }
+
+            log::info!("Subscribing to {} addresses", addresses.len());
+            let client_clone = client.clone();
+            tokio::spawn(async move {
+                if let Err(e) = client_clone.subscribe(addresses).await {
+                    log::error!("Failed to subscribe to addresses: {}", e);
+                }
+            });
+        }
+
+        self.protocol_client = Some(client);
+        self.notification_rx = Some(rx);
+
+        log::info!("✅ TIME Coin Protocol client initialized");
+    }
+
+    /// Check for new transaction notifications
+    fn check_notifications(&mut self) {
+        // Take receiver temporarily to avoid borrow issues
+        let mut rx = match self.notification_rx.take() {
+            Some(rx) => rx,
+            None => return,
+        };
+
+        // Process all pending notifications
+        while let Ok(notification) = rx.try_recv() {
+            log::info!(
+                "📨 New transaction notification: {} - {} TIME to {}",
+                notification.txid,
+                notification.amount as f64 / 100_000_000.0,
+                notification.address
+            );
+
+            // Add to recent notifications
+            self.recent_notifications.push(notification.clone());
+
+            // Keep only last 100 notifications
+            if self.recent_notifications.len() > 100 {
+                self.recent_notifications.remove(0);
+            }
+
+            // Show success message
+            self.set_success(format!(
+                "Received {} TIME",
+                notification.amount as f64 / 100_000_000.0
+            ));
+
+            // Trigger balance refresh (in real impl would update from notification)
+            // For now just mark that we got something
+        }
+
+        // Put receiver back
+        self.notification_rx = Some(rx);
+    }
+
     fn check_message_timeout(&mut self) {
         let timeout = std::time::Duration::from_secs(3);
 
@@ -2182,8 +2308,22 @@ impl eframe::App for WalletApp {
         // Check and clear messages after timeout
         self.check_message_timeout();
 
-        // Request repaint if messages are showing
-        if self.success_message.is_some() || self.error_message.is_some() {
+        // Initialize protocol client if we have a wallet and network but no client yet
+        if self.wallet_manager.is_some()
+            && self.network_manager.is_some()
+            && self.protocol_client.is_none()
+        {
+            self.initialize_protocol_client();
+        }
+
+        // Check for new transaction notifications
+        self.check_notifications();
+
+        // Request repaint if messages are showing or if we're receiving notifications
+        if self.success_message.is_some()
+            || self.error_message.is_some()
+            || self.notification_rx.is_some()
+        {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 

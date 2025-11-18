@@ -12,6 +12,7 @@ members = [
     "storage",
     "tools/masternode-dashboard",
     "tools/tx-perf-test",
+    "tools/utxo-protocol-demo",
     "wallet-gui",
 ]
 resolver = "2"

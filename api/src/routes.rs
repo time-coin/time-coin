@@ -71,6 +71,11 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/transactions/{txid}", get(get_transaction)) // Get single transaction
         // WebSocket endpoint for wallet notifications
         .route("/ws/wallet", get(crate::websocket::wallet_ws_handler))
+        // TIME Coin Protocol WebSocket endpoint
+        .route(
+            "/ws/utxo-protocol",
+            get(crate::protocol_ws::protocol_ws_handler),
+        )
         // Wallet sync endpoints
         .route(
             "/wallet/sync",
@@ -808,6 +813,41 @@ async fn add_to_mempool(
         state.ws_manager.notify_incoming_payment(event).await;
     }
 
+    // Notify TIME Coin Protocol subscribers
+    for output in tx.outputs.iter() {
+        let notification = crate::protocol_ws::ProtocolMessage::NewTransaction {
+            txid: tx.txid.clone(),
+            inputs: tx
+                .inputs
+                .iter()
+                .map(|i| crate::protocol_ws::OutPoint {
+                    txid: i.previous_output.txid.clone(),
+                    vout: i.previous_output.vout,
+                })
+                .collect(),
+            outputs: tx
+                .outputs
+                .iter()
+                .enumerate()
+                .map(|(idx, o)| crate::protocol_ws::TransactionOutput {
+                    address: o.address.clone(),
+                    amount: o.amount,
+                    vout: idx as u32,
+                })
+                .collect(),
+            timestamp: chrono::Utc::now().timestamp(),
+            block_height: None,
+        };
+        state
+            .protocol_subscriptions
+            .notify_address(&output.address, notification)
+            .await;
+        println!(
+            "📨 Notified protocol subscribers for address {}",
+            output.address
+        );
+    }
+
     // Trigger instant finality via BFT consensus
     trigger_instant_finality_for_received_tx(state.clone(), tx.clone()).await;
 
@@ -1222,13 +1262,17 @@ pub async fn trigger_instant_finality_for_received_tx(
     let peer_manager = state.peer_manager.clone();
     let wallet_address = state.wallet_address.clone();
     let ws_manager = state.ws_manager.clone();
+    let protocol_subscriptions = state.protocol_subscriptions.clone();
 
     // Spawn async task to handle consensus voting
     tokio::spawn(async move {
         // Get connected masternodes (real peers only)
         let masternodes = peer_manager.get_peer_ips().await;
 
-        println!("🔍 Debug: peer_manager.get_peer_ips() returned {} masternodes", masternodes.len());
+        println!(
+            "🔍 Debug: peer_manager.get_peer_ips() returned {} masternodes",
+            masternodes.len()
+        );
         for (i, mn) in masternodes.iter().enumerate() {
             println!("   [{}] {}", i, mn);
         }
@@ -1333,7 +1377,9 @@ pub async fn trigger_instant_finality_for_received_tx(
                             println!("✅ UTXO set updated - balances are now live!");
 
                             // Save finalized transaction to database for persistence
-                            if let Err(e) = blockchain.save_finalized_tx(&tx, approvals, masternodes.len()) {
+                            if let Err(e) =
+                                blockchain.save_finalized_tx(&tx, approvals, masternodes.len())
+                            {
                                 println!("⚠️  Failed to save finalized transaction: {}", e);
                             } else {
                                 println!("💾 Finalized transaction saved to database");
@@ -1356,6 +1402,21 @@ pub async fn trigger_instant_finality_for_received_tx(
                                 };
                                 ws_manager.notify_tx_confirmed(event, &output.address).await;
                             }
+
+                            // Notify TIME Coin Protocol subscribers about finalization
+                            let finality_notification =
+                                crate::protocol_ws::ProtocolMessage::TransactionFinalized {
+                                    txid: txid.clone(),
+                                    votes: approvals,
+                                    total_nodes: masternodes.len(),
+                                    finalized_at: chrono::Utc::now().timestamp(),
+                                };
+                            protocol_subscriptions
+                                .broadcast(finality_notification)
+                                .await;
+                            println!(
+                                "📨 Broadcast transaction finalization to protocol subscribers"
+                            );
                         }
                     }
                     Err(e) => {
