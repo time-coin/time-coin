@@ -10,6 +10,7 @@ time-core = { version = "0.1.0", path = "../core" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
 time-consensus = { version = "0.1.0", path = "../consensus" }
 time-mempool = { version = "0.1.0", path = "../mempool" }
+time-storage = { version = "0.1.0", path = "../storage" }
 wallet = { version = "0.1.0", path = "../wallet" }
 
 # Web framework

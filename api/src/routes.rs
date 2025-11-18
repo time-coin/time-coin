@@ -1246,6 +1246,16 @@ pub async fn trigger_instant_finality_for_received_tx(
                 } else {
                     println!("✅ UTXO set updated - balances are now live!");
 
+                    // Save finalized transaction to disk for persistence
+                    let finalized_tx_path = blockchain.db_path().replace("/blockchain", "/finalized_transactions.json");
+                    let mut finalized_store = time_storage::finalized_txs::FinalizedTransactionStore::load_or_new(&finalized_tx_path);
+                    finalized_store.add(tx.clone(), 1, 1); // Dev mode: single node auto-approved
+                    if let Err(e) = finalized_store.save(&finalized_tx_path) {
+                        println!("⚠️  Failed to save finalized transaction: {}", e);
+                    } else {
+                        println!("💾 Finalized transaction saved to disk");
+                    }
+
                     // Save UTXO snapshot to disk for persistence
                     if let Err(e) = blockchain.save_utxo_snapshot() {
                         println!("⚠️  Failed to save UTXO snapshot: {}", e);

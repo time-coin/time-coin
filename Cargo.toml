@@ -9,6 +9,7 @@ members = [
     "mempool",
     "masternode",
     "treasury",
+    "storage",
     "tools/masternode-dashboard",
     "tools/tx-perf-test",
     "wallet-gui",

@@ -6,15 +6,22 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub struct BlockchainDB {
     db: sled::Db,
+    path: String,
 }
 
 impl BlockchainDB {
     /// Open or create the database
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StateError> {
-        let db = sled::open(path)
+        let path_str = path.as_ref().to_string_lossy().to_string();
+        let db = sled::open(&path)
             .map_err(|e| StateError::IoError(format!("Failed to open database: {}", e)))?;
 
-        Ok(BlockchainDB { db })
+        Ok(BlockchainDB { db, path: path_str })
+    }
+
+    /// Get the database path
+    pub fn path(&self) -> &str {
+        &self.path
     }
 
     /// Save a block to disk

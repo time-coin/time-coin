@@ -767,6 +767,11 @@ impl BlockchainState {
         Ok(())
     }
 
+    /// Get database path (for storing related files)
+    pub fn db_path(&self) -> String {
+        self.db.path().to_string()
+    }
+
     /// Load UTXO state from disk snapshot and merge with blockchain state
     /// This restores finalized transactions that aren't yet in blocks
     pub fn load_and_merge_utxo_snapshot(&mut self) -> Result<(), StateError> {

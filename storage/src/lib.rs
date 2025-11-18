@@ -5,6 +5,8 @@
 //! - Snapshot written once per 24 hours
 //! - Quick load on startup
 
+pub mod finalized_txs;
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};

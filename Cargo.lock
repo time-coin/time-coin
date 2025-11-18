@@ -4943,6 +4943,7 @@ dependencies = [
  "time-crypto",
  "time-mempool",
  "time-network",
+ "time-storage",
  "tokio",
  "tower",
  "tower-http",
@@ -5095,6 +5096,19 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "time-storage"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time-core 0.1.0",
 ]
 
 [[package]]
