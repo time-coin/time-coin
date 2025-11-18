@@ -772,6 +772,26 @@ impl BlockchainState {
         self.db.path().to_string()
     }
 
+    /// Save a finalized transaction to database
+    pub fn save_finalized_tx(
+        &self,
+        tx: &Transaction,
+        votes: usize,
+        total: usize,
+    ) -> Result<(), StateError> {
+        self.db.save_finalized_tx(tx, votes, total)
+    }
+
+    /// Remove a finalized transaction (when it's been included in a block)
+    pub fn remove_finalized_tx(&self, txid: &str) -> Result<(), StateError> {
+        self.db.remove_finalized_tx(txid)
+    }
+
+    /// Load all finalized transactions from database
+    pub fn load_finalized_txs(&self) -> Result<Vec<Transaction>, StateError> {
+        self.db.load_finalized_txs()
+    }
+
     /// Load UTXO state from disk snapshot and merge with blockchain state
     /// This restores finalized transactions that aren't yet in blocks
     pub fn load_and_merge_utxo_snapshot(&mut self) -> Result<(), StateError> {

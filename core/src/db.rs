@@ -149,6 +149,89 @@ impl BlockchainDB {
         }
     }
 
+    /// Save a finalized transaction to database
+    pub fn save_finalized_tx(
+        &self,
+        tx: &crate::Transaction,
+        votes: usize,
+        total: usize,
+    ) -> Result<(), StateError> {
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Serialize, Deserialize)]
+        struct FinalizedTx {
+            transaction: crate::Transaction,
+            finalized_at: i64,
+            votes_received: usize,
+            total_voters: usize,
+        }
+
+        let finalized = FinalizedTx {
+            transaction: tx.clone(),
+            finalized_at: chrono::Utc::now().timestamp(),
+            votes_received: votes,
+            total_voters: total,
+        };
+
+        let key = format!("finalized_tx:{}", tx.txid);
+        let value = bincode::serialize(&finalized)
+            .map_err(|e| StateError::IoError(format!("Failed to serialize finalized tx: {}", e)))?;
+
+        self.db
+            .insert(key.as_bytes(), value)
+            .map_err(|e| StateError::IoError(format!("Failed to save finalized tx: {}", e)))?;
+
+        self.db
+            .flush()
+            .map_err(|e| StateError::IoError(format!("Failed to flush finalized tx: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Remove a finalized transaction (when it's been included in a block)
+    pub fn remove_finalized_tx(&self, txid: &str) -> Result<(), StateError> {
+        let key = format!("finalized_tx:{}", txid);
+        self.db
+            .remove(key.as_bytes())
+            .map_err(|e| StateError::IoError(format!("Failed to remove finalized tx: {}", e)))?;
+        Ok(())
+    }
+
+    /// Load all finalized transactions
+    pub fn load_finalized_txs(&self) -> Result<Vec<crate::Transaction>, StateError> {
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Serialize, Deserialize)]
+        struct FinalizedTx {
+            transaction: crate::Transaction,
+            finalized_at: i64,
+            votes_received: usize,
+            total_voters: usize,
+        }
+
+        let mut txs = Vec::new();
+        let prefix = b"finalized_tx:";
+
+        for item in self.db.scan_prefix(prefix) {
+            match item {
+                Ok((_key, value)) => {
+                    let finalized: FinalizedTx = bincode::deserialize(&value).map_err(|e| {
+                        StateError::IoError(format!("Failed to deserialize finalized tx: {}", e))
+                    })?;
+                    txs.push(finalized.transaction);
+                }
+                Err(e) => {
+                    return Err(StateError::IoError(format!(
+                        "Failed to scan finalized txs: {}",
+                        e
+                    )))
+                }
+            }
+        }
+
+        Ok(txs)
+    }
+
     /// Clear all blocks from the database
     pub fn clear_all(&self) -> Result<(), StateError> {
         // Get all keys that start with "block:"
