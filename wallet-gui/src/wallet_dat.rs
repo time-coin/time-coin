@@ -249,18 +249,31 @@ mod tests {
 
     #[test]
     fn test_save_and_load() {
+        use std::env;
+        
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let wallet = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
         let original_xpub = wallet.xpub.clone();
 
-        wallet.save().unwrap();
-        let loaded = WalletDat::load(NetworkType::Testnet).unwrap();
+        // Get the default path but create a test-specific path in temp directory
+        let test_dir = env::temp_dir().join("time-coin-wallet-test");
+        std::fs::create_dir_all(&test_dir).unwrap();
+        let test_wallet_path = test_dir.join("time-wallet.dat");
+        
+        // Manually save to test path
+        let data = bincode::serialize(&wallet).unwrap();
+        std::fs::write(&test_wallet_path, data).unwrap();
+        
+        // Manually load from test path
+        let data = std::fs::read(&test_wallet_path).unwrap();
+        let loaded: WalletDat = bincode::deserialize(&data).unwrap();
 
         assert_eq!(loaded.version, wallet.version);
         assert_eq!(loaded.network, wallet.network);
         assert_eq!(loaded.xpub, original_xpub);
 
-        // Cleanup
-        let _ = std::fs::remove_file(WalletDat::default_path(NetworkType::Testnet));
+        // Cleanup test file only (NOT production wallet)
+        let _ = std::fs::remove_file(&test_wallet_path);
+        let _ = std::fs::remove_dir(&test_dir);
     }
 }
