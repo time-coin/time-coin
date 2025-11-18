@@ -5,9 +5,18 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
+[[bin]]
+name = "time-masternode"
+path = "src/main.rs"
+
+[lib]
+name = "time_masternode"
+path = "src/lib.rs"
+
 [dependencies]
 time-core = { version = "0.1.0", path = "../core" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
+time-consensus = { version = "0.1.0", path = "../consensus" }
 wallet = { version = "0.1.0", path = "../wallet" }
 treasury = { version = "0.1.0", path = "../treasury" }
 serde = { workspace = true }
@@ -17,6 +26,9 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
 hex = "0.4"
+tokio = { workspace = true }
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
 
 
 [dev-dependencies]

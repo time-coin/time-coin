@@ -58,6 +58,9 @@ pub enum MasternodeError {
 
     #[error("Network manipulation detected")]
     NetworkManipulation,
+    
+    #[error("Network error: {0}")]
+    NetworkError(String),
 }
 
 pub type Result<T> = std::result::Result<T, MasternodeError>;

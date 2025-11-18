@@ -5051,14 +5051,17 @@ name = "time-masternode"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "futures-util",
  "hex",
  "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.17",
+ "time-consensus",
  "time-core 0.1.0",
  "time-crypto",
  "tokio",
+ "tokio-tungstenite 0.21.0",
  "treasury",
  "uuid",
  "wallet",

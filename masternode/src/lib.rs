@@ -366,8 +366,10 @@ pub mod node;
 pub mod reputation;
 pub mod selection;
 pub mod voting;
+pub mod ws_server;
 
 pub use registry::MasternodeRegistry;
+pub use ws_server::WsServer;
 
 // --- Tests
 #[cfg(test)]
