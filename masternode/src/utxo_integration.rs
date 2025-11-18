@@ -120,6 +120,35 @@ impl MasternodeUTXOIntegration {
                 // Return Ok - transaction notification doesn't need a response
                 Ok(None)
             }
+            // NEW: Handle instant finality vote requests
+            time_network::protocol::NetworkMessage::InstantFinalityRequest(tx) => {
+                info!(
+                    node = %self.node_id,
+                    txid = %tx.txid,
+                    "Received instant finality vote request"
+                );
+
+                // Validate the transaction
+                let is_valid = self.validate_transaction(tx).await;
+                
+                info!(
+                    node = %self.node_id,
+                    txid = %tx.txid,
+                    valid = %is_valid,
+                    "Transaction validation result"
+                );
+
+                // Create vote response
+                let vote = time_network::protocol::NetworkMessage::InstantFinalityVote {
+                    txid: tx.txid.clone(),
+                    voter: self.node_id.clone(),
+                    approve: is_valid,
+                    timestamp: chrono::Utc::now().timestamp() as u64,
+                };
+
+                // Return vote as response
+                Ok(Some(vote))
+            }
             _ => {
                 // Not a UTXO protocol message
                 Ok(None)
@@ -281,6 +310,94 @@ impl MasternodeUTXOIntegration {
             amount = %transaction.amount,
             "Broadcasted transaction to WebSocket clients"
         );
+    }
+
+    /// Validate a transaction
+    async fn validate_transaction(&self, tx: &time_core::Transaction) -> bool {
+        // Basic validation checks
+        info!(
+            node = %self.node_id,
+            txid = %tx.txid,
+            "Validating transaction"
+        );
+
+        // 1. Check transaction has inputs and outputs
+        if tx.inputs.is_empty() || tx.outputs.is_empty() {
+            warn!(
+                node = %self.node_id,
+                txid = %tx.txid,
+                "Transaction has no inputs or outputs"
+            );
+            return false;
+        }
+
+        // 2. Verify all input UTXOs exist and are unspent
+        let mut total_input: u64 = 0;
+        
+        for input in &tx.inputs {
+            let outpoint = time_core::OutPoint {
+                txid: input.previous_output.txid.clone(),
+                vout: input.previous_output.vout,
+            };
+            
+            match self.utxo_manager.get_utxo_info(&outpoint).await {
+                Some(utxo) => {
+                    // UTXO exists
+                    total_input += utxo.output.amount;
+                    
+                    // Check if it's locked or spent
+                    if utxo.state.is_locked_or_spent() {
+                        if let Some(locked_txid) = utxo.state.txid() {
+                            if locked_txid != tx.txid {
+                                warn!(
+                                    node = %self.node_id,
+                                    txid = %tx.txid,
+                                    outpoint = ?outpoint,
+                                    locked_by = %locked_txid,
+                                    "UTXO is locked/spent by another transaction"
+                                );
+                                return false;
+                            }
+                        }
+                    }
+                }
+                None => {
+                    warn!(
+                        node = %self.node_id,
+                        txid = %tx.txid,
+                        outpoint = ?outpoint,
+                        "UTXO does not exist (already spent or invalid)"
+                    );
+                    return false;
+                }
+            }
+        }
+
+        // 3. Check input amounts >= output amounts (must account for fees)
+        let total_output: u64 = tx.outputs.iter().map(|o| o.amount).sum();
+        
+        if total_input < total_output {
+            warn!(
+                node = %self.node_id,
+                txid = %tx.txid,
+                input = %total_input,
+                output = %total_output,
+                "Transaction outputs exceed inputs"
+            );
+            return false;
+        }
+
+        let fee = total_input - total_output;
+        info!(
+            node = %self.node_id,
+            txid = %tx.txid,
+            input = %total_input,
+            output = %total_output,
+            fee = %fee,
+            "Transaction validation PASSED"
+        );
+        
+        true
     }
 }
 
