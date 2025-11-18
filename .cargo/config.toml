@@ -1,0 +1,14 @@
+# Cargo configuration for faster builds
+# Compatible with all Cargo versions
+
+[net]
+# Use git CLI instead of libgit2 for faster clones
+git-fetch-with-cli = true
+
+[profile.release]
+# Production optimizations
+opt-level = 3
+lto = "thin"           # Link-time optimization
+codegen-units = 1      # Better optimization but slower compile
+strip = true           # Strip symbols for smaller binary
+debug = false          # No debug info in release builds
