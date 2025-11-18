@@ -1,10 +1,36 @@
 # TIME Coin Documentation
 
-Welcome to the TIME Coin documentation repository.
+Welcome to the TIME Coin comprehensive documentation repository.
 
-## Documentation Structure
+## 📖 Documentation Structure
 
-### Protocol-Managed Treasury System
+### 🎯 Start Here
+
+**[PROTOCOL_INDEX.md](PROTOCOL_INDEX.md)** - Complete navigation guide to all documentation
+
+### 📚 Core Technical Documents
+
+1. **[TIME-COIN-TECHNICAL-SPECIFICATION.md](TIME-COIN-TECHNICAL-SPECIFICATION.md)** - **Complete Technical Specification**
+   - Consolidated comprehensive specification
+   - Protocol architecture and design
+   - UTXO model with instant finality
+   - Masternode BFT consensus
+   - Economic model and governance
+   - Security analysis and proofs
+
+2. **[TIME_COIN_PROTOCOL_SPECIFICATION.md](TIME_COIN_PROTOCOL_SPECIFICATION.md)** - **Formal Mathematical Specification**
+   - Mathematical proofs and formal definitions
+   - For academic and research purposes
+
+3. **[TIME_COIN_PROTOCOL.md](TIME_COIN_PROTOCOL.md)** - **Protocol Overview**
+   - High-level introduction
+   - Key features and innovations
+
+4. **[TIME_COIN_PROTOCOL_QUICKSTART.md](TIME_COIN_PROTOCOL_QUICKSTART.md)** - **Quick Start Guide**
+   - 5-minute getting started
+   - Basic code examples
+
+### 🏛️ Governance & Treasury
 
 TIME Coin features a revolutionary **state-only treasury** with no private keys or wallet addresses. All spending is governed by masternode consensus requiring a 67%+ supermajority.
 
@@ -22,41 +48,92 @@ TIME Coin features a revolutionary **state-only treasury** with no private keys 
 - ✅ Fully auditable - Complete on-chain history
 - ✅ Byzantine Fault Tolerant - Secure against 1/3 Byzantine nodes
 
-### Governance
+**Governance System:**
 - `governance/proposal-template.md` - Standard proposal format
 - `governance/voting-guide.md` - How to vote as a masternode
 - `governance/treasury-guidelines.md` - Treasury spending rules
 
-### Treasury (Legacy)
-- `treasury/treasury-overview.md` - Basic treasury system explained
-- `treasury/spending-categories.md` - Fund allocation
-- `treasury/financial-reports.md` - Quarterly reports
+### 🖧 Masternodes
 
-### Masternodes
 - `masternodes/setup-guide.md` - Installation instructions
-- `masternodes/collateral-tiers.md` - Tier benefits
+- `masternodes/collateral-tiers.md` - Tier benefits and requirements
 - `masternodes/rewards-calculator.md` - ROI calculator
+- `RUNNING_MASTERNODE.md` - Masternode operations guide
+- `MASTERNODE_WEBSOCKET_GUIDE.md` - WebSocket integration
 
-### Whitepaper
-- `whitepaper/TIME-Whitepaper.md` - Latest version
-- `whitepaper/CHANGELOG.md` - Version history
+### 📄 Whitepapers
 
-### API
+- `whitepaper/Technical-Whitepaper-v3.0.md` - Complete technical whitepaper
+- `whitepaper/TIME-Technical-Whitepaper.md` - Utility token model
+- `whitepaper/Security-Whitepaper-V3.0.md` - Security analysis
+- `whitepaper/TIME-Whitepaper.md` - General whitepaper
+
+### 🔌 API & Integration
+
 - `api/treasury-api.md` - Treasury endpoints
 - `api/governance-api.md` - Voting endpoints
 - `api/proposal-api.md` - Proposal submission
+- `API.md` - General API documentation
+- `WALLET_PROTOCOL_INTEGRATION.md` - Wallet integration guide
 
-### Technical Documentation
-- `NETWORK_PROTOCOL.md` - Network protocol and magic bytes
+### 🏗️ Architecture & Technical
+
+- `NETWORK_PROTOCOL.md` - Network protocol and specifications
 - `GENESIS.md` - Genesis block configuration
 - `architecture/` - System architecture documents
+- `BLOCKCHAIN.md` - 24-hour block structure
+- `block-rewards.md` - Reward distribution
+- `transaction-fees.md` - Fee structure
 
-## Contributing
+### 🛠️ Development
 
-See CONTRIBUTING.md in the project root.
+- `BUILDING.md` - Build instructions
+- `BUILD_COMMANDS.md` - Quick build commands
+- `INSTALL.md` - Installation guide
+- `CONTRIBUTING.md` - Contribution guidelines
+- `TODO.md` - Development roadmap
+- `PROJECT_STATUS.md` - Current project status
 
-## Questions?
+### 💼 Wallet & User Applications
 
-- Website: https://time-coin.io
-- Forum: https://forum.time-coin.io
-- Telegram: https://t.me/+CaN6EflYM-83OTY0
+- `WALLET_ARCHITECTURE.md` - Wallet system design
+- `HD-WALLET.md` - Hierarchical Deterministic wallet
+- `WALLET_SYNC_API.md` - Wallet synchronization
+- `wallet-push-notifications.md` - Push notification system
+- `wallet-websocket-api.md` - WebSocket API for wallets
+
+## 🚀 Quick Navigation
+
+- **New to TIME Coin?** → Start with [TIME_COIN_PROTOCOL.md](TIME_COIN_PROTOCOL.md)
+- **Need complete spec?** → Read [TIME-COIN-TECHNICAL-SPECIFICATION.md](TIME-COIN-TECHNICAL-SPECIFICATION.md)
+- **Want to develop?** → Check [TIME_COIN_PROTOCOL_QUICKSTART.md](TIME_COIN_PROTOCOL_QUICKSTART.md)
+- **Academic research?** → See [TIME_COIN_PROTOCOL_SPECIFICATION.md](TIME_COIN_PROTOCOL_SPECIFICATION.md)
+- **Run a masternode?** → Follow [RUNNING_MASTERNODE.md](RUNNING_MASTERNODE.md)
+- **Integrate a wallet?** → Read [WALLET_PROTOCOL_INTEGRATION.md](WALLET_PROTOCOL_INTEGRATION.md)
+
+## 📊 Document Status
+
+All documents have been reviewed and consolidated as of **November 18, 2025**.
+
+**Key Changes:**
+- ✅ Created comprehensive technical specification (TIME-COIN-TECHNICAL-SPECIFICATION.md)
+- ✅ Removed redundant and duplicate documentation
+- ✅ Standardized terminology throughout
+- ✅ Updated cross-references and navigation
+- ✅ Consolidated protocol documentation
+
+## 🤝 Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) in the project root for contribution guidelines.
+
+## 📞 Contact & Resources
+
+- **Website**: https://time-coin.io
+- **Forum**: https://forum.time-coin.io
+- **Telegram**: https://t.me/+CaN6EflYM-83OTY0
+- **GitHub**: https://github.com/time-coin
+- **Discord**: https://discord.gg/timecoin
+
+## 📜 License
+
+All documentation is released under the MIT License unless otherwise noted.

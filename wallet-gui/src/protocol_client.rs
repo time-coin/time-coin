@@ -201,7 +201,7 @@ impl ProtocolClient {
             let msg_json = serde_json::to_string(&subscribe_msg)
                 .map_err(|e| format!("Failed to serialize: {}", e))?;
             write
-                .send(Message::Text(msg_json))
+                .send(Message::Text(msg_json.into()))
                 .await
                 .map_err(|e| format!("Failed to send subscribe: {}", e))?;
 

@@ -13,9 +13,9 @@ pub mod address;
 pub mod keypair;
 pub mod metadata_db;
 pub mod mnemonic;
+pub mod p2p_client;
 pub mod transaction;
 pub mod wallet;
-pub mod p2p_client;
 
 pub use address::{Address, AddressError, NetworkType};
 pub use keypair::{Keypair, KeypairError};
@@ -24,6 +24,6 @@ pub use mnemonic::{
     generate_mnemonic, mnemonic_to_keypair, mnemonic_to_xpub, validate_mnemonic, xpub_to_address,
     MnemonicError, MnemonicPhrase,
 };
+pub use p2p_client::WalletP2PClient;
 pub use transaction::{Transaction, TransactionError, TxInput, TxOutput};
 pub use wallet::{Wallet, WalletError, UTXO};
-pub use p2p_client::WalletP2PClient;

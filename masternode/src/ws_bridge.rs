@@ -106,13 +106,13 @@ async fn handle_connection(
                                     "type": "SubscriptionConfirmed",
                                     "addresses": addresses
                                 });
-                                let _ = client.tx.send(Message::Text(confirm.to_string()));
+                                let _ = client.tx.send(Message::Text(confirm.to_string().into()));
                             }
                         }
                         WsMessage::Ping => {
                             if let Some(client) = clients.read().await.get(&client_id) {
                                 let _ = client.tx.send(Message::Text(
-                                    serde_json::json!({"type": "Pong"}).to_string(),
+                                    serde_json::json!({"type": "Pong"}).to_string().into(),
                                 ));
                             }
                         }
