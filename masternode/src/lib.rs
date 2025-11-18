@@ -366,10 +366,10 @@ pub mod node;
 pub mod reputation;
 pub mod selection;
 pub mod voting;
-pub mod ws_server;
+pub mod ws_bridge;
 
 pub use registry::MasternodeRegistry;
-pub use ws_server::WsServer;
+pub use ws_bridge::WsBridge;
 
 // --- Tests
 #[cfg(test)]

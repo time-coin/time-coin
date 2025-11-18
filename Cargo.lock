@@ -5051,8 +5051,10 @@ name = "time-masternode"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "env_logger",
  "futures-util",
  "hex",
+ "log",
  "serde",
  "serde_json",
  "sha2",

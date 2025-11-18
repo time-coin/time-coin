@@ -220,18 +220,23 @@ sudo systemctl restart timed
 
 ### Network ports
 
-TIME Coin uses themed ports for P2P and RPC access:
+TIME Coin uses themed ports for P2P, RPC, and WebSocket access:
 
-| Network | P2P port | RPC port |
-|---------|---------:|---------:|
-| Testnet | 24100    | 24101    |
-| Mainnet | 24000    | 24001    |
+| Network | P2P port | RPC port | WebSocket port |
+|---------|----------|----------|----------------|
+| Testnet | 24100    | 24101    | 24102          |
+| Mainnet | 24000    | 24001    | 24002          |
+
+- **P2P port**: Node-to-node blockchain communication
+- **RPC port**: HTTP API for wallet/client requests  
+- **WebSocket port**: TIME Coin Protocol real-time UTXO state notifications
 
 Defaults can be overridden in your configuration file (e.g., config/testnet.toml). The setup scripts and node will respect values set in your config.
 
-If using a firewall, allow the P2P port (example for testnet):
+If using a firewall, allow the P2P and WebSocket ports (example for testnet):
 ```bash
 sudo ufw allow 24100/tcp comment 'TIME Coin Testnet P2P'
+sudo ufw allow 24102/tcp comment 'TIME Coin Protocol WebSocket'
 ```
 
 ## Configuration
