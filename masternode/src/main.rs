@@ -47,6 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("✅ UTXO integration initialized with WebSocket bridge");
 
+    // Start vote cleanup task
+    utxo_integration.start_cleanup_task();
+    println!("✅ Vote cleanup task started");
+
     // Start WebSocket server
     let bridge_clone = bridge.clone();
     tokio::spawn(async move {

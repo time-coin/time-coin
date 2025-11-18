@@ -275,6 +275,7 @@ impl WalletApp {
                                     // Trigger network bootstrap in background
                                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                                     let ctx_clone = ctx.clone();
+                                    let wallet_db = self.wallet_db.clone();
 
                                     tokio::spawn(async move {
                                         let api_endpoint = {
@@ -283,7 +284,13 @@ impl WalletApp {
                                         };
 
                                         let mut temp_net = NetworkManager::new(api_endpoint);
-                                        match temp_net.bootstrap(bootstrap_nodes).await {
+                                        let result = if let Some(db) = wallet_db {
+                                            temp_net.bootstrap_with_db(&db, bootstrap_nodes).await
+                                        } else {
+                                            temp_net.bootstrap(bootstrap_nodes).await
+                                        };
+
+                                        match result {
                                             Ok(_) => {
                                                 log::info!("Network bootstrap successful!");
                                                 {
@@ -473,6 +480,7 @@ impl WalletApp {
 
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                     let ctx_clone = ctx.clone();
+                    let wallet_db = self.wallet_db.clone();
 
                     tokio::spawn(async move {
                         let api_endpoint = {
@@ -481,7 +489,13 @@ impl WalletApp {
                         };
 
                         let mut temp_net = NetworkManager::new(api_endpoint);
-                        match temp_net.bootstrap(bootstrap_nodes).await {
+                        let result = if let Some(db) = wallet_db {
+                            temp_net.bootstrap_with_db(&db, bootstrap_nodes).await
+                        } else {
+                            temp_net.bootstrap(bootstrap_nodes).await
+                        };
+
+                        match result {
                             Ok(_) => {
                                 log::info!("Network bootstrap successful!");
                                 {

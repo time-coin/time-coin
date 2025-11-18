@@ -276,11 +276,124 @@ impl NetworkManager {
         Err("No peers responded with blockchain info".to_string())
     }
 
-    /// Bootstrap network connections
+    /// Bootstrap network connections with database-backed peer management
+    pub async fn bootstrap_with_db(
+        &mut self,
+        db: &crate::wallet_db::WalletDb,
+        bootstrap_nodes: Vec<String>,
+    ) -> Result<(), String> {
+        log::info!("Bootstrapping network with database-backed peers");
+
+        // First, try to use peers from database
+        match db.get_working_peers() {
+            Ok(db_peers) if !db_peers.is_empty() => {
+                log::info!("Found {} working peers in database", db_peers.len());
+                let peers: Vec<PeerInfo> = db_peers
+                    .iter()
+                    .map(|p| PeerInfo {
+                        address: p.address.clone(),
+                        port: p.port,
+                        version: p.version.clone(),
+                        last_seen: Some(p.last_seen),
+                        latency_ms: p.latency_ms,
+                    })
+                    .collect();
+
+                // Try connecting to database peers
+                if self.connect_to_peers(peers.clone()).await.is_ok() {
+                    log::info!("Successfully connected using database peers");
+                    // Update peer records with successful connection
+                    for peer in &peers {
+                        self.update_peer_in_db(db, peer, true).await;
+                    }
+                } else {
+                    log::warn!("Failed to connect to database peers, trying API");
+                    // Fall through to API fetch
+                }
+            }
+            Ok(_) => {
+                log::info!("No working peers in database, fetching from API");
+            }
+            Err(e) => {
+                log::warn!("Failed to read peers from database: {}", e);
+            }
+        }
+
+        // If no database peers worked, try API
+        if self.connected_peers.is_empty() {
+            match self.fetch_peers().await {
+                Ok(peers) => {
+                    log::info!("Successfully fetched {} peers from API", peers.len());
+                    if !peers.is_empty() {
+                        self.connect_to_peers(peers.clone()).await?;
+                        // Save new peers to database
+                        for peer in &peers {
+                            self.save_peer_to_db(db, peer).await;
+                        }
+                    } else {
+                        log::warn!("API returned 0 peers");
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to fetch peers from API: {}", e);
+                    log::info!("Falling back to bootstrap nodes");
+
+                    // Fall back to bootstrap nodes from config
+                    let fallback_peers: Vec<PeerInfo> = bootstrap_nodes
+                        .into_iter()
+                        .filter_map(|addr| {
+                            if let Some((host, port_str)) = addr.rsplit_once(':') {
+                                if let Ok(port) = port_str.parse() {
+                                    return Some(PeerInfo {
+                                        address: host.to_string(),
+                                        port,
+                                        version: None,
+                                        last_seen: None,
+                                        latency_ms: 0,
+                                    });
+                                }
+                            }
+                            None
+                        })
+                        .collect();
+
+                    if !fallback_peers.is_empty() {
+                        self.connect_to_peers(fallback_peers.clone()).await?;
+                        // Save bootstrap peers to database
+                        for peer in &fallback_peers {
+                            self.save_peer_to_db(db, peer).await;
+                        }
+                    } else {
+                        log::warn!("No bootstrap nodes available");
+                    }
+                }
+            }
+        }
+
+        // Only sync if we have peers
+        if !self.connected_peers.is_empty() {
+            // Start blockchain sync
+            if let Err(e) = self.start_sync().await {
+                log::warn!("Blockchain sync failed: {}", e);
+            }
+
+            // Discover more peers and optimize connections
+            log::info!("Discovering additional peers...");
+            if let Err(e) = self.discover_and_connect_peers().await {
+                log::warn!("Peer discovery had issues: {}", e);
+            }
+        } else {
+            log::info!("No peers available - wallet running in offline mode");
+        }
+
+        Ok(())
+    }
+
+    /// Bootstrap network connections (legacy method without database)
     pub async fn bootstrap(&mut self, bootstrap_nodes: Vec<String>) -> Result<(), String> {
         log::info!("Bootstrapping network with {} nodes", bootstrap_nodes.len());
 
-        // First, try to fetch peers from API
+        // Try to fetch peers from API
         match self.fetch_peers().await {
             Ok(peers) => {
                 log::info!("Successfully fetched {} peers from API", peers.len());
@@ -446,6 +559,96 @@ impl NetworkManager {
             );
         }
         self.connected_peers.clone()
+    }
+
+    /// Save a peer to database
+    async fn save_peer_to_db(&self, db: &crate::wallet_db::WalletDb, peer: &PeerInfo) {
+        use crate::wallet_db::PeerRecord;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Check if peer already exists
+        let peer_record = match db.get_all_peers() {
+            Ok(peers) => peers
+                .into_iter()
+                .find(|p| p.address == peer.address && p.port == peer.port),
+            Err(_) => None,
+        };
+
+        let record = if let Some(mut existing) = peer_record {
+            // Update existing peer
+            existing.last_seen = peer.last_seen.unwrap_or(now);
+            existing.version = peer.version.clone();
+            existing.latency_ms = peer.latency_ms;
+            existing.successful_connections += 1;
+            existing
+        } else {
+            // Create new peer
+            PeerRecord {
+                address: peer.address.clone(),
+                port: peer.port,
+                version: peer.version.clone(),
+                last_seen: peer.last_seen.unwrap_or(now),
+                first_seen: now,
+                successful_connections: 1,
+                failed_connections: 0,
+                latency_ms: peer.latency_ms,
+            }
+        };
+
+        if let Err(e) = db.save_peer(&record) {
+            log::warn!("Failed to save peer to database: {}", e);
+        }
+    }
+
+    /// Update peer connection status in database
+    async fn update_peer_in_db(
+        &self,
+        db: &crate::wallet_db::WalletDb,
+        peer: &PeerInfo,
+        success: bool,
+    ) {
+        use crate::wallet_db::PeerRecord;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let peer_record = match db.get_all_peers() {
+            Ok(peers) => peers
+                .into_iter()
+                .find(|p| p.address == peer.address && p.port == peer.port),
+            Err(_) => None,
+        };
+
+        let record = if let Some(mut existing) = peer_record {
+            existing.last_seen = now;
+            if success {
+                existing.successful_connections += 1;
+            } else {
+                existing.failed_connections += 1;
+            }
+            existing
+        } else {
+            PeerRecord {
+                address: peer.address.clone(),
+                port: peer.port,
+                version: peer.version.clone(),
+                last_seen: now,
+                first_seen: now,
+                successful_connections: if success { 1 } else { 0 },
+                failed_connections: if success { 0 } else { 1 },
+                latency_ms: peer.latency_ms,
+            }
+        };
+
+        if let Err(e) = db.save_peer(&record) {
+            log::warn!("Failed to update peer in database: {}", e);
+        }
     }
 
     pub fn set_connected_peers(&mut self, peers: Vec<PeerInfo>) {

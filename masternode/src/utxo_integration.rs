@@ -3,7 +3,7 @@
 //! Integrates the UTXO state protocol with the P2P network layer,
 //! enabling instant finality through masternode consensus.
 
-use crate::{TransactionNotification, WsBridge};
+use crate::{voting::VoteTracker, TransactionNotification, WsBridge};
 use std::net::IpAddr;
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOStateNotification};
@@ -26,6 +26,8 @@ pub struct MasternodeUTXOIntegration {
     peer_manager: Arc<PeerManager>,
     /// WebSocket bridge for wallet notifications
     ws_bridge: Option<Arc<WsBridge>>,
+    /// Vote tracker for instant finality
+    vote_tracker: Arc<VoteTracker>,
     /// Node identifier
     node_id: String,
 }
@@ -38,12 +40,14 @@ impl MasternodeUTXOIntegration {
         peer_manager: Arc<PeerManager>,
     ) -> Self {
         let utxo_handler = Arc::new(UTXOProtocolHandler::new(utxo_manager.clone()));
+        let vote_tracker = Arc::new(VoteTracker::new(2)); // Require 2 votes for consensus
 
         Self {
             utxo_manager,
             utxo_handler,
             peer_manager,
             ws_bridge: None,
+            vote_tracker,
             node_id,
         }
     }
@@ -146,8 +150,64 @@ impl MasternodeUTXOIntegration {
                     timestamp: chrono::Utc::now().timestamp() as u64,
                 };
 
-                // Return vote as response
+                // Broadcast vote to all peers (not just requester)
+                self.peer_manager.broadcast_message(vote.clone()).await;
+
+                // Also return vote as response to requester
                 Ok(Some(vote))
+            }
+            // NEW: Handle incoming votes from other masternodes
+            time_network::protocol::NetworkMessage::InstantFinalityVote {
+                txid,
+                voter,
+                approve,
+                timestamp,
+            } => {
+                info!(
+                    node = %self.node_id,
+                    txid = %txid,
+                    voter = %voter,
+                    approve = %approve,
+                    "Received vote from masternode"
+                );
+
+                // Record the vote
+                let vote = crate::voting::Vote {
+                    txid: txid.clone(),
+                    voter: voter.clone(),
+                    approve: *approve,
+                    timestamp: *timestamp,
+                };
+
+                // Check if consensus reached
+                if let Some(consensus) = self.vote_tracker.record_vote(vote).await {
+                    info!(
+                        node = %self.node_id,
+                        txid = %txid,
+                        approved = %consensus,
+                        "🎉 CONSENSUS REACHED for transaction"
+                    );
+
+                    // Notify wallet via WebSocket
+                    if let Some(ref bridge) = self.ws_bridge {
+                        self.notify_wallet_consensus(bridge, txid, consensus).await;
+                    }
+
+                    // If approved, finalize the transaction
+                    if consensus {
+                        if let Err(e) = self.finalize_transaction(txid).await {
+                            warn!(
+                                node = %self.node_id,
+                                txid = %txid,
+                                error = %e,
+                                "Failed to finalize transaction after consensus"
+                            );
+                        }
+                    }
+                }
+
+                // No response needed for votes
+                Ok(None)
             }
             _ => {
                 // Not a UTXO protocol message
@@ -280,6 +340,26 @@ impl MasternodeUTXOIntegration {
         self.utxo_manager.get_stats().await
     }
 
+    /// Get vote tracker for direct access
+    pub fn vote_tracker(&self) -> &Arc<VoteTracker> {
+        &self.vote_tracker
+    }
+
+    /// Start background cleanup task for old votes
+    pub fn start_cleanup_task(&self) {
+        let vote_tracker = self.vote_tracker.clone();
+        let node_id = self.node_id.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await; // Every hour
+
+                info!(node = %node_id, "Running vote tracker cleanup");
+                vote_tracker.cleanup_old(3600).await; // Remove votes older than 1 hour
+            }
+        });
+    }
+
     /// Broadcast transaction to WebSocket wallet clients
     async fn broadcast_transaction_to_wallets(
         &self,
@@ -310,6 +390,37 @@ impl MasternodeUTXOIntegration {
             amount = %transaction.amount,
             "Broadcasted transaction to WebSocket clients"
         );
+    }
+
+    /// Notify wallet of consensus result
+    async fn notify_wallet_consensus(&self, _bridge: &Arc<WsBridge>, txid: &str, approved: bool) {
+        info!(
+            node = %self.node_id,
+            txid = %txid,
+            approved = %approved,
+            "Notifying wallet of consensus result"
+        );
+
+        // TODO: Send proper consensus notification to wallet
+        // For now, we'll use the existing notification system
+        // In a full implementation, add a ConsensusNotification type
+    }
+
+    /// Finalize a transaction after consensus approval
+    async fn finalize_transaction(&self, txid: &str) -> Result<(), String> {
+        info!(
+            node = %self.node_id,
+            txid = %txid,
+            "Finalizing transaction after consensus approval"
+        );
+
+        // TODO: In a full implementation:
+        // 1. Update UTXO states from Locked to Spent
+        // 2. Create new UTXOs for outputs
+        // 3. Broadcast finalization to other masternodes
+        // 4. Store in blockchain
+
+        Ok(())
     }
 
     /// Validate a transaction

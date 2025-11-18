@@ -328,6 +328,76 @@ impl WalletDb {
         self.db.flush()?;
         Ok(())
     }
+
+    // ==================== Peer Management ====================
+
+    /// Save or update a peer
+    pub fn save_peer(&self, peer: &PeerRecord) -> Result<(), WalletDbError> {
+        let key = format!("peer:{}:{}", peer.address, peer.port);
+        let value = bincode::serialize(peer)?;
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Get all known peers, sorted by last_seen (most recent first)
+    pub fn get_all_peers(&self) -> Result<Vec<PeerRecord>, WalletDbError> {
+        let mut peers = Vec::new();
+        let prefix = b"peer:";
+
+        for item in self.db.scan_prefix(prefix) {
+            let (_key, value) = item?;
+            match bincode::deserialize::<PeerRecord>(&value) {
+                Ok(peer) => peers.push(peer),
+                Err(e) => {
+                    log::warn!("Failed to deserialize peer, skipping: {}", e);
+                    continue;
+                }
+            }
+        }
+
+        peers.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        Ok(peers)
+    }
+
+    /// Get working peers (successfully connected in the last 24 hours)
+    pub fn get_working_peers(&self) -> Result<Vec<PeerRecord>, WalletDbError> {
+        let all_peers = self.get_all_peers()?;
+        let cutoff_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - (24 * 60 * 60); // 24 hours ago
+
+        Ok(all_peers
+            .into_iter()
+            .filter(|p| p.last_seen >= cutoff_time && p.successful_connections > 0)
+            .collect())
+    }
+
+    /// Delete a peer
+    pub fn delete_peer(&self, address: &str, port: u16) -> Result<(), WalletDbError> {
+        let key = format!("peer:{}:{}", address, port);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Clear all peers (for fresh bootstrap)
+    pub fn clear_all_peers(&self) -> Result<(), WalletDbError> {
+        let prefix = b"peer:";
+        let keys_to_remove: Vec<_> = self
+            .db
+            .scan_prefix(prefix)
+            .filter_map(|item| item.ok().map(|(key, _)| key))
+            .collect();
+
+        for key in keys_to_remove {
+            self.db.remove(key)?;
+        }
+        self.db.flush()?;
+        Ok(())
+    }
 }
 
 /// UTXO record for wallet
@@ -339,4 +409,17 @@ pub struct UtxoRecord {
     pub address: String,
     pub block_height: u64,
     pub confirmations: u64,
+}
+
+/// Peer record for persistent peer management
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerRecord {
+    pub address: String,
+    pub port: u16,
+    pub version: Option<String>,
+    pub last_seen: u64,
+    pub first_seen: u64,
+    pub successful_connections: u32,
+    pub failed_connections: u32,
+    pub latency_ms: u64,
 }
