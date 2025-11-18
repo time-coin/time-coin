@@ -51,7 +51,9 @@ pub struct TransactionRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransactionStatus {
     Pending,
+    Approved,
     Confirmed,
+    Declined,
     Failed,
 }
 

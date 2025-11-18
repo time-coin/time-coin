@@ -909,8 +909,14 @@ impl WalletApp {
                                                     wallet_db::TransactionStatus::Confirmed => {
                                                         ("✓", egui::Color32::GREEN)
                                                     }
+                                                    wallet_db::TransactionStatus::Approved => {
+                                                        ("✓", egui::Color32::from_rgb(0, 200, 0))
+                                                    }
                                                     wallet_db::TransactionStatus::Pending => {
                                                         ("⏳", egui::Color32::YELLOW)
+                                                    }
+                                                    wallet_db::TransactionStatus::Declined => {
+                                                        ("✗", egui::Color32::DARK_RED)
                                                     }
                                                     wallet_db::TransactionStatus::Failed => {
                                                         ("✗", egui::Color32::RED)
@@ -1272,10 +1278,78 @@ impl WalletApp {
                             } else if self.send_amount.is_empty() {
                                 self.set_error("Please enter an amount".to_string());
                             } else {
-                                self.set_success(
-                                    "Transaction sent! (Network integration pending)".to_string(),
-                                );
-                                // TODO: Implement actual transaction sending
+                                // Parse amount
+                                let amount: u64 = match self.send_amount.parse::<f64>() {
+                                    Ok(amt) => (amt * 100_000_000.0) as u64, // Convert to satoshis
+                                    Err(_) => {
+                                        self.set_error("Invalid amount".to_string());
+                                        return;
+                                    }
+                                };
+
+                                // Create transaction
+                                if let Some(ref mut wallet_manager) = self.wallet_manager {
+                                    let fee = 1000u64; // Default fee
+                                    match wallet_manager.create_transaction(&self.send_address, amount, fee) {
+                                        Ok(transaction) => {
+                                            // Save as pending transaction first
+                                            if let Some(ref db) = self.wallet_db {
+                                                let tx_hash = transaction.txid();
+                                                let tx_record = wallet_db::TransactionRecord {
+                                                    tx_hash: tx_hash.clone(),
+                                                    timestamp: chrono::Utc::now().timestamp(),
+                                                    from_address: None,
+                                                    to_address: self.send_address.clone(),
+                                                    amount,
+                                                    status: wallet_db::TransactionStatus::Pending,
+                                                    block_height: None,
+                                                    notes: None,
+                                                };
+
+                                                if let Err(e) = db.save_transaction(&tx_record) {
+                                                    log::error!("Failed to save pending transaction: {}", e);
+                                                } else {
+                                                    log::info!("Saved pending transaction: {}", tx_hash);
+                                                }
+                                            }
+
+                                            // Send transaction via protocol client
+                                            if let Some(ref protocol_client) = self.protocol_client {
+                                                let client = protocol_client.clone();
+                                                let tx = transaction.clone();
+                                                let txid = tx.txid();
+                                                let txid_clone = txid.clone();
+                                                let db_opt = self.wallet_db.clone();
+
+                                                tokio::spawn(async move {
+                                                    match client.send_transaction(tx).await {
+                                                        Ok(txid) => {
+                                                            log::info!("✓ Transaction sent successfully: {}", txid);
+                                                        }
+                                                        Err(e) => {
+                                                            log::error!("✗ Failed to send transaction: {}", e);
+                                                            // Mark as failed in database
+                                                            if let Some(db) = db_opt {
+                                                                if let Ok(Some(mut tx_record)) = db.get_transaction(&txid_clone) {
+                                                                    tx_record.status = wallet_db::TransactionStatus::Failed;
+                                                                    let _ = db.save_transaction(&tx_record);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                                self.set_success(format!("Transaction submitted: {}", txid));
+                                                self.send_address.clear();
+                                                self.send_amount.clear();
+                                            } else {
+                                                self.set_error("Not connected to network".to_string());
+                                            }
+                                        }
+                                        Err(e) => {
+                                            self.set_error(format!("Failed to create transaction: {}", e));
+                                        }
+                                    }
+                                }
                             }
                         }
                     });
@@ -1902,7 +1976,11 @@ impl WalletApp {
                         // Status badge
                         let (status_text, status_color) = match tx.status {
                             TransactionStatus::Confirmed => ("✓ Confirmed", egui::Color32::GREEN),
+                            TransactionStatus::Approved => {
+                                ("✓ Approved", egui::Color32::from_rgb(0, 200, 0))
+                            }
                             TransactionStatus::Pending => ("⏳ Pending", egui::Color32::YELLOW),
+                            TransactionStatus::Declined => ("✗ Declined", egui::Color32::DARK_RED),
                             TransactionStatus::Failed => ("✗ Failed", egui::Color32::RED),
                         };
                         ui.label(
@@ -2308,43 +2386,79 @@ impl WalletApp {
         // Process all pending notifications
         while let Ok(notification) = rx.try_recv() {
             log::info!(
-                "📨 New transaction notification: {} - {} TIME to {}",
+                "📨 Transaction notification: {} - state: {:?}",
                 notification.txid,
-                notification.amount as f64 / 100_000_000.0,
-                notification.address
+                notification.state
             );
 
-            // Store transaction in database
+            // Store or update transaction in database
             if let Some(db) = &self.wallet_db {
-                let tx_record = wallet_db::TransactionRecord {
-                    tx_hash: notification.txid.clone(),
-                    timestamp: notification.timestamp,
-                    from_address: if notification.is_incoming {
-                        Some(notification.address.clone())
-                    } else {
-                        None
-                    },
-                    to_address: notification.address.clone(),
-                    amount: notification.amount,
-                    status: match notification.state {
-                        protocol_client::TransactionState::Confirmed { .. } => {
-                            wallet_db::TransactionStatus::Confirmed
-                        }
-                        _ => wallet_db::TransactionStatus::Pending,
-                    },
-                    block_height: match notification.state {
-                        protocol_client::TransactionState::Confirmed { block_height } => {
-                            Some(block_height)
-                        }
-                        _ => None,
-                    },
-                    notes: None,
+                // Check if transaction already exists
+                let existing_tx = db.get_transaction(&notification.txid).ok().flatten();
+
+                let status = match notification.state {
+                    protocol_client::TransactionState::Pending => {
+                        wallet_db::TransactionStatus::Pending
+                    }
+                    protocol_client::TransactionState::Approved { .. } => {
+                        wallet_db::TransactionStatus::Approved
+                    }
+                    protocol_client::TransactionState::Finalized => {
+                        wallet_db::TransactionStatus::Approved
+                    }
+                    protocol_client::TransactionState::Declined { .. } => {
+                        wallet_db::TransactionStatus::Declined
+                    }
+                    protocol_client::TransactionState::Confirmed { .. } => {
+                        wallet_db::TransactionStatus::Confirmed
+                    }
                 };
 
-                if let Err(e) = db.save_transaction(&tx_record) {
-                    log::error!("Failed to save transaction: {}", e);
-                } else {
-                    log::info!("💾 Saved transaction {} to database", notification.txid);
+                let block_height = match notification.state {
+                    protocol_client::TransactionState::Confirmed { block_height } => {
+                        Some(block_height)
+                    }
+                    _ => None,
+                };
+
+                // If transaction exists, update its status
+                if let Some(mut existing) = existing_tx {
+                    existing.status = status;
+                    if let Some(height) = block_height {
+                        existing.block_height = Some(height);
+                    }
+
+                    if let Err(e) = db.save_transaction(&existing) {
+                        log::error!("Failed to update transaction: {}", e);
+                    } else {
+                        log::info!(
+                            "✓ Updated transaction {} status to {:?}",
+                            notification.txid,
+                            existing.status
+                        );
+                    }
+                } else if notification.amount > 0 {
+                    // New transaction - only save if we have amount info
+                    let tx_record = wallet_db::TransactionRecord {
+                        tx_hash: notification.txid.clone(),
+                        timestamp: notification.timestamp,
+                        from_address: if notification.is_incoming {
+                            Some(notification.address.clone())
+                        } else {
+                            None
+                        },
+                        to_address: notification.address.clone(),
+                        amount: notification.amount,
+                        status,
+                        block_height,
+                        notes: None,
+                    };
+
+                    if let Err(e) = db.save_transaction(&tx_record) {
+                        log::error!("Failed to save transaction: {}", e);
+                    } else {
+                        log::info!("💾 Saved new transaction {} to database", notification.txid);
+                    }
                 }
             }
 
@@ -2356,13 +2470,22 @@ impl WalletApp {
                 self.recent_notifications.remove(0);
             }
 
-            // Show success message
-            self.set_success(format!(
-                "Received {} TIME",
-                notification.amount as f64 / 100_000_000.0
-            ));
-
-            // Trigger UI refresh to show new transaction
+            // Show appropriate message based on state
+            match notification.state {
+                protocol_client::TransactionState::Approved { votes, total_nodes } => {
+                    self.set_success(format!(
+                        "✓ Transaction approved ({}/{} votes)",
+                        votes, total_nodes
+                    ));
+                }
+                protocol_client::TransactionState::Confirmed { block_height } => {
+                    self.set_success(format!("✓ Transaction confirmed at block {}", block_height));
+                }
+                protocol_client::TransactionState::Declined { ref reason } => {
+                    self.set_error(format!("✗ Transaction declined: {}", reason));
+                }
+                _ => {}
+            }
         }
 
         // Put receiver back

@@ -54,6 +54,10 @@ pub enum ProtocolMessage {
     Unsubscribe {
         address: String,
     },
+    /// Submit transaction to network
+    SubmitTransaction {
+        transaction: wallet::Transaction,
+    },
     /// UTXO state change notification
     UTXOStateChange {
         outpoint: OutPoint,
@@ -118,7 +122,9 @@ pub struct WalletNotification {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionState {
     Pending,
+    Approved { votes: usize, total_nodes: usize },
     Finalized,
+    Declined { reason: String },
     Confirmed { block_height: u64 },
 }
 
@@ -370,17 +376,56 @@ impl ProtocolClient {
                 }
             }
 
-            ProtocolMessage::TransactionFinalized { txid, .. } => {
-                log::info!("Transaction finalized: {}", txid);
-                // Update transaction state to finalized
-                // This would ideally update existing notification
+            ProtocolMessage::TransactionFinalized {
+                txid,
+                votes,
+                total_nodes,
+                ..
+            } => {
+                log::info!(
+                    "✓ Transaction approved: {} ({}/{} votes)",
+                    txid,
+                    votes,
+                    total_nodes
+                );
+
+                // Send notification for approved state
+                let notification = WalletNotification {
+                    txid: txid.clone(),
+                    address: String::new(), // Will be updated by wallet
+                    amount: 0,              // Will be updated by wallet
+                    is_incoming: false,
+                    timestamp: chrono::Utc::now().timestamp(),
+                    state: TransactionState::Approved { votes, total_nodes },
+                };
+
+                if let Err(e) = notification_tx.send(notification) {
+                    log::error!("Failed to send approval notification: {}", e);
+                }
             }
 
             ProtocolMessage::TransactionConfirmed {
                 txid, block_height, ..
             } => {
-                log::info!("Transaction confirmed: {} at height {}", txid, block_height);
-                // Update transaction state to confirmed
+                log::info!(
+                    "✓ Transaction confirmed: {} at height {}",
+                    txid,
+                    block_height
+                );
+
+                // Send notification for confirmed state
+                let notification = WalletNotification {
+                    txid: txid.clone(),
+                    address: String::new(),
+                    amount: 0,
+                    is_incoming: false,
+                    timestamp: chrono::Utc::now().timestamp(),
+                    state: TransactionState::Confirmed { block_height },
+                };
+
+                if let Err(e) = notification_tx.send(notification) {
+                    log::error!("Failed to send confirmation notification: {}", e);
+                }
             }
 
             ProtocolMessage::UTXOStateChange {
@@ -461,6 +506,46 @@ impl ProtocolClient {
     /// Get subscribed addresses
     pub async fn subscribed_addresses(&self) -> Vec<String> {
         self.subscribed_addresses.read().await.clone()
+    }
+
+    /// Send a transaction to the masternode network for processing
+    pub async fn send_transaction(
+        &self,
+        transaction: wallet::Transaction,
+    ) -> Result<String, String> {
+        // Get first masternode URL
+        let masternode = self
+            .masternodes
+            .first()
+            .ok_or_else(|| "No masternodes configured".to_string())?;
+
+        let txid = transaction.txid();
+
+        // Send transaction via HTTP API for now
+        // TODO: Use WebSocket when connection management is implemented
+        let client = reqwest::Client::new();
+        let url = format!("{}/instant-finality/submit", masternode);
+
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({
+                "transaction": transaction
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to send transaction: {}", e))?;
+
+        if response.status().is_success() {
+            log::info!("✓ Transaction submitted to masternode: {}", txid);
+            Ok(txid)
+        } else {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            Err(format!(
+                "Transaction submission failed ({}): {}",
+                status, error_text
+            ))
+        }
     }
 
     /// Subscribe to xpub for all derived addresses

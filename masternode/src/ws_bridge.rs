@@ -21,12 +21,14 @@ struct WsClient {
 pub struct WsBridge {
     addr: String,
     clients: Arc<RwLock<HashMap<String, WsClient>>>,
+    tx_handler: Option<mpsc::UnboundedSender<time_core::Transaction>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum WsMessage {
     Subscribe { addresses: Vec<String> },
+    SubmitTransaction { transaction: time_core::Transaction },
     Ping,
     Pong,
 }
@@ -45,7 +47,13 @@ impl WsBridge {
         Self {
             addr,
             clients: Arc::new(RwLock::new(HashMap::new())),
+            tx_handler: None,
         }
+    }
+
+    /// Set transaction handler channel
+    pub fn set_transaction_handler(&mut self, tx: mpsc::UnboundedSender<time_core::Transaction>) {
+        self.tx_handler = Some(tx);
     }
 
     /// Broadcast transaction to all subscribed clients
@@ -83,8 +91,9 @@ impl WsBridge {
         while let Ok((stream, addr)) = listener.accept().await {
             log::info!("New WebSocket connection from {}", addr);
             let clients = self.clients.clone();
+            let tx_handler = self.tx_handler.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream, clients).await {
+                if let Err(e) = handle_connection(stream, clients, tx_handler).await {
                     log::error!("WebSocket error: {}", e);
                 }
             });
@@ -97,6 +106,7 @@ impl WsBridge {
 async fn handle_connection(
     stream: TcpStream,
     clients: Arc<RwLock<HashMap<String, WsClient>>>,
+    tx_handler: Option<mpsc::UnboundedSender<time_core::Transaction>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ws_stream = accept_async(stream).await?;
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
@@ -144,6 +154,47 @@ async fn handle_connection(
                                     "addresses": addresses
                                 });
                                 let _ = client.tx.send(Message::Text(confirm.to_string().into()));
+                            }
+                        }
+                        WsMessage::SubmitTransaction { transaction } => {
+                            let txid = transaction.calculate_txid();
+                            log::info!("Received transaction from wallet: {}", txid);
+
+                            // Forward to transaction handler
+                            if let Some(ref handler) = tx_handler {
+                                if let Err(e) = handler.send(transaction.clone()) {
+                                    log::error!("Failed to forward transaction to handler: {}", e);
+                                    // Send error response to client
+                                    if let Some(client) = clients.read().await.get(&client_id) {
+                                        let error = serde_json::json!({
+                                            "type": "Error",
+                                            "message": "Failed to process transaction"
+                                        });
+                                        let _ =
+                                            client.tx.send(Message::Text(error.to_string().into()));
+                                    }
+                                } else {
+                                    log::info!("Transaction {} forwarded to handler", txid);
+                                    // Send acknowledgment
+                                    if let Some(client) = clients.read().await.get(&client_id) {
+                                        let ack = serde_json::json!({
+                                            "type": "TransactionReceived",
+                                            "txid": txid
+                                        });
+                                        let _ =
+                                            client.tx.send(Message::Text(ack.to_string().into()));
+                                    }
+                                }
+                            } else {
+                                log::error!("No transaction handler configured");
+                                // Send error response
+                                if let Some(client) = clients.read().await.get(&client_id) {
+                                    let error = serde_json::json!({
+                                        "type": "Error",
+                                        "message": "Transaction handler not available"
+                                    });
+                                    let _ = client.tx.send(Message::Text(error.to_string().into()));
+                                }
                             }
                         }
                         WsMessage::Ping => {
