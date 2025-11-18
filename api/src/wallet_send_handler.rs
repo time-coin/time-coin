@@ -196,6 +196,10 @@ pub async fn wallet_send(
         println!("   Amount: {} TIME", req.amount as f64 / 100_000_000.0);
         println!("   TxID:   {}", &final_txid[..16]);
 
+        // Trigger instant finality via BFT consensus
+        println!("   🚀 Triggering instant finality...");
+        crate::routes::trigger_instant_finality_for_received_tx(state.clone(), tx.clone()).await;
+
         // Broadcast to network
         if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
             broadcaster.broadcast_transaction(tx).await;

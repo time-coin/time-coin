@@ -1205,7 +1205,7 @@ async fn receive_finalized_block(
 }
 
 /// Trigger instant finality for a transaction received from another node with real distributed voting
-async fn trigger_instant_finality_for_received_tx(
+pub async fn trigger_instant_finality_for_received_tx(
     state: ApiState,
     tx: time_core::transaction::Transaction,
 ) {
