@@ -28,7 +28,7 @@ bincode = { workspace = true }
 thiserror = { workspace = true }
 dirs = "5.0"
 base64 = "0.22"
-resvg = "0.44"
+resvg = "0.45"
 tiny-skia = "0.11"
 printpdf = "0.7"
 
