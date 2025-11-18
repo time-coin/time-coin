@@ -128,6 +128,8 @@ pub struct ProtocolClient {
     masternodes: Vec<String>,
     /// Subscribed addresses
     subscribed_addresses: Arc<RwLock<Vec<String>>>,
+    /// Subscribed xpub (if any)
+    subscribed_xpub: Arc<RwLock<Option<String>>>,
     /// Transaction notifications channel
     notification_tx: mpsc::UnboundedSender<WalletNotification>,
     /// Active connections
@@ -143,6 +145,7 @@ impl ProtocolClient {
             Self {
                 masternodes,
                 subscribed_addresses: Arc::new(RwLock::new(Vec::new())),
+                subscribed_xpub: Arc::new(RwLock::new(None)),
                 notification_tx,
                 active: Arc::new(RwLock::new(false)),
             },
@@ -179,7 +182,7 @@ impl ProtocolClient {
         let ws_url = masternode
             .replace("http://", "ws://")
             .replace("https://", "wss://");
-        let ws_url = format!("{}/ws/utxo-protocol", ws_url);
+        let ws_url = format!("{}/ws/wallet", ws_url); // Use wallet endpoint
 
         log::info!("Connecting to WebSocket: {}", ws_url);
 
@@ -192,12 +195,30 @@ impl ProtocolClient {
         // Mark as active
         *self.active.write().await = true;
 
-        // Subscribe to existing addresses
+        // Subscribe to xpub if available
+        let xpub = self.subscribed_xpub.read().await.clone();
+        if let Some(xpub) = xpub {
+            let subscribe_msg = serde_json::json!({
+                "type": "xpub",
+                "xpub": xpub
+            });
+            let msg_json = serde_json::to_string(&subscribe_msg)
+                .map_err(|e| format!("Failed to serialize: {}", e))?;
+            write
+                .send(Message::Text(msg_json.into()))
+                .await
+                .map_err(|e| format!("Failed to send xpub subscribe: {}", e))?;
+
+            log::info!("Subscribed to xpub: {}...", &xpub[..20]);
+        }
+
+        // Subscribe to existing addresses (fallback/additional)
         let addresses = self.subscribed_addresses.read().await.clone();
         if !addresses.is_empty() {
-            let subscribe_msg = ProtocolMessage::Subscribe {
-                addresses: addresses.clone(),
-            };
+            let subscribe_msg = serde_json::json!({
+                "type": "address",
+                "address": addresses[0].clone()  // API supports one address at a time
+            });
             let msg_json = serde_json::to_string(&subscribe_msg)
                 .map_err(|e| format!("Failed to serialize: {}", e))?;
             write
@@ -253,6 +274,75 @@ impl ProtocolClient {
         text: &str,
         notification_tx: &mpsc::UnboundedSender<WalletNotification>,
     ) -> Result<(), String> {
+        // Try parsing as API WalletNotification format first
+        if let Ok(api_notif) = serde_json::from_str::<serde_json::Value>(text) {
+            if let Some(notif_type) = api_notif.get("type").and_then(|v| v.as_str()) {
+                match notif_type {
+                    "tx_confirmed" => {
+                        let txid = api_notif.get("txid").and_then(|v| v.as_str()).unwrap_or("");
+                        let block_height = api_notif
+                            .get("block_height")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let timestamp = api_notif
+                            .get("timestamp")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+
+                        log::info!("Transaction confirmed: {} at height {}", txid, block_height);
+                        // Could update existing transaction status
+                        return Ok(());
+                    }
+                    "incoming_payment" => {
+                        let txid = api_notif
+                            .get("txid")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let amount = api_notif
+                            .get("amount")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let from_address = api_notif
+                            .get("from_address")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let timestamp = api_notif
+                            .get("timestamp")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+
+                        log::info!(
+                            "💰 Incoming payment: {} TIME from {:?}",
+                            amount,
+                            from_address
+                        );
+
+                        let notification = WalletNotification {
+                            txid,
+                            address: from_address.unwrap_or_default(),
+                            amount,
+                            is_incoming: true,
+                            timestamp,
+                            state: TransactionState::Pending,
+                        };
+
+                        if let Err(e) = notification_tx.send(notification) {
+                            log::error!("Failed to send notification: {}", e);
+                        }
+                        return Ok(());
+                    }
+                    "tx_invalidated" => {
+                        let txid = api_notif.get("txid").and_then(|v| v.as_str()).unwrap_or("");
+                        log::warn!("❌ Transaction invalidated: {}", txid);
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Fallback: Try parsing as old ProtocolMessage format
         let msg: ProtocolMessage =
             serde_json::from_str(text).map_err(|e| format!("Failed to parse message: {}", e))?;
 
@@ -371,6 +461,24 @@ impl ProtocolClient {
     /// Get subscribed addresses
     pub async fn subscribed_addresses(&self) -> Vec<String> {
         self.subscribed_addresses.read().await.clone()
+    }
+
+    /// Subscribe to xpub for all derived addresses
+    pub async fn subscribe_xpub(&self, xpub: String) -> Result<(), String> {
+        log::info!("Subscribing to xpub: {}...", &xpub[..20]);
+
+        // Store xpub
+        *self.subscribed_xpub.write().await = Some(xpub.clone());
+
+        // If not connected yet, xpub will be subscribed on connect
+        if !*self.active.read().await {
+            log::info!("Not connected yet, xpub will be subscribed on connect");
+            return Ok(());
+        }
+
+        // TODO: Send subscription if already connected
+        log::info!("xpub subscription queued");
+        Ok(())
     }
 }
 

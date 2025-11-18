@@ -63,12 +63,15 @@ pub enum WalletNotification {
 pub struct WsConnectionManager {
     /// Active connections: address -> WebSocket
     connections: Arc<RwLock<HashMap<String, tokio::sync::mpsc::UnboundedSender<Message>>>>,
+    /// xpub subscriptions: xpub -> WebSocket
+    xpub_connections: Arc<RwLock<HashMap<String, tokio::sync::mpsc::UnboundedSender<Message>>>>,
 }
 
 impl WsConnectionManager {
     pub fn new() -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
+            xpub_connections: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -82,6 +85,22 @@ impl WsConnectionManager {
     pub async fn unregister(&self, address: &str) {
         let mut conns = self.connections.write().await;
         conns.remove(address);
+    }
+
+    /// Register xpub subscription
+    pub async fn register_xpub(
+        &self,
+        xpub: String,
+        tx: tokio::sync::mpsc::UnboundedSender<Message>,
+    ) {
+        let mut conns = self.xpub_connections.write().await;
+        conns.insert(xpub, tx);
+    }
+
+    /// Unregister xpub subscription
+    pub async fn unregister_xpub(&self, xpub: &str) {
+        let mut conns = self.xpub_connections.write().await;
+        conns.remove(xpub);
     }
 
     /// Send notification to a specific address
@@ -129,6 +148,16 @@ impl WsConnectionManager {
 
         self.notify_address(&event.to_address, notification).await;
     }
+
+    /// Notify all xpub subscribers (broadcasts to all)
+    pub async fn notify_all_xpub_subscribers(&self, notification: WalletNotification) {
+        let conns = self.xpub_connections.read().await;
+        let json = serde_json::to_string(&notification).unwrap_or_default();
+
+        for tx in conns.values() {
+            let _ = tx.send(Message::Text(json.clone().into()));
+        }
+    }
 }
 
 impl Default for WsConnectionManager {
@@ -162,28 +191,48 @@ async fn handle_wallet_socket(socket: WebSocket, manager: Arc<WsConnectionManage
     // Handle incoming messages (subscription requests)
     let manager_clone = manager.clone();
     let mut recv_task = tokio::spawn(async move {
-        let mut current_address: Option<String> = None;
+        let mut current_subscription: Option<Subscription> = None;
 
         while let Some(Ok(msg)) = receiver.next().await {
             if let Message::Text(text) = msg {
                 if let Ok(sub) = serde_json::from_str::<SubscriptionRequest>(&text) {
-                    // Unregister old address if any
-                    if let Some(old_addr) = current_address.take() {
-                        manager_clone.unregister(&old_addr).await;
+                    // Unregister old subscription if any
+                    if let Some(old_sub) = current_subscription.take() {
+                        match old_sub {
+                            Subscription::Address(addr) => {
+                                manager_clone.unregister(&addr).await;
+                            }
+                            Subscription::Xpub(xpub) => {
+                                manager_clone.unregister_xpub(&xpub).await;
+                            }
+                        }
                     }
 
-                    // Register new address
-                    manager_clone
-                        .register(sub.address.clone(), tx.clone())
-                        .await;
-                    current_address = Some(sub.address);
+                    // Register new subscription
+                    match sub {
+                        SubscriptionRequest::Address { address } => {
+                            manager_clone.register(address.clone(), tx.clone()).await;
+                            current_subscription = Some(Subscription::Address(address));
+                        }
+                        SubscriptionRequest::Xpub { xpub } => {
+                            manager_clone.register_xpub(xpub.clone(), tx.clone()).await;
+                            current_subscription = Some(Subscription::Xpub(xpub));
+                        }
+                    }
                 }
             }
         }
 
         // Cleanup on disconnect
-        if let Some(addr) = current_address {
-            manager_clone.unregister(&addr).await;
+        if let Some(sub) = current_subscription {
+            match sub {
+                Subscription::Address(addr) => {
+                    manager_clone.unregister(&addr).await;
+                }
+                Subscription::Xpub(xpub) => {
+                    manager_clone.unregister_xpub(&xpub).await;
+                }
+            }
         }
     });
 
@@ -195,8 +244,16 @@ async fn handle_wallet_socket(socket: WebSocket, manager: Arc<WsConnectionManage
 }
 
 #[derive(Debug, Deserialize)]
-struct SubscriptionRequest {
-    address: String,
+#[serde(tag = "type", rename_all = "snake_case")]
+enum SubscriptionRequest {
+    Address { address: String },
+    Xpub { xpub: String },
+}
+
+#[derive(Debug)]
+enum Subscription {
+    Address(String),
+    Xpub(String),
 }
 
 use futures_util::stream::StreamExt;

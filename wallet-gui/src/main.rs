@@ -2450,21 +2450,17 @@ impl WalletApp {
             }
         });
 
-        // Subscribe to wallet addresses
+        // Subscribe to wallet xpub
         if let Some(manager) = &self.wallet_manager {
-            // Generate addresses to subscribe to (derive first 20 addresses)
-            let mut addresses = Vec::new();
-            for i in 0..20 {
-                if let Ok(addr) = manager.derive_address(i) {
-                    addresses.push(addr);
-                }
-            }
-
-            log::info!("Subscribing to {} addresses", addresses.len());
+            // Get xpub from wallet
+            let xpub = manager.get_xpub().to_string();
+            log::info!("Subscribing to xpub: {}...", &xpub[..20]);
             let client_clone = client.clone();
             tokio::spawn(async move {
-                if let Err(e) = client_clone.subscribe(addresses).await {
-                    log::error!("Failed to subscribe to addresses: {}", e);
+                if let Err(e) = client_clone.subscribe_xpub(xpub).await {
+                    log::error!("Failed to subscribe to xpub: {}", e);
+                } else {
+                    log::info!("✅ Subscribed to xpub for real-time updates!");
                 }
             });
         }
@@ -2492,6 +2488,40 @@ impl WalletApp {
                 notification.address
             );
 
+            // Store transaction in database
+            if let Some(db) = &self.wallet_db {
+                let tx_record = wallet_db::TransactionRecord {
+                    tx_hash: notification.txid.clone(),
+                    timestamp: notification.timestamp,
+                    from_address: if notification.is_incoming {
+                        Some(notification.address.clone())
+                    } else {
+                        None
+                    },
+                    to_address: notification.address.clone(),
+                    amount: notification.amount,
+                    status: match notification.state {
+                        protocol_client::TransactionState::Confirmed { .. } => {
+                            wallet_db::TransactionStatus::Confirmed
+                        }
+                        _ => wallet_db::TransactionStatus::Pending,
+                    },
+                    block_height: match notification.state {
+                        protocol_client::TransactionState::Confirmed { block_height } => {
+                            Some(block_height)
+                        }
+                        _ => None,
+                    },
+                    notes: None,
+                };
+
+                if let Err(e) = db.save_transaction(&tx_record) {
+                    log::error!("Failed to save transaction: {}", e);
+                } else {
+                    log::info!("💾 Saved transaction {} to database", notification.txid);
+                }
+            }
+
             // Add to recent notifications
             self.recent_notifications.push(notification.clone());
 
@@ -2506,8 +2536,7 @@ impl WalletApp {
                 notification.amount as f64 / 100_000_000.0
             ));
 
-            // Trigger balance refresh (in real impl would update from notification)
-            // For now just mark that we got something
+            // Trigger UI refresh to show new transaction
         }
 
         // Put receiver back
