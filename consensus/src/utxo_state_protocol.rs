@@ -36,7 +36,9 @@ type NotificationHandler = Arc<
     RwLock<
         Option<
             Box<
-                dyn Fn(UTXOStateNotification)
+                dyn Fn(
+                        UTXOStateNotification,
+                    )
                         -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
                     + Send
                     + Sync,

@@ -58,7 +58,7 @@ pub enum MasternodeError {
 
     #[error("Network manipulation detected")]
     NetworkManipulation,
-    
+
     #[error("Network error: {0}")]
     NetworkError(String),
 }
