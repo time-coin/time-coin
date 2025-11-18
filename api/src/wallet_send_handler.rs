@@ -124,13 +124,9 @@ pub async fn wallet_send(
     drop(blockchain);
 
     // Sign each input using the wallet's keypair
-    // Get the signing hash for the transaction (use hex encoding instead of sha2)
-    let tx_hash = {
-        let serialized = serde_json::to_string(&tx)
-            .map_err(|e| ApiError::Internal(format!("Failed to serialize tx: {}", e)))?;
-        hex::decode(&txid)
-            .map_err(|e| ApiError::Internal(format!("Failed to decode txid: {}", e)))?
-    };
+    // Use the transaction ID as the signing hash
+    let tx_hash = hex::decode(&txid)
+        .map_err(|e| ApiError::Internal(format!("Failed to decode txid: {}", e)))?;
 
     // Sign with keypair
     let keypair = wallet.keypair();
