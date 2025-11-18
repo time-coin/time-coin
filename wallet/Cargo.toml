@@ -20,9 +20,11 @@ chrono = "0.4"
 bip39 = { version = "2.2", features = ["serde", "rand"] }
 bip32 = "0.5"
 time-core = { version = "0.1.0", path = "../core" }
+time-network = { version = "0.1.0", path = "../network" }
 qrcode = "0.14"
 time-mempool = { version = "0.1.0", path = "../mempool" }
 sled = "0.34"
+tokio = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

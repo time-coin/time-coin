@@ -15,6 +15,7 @@ pub mod metadata_db;
 pub mod mnemonic;
 pub mod transaction;
 pub mod wallet;
+pub mod p2p_client;
 
 pub use address::{Address, AddressError, NetworkType};
 pub use keypair::{Keypair, KeypairError};
@@ -25,3 +26,4 @@ pub use mnemonic::{
 };
 pub use transaction::{Transaction, TransactionError, TxInput, TxOutput};
 pub use wallet::{Wallet, WalletError, UTXO};
+pub use p2p_client::WalletP2PClient;
