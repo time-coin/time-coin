@@ -31,11 +31,47 @@ enum WsMessage {
     Pong,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionNotification {
+    pub txid: String,
+    pub inputs: Vec<String>,   // Addresses spending
+    pub outputs: Vec<String>,  // Addresses receiving
+    pub amount: u64,
+    pub timestamp: i64,
+}
+
 impl WsBridge {
     pub fn new(addr: String) -> Self {
         Self {
             addr,
             clients: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Broadcast transaction to all subscribed clients
+    pub async fn broadcast_transaction(&self, notification: TransactionNotification) {
+        let clients = self.clients.read().await;
+        let mut relevant_addresses: Vec<String> = Vec::new();
+        relevant_addresses.extend(notification.inputs.clone());
+        relevant_addresses.extend(notification.outputs.clone());
+
+        for (client_id, client) in clients.iter() {
+            // Check if client is subscribed to any of the addresses in this transaction
+            let is_relevant = client.addresses.iter().any(|addr| {
+                relevant_addresses.contains(addr)
+            });
+
+            if is_relevant {
+                let msg = serde_json::json!({
+                    "type": "NewTransaction",
+                    "transaction": notification
+                });
+                
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = client.tx.send(Message::Text(json.into()));
+                    log::info!("Sent transaction notification to client {}", client_id);
+                }
+            }
         }
     }
 
