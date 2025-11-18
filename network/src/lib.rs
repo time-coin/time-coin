@@ -148,7 +148,12 @@ pub mod tx_broadcast {
         }
 
         /// Request instant finality votes from all peers via TCP
-        pub async fn request_instant_finality_votes(&self, tx: Transaction) {
+        /// Request instant finality votes from peers and collect responses
+        pub async fn request_instant_finality_votes(
+            &self,
+            tx: Transaction,
+            consensus: Arc<time_consensus::ConsensusEngine>,
+        ) -> usize {
             let peers = self.peer_manager.get_connected_peers().await;
 
             println!(
@@ -157,23 +162,83 @@ pub mod tx_broadcast {
             );
 
             let message = crate::protocol::NetworkMessage::InstantFinalityRequest(tx.clone());
+            let mut vote_tasks = Vec::new();
 
             for peer_info in peers {
                 let peer_addr = peer_info.address;
                 let msg_clone = message.clone();
                 let manager = self.peer_manager.clone();
+                let consensus_clone = consensus.clone();
+                let txid = tx.txid.clone();
 
-                tokio::spawn(async move {
-                    match manager.send_message_to_peer(peer_addr, msg_clone).await {
-                        Ok(_) => {
-                            println!("   ✓ Vote request sent to {}", peer_addr);
+                let task = tokio::spawn(async move {
+                    // Send request with 3 second timeout per peer
+                    match manager
+                        .send_message_to_peer_with_response(peer_addr, msg_clone, 3)
+                        .await
+                    {
+                        Ok(Some(response)) => {
+                            // Check if response is a vote
+                            if let crate::protocol::NetworkMessage::InstantFinalityVote {
+                                txid: vote_txid,
+                                voter,
+                                approve,
+                                timestamp: _,
+                            } = response
+                            {
+                                if vote_txid == txid {
+                                    let vote_type =
+                                        if approve { "APPROVE ✓" } else { "REJECT ✗" };
+                                    println!(
+                                        "   ✓ Received vote from {}: {}",
+                                        peer_addr, vote_type
+                                    );
+
+                                    // Record vote in consensus
+                                    let _ = consensus_clone
+                                        .vote_on_transaction(&txid, voter.clone(), approve)
+                                        .await;
+
+                                    return Some(approve);
+                                } else {
+                                    println!(
+                                        "   ✗ Vote txid mismatch from {}: expected {}, got {}",
+                                        peer_addr,
+                                        &txid[..16],
+                                        &vote_txid[..16]
+                                    );
+                                }
+                            } else {
+                                println!(
+                                    "   ✗ Unexpected response type from {}: {:?}",
+                                    peer_addr,
+                                    std::mem::discriminant(&response)
+                                );
+                            }
+                        }
+                        Ok(None) => {
+                            println!("   ✗ No response from {}", peer_addr);
                         }
                         Err(e) => {
-                            println!("   ✗ Failed to send vote request to {}: {}", peer_addr, e);
+                            println!("   ✗ Failed to get vote from {}: {}", peer_addr, e);
                         }
                     }
+                    None
                 });
+
+                vote_tasks.push(task);
             }
+
+            // Wait for all vote requests to complete
+            let mut votes_received = 0;
+            for task in vote_tasks {
+                if let Ok(Some(_)) = task.await {
+                    votes_received += 1;
+                }
+            }
+
+            println!("   📊 Collected {} votes from peers", votes_received);
+            votes_received
         }
 
         /// Broadcast instant finality vote to all peers via TCP

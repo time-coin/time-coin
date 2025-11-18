@@ -567,6 +567,77 @@ impl PeerManager {
         Ok(())
     }
 
+    /// Send message to peer and wait for response
+    pub async fn send_message_to_peer_with_response(
+        &self,
+        peer_addr: SocketAddr,
+        message: crate::protocol::NetworkMessage,
+        timeout_secs: u64,
+    ) -> Result<Option<crate::protocol::NetworkMessage>, String> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::time::timeout;
+
+        // Create new connection for request-response pattern
+        let mut stream = tokio::net::TcpStream::connect(peer_addr)
+            .await
+            .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
+
+        // Send request
+        let json = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
+        let len = json.len() as u32;
+
+        stream
+            .write_all(&len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to write length: {}", e))?;
+        stream
+            .write_all(&json)
+            .await
+            .map_err(|e| format!("Failed to write message: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush: {}", e))?;
+
+        // Read response with timeout
+        let timeout_duration = tokio::time::Duration::from_secs(timeout_secs);
+        let response_result = timeout(timeout_duration, async {
+            // Read response length
+            let mut len_bytes = [0u8; 4];
+            stream
+                .read_exact(&mut len_bytes)
+                .await
+                .map_err(|e| format!("Failed to read response length: {}", e))?;
+            let response_len = u32::from_be_bytes(len_bytes) as usize;
+
+            // Sanity check on length
+            if response_len > 10_000_000 {
+                // 10MB max
+                return Err(format!("Response too large: {} bytes", response_len));
+            }
+
+            // Read response data
+            let mut response_bytes = vec![0u8; response_len];
+            stream
+                .read_exact(&mut response_bytes)
+                .await
+                .map_err(|e| format!("Failed to read response data: {}", e))?;
+
+            // Deserialize response
+            let response: crate::protocol::NetworkMessage = serde_json::from_slice(&response_bytes)
+                .map_err(|e| format!("Failed to deserialize response: {}", e))?;
+
+            Ok(response)
+        })
+        .await;
+
+        match response_result {
+            Ok(Ok(response)) => Ok(Some(response)),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(format!("Response timeout after {} seconds", timeout_secs)),
+        }
+    }
+
     /// Broadcast chain tip update to all connected peers
     pub async fn broadcast_tip_update(&self, height: u64, hash: String) {
         let connections = self.connections.read().await;

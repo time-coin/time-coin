@@ -1332,14 +1332,20 @@ pub async fn trigger_instant_finality_for_received_tx(
             .await;
         println!("   ✅ Local node voted: APPROVE");
 
-        // Broadcast instant finality vote request to all peers
-        if let Some(broadcaster) = tx_broadcaster.as_ref() {
-            broadcaster.request_instant_finality_votes(tx.clone()).await;
-        }
+        // Request instant finality votes from all peers and collect responses
+        let votes_received = if let Some(broadcaster) = tx_broadcaster.as_ref() {
+            broadcaster
+                .request_instant_finality_votes(tx.clone(), consensus.clone())
+                .await
+        } else {
+            0
+        };
 
-        // Wait for votes to be collected (with timeout)
-        let vote_timeout = tokio::time::Duration::from_secs(5);
-        tokio::time::sleep(vote_timeout).await;
+        println!(
+            "   📊 Collected {} votes from {} peers",
+            votes_received,
+            masternodes.len()
+        );
 
         // Check vote counts from actual peer responses
         let (approvals, rejections) = consensus.get_transaction_vote_count(&txid).await;
