@@ -1344,6 +1344,53 @@ impl PeerManager {
             }
         }
     }
+
+    /// Broadcast UTXO state notification to all connected masternodes
+    pub async fn broadcast_utxo_notification(
+        &self,
+        notification: &time_consensus::utxo_state_protocol::UTXOStateNotification,
+    ) {
+        let notification_json = match serde_json::to_string(notification) {
+            Ok(json) => json,
+            Err(e) => {
+                warn!(error = %e, "Failed to serialize UTXO notification");
+                return;
+            }
+        };
+
+        let message = crate::protocol::NetworkMessage::UTXOStateNotification {
+            notification: notification_json,
+        };
+
+        self.broadcast_message(message).await;
+    }
+
+    /// Send UTXO state notification to a specific peer (for wallet subscriptions)
+    pub async fn send_utxo_notification_to_peer(
+        &self,
+        peer_ip: IpAddr,
+        notification: &time_consensus::utxo_state_protocol::UTXOStateNotification,
+    ) -> Result<(), String> {
+        let notification_json = serde_json::to_string(notification)
+            .map_err(|e| format!("Failed to serialize notification: {}", e))?;
+
+        let message = crate::protocol::NetworkMessage::UTXOStateNotification {
+            notification: notification_json,
+        };
+
+        let peer_addr = SocketAddr::new(peer_ip, self.listen_addr.port());
+        self.send_message_to_peer(peer_addr, message).await
+    }
+
+    /// Handle UTXO protocol messages using the handler
+    pub async fn handle_utxo_message(
+        &self,
+        message: &crate::protocol::NetworkMessage,
+        peer_ip: IpAddr,
+        utxo_handler: &crate::utxo_handler::UTXOProtocolHandler,
+    ) -> Result<Option<crate::protocol::NetworkMessage>, String> {
+        utxo_handler.handle_message(message, peer_ip).await
+    }
 }
 
 // Implement Clone trait for PeerManager so `.clone()` is idiomatic.

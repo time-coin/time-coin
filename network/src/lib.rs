@@ -5,6 +5,7 @@ pub mod manager;
 pub mod protocol;
 pub mod quarantine;
 pub mod sync;
+pub mod utxo_handler;
 
 pub use connection::PeerConnection;
 pub use connection::PeerListener;
@@ -21,6 +22,9 @@ pub mod peer_exchange;
 
 // Re-export PeerInfo from discovery
 pub use discovery::PeerInfo;
+
+// Re-export UTXO handler
+pub use utxo_handler::UTXOProtocolHandler;
 
 /// Transaction broadcasting functionality
 pub mod tx_broadcast {

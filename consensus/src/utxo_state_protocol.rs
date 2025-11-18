@@ -450,10 +450,20 @@ impl UTXOStateManager {
         subs.push(subscription);
     }
 
+    /// Add a subscription (alias for subscribe for compatibility)
+    pub async fn add_subscription(&self, subscription: UTXOSubscription) {
+        self.subscribe(subscription).await;
+    }
+
     /// Unsubscribe from UTXO state changes
     pub async fn unsubscribe(&self, subscriber_id: &str) {
         let mut subs = self.subscriptions.write().await;
         subs.retain(|sub| sub.subscriber_id != subscriber_id);
+    }
+
+    /// Remove a subscription (alias for unsubscribe for compatibility)
+    pub async fn remove_subscription(&self, subscriber_id: &str) {
+        self.unsubscribe(subscriber_id).await;
     }
 
     /// Notify subscribers about state change

@@ -365,10 +365,12 @@ pub mod heartbeat;
 pub mod node;
 pub mod reputation;
 pub mod selection;
+pub mod utxo_integration;
 pub mod voting;
 pub mod ws_bridge;
 
 pub use registry::MasternodeRegistry;
+pub use utxo_integration::MasternodeUTXOIntegration;
 pub use ws_bridge::WsBridge;
 
 // --- Tests
