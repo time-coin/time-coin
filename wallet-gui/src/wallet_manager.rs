@@ -269,7 +269,7 @@ mod tests {
         // Create wallet components WITHOUT saving to disk
         let wallet = Wallet::from_mnemonic(mnemonic, "", NetworkType::Testnet).unwrap();
         let wallet_dat = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
-        
+
         let manager = WalletManager {
             wallet_dat,
             active_wallet: wallet,
@@ -289,11 +289,11 @@ mod tests {
     #[test]
     fn test_balance_management() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        
+
         // Create wallet components WITHOUT saving to disk
         let wallet = Wallet::from_mnemonic(mnemonic, "", NetworkType::Testnet).unwrap();
         let wallet_dat = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
-        
+
         let mut manager = WalletManager {
             wallet_dat,
             active_wallet: wallet,

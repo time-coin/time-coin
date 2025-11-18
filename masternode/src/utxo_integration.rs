@@ -130,7 +130,7 @@ impl MasternodeUTXOIntegration {
 
                 // Validate the transaction
                 let is_valid = self.validate_transaction(tx).await;
-                
+
                 info!(
                     node = %self.node_id,
                     txid = %tx.txid,
@@ -333,18 +333,18 @@ impl MasternodeUTXOIntegration {
 
         // 2. Verify all input UTXOs exist and are unspent
         let mut total_input: u64 = 0;
-        
+
         for input in &tx.inputs {
             let outpoint = time_core::OutPoint {
                 txid: input.previous_output.txid.clone(),
                 vout: input.previous_output.vout,
             };
-            
+
             match self.utxo_manager.get_utxo_info(&outpoint).await {
                 Some(utxo) => {
                     // UTXO exists
                     total_input += utxo.output.amount;
-                    
+
                     // Check if it's locked or spent
                     if utxo.state.is_locked_or_spent() {
                         if let Some(locked_txid) = utxo.state.txid() {
@@ -375,7 +375,7 @@ impl MasternodeUTXOIntegration {
 
         // 3. Check input amounts >= output amounts (must account for fees)
         let total_output: u64 = tx.outputs.iter().map(|o| o.amount).sum();
-        
+
         if total_input < total_output {
             warn!(
                 node = %self.node_id,
@@ -396,7 +396,7 @@ impl MasternodeUTXOIntegration {
             fee = %fee,
             "Transaction validation PASSED"
         );
-        
+
         true
     }
 }
