@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::UTXOStateManager;
 use time_masternode::{MasternodeRegistry, MasternodeUTXOIntegration, WsBridge};
-use time_network::{discovery::NetworkType, PeerManager};
+use time_network::{connection::PeerListener, discovery::NetworkType, PeerManager};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,6 +52,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         if let Err(e) = bridge_clone.start().await {
             eprintln!("❌ WebSocket bridge error: {}", e);
+        }
+    });
+
+    // Start P2P message listener
+    let listener = PeerListener::bind(p2p_addr, NetworkType::Mainnet, p2p_addr, None, None, None)
+        .await
+        .expect("Failed to bind P2P listener");
+    println!("✅ P2P listener started");
+
+    let utxo_integration_clone = utxo_integration.clone();
+    let peer_manager_clone = peer_manager.clone();
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok(mut connection) => {
+                    let integration = utxo_integration_clone.clone();
+                    let pm = peer_manager_clone.clone();
+
+                    tokio::spawn(async move {
+                        loop {
+                            match connection.receive_message().await {
+                                Ok(message) => {
+                                    let peer_info = connection.peer_info().await;
+                                    let peer_ip = peer_info.address.ip();
+
+                                    // Handle message via UTXO integration
+                                    match integration
+                                        .handle_network_message(&message, peer_ip)
+                                        .await
+                                    {
+                                        Ok(Some(response)) => {
+                                            let _ = connection.send_message(response).await;
+                                        }
+                                        Ok(None) => {
+                                            // Check if it's a TransactionBroadcast to re-broadcast
+                                            if let time_network::protocol::NetworkMessage::TransactionBroadcast(
+                                                tx,
+                                            ) = message
+                                            {
+                                                log::info!(
+                                                    "Received transaction {} from peer, re-broadcasting",
+                                                    tx.txid
+                                                );
+
+                                                // Re-broadcast to other peers
+                                                pm.broadcast_message(
+                                                    time_network::protocol::NetworkMessage::TransactionBroadcast(tx),
+                                                )
+                                                .await;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::warn!("Error handling message: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::debug!("Connection closed or error: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    log::error!("Failed to accept connection: {}", e);
+                }
+            }
         }
     });
 
