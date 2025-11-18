@@ -127,10 +127,18 @@ pub async fn wallet_send(
     let keypair = wallet.keypair();
     let public_key = keypair.public_key_bytes().to_vec();
 
+    println!("🔐 Signing transaction:");
+    println!("   Public key length: {}", public_key.len());
+    println!("   Public key (hex): {}", hex::encode(&public_key));
+
     // Set public keys on all inputs BEFORE calculating signing hash
     for input in &mut tx.inputs {
         input.public_key = public_key.clone();
     }
+
+    // Recalculate TXID after setting public keys (TXID includes public keys)
+    tx.txid = tx.calculate_txid();
+    println!("   Updated TXID: {}", &tx.txid[..16]);
 
     // Now calculate the signing hash with public_keys set
     // This must match how mempool calculates it
@@ -160,16 +168,19 @@ pub async fn wallet_send(
         hasher.finalize().to_vec()
     };
 
+    println!("   Signing hash: {}", hex::encode(&tx_hash));
+
     // Sign the hash
     let signature = keypair.sign(&tx_hash);
+    println!("   Signature length: {}", signature.len());
+    println!("   Signature (hex): {}", hex::encode(&signature[..16]));
 
     // Apply signatures to all inputs
     for input in &mut tx.inputs {
         input.signature = signature.clone();
     }
 
-    // Recalculate TXID after signing
-    tx.txid = tx.calculate_txid();
+    // DO NOT recalculate TXID after signing - TXID should not include signatures
     let final_txid = tx.txid.clone();
 
     // Add to mempool
