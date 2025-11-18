@@ -1,7 +1,7 @@
 use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
-use time_core::transaction::{Transaction, TxInput, TxOutput, OutPoint};
+use time_core::transaction::{Transaction, TxInput, TxOutput};
 
 #[derive(Debug, Deserialize)]
 pub struct WalletSendRequest {
@@ -96,19 +96,27 @@ pub async fn wallet_send(
         outputs.push(TxOutput::new(change, wallet_address.clone()));
     }
 
-    // Create transaction
-    let mut tx = Transaction {
-        txid: String::new(), // Will be calculated
+    // Create transaction with calculated TXID
+    let txid = {
+        let tx_temp = Transaction {
+            txid: String::new(),
+            version: 1,
+            inputs: inputs.clone(),
+            outputs: outputs.clone(),
+            lock_time: 0,
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+        tx_temp.calculate_txid()
+    };
+    
+    let tx = Transaction {
+        txid: txid.clone(),
         version: 1,
         inputs,
         outputs,
         lock_time: 0,
         timestamp: chrono::Utc::now().timestamp(),
     };
-
-    // Calculate transaction ID
-    tx.calculate_txid();
-    let txid = tx.txid.clone();
 
     drop(blockchain);
 
