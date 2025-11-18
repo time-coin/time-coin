@@ -100,9 +100,19 @@ impl MasternodeTier {
     pub fn weight(&self) -> u64 {
         match self {
             MasternodeTier::Free => 1,
-            MasternodeTier::Bronze => 10,
-            MasternodeTier::Silver => 25,
-            MasternodeTier::Gold => 50,
+            MasternodeTier::Bronze => 10,      // 10x Free tier
+            MasternodeTier::Silver => 100,     // 10x Bronze tier
+            MasternodeTier::Gold => 1000,      // 10x Silver tier
+        }
+    }
+
+    /// Get voting power for governance (separate from reward weights)
+    pub fn voting_power(&self) -> u64 {
+        match self {
+            MasternodeTier::Free => 0, // Cannot vote
+            MasternodeTier::Bronze => 1,
+            MasternodeTier::Silver => 10,
+            MasternodeTier::Gold => 100,
         }
     }
 }
@@ -618,10 +628,20 @@ mod tests {
 
     #[test]
     fn test_masternode_tier_weights() {
+        // Reward weights scale by 10x per tier
         assert_eq!(MasternodeTier::Free.weight(), 1);
         assert_eq!(MasternodeTier::Bronze.weight(), 10);
-        assert_eq!(MasternodeTier::Silver.weight(), 25);
-        assert_eq!(MasternodeTier::Gold.weight(), 50);
+        assert_eq!(MasternodeTier::Silver.weight(), 100);
+        assert_eq!(MasternodeTier::Gold.weight(), 1000);
+    }
+
+    #[test]
+    fn test_masternode_voting_power() {
+        // Voting power is separate from reward weights
+        assert_eq!(MasternodeTier::Free.voting_power(), 0);
+        assert_eq!(MasternodeTier::Bronze.voting_power(), 1);
+        assert_eq!(MasternodeTier::Silver.voting_power(), 10);
+        assert_eq!(MasternodeTier::Gold.voting_power(), 100);
     }
 
     #[test]
@@ -691,10 +711,10 @@ mod tests {
         assert!(silver_reward > bronze_reward);
         assert!(gold_reward > silver_reward);
 
-        // Check proportions match weights
+        // Check proportions match weights (10x per tier)
         assert_eq!(bronze_reward / free_reward, 10); // 10x weight
-        assert_eq!(silver_reward / free_reward, 25); // 25x weight
-        assert_eq!(gold_reward / free_reward, 50); // 50x weight
+        assert_eq!(silver_reward / free_reward, 100); // 100x weight
+        assert_eq!(gold_reward / free_reward, 1000); // 1000x weight
     }
 
     #[test]
@@ -806,17 +826,17 @@ mod tests {
         // Should have 5 outputs (one per masternode)
         assert_eq!(outputs.len(), 5);
 
-        // Calculate expected values
+        // Calculate expected values with 10x scaling weights
         let total_pool = calculate_total_masternode_reward(&counts);
-        let total_weight = counts.total_weight(); // 2*1 + 1*10 + 1*25 + 1*50 = 87
+        let total_weight = counts.total_weight(); // 2*1 + 1*10 + 1*100 + 1*1000 = 1,112
         let per_weight = total_pool / total_weight;
 
-        // Verify each tier gets correct reward
+        // Verify each tier gets correct reward (10x per tier)
         assert_eq!(outputs[0].amount, per_weight); // Free
         assert_eq!(outputs[1].amount, per_weight); // Free
         assert_eq!(outputs[2].amount, per_weight * 10); // Bronze
-        assert_eq!(outputs[3].amount, per_weight * 25); // Silver
-        assert_eq!(outputs[4].amount, per_weight * 50); // Gold
+        assert_eq!(outputs[3].amount, per_weight * 100); // Silver
+        assert_eq!(outputs[4].amount, per_weight * 1000); // Gold
     }
 
     #[test]
@@ -860,15 +880,20 @@ mod tests {
         assert_eq!(tx.outputs[0].amount, expected_treasury);
 
         // Remaining outputs are for masternodes (proportional to weights)
-        let total_weight = counts.total_weight(); // 1*10 + 1*25 = 35
+        let total_weight = counts.total_weight(); // 1*1000 + 1*10000 = 11,000
         let per_weight = expected_masternode_share / total_weight;
+
+        // Bronze node reward
+        assert_eq!(tx.outputs[1].amount, per_weight * 1000); // Bronze weight
+                                                             // Silver node reward
+        assert_eq!(tx.outputs[2].amount, per_weight * 10000); // Silver weight
 
         // Masternodes sorted by address: masternode1, masternode2
         assert_eq!(tx.outputs[1].address, "masternode1");
         assert_eq!(tx.outputs[1].amount, per_weight * 10); // Bronze weight
 
         assert_eq!(tx.outputs[2].address, "masternode2");
-        assert_eq!(tx.outputs[2].amount, per_weight * 25); // Silver weight
+        assert_eq!(tx.outputs[2].amount, per_weight * 100); // Silver weight
 
         // Verify total adds up (within rounding tolerance)
         let total: u64 = tx.outputs.iter().map(|o| o.amount).sum();

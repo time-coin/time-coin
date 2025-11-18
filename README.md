@@ -27,11 +27,14 @@ TIME separates transaction finality from block production:
 
 ## Masternode tiers
 
-| Tier   | Collateral   | APY   | Voting power |
-|--------|--------------:|------:|-------------:|
-| Bronze | 1,000 TIME    | 18%   | 1x |
-| Silver | 10,000 TIME   | 19.8% | 5x |
-| Gold   | 100,000 TIME  | 22.5% | 10x |
+| Tier   | Collateral   | Reward Weight | Voting Power | Est. APY* |
+|--------|--------------:|--------------:|-------------:|----------:|
+| Free   | 0 TIME        | 1x            | 0x           | N/A       |
+| Bronze | 1,000 TIME    | 10x           | 1x           | 35-180%   |
+| Silver | 10,000 TIME   | 100x          | 10x          | 35-180%   |
+| Gold   | 100,000 TIME  | 1000x         | 100x         | 35-180%   |
+
+*APY varies based on network size. Smaller networks = higher APY.
 
 ## Project structure
 

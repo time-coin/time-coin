@@ -914,10 +914,35 @@ impl BlockchainState {
         collateral_tx: String,
         wallet_address: String,
     ) -> Result<(), StateError> {
-        let required_collateral = tier.collateral_requirement();
-        if required_collateral > 0 {
-            let balance = self.get_balance(&address);
-            if balance < required_collateral {
+        // For non-Free tiers, validate collateral UTXO
+        if tier != MasternodeTier::Free {
+            let required_collateral = tier.collateral_requirement();
+
+            // Parse collateral transaction (format: "txid:vout")
+            if collateral_tx.contains(':') {
+                let parts: Vec<&str> = collateral_tx.split(':').collect();
+                if parts.len() == 2 {
+                    let txid = parts[0].to_string();
+                    let vout: u32 = parts[1].parse().unwrap_or(0);
+
+                    // Create OutPoint and verify UTXO exists
+                    let outpoint = crate::transaction::OutPoint::new(txid, vout);
+                    let utxo_valid = self
+                        .utxo_set
+                        .get(&outpoint)
+                        .map(|utxo| utxo.amount >= required_collateral)
+                        .unwrap_or(false);
+
+                    if !utxo_valid {
+                        return Err(StateError::InvalidMasternodeCount); // TODO: Add proper error type
+                    }
+
+                    // TODO: Lock the UTXO so it cannot be spent while masternode is active
+                    // This will require tracking locked UTXOs in the state
+                } else {
+                    return Err(StateError::InvalidMasternodeCount);
+                }
+            } else {
                 return Err(StateError::InvalidMasternodeCount);
             }
         }

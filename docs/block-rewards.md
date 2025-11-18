@@ -74,14 +74,15 @@ Notice how the percentage increase diminishes as the network grows, ensuring sus
 
 ### Masternode Tiers
 
-TIME Coin has four masternode tiers, each with different collateral requirements and reward weights:
+TIME Coin has four masternode tiers, each with different collateral requirements. 
+**Reward weights are proportional to collateral** to ensure fair APY (~18%) across all tiers:
 
-| Tier   | Collateral        | Weight | Daily Reward (100 nodes) |
-|--------|------------------:|-------:|-------------------------:|
-| Free   | 0 TIME            | 1x     | ~1.3 TIME                |
-| Bronze | 1,000 TIME        | 10x    | ~13.7 TIME               |
-| Silver | 10,000 TIME       | 25x    | ~34.2 TIME               |
-| Gold   | 100,000 TIME      | 50x    | ~68.5 TIME               |
+| Tier   | Collateral        | Reward Weight | Voting Power | Target APY |
+|--------|------------------:|--------------:|-------------:|-----------:|
+| Free   | 0 TIME            | 1x            | 0x           | N/A        |
+| Bronze | 1,000 TIME        | 1,000x        | 1x           | ~18%       |
+| Silver | 10,000 TIME       | 10,000x       | 10x          | ~18%       |
+| Gold   | 100,000 TIME      | 100,000x      | 100x         | ~18%       |
 
 ### Weight-Based Calculation
 

@@ -8,6 +8,10 @@ pub struct RegisterMasternodeRequest {
     pub node_ip: String,
     pub wallet_address: String,
     pub tier: String,
+    /// Optional: Collateral transaction ID (required for Bronze/Silver/Gold)
+    pub collateral_txid: Option<String>,
+    /// Optional: Collateral output index (required for Bronze/Silver/Gold)
+    pub collateral_vout: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -44,6 +48,24 @@ pub async fn register_masternode(
         }
     };
 
+    // Validate collateral requirements for non-Free tiers
+    if tier != MasternodeTier::Free
+        && (req.collateral_txid.is_none() || req.collateral_vout.is_none())
+    {
+        return Err(ApiError::InvalidAddress(format!(
+            "{} tier requires collateral_txid and collateral_vout",
+            req.tier
+        )));
+    }
+
+    // Build collateral transaction reference
+    let collateral_tx =
+        if let (Some(txid), Some(vout)) = (&req.collateral_txid, req.collateral_vout) {
+            format!("{}:{}", txid, vout)
+        } else {
+            "no_collateral_required".to_string()
+        };
+
     // Register in blockchain state
     let mut blockchain = state.blockchain.write().await;
 
@@ -51,7 +73,7 @@ pub async fn register_masternode(
         .register_masternode(
             req.node_ip.clone(),
             tier,
-            "peer_connection".to_string(),
+            collateral_tx,
             req.wallet_address.clone(),
         )
         .map_err(|e| ApiError::Internal(format!("Registration failed: {:?}", e)))?;
