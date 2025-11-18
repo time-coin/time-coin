@@ -1130,13 +1130,17 @@ async fn handle_wallet_command(
             amount,
             db_path: _,
         } => {
+            // Convert TIME amount to smallest unit (TIME has 8 decimals like Bitcoin)
+            const TIME_UNIT: u64 = 100_000_000; // 1 TIME = 100,000,000 units
+            let amount_units = (amount * TIME_UNIT as f64) as u64;
+
             // Create transaction via API (without specifying from address)
             let client = reqwest::Client::new();
             let response = client
                 .post(format!("{}/wallet/send", api))
                 .json(&json!({
                     "to": to,
-                    "amount": amount
+                    "amount": amount_units
                 }))
                 .send()
                 .await?;
