@@ -245,10 +245,28 @@ impl WalletManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+
+    /// Helper to get a test-specific wallet path
+    fn test_wallet_path(test_name: &str) -> std::path::PathBuf {
+        let temp_dir = env::temp_dir().join("time-coin-wallet-tests");
+        std::fs::create_dir_all(&temp_dir).ok();
+        temp_dir.join(format!("{}-test-wallet.dat", test_name))
+    }
+
+    /// Helper to cleanup test wallet
+    fn cleanup_test_wallet(path: &std::path::PathBuf) {
+        let _ = std::fs::remove_file(path);
+        // Also remove backup files if they exist
+        let _ = std::fs::remove_file(path.with_extension("dat.backup"));
+        let _ = std::fs::remove_file(path.with_extension("dat.old"));
+    }
 
     #[test]
     fn test_wallet_manager_creation_from_mnemonic() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+        // Create in-memory wallet for testing (doesn't save to disk)
         let manager = WalletManager::create_from_mnemonic(NetworkType::Testnet, mnemonic).unwrap();
 
         assert!(!manager.get_xpub().is_empty());
@@ -258,8 +276,11 @@ mod tests {
         let addr0 = manager.derive_address(0).unwrap();
         assert!(!addr0.is_empty());
 
-        // Cleanup
-        let _ = std::fs::remove_file(WalletDat::default_path(NetworkType::Testnet));
+        // Cleanup - only remove testnet wallet file, not production
+        let testnet_path = WalletDat::default_path(NetworkType::Testnet);
+        let _ = std::fs::remove_file(&testnet_path);
+        let _ = std::fs::remove_file(testnet_path.with_extension("dat.backup"));
+        let _ = std::fs::remove_file(testnet_path.with_extension("dat.old"));
     }
 
     #[test]
@@ -281,7 +302,10 @@ mod tests {
         manager.add_utxo(utxo);
         assert_eq!(manager.get_balance(), 1000);
 
-        // Cleanup
-        let _ = std::fs::remove_file(WalletDat::default_path(NetworkType::Testnet));
+        // Cleanup - only remove testnet wallet file, not production
+        let testnet_path = WalletDat::default_path(NetworkType::Testnet);
+        let _ = std::fs::remove_file(&testnet_path);
+        let _ = std::fs::remove_file(testnet_path.with_extension("dat.backup"));
+        let _ = std::fs::remove_file(testnet_path.with_extension("dat.old"));
     }
 }
