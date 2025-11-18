@@ -74,15 +74,22 @@ Notice how the percentage increase diminishes as the network grows, ensuring sus
 
 ### Masternode Tiers
 
-TIME Coin has four masternode tiers, each with different collateral requirements. 
-**Reward weights are proportional to collateral** to ensure fair APY (~18%) across all tiers:
+TIME Coin has four masternode tiers with **10x reward scaling**:
 
-| Tier   | Collateral        | Reward Weight | Voting Power | Target APY |
-|--------|------------------:|--------------:|-------------:|-----------:|
-| Free   | 0 TIME            | 1x            | 0x           | N/A        |
-| Bronze | 1,000 TIME        | 1,000x        | 1x           | ~18%       |
-| Silver | 10,000 TIME       | 10,000x       | 10x          | ~18%       |
-| Gold   | 100,000 TIME      | 100,000x      | 100x         | ~18%       |
+| Tier   | Collateral        | Reward Weight | Voting Power | Est. APY* |
+|--------|------------------:|--------------:|-------------:|----------:|
+| Free   | 0 TIME            | 1x            | 0x           | N/A       |
+| Bronze | 1,000 TIME        | 10x           | 1x           | 35-180%   |
+| Silver | 10,000 TIME       | 100x          | 10x          | 35-180%   |
+| Gold   | 100,000 TIME      | 1000x         | 100x         | 35-180%   |
+
+*APY varies with network size due to logarithmic reward scaling. Early nodes earn higher APY.
+
+**Key Points:**
+- Each tier earns **10x more** than the previous tier
+- **Voting power** is separate from reward weights (for governance)
+- **Free tier** allows participation without collateral, earns modest rewards
+- **APY decreases** as more nodes join (inflation control via logarithmic scaling)
 
 ### Weight-Based Calculation
 
@@ -121,11 +128,40 @@ pub fn distribute_masternode_rewards(
 ### Example Distribution
 
 **Network State:**
-- 100 Free tier masternodes
-- 50 Bronze tier masternodes
-- 20 Silver tier masternodes
-- 10 Gold tier masternodes
-- Total daily reward pool: 1,187 TIME
+- 50 Free tier masternodes
+- 30 Bronze tier masternodes
+- 15 Silver tier masternodes
+- 5 Gold tier masternodes
+- Total: 100 nodes, daily reward pool: 2,197 TIME
+
+**Calculation (10x Scaling Weights):**
+```
+Total Weight = (50 × 1) + (30 × 10) + (15 × 100) + (5 × 1000)
+             = 50 + 300 + 1,500 + 5,000
+             = 6,850 weight units
+
+Reward per Weight = 2,197 TIME / 6,850 = ~0.321 TIME
+
+Individual Daily Rewards (10x scaling per tier):
+- Free tier:   0.321 × 1    = ~0.32 TIME/day (~10 TIME/month)
+- Bronze tier: 0.321 × 10   = ~3.21 TIME/day (~96 TIME/month)
+- Silver tier: 0.321 × 100  = ~32.1 TIME/day (~963 TIME/month)
+- Gold tier:   0.321 × 1000 = ~321 TIME/day (~9,630 TIME/month)
+
+APY Calculation:
+- Bronze: (96 × 12) / 1,000 = 115% APY
+- Silver: (963 × 12) / 10,000 = 115% APY
+- Gold: (9,630 × 12) / 100,000 = 115% APY
+
+Note: APY is the same across all collateral tiers!
+Free tier earns enough to cover operating costs (~$10/month at $1/TIME).
+```
+
+**Key Insight:**
+- **10x reward scaling** per tier makes upgrades worthwhile
+- **Free tier remains viable** even in larger networks  
+- **APY is consistent** across Bronze/Silver/Gold tiers
+- **As network grows**, per-node rewards decrease (inflation control)
 
 **Calculation:**
 ```
