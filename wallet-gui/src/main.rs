@@ -2147,8 +2147,8 @@ impl WalletApp {
         // Close the current wallet
         self.wallet_manager = None;
 
-        // Create new wallet from the new phrase using the existing method
-        let manager = WalletManager::create_from_mnemonic(self.network, new_phrase)
+        // Replace wallet with new phrase (creates backup automatically)
+        let manager = WalletManager::replace_from_mnemonic(self.network, new_phrase)
             .map_err(|e| format!("Failed to create wallet: {}", e))?;
 
         self.wallet_manager = Some(manager);

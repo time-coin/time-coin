@@ -9,6 +9,7 @@
 
 use crate::wallet_dat::{WalletDat, WalletDatError};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use wallet::{Keypair, NetworkType, Transaction, Wallet, UTXO};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -42,10 +43,18 @@ pub struct WalletManager {
 
 impl WalletManager {
     /// Create a wallet from a BIP-39 mnemonic phrase
+    /// Create a wallet from mnemonic (checks if wallet already exists first)
     pub fn create_from_mnemonic(
         network: NetworkType,
         mnemonic: &str,
     ) -> Result<Self, WalletDatError> {
+        // Check if wallet already exists
+        let wallet_path = WalletDat::default_path(network);
+        if wallet_path.exists() {
+            log::warn!("Wallet already exists at: {}. Loading existing wallet instead.", wallet_path.display());
+            return Self::load(network);
+        }
+
         // Validate mnemonic first
         wallet::validate_mnemonic(mnemonic)
             .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
@@ -104,6 +113,42 @@ impl WalletManager {
     /// Check if wallet exists
     pub fn exists(network: NetworkType) -> bool {
         WalletDat::default_path(network).exists()
+    }
+
+    /// Replace existing wallet with a new one from mnemonic
+    /// IMPORTANT: Creates backup before replacing. Old wallet saved as .dat.old
+    pub fn replace_from_mnemonic(
+        network: NetworkType,
+        mnemonic: &str,
+    ) -> Result<Self, WalletDatError> {
+        // Validate mnemonic first
+        wallet::validate_mnemonic(mnemonic)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+
+        // Create backup if wallet exists (save old wallet before replacing)
+        let wallet_path = WalletDat::default_path(network);
+        if wallet_path.exists() {
+            let backup_path = wallet_path.with_extension("dat.old");
+            fs::copy(&wallet_path, &backup_path)?;
+            log::warn!("Old wallet backed up to: {}", backup_path.display());
+        }
+
+        // Create wallet from mnemonic
+        let wallet = Wallet::from_mnemonic(mnemonic, "", network)?;
+
+        // Create wallet_dat from mnemonic (stores xpub, encrypted mnemonic, master key)
+        let wallet_dat = WalletDat::from_mnemonic(mnemonic, network)?;
+
+        log::info!("Replaced wallet with new xpub: {}", wallet_dat.get_xpub());
+
+        // Save (atomic write with temp file)
+        wallet_dat.save()?;
+
+        Ok(Self {
+            wallet_dat,
+            active_wallet: wallet,
+            next_address_index: 0,
+        })
     }
 
     /// Get the xpub for this wallet

@@ -139,7 +139,8 @@ impl WalletDat {
         Ok(mnemonic)
     }
 
-    /// Save wallet to file
+    /// Save wallet to file (called only once during wallet creation)
+    /// Uses atomic write for safety - wallet.dat should never change after creation
     pub fn save(&self) -> Result<(), WalletDatError> {
         let path = Self::default_path(self.network);
 
@@ -148,12 +149,22 @@ impl WalletDat {
             fs::create_dir_all(parent)?;
         }
 
+        // Wallet should only be saved once during creation
+        // If it already exists, something is wrong
+        if path.exists() {
+            log::warn!("Wallet file already exists at: {}. This should only happen during replacement.", path.display());
+        }
+
         // Serialize to bincode (unencrypted for now)
         let data = bincode::serialize(self)
             .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
 
-        // Write to file with proper permissions
-        fs::write(&path, data)?;
+        // Write to temporary file first for atomic operation
+        let temp_path = path.with_extension("dat.tmp");
+        fs::write(&temp_path, &data)?;
+
+        // Atomic rename (overwrites destination on most platforms)
+        fs::rename(&temp_path, &path)?;
 
         // On Unix, set restrictive permissions (owner read/write only)
         #[cfg(unix)]
@@ -164,6 +175,7 @@ impl WalletDat {
             fs::set_permissions(&path, perms)?;
         }
 
+        log::info!("Wallet saved successfully to: {}", path.display());
         Ok(())
     }
 
