@@ -266,8 +266,15 @@ mod tests {
     fn test_wallet_manager_creation_from_mnemonic() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-        // Create in-memory wallet for testing (doesn't save to disk)
-        let manager = WalletManager::create_from_mnemonic(NetworkType::Testnet, mnemonic).unwrap();
+        // Create wallet components WITHOUT saving to disk
+        let wallet = Wallet::from_mnemonic(mnemonic, "", NetworkType::Testnet).unwrap();
+        let wallet_dat = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
+        
+        let manager = WalletManager {
+            wallet_dat,
+            active_wallet: wallet,
+            next_address_index: 0,
+        };
 
         assert!(!manager.get_xpub().is_empty());
         assert_eq!(manager.get_balance(), 0);
@@ -276,18 +283,22 @@ mod tests {
         let addr0 = manager.derive_address(0).unwrap();
         assert!(!addr0.is_empty());
 
-        // Cleanup - only remove testnet wallet file, not production
-        let testnet_path = WalletDat::default_path(NetworkType::Testnet);
-        let _ = std::fs::remove_file(&testnet_path);
-        let _ = std::fs::remove_file(testnet_path.with_extension("dat.backup"));
-        let _ = std::fs::remove_file(testnet_path.with_extension("dat.old"));
+        // NO cleanup needed - we never saved to disk!
     }
 
     #[test]
     fn test_balance_management() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let mut manager =
-            WalletManager::create_from_mnemonic(NetworkType::Testnet, mnemonic).unwrap();
+        
+        // Create wallet components WITHOUT saving to disk
+        let wallet = Wallet::from_mnemonic(mnemonic, "", NetworkType::Testnet).unwrap();
+        let wallet_dat = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
+        
+        let mut manager = WalletManager {
+            wallet_dat,
+            active_wallet: wallet,
+            next_address_index: 0,
+        };
 
         assert_eq!(manager.get_balance(), 0);
 
@@ -302,10 +313,6 @@ mod tests {
         manager.add_utxo(utxo);
         assert_eq!(manager.get_balance(), 1000);
 
-        // Cleanup - only remove testnet wallet file, not production
-        let testnet_path = WalletDat::default_path(NetworkType::Testnet);
-        let _ = std::fs::remove_file(&testnet_path);
-        let _ = std::fs::remove_file(testnet_path.with_extension("dat.backup"));
-        let _ = std::fs::remove_file(testnet_path.with_extension("dat.old"));
+        // NO cleanup needed - we never saved to disk!
     }
 }
