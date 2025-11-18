@@ -124,9 +124,32 @@ pub async fn wallet_send(
     drop(blockchain);
 
     // Sign each input using the wallet's keypair
-    // Use the transaction ID as the signing hash
-    let tx_hash = hex::decode(&txid)
-        .map_err(|e| ApiError::Internal(format!("Failed to decode txid: {}", e)))?;
+    // Calculate the signing hash the same way mempool does
+    let tx_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        
+        // Hash transaction fields (excluding signatures)
+        hasher.update(tx.txid.as_bytes());
+        hasher.update(tx.version.to_le_bytes());
+        
+        for input in &tx.inputs {
+            hasher.update(input.previous_output.txid.as_bytes());
+            hasher.update(input.previous_output.vout.to_le_bytes());
+            hasher.update(&input.public_key);
+            hasher.update(input.sequence.to_le_bytes());
+        }
+        
+        for output in &tx.outputs {
+            hasher.update(output.address.as_bytes());
+            hasher.update(output.amount.to_le_bytes());
+        }
+        
+        hasher.update(tx.lock_time.to_le_bytes());
+        hasher.update(tx.timestamp.to_le_bytes());
+        
+        hasher.finalize().to_vec()
+    };
 
     // Sign with keypair
     let keypair = wallet.keypair();
