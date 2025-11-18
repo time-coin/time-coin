@@ -7,6 +7,7 @@ use crate::{voting::VoteTracker, TransactionNotification, WsBridge};
 use std::net::IpAddr;
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOStateNotification};
+use time_mempool::Mempool;
 use time_network::{PeerManager, UTXOProtocolHandler};
 use tracing::{debug, info, warn};
 
@@ -17,6 +18,7 @@ use tracing::{debug, info, warn};
 /// - P2P Network (communication layer)
 /// - Instant Finality (voting layer)
 /// - WebSocket clients (wallet notifications)
+/// - Mempool (transaction management)
 pub struct MasternodeUTXOIntegration {
     /// UTXO state manager
     utxo_manager: Arc<UTXOStateManager>,
@@ -30,6 +32,8 @@ pub struct MasternodeUTXOIntegration {
     vote_tracker: Arc<VoteTracker>,
     /// Node identifier
     node_id: String,
+    /// Transaction mempool
+    mempool: Arc<Mempool>,
 }
 
 impl MasternodeUTXOIntegration {
@@ -41,6 +45,7 @@ impl MasternodeUTXOIntegration {
     ) -> Self {
         let utxo_handler = Arc::new(UTXOProtocolHandler::new(utxo_manager.clone()));
         let vote_tracker = Arc::new(VoteTracker::new(2)); // Require 2 votes for consensus
+        let mempool = Arc::new(Mempool::new(10000, "mainnet".to_string())); // Max 10k transactions
 
         Self {
             utxo_manager,
@@ -49,6 +54,7 @@ impl MasternodeUTXOIntegration {
             ws_bridge: None,
             vote_tracker,
             node_id,
+            mempool,
         }
     }
 
@@ -102,9 +108,40 @@ impl MasternodeUTXOIntegration {
             | time_network::protocol::NetworkMessage::UTXOStateResponse { .. }
             | time_network::protocol::NetworkMessage::UTXOStateNotification { .. }
             | time_network::protocol::NetworkMessage::UTXOSubscribe { .. }
-            | time_network::protocol::NetworkMessage::UTXOUnsubscribe { .. }
-            | time_network::protocol::NetworkMessage::TransactionBroadcast(_) => {
+            | time_network::protocol::NetworkMessage::UTXOUnsubscribe { .. } => {
                 // Handle via UTXO protocol handler
+                self.utxo_handler.handle_message(message, peer_ip).await
+            }
+            // Handle incoming transaction broadcasts - add to mempool
+            time_network::protocol::NetworkMessage::TransactionBroadcast(tx) => {
+                info!(
+                    node = %self.node_id,
+                    txid = %tx.txid,
+                    "Received transaction broadcast from peer"
+                );
+
+                // Add to mempool if not already present
+                if !self.mempool.contains(&tx.txid).await {
+                    match self.mempool.add_transaction(tx.clone()).await {
+                        Ok(_) => {
+                            info!(
+                                node = %self.node_id,
+                                txid = %tx.txid,
+                                "Added broadcasted transaction to mempool"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                node = %self.node_id,
+                                txid = %tx.txid,
+                                error = %e,
+                                "Failed to add transaction to mempool"
+                            );
+                        }
+                    }
+                }
+
+                // Also handle via UTXO protocol handler for any additional processing
                 self.utxo_handler.handle_message(message, peer_ip).await
             }
             // NEW: Handle transaction notifications from P2P network
@@ -207,6 +244,74 @@ impl MasternodeUTXOIntegration {
                 }
 
                 // No response needed for votes
+                Ok(None)
+            }
+            // NEW: Handle mempool query requests
+            time_network::protocol::NetworkMessage::MempoolQuery => {
+                info!(
+                    node = %self.node_id,
+                    "Received mempool query request"
+                );
+
+                // Get all transactions from our local mempool
+                let transactions = self.mempool.get_all_transactions().await;
+
+                info!(
+                    node = %self.node_id,
+                    count = transactions.len(),
+                    "Sending mempool response"
+                );
+
+                // Return mempool response
+                Ok(Some(
+                    time_network::protocol::NetworkMessage::MempoolResponse(transactions),
+                ))
+            }
+            // NEW: Handle mempool response from other nodes
+            time_network::protocol::NetworkMessage::MempoolResponse(transactions) => {
+                info!(
+                    node = %self.node_id,
+                    count = transactions.len(),
+                    "Received mempool response from peer"
+                );
+
+                // Add missing transactions to our mempool
+                let mut added_count = 0;
+                for tx in transactions {
+                    // Check if we already have this transaction
+                    if !self.mempool.contains(&tx.txid).await {
+                        match self.mempool.add_transaction(tx.clone()).await {
+                            Ok(_) => {
+                                info!(
+                                    node = %self.node_id,
+                                    txid = %tx.txid,
+                                    "Added transaction from peer mempool"
+                                );
+                                added_count += 1;
+                            }
+                            Err(e) => {
+                                debug!(
+                                    node = %self.node_id,
+                                    txid = %tx.txid,
+                                    error = %e,
+                                    "Failed to add transaction from peer mempool"
+                                );
+                            }
+                        }
+                    }
+                }
+
+                if added_count > 0 {
+                    info!(
+                        node = %self.node_id,
+                        added = added_count,
+                        total = transactions.len(),
+                        "Synchronized {} new transactions from peer",
+                        added_count
+                    );
+                }
+
+                // No response needed
                 Ok(None)
             }
             _ => {
@@ -509,6 +614,47 @@ impl MasternodeUTXOIntegration {
         );
 
         true
+    }
+
+    /// Start periodic mempool synchronization task
+    pub fn start_mempool_sync_task(&self) {
+        let peer_manager = self.peer_manager.clone();
+        let node_id = self.node_id.clone();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+
+            loop {
+                interval.tick().await;
+
+                info!(node = %node_id, "🔄 Starting mempool synchronization");
+
+                // Get connected peers
+                let peers = peer_manager.get_connected_peers().await;
+
+                if peers.is_empty() {
+                    debug!(node = %node_id, "No connected peers for mempool sync");
+                    continue;
+                }
+
+                // Request mempool from a random peer
+                if let Some(peer) = peers.first() {
+                    let peer_addr = peer.address.to_string();
+                    info!(
+                        node = %node_id,
+                        peer = %peer_addr,
+                        "Requesting mempool from peer"
+                    );
+
+                    // Send mempool query
+                    peer_manager
+                        .broadcast_message(time_network::protocol::NetworkMessage::MempoolQuery)
+                        .await;
+                }
+            }
+        });
+
+        info!(node = %self.node_id, "✅ Mempool sync task started");
     }
 }
 

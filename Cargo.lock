@@ -5062,6 +5062,7 @@ dependencies = [
  "time-consensus",
  "time-core 0.1.0",
  "time-crypto",
+ "time-mempool",
  "time-network",
  "tokio",
  "tokio-tungstenite",

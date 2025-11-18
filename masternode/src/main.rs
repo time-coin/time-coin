@@ -51,6 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     utxo_integration.start_cleanup_task();
     println!("✅ Vote cleanup task started");
 
+    // Start mempool synchronization task
+    utxo_integration.start_mempool_sync_task();
+    println!("✅ Mempool sync task started");
+
     // Start WebSocket server
     let bridge_clone = bridge.clone();
     tokio::spawn(async move {

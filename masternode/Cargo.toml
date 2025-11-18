@@ -18,6 +18,7 @@ time-core = { version = "0.1.0", path = "../core" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
 time-consensus = { version = "0.1.0", path = "../consensus" }
 time-network = { version = "0.1.0", path = "../network" }
+time-mempool = { version = "0.1.0", path = "../mempool" }
 wallet = { version = "0.1.0", path = "../wallet" }
 treasury = { version = "0.1.0", path = "../treasury" }
 serde = { workspace = true }
