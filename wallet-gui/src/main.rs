@@ -753,7 +753,12 @@ impl WalletApp {
                     ui.heading("Balances");
                     ui.add_space(10.0);
 
-                    let balance = manager.get_balance();
+                    // Get balance from database (synced from blockchain)
+                    let balance = if let Some(db) = &self.wallet_db {
+                        db.get_total_balance().unwrap_or(0)
+                    } else {
+                        0
+                    };
 
                     ui.horizontal(|ui| {
                         ui.label("Available:");
@@ -807,17 +812,107 @@ impl WalletApp {
                     ui.heading("Recent transactions");
                     ui.add_space(10.0);
 
-                    ui.label(
-                        egui::RichText::new("No transactions yet")
-                            .color(egui::Color32::GRAY)
-                            .italics(),
-                    );
+                    // Get recent transactions from database
+                    let transactions = if let Some(db) = &self.wallet_db {
+                        db.get_all_transactions().unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+
+                    if transactions.is_empty() {
+                        ui.label(
+                            egui::RichText::new("No transactions yet")
+                                .color(egui::Color32::GRAY)
+                                .italics(),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Showing {} transactions",
+                                transactions.len()
+                            ))
+                            .color(egui::Color32::GRAY),
+                        );
+                    }
                     ui.add_space(10.0);
 
-                    // Placeholder for transaction list
-                    egui::ScrollArea::vertical().show(ui, |_ui| {
-                        // Will show transactions here when network is integrated
-                    });
+                    // Show transaction list
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .show(ui, |ui| {
+                            for tx in transactions.iter().take(10) {
+                                ui.group(|ui| {
+                                    ui.horizontal(|ui| {
+                                        // Transaction type icon
+                                        let icon = if tx.from_address.is_some() {
+                                            "📥" // Received
+                                        } else {
+                                            "📤" // Sent
+                                        };
+                                        ui.label(egui::RichText::new(icon).size(16.0));
+
+                                        ui.vertical(|ui| {
+                                            // Address (shortened)
+                                            let addr_display = if tx.to_address.len() > 20 {
+                                                format!(
+                                                    "{}...{}",
+                                                    &tx.to_address[..10],
+                                                    &tx.to_address[tx.to_address.len() - 6..]
+                                                )
+                                            } else {
+                                                tx.to_address.clone()
+                                            };
+                                            ui.label(egui::RichText::new(addr_display).strong());
+
+                                            // Date
+                                            let date =
+                                                chrono::DateTime::from_timestamp(tx.timestamp, 0)
+                                                    .map(|dt| {
+                                                        dt.format("%Y-%m-%d %H:%M").to_string()
+                                                    })
+                                                    .unwrap_or_else(|| "Unknown".to_string());
+                                            ui.label(
+                                                egui::RichText::new(date)
+                                                    .color(egui::Color32::GRAY)
+                                                    .small(),
+                                            );
+                                        });
+
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                // Amount
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                        "{} TIME",
+                                                        Self::format_amount(tx.amount)
+                                                    ))
+                                                    .strong(),
+                                                );
+
+                                                // Status badge
+                                                let (status_text, status_color) = match tx.status {
+                                                    wallet_db::TransactionStatus::Confirmed => {
+                                                        ("✓", egui::Color32::GREEN)
+                                                    }
+                                                    wallet_db::TransactionStatus::Pending => {
+                                                        ("⏳", egui::Color32::YELLOW)
+                                                    }
+                                                    wallet_db::TransactionStatus::Failed => {
+                                                        ("✗", egui::Color32::RED)
+                                                    }
+                                                };
+                                                ui.label(
+                                                    egui::RichText::new(status_text)
+                                                        .color(status_color),
+                                                );
+                                            },
+                                        );
+                                    });
+                                });
+                                ui.add_space(5.0);
+                            }
+                        });
                 });
             });
         }
@@ -1964,26 +2059,116 @@ impl WalletApp {
                         Ok(data) => {
                             log::info!("✅ Wallet sync successful!");
 
-                            // Extract transaction data
+                            // Extract and store transaction data
                             if let Some(total_balance) =
                                 data.get("total_balance").and_then(|v| v.as_u64())
                             {
                                 log::info!("💰 Total balance: {} TIME", total_balance);
                             }
 
+                            // Store transactions
                             if let Some(txs) =
                                 data.get("recent_transactions").and_then(|v| v.as_array())
                             {
                                 log::info!("📊 Found {} recent transactions", txs.len());
 
-                                // TODO: Store transactions in wallet_db
                                 for tx in txs {
-                                    log::debug!("   Transaction: {:?}", tx);
+                                    if let (Some(tx_hash), Some(amount), Some(to_address)) = (
+                                        tx.get("tx_hash").and_then(|v| v.as_str()),
+                                        tx.get("amount").and_then(|v| v.as_u64()),
+                                        tx.get("to_address").and_then(|v| v.as_str()),
+                                    ) {
+                                        let tx_record = wallet_db::TransactionRecord {
+                                            tx_hash: tx_hash.to_string(),
+                                            timestamp: tx
+                                                .get("timestamp")
+                                                .and_then(|v| v.as_i64())
+                                                .unwrap_or_else(|| chrono::Utc::now().timestamp()),
+                                            from_address: tx
+                                                .get("from_address")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s.to_string()),
+                                            to_address: to_address.to_string(),
+                                            amount,
+                                            status: wallet_db::TransactionStatus::Confirmed,
+                                            block_height: tx
+                                                .get("block_height")
+                                                .and_then(|v| v.as_u64()),
+                                            notes: None,
+                                        };
+
+                                        if let Err(e) = wallet_db.save_transaction(&tx_record) {
+                                            log::error!(
+                                                "Failed to save transaction {}: {}",
+                                                tx_hash,
+                                                e
+                                            );
+                                        } else {
+                                            log::debug!("   ✅ Saved transaction: {}", tx_hash);
+                                        }
+                                    }
                                 }
+                                log::info!("✅ Stored {} transactions in database", txs.len());
                             }
 
-                            if let Some(utxos) = data.get("utxos").and_then(|v| v.as_object()) {
-                                log::info!("🔗 Found UTXOs for {} addresses", utxos.len());
+                            // Store UTXOs
+                            if let Some(utxos_obj) = data.get("utxos").and_then(|v| v.as_object()) {
+                                let mut total_utxos = 0;
+
+                                for (address, utxo_list) in utxos_obj {
+                                    if let Some(utxos) = utxo_list.as_array() {
+                                        for utxo in utxos {
+                                            if let (
+                                                Some(tx_hash),
+                                                Some(output_index),
+                                                Some(amount),
+                                            ) = (
+                                                utxo.get("tx_hash").and_then(|v| v.as_str()),
+                                                utxo.get("output_index").and_then(|v| v.as_u64()),
+                                                utxo.get("amount").and_then(|v| v.as_u64()),
+                                            ) {
+                                                let utxo_record = wallet_db::UtxoRecord {
+                                                    tx_hash: tx_hash.to_string(),
+                                                    output_index: output_index as u32,
+                                                    amount,
+                                                    address: address.clone(),
+                                                    block_height: utxo
+                                                        .get("block_height")
+                                                        .and_then(|v| v.as_u64())
+                                                        .unwrap_or(0),
+                                                    confirmations: utxo
+                                                        .get("confirmations")
+                                                        .and_then(|v| v.as_u64())
+                                                        .unwrap_or(0),
+                                                };
+
+                                                if let Err(e) = wallet_db.save_utxo(&utxo_record) {
+                                                    log::error!(
+                                                        "Failed to save UTXO {}:{}: {}",
+                                                        tx_hash,
+                                                        output_index,
+                                                        e
+                                                    );
+                                                } else {
+                                                    total_utxos += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                log::info!(
+                                    "🔗 Stored {} UTXOs for {} addresses",
+                                    total_utxos,
+                                    utxos_obj.len()
+                                );
+
+                                // Calculate and log total balance from UTXOs
+                                if let Ok(balance) = wallet_db.get_total_balance() {
+                                    log::info!(
+                                        "💎 Calculated balance from UTXOs: {} TIME",
+                                        balance
+                                    );
+                                }
                             }
                         }
                         Err(e) => {

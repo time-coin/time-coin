@@ -251,4 +251,92 @@ impl WalletDb {
             None => Ok(None),
         }
     }
+
+    // ==================== UTXO Management ====================
+
+    /// Save UTXO information
+    pub fn save_utxo(&self, utxo: &UtxoRecord) -> Result<(), WalletDbError> {
+        let key = format!("utxo:{}:{}", utxo.tx_hash, utxo.output_index);
+        let value = bincode::serialize(utxo)?;
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Get UTXO by tx_hash and output_index
+    pub fn get_utxo(
+        &self,
+        tx_hash: &str,
+        output_index: u32,
+    ) -> Result<Option<UtxoRecord>, WalletDbError> {
+        let key = format!("utxo:{}:{}", tx_hash, output_index);
+        match self.db.get(key.as_bytes())? {
+            Some(data) => Ok(Some(bincode::deserialize(&data)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Get all UTXOs
+    pub fn get_all_utxos(&self) -> Result<Vec<UtxoRecord>, WalletDbError> {
+        let mut utxos = Vec::new();
+        let prefix = b"utxo:";
+
+        for item in self.db.scan_prefix(prefix) {
+            let (_key, value) = item?;
+            let utxo: UtxoRecord = bincode::deserialize(&value)?;
+            utxos.push(utxo);
+        }
+
+        Ok(utxos)
+    }
+
+    /// Get UTXOs for a specific address
+    pub fn get_utxos_for_address(&self, address: &str) -> Result<Vec<UtxoRecord>, WalletDbError> {
+        let all_utxos = self.get_all_utxos()?;
+        Ok(all_utxos
+            .into_iter()
+            .filter(|utxo| utxo.address == address)
+            .collect())
+    }
+
+    /// Delete UTXO (when spent)
+    pub fn delete_utxo(&self, tx_hash: &str, output_index: u32) -> Result<(), WalletDbError> {
+        let key = format!("utxo:{}:{}", tx_hash, output_index);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Get total balance from all UTXOs
+    pub fn get_total_balance(&self) -> Result<u64, WalletDbError> {
+        let utxos = self.get_all_utxos()?;
+        Ok(utxos.iter().map(|utxo| utxo.amount).sum())
+    }
+
+    /// Clear all UTXOs (for re-sync)
+    pub fn clear_all_utxos(&self) -> Result<(), WalletDbError> {
+        let prefix = b"utxo:";
+        let keys_to_remove: Vec<_> = self
+            .db
+            .scan_prefix(prefix)
+            .filter_map(|item| item.ok().map(|(key, _)| key))
+            .collect();
+
+        for key in keys_to_remove {
+            self.db.remove(key)?;
+        }
+        self.db.flush()?;
+        Ok(())
+    }
+}
+
+/// UTXO record for wallet
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UtxoRecord {
+    pub tx_hash: String,
+    pub output_index: u32,
+    pub amount: u64,
+    pub address: String,
+    pub block_height: u64,
+    pub confirmations: u64,
 }
