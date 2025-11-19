@@ -45,7 +45,7 @@ impl MasternodeUTXOIntegration {
     ) -> Self {
         let utxo_handler = Arc::new(UTXOProtocolHandler::new(utxo_manager.clone()));
         let vote_tracker = Arc::new(VoteTracker::new(2)); // Require 2 votes for consensus
-        let mempool = Arc::new(Mempool::new(10000, "mainnet".to_string())); // Max 10k transactions
+        let mempool = Arc::new(Mempool::new("mainnet".to_string()));
 
         Self {
             utxo_manager,

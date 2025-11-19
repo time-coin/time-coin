@@ -44,8 +44,31 @@ pub struct MempoolEntry {
 }
 
 impl Mempool {
-    /// Create a new mempool
-    pub fn new(max_size: usize, network: String) -> Self {
+    /// Calculate dynamic mempool size based on available memory
+    /// Uses 10% of available memory for mempool, assuming ~2KB per transaction
+    fn calculate_dynamic_size() -> usize {
+        let monitor = ResourceMonitor::new();
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+
+        let available_bytes = sys.available_memory();
+        // Use 10% of available memory for mempool
+        let mempool_memory = (available_bytes as f64 * 0.10) as u64;
+        // Assume average transaction size of 2KB
+        let capacity = monitor.estimate_transaction_capacity(2048, mempool_memory);
+
+        // Minimum 1000 transactions, maximum 10 million
+        capacity.clamp(1000, 10_000_000)
+    }
+
+    /// Create a new mempool with dynamic sizing based on available memory
+    pub fn new(network: String) -> Self {
+        let max_size = Self::calculate_dynamic_size();
+        println!(
+            "🗄️  Mempool configured with dynamic capacity: {} transactions",
+            max_size
+        );
+
         Self {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             max_size,
@@ -55,12 +78,17 @@ impl Mempool {
         }
     }
 
-    /// Create mempool with blockchain validation
+    /// Create mempool with blockchain validation and dynamic sizing
     pub fn with_blockchain(
-        max_size: usize,
         blockchain: Arc<tokio::sync::RwLock<time_core::state::BlockchainState>>,
         network: String,
     ) -> Self {
+        let max_size = Self::calculate_dynamic_size();
+        println!(
+            "🗄️  Mempool configured with dynamic capacity: {} transactions",
+            max_size
+        );
+
         Self {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             max_size,
@@ -587,7 +615,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_add_and_get() {
-        let mempool = Mempool::new(100, "testnet".to_string());
+        let mempool = Mempool::new("testnet".to_string());
 
         let tx = Transaction {
             txid: "test_tx_1".to_string(),
@@ -612,7 +640,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_priority_selection() {
-        let mempool = Mempool::new(100, "testnet".to_string());
+        let mempool = Mempool::new("testnet".to_string());
 
         // Add transactions with different priorities
         for i in 0..5 {
@@ -637,7 +665,7 @@ mod tests {
     #[tokio::test]
     async fn test_coinbase_rejected_in_mainnet() {
         // Create mempool for mainnet (without blockchain, so it won't validate UTXO)
-        let mempool = Mempool::new(100, "mainnet".to_string());
+        let mempool = Mempool::new("mainnet".to_string());
 
         // Create a coinbase transaction (no inputs)
         let coinbase_tx = Transaction {
@@ -661,7 +689,7 @@ mod tests {
     #[tokio::test]
     async fn test_coinbase_accepted_in_testnet() {
         // Create mempool for testnet (without blockchain, so it won't validate UTXO)
-        let mempool = Mempool::new(100, "testnet".to_string());
+        let mempool = Mempool::new("testnet".to_string());
 
         // Create a coinbase transaction (no inputs)
         let coinbase_tx = Transaction {
@@ -685,7 +713,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_transaction_finalization() {
-        let mempool = Mempool::new(100, "testnet".to_string());
+        let mempool = Mempool::new("testnet".to_string());
 
         let tx = Transaction {
             txid: "test_tx_finalize".to_string(),
@@ -717,7 +745,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_finalized_transactions() {
-        let mempool = Mempool::new(100, "testnet".to_string());
+        let mempool = Mempool::new("testnet".to_string());
 
         // Add multiple transactions
         for i in 0..3 {

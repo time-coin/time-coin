@@ -1263,9 +1263,8 @@ async fn main() {
     println!("\n{}", "✓ Masternode services starting".green());
     println!("Version: {}", time_network::protocol::full_version());
 
-    // Initialize mempool for pending transactions
+    // Initialize mempool for pending transactions with dynamic sizing
     let mempool = Arc::new(time_mempool::Mempool::with_blockchain(
-        10000,
         blockchain.clone(),
         network_name.clone(),
     ));
