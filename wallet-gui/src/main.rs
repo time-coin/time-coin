@@ -8,6 +8,8 @@
 #![allow(non_snake_case)]
 use eframe::egui;
 use std::sync::{Arc, Mutex};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use wallet::NetworkType;
 
 mod config;
@@ -15,6 +17,7 @@ mod mnemonic_ui;
 mod network;
 mod peer_manager;
 mod protocol_client;
+mod tcp_protocol_client;
 mod wallet_dat;
 mod wallet_db;
 mod wallet_manager;
@@ -370,6 +373,53 @@ impl WalletApp {
                                                             Ok(_) => log::info!("✅ Blockchain sync complete!"),
                                                             Err(e) => log::error!("❌ Blockchain sync failed: {}", e),
                                                         }
+                                                    }
+                                                }
+
+                                                // Register xpub with all connected peers for ongoing transaction updates
+                                                {
+                                                    let xpub_for_reg = xpub.clone();
+                                                    let network_type = NetworkType::Mainnet; // TODO: Make this configurable
+                                                    let connected_peers = {
+                                                        let net = network_mgr.lock().unwrap();
+                                                        net.get_connected_peers()
+                                                    };
+
+                                                    for peer in connected_peers {
+                                                        let xpub_clone = xpub_for_reg.clone();
+                                                        let peer_addr = peer.address.clone();
+
+                                                        tokio::spawn(async move {
+                                                            log::info!("📡 Registering xpub with peer {}...", peer_addr);
+
+                                                            let peer_ip = peer_addr.split(':').next().unwrap_or(&peer_addr);
+                                                            let port = if network_type == NetworkType::Testnet { 24100 } else { 24101 };
+                                                            let tcp_addr = format!("{}:{}", peer_ip, port);
+
+                                                            // Connect and send RegisterXpub message
+                                                            match TcpStream::connect(&tcp_addr).await {
+                                                                Ok(mut stream) => {
+                                                                    let msg = time_network::protocol::NetworkMessage::RegisterXpub {
+                                                                        xpub: xpub_clone
+                                                                    };
+
+                                                                    // Serialize and send
+                                                                    match bincode::serialize(&msg) {
+                                                                        Ok(bytes) => {
+                                                                            let len = bytes.len() as u32;
+                                                                            if stream.write_all(&len.to_be_bytes()).await.is_ok() &&
+                                                                               stream.write_all(&bytes).await.is_ok() {
+                                                                                log::info!("✅ Successfully registered xpub with {}", peer_addr);
+                                                                            } else {
+                                                                                log::warn!("❌ Failed to send xpub to {}", peer_addr);
+                                                                            }
+                                                                        }
+                                                                        Err(e) => log::warn!("❌ Failed to serialize xpub message: {}", e),
+                                                                    }
+                                                                }
+                                                                Err(e) => log::warn!("❌ Failed to connect to {}: {}", peer_addr, e),
+                                                            }
+                                                        });
                                                     }
                                                 }
 

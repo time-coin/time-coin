@@ -4,7 +4,7 @@
 
 use bincode;
 use std::sync::Arc;
-use time_network::protocol::{NetworkMessage, UtxoInfo, WalletTransaction};
+use time_network::protocol::{NetworkMessage, WalletTransaction};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
@@ -65,9 +65,7 @@ impl TcpProtocolClient {
         // Register xpub if available
         if let Some(xpub) = &self.xpub {
             log::info!("Registering xpub with masternode...");
-            let msg = NetworkMessage::RegisterXpub {
-                xpub: xpub.clone(),
-            };
+            let msg = NetworkMessage::RegisterXpub { xpub: xpub.clone() };
             self.send_message(&mut stream, &msg).await?;
 
             // Wait for response
@@ -96,7 +94,10 @@ impl TcpProtocolClient {
                 match Self::receive_message_static(&mut stream).await {
                     Ok(msg) => match msg {
                         NetworkMessage::NewTransactionNotification { transaction } => {
-                            log::info!("Received transaction notification: {}", transaction.tx_hash);
+                            log::info!(
+                                "Received transaction notification: {}",
+                                transaction.tx_hash
+                            );
                             if let Err(e) = tx_sender.send(transaction) {
                                 log::error!("Failed to forward transaction: {}", e);
                             }
@@ -108,9 +109,7 @@ impl TcpProtocolClient {
                         NetworkMessage::Ping => {
                             // Respond to ping
                             let pong = NetworkMessage::Pong;
-                            if let Err(e) =
-                                Self::send_message_static(&mut stream, &pong).await
-                            {
+                            if let Err(e) = Self::send_message_static(&mut stream, &pong).await {
                                 log::error!("Failed to send pong: {}", e);
                             }
                         }
@@ -131,29 +130,39 @@ impl TcpProtocolClient {
     }
 
     /// Send a message over TCP
-    async fn send_message(&self, stream: &mut TcpStream, msg: &NetworkMessage) -> Result<(), String> {
+    async fn send_message(
+        &self,
+        stream: &mut TcpStream,
+        msg: &NetworkMessage,
+    ) -> Result<(), String> {
         Self::send_message_static(stream, msg).await
     }
 
-    async fn send_message_static(stream: &mut TcpStream, msg: &NetworkMessage) -> Result<(), String> {
-        let encoded = bincode::serialize(msg)
-            .map_err(|e| format!("Failed to serialize message: {}", e))?;
-        
+    async fn send_message_static(
+        stream: &mut TcpStream,
+        msg: &NetworkMessage,
+    ) -> Result<(), String> {
+        let encoded =
+            bincode::serialize(msg).map_err(|e| format!("Failed to serialize message: {}", e))?;
+
         // Send length prefix (4 bytes)
         let len = encoded.len() as u32;
         stream
             .write_all(&len.to_be_bytes())
             .await
             .map_err(|e| format!("Failed to send length: {}", e))?;
-        
+
         // Send message
         stream
             .write_all(&encoded)
             .await
             .map_err(|e| format!("Failed to send message: {}", e))?;
-        
-        stream.flush().await.map_err(|e| format!("Failed to flush: {}", e))?;
-        
+
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush: {}", e))?;
+
         Ok(())
     }
 
@@ -179,8 +188,7 @@ impl TcpProtocolClient {
             .map_err(|e| format!("Failed to read message: {}", e))?;
 
         // Deserialize
-        bincode::deserialize(&buf)
-            .map_err(|e| format!("Failed to deserialize message: {}", e))
+        bincode::deserialize(&buf).map_err(|e| format!("Failed to deserialize message: {}", e))
     }
 
     pub async fn disconnect(&self) {
