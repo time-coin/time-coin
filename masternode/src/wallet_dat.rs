@@ -2,6 +2,11 @@
 //!
 //! Similar to Bitcoin's wallet.dat, this file stores all keys and wallet metadata.
 //! Currently uses unencrypted bincode serialization, with structure ready for future encryption.
+//!
+//! NOTE: This is an OPTIONAL feature for advanced users. Most masternodes only need
+//! a simple private key (stored in masternode.conf). Use this full wallet only if you
+//! need HD wallet features like multiple addresses or want to manage rewards on the
+//! masternode itself (not recommended for security reasons).
 
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};

@@ -1344,7 +1344,11 @@ pub async fn trigger_instant_finality_for_received_tx(
                             // Notify wallets of confirmation
                             // TODO: Implement TCP-based notification to wallet
                             // For now, wallet will poll or use long-polling
-                            tracing::info!("Transaction {} approved by consensus at height {}", txid, block_height);
+                            tracing::info!(
+                                "Transaction {} approved by consensus at height {}",
+                                txid,
+                                block_height
+                            );
                             println!(
                                 "📨 Broadcast transaction finalization to protocol subscribers"
                             );
@@ -1378,7 +1382,12 @@ pub async fn trigger_instant_finality_for_received_tx(
                         );
 
                         // TODO: Implement TCP-based notification to wallet
-                        tracing::info!("Transaction {} rejected by consensus ({}/{} rejections)", txid, rejections, total_votes);
+                        tracing::info!(
+                            "Transaction {} rejected by consensus ({}/{} rejections)",
+                            txid,
+                            rejections,
+                            total_votes
+                        );
                     }
                 }
             } else {

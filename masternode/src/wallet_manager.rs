@@ -6,6 +6,11 @@
 //! - time-wallet.dat stores ONLY: xpub, encrypted mnemonic, master key
 //! - Addresses are derived on-demand from xpub
 //! - Metadata stored separately if needed
+//!
+//! NOTE: This is an OPTIONAL feature for advanced users. Most masternodes
+//! only need a simple private key for signing (stored in masternode.conf).
+//! Use this full wallet implementation only if you need HD wallet features
+//! like multiple addresses or want to manage rewards on the masternode itself.
 
 use crate::wallet_dat::{WalletDat, WalletDatError};
 use serde::{Deserialize, Serialize};
@@ -289,17 +294,17 @@ mod tests {
     fn test_derive_address() {
         use std::fs;
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        
+
         // Clean up any existing test wallet
         let wallet_path = WalletDat::default_path(NetworkType::Testnet);
         let _ = fs::remove_file(&wallet_path);
-        
+
         let manager = WalletManager::create_from_mnemonic(NetworkType::Testnet, mnemonic).unwrap();
 
         let address = manager.derive_address(0).unwrap();
         assert!(!address.is_empty());
         assert!(address.starts_with("tTIME") || address.starts_with("TIME"));
-        
+
         // Clean up
         let _ = fs::remove_file(&wallet_path);
     }
@@ -308,11 +313,11 @@ mod tests {
     fn test_get_next_address() {
         use std::fs;
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        
+
         // Clean up any existing test wallet
         let wallet_path = WalletDat::default_path(NetworkType::Testnet);
         let _ = fs::remove_file(&wallet_path);
-        
+
         let mut manager =
             WalletManager::create_from_mnemonic(NetworkType::Testnet, mnemonic).unwrap();
 
@@ -320,7 +325,7 @@ mod tests {
         let addr2 = manager.get_next_address().unwrap();
         assert_ne!(addr1, addr2);
         assert_eq!(manager.get_address_count(), 2);
-        
+
         // Clean up
         let _ = fs::remove_file(&wallet_path);
     }

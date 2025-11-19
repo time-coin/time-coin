@@ -185,27 +185,35 @@ impl PeerManager {
     pub async fn bootstrap(&self) -> Result<(), Box<dyn std::error::Error>> {
         let peer_count = self.peer_count().await;
 
-        if peer_count > 0 {
-            log::info!("✓ Already have {} peers, skipping bootstrap", peer_count);
-            return Ok(());
+        if peer_count == 0 {
+            log::info!("🌱 Using hardcoded seed peers...");
+
+            // Hardcoded seed peers since there is no central server
+            let new_peers = match self.network {
+                wallet::NetworkType::Mainnet => vec![
+                    ("161.35.129.70".to_string(), 24100),
+                    ("69.167.168.176".to_string(), 24100),
+                ],
+                wallet::NetworkType::Testnet => vec![
+                    ("161.35.129.70".to_string(), 24101),
+                    ("69.167.168.176".to_string(), 24101),
+                ],
+            };
+
+            log::info!("🌱 Adding {} seed peers", new_peers.len());
+            self.add_peers(new_peers).await;
+        } else {
+            log::info!("✓ Already have {} peers", peer_count);
         }
 
-        log::info!("🌱 Using hardcoded seed peers...");
-
-        // Hardcoded seed peers since there is no central server
-        let new_peers = match self.network {
-            wallet::NetworkType::Mainnet => vec![
-                ("161.35.129.70".to_string(), 24100),
-                ("69.167.168.176".to_string(), 24100),
-            ],
-            wallet::NetworkType::Testnet => vec![
-                ("161.35.129.70".to_string(), 24101),
-                ("69.167.168.176".to_string(), 24101),
-            ],
-        };
-
-        log::info!("🌱 Adding {} seed peers", new_peers.len());
-        self.add_peers(new_peers).await;
+        // Immediately try to get more peers from the network
+        log::info!("🔍 Discovering peers from network...");
+        if let Some(new_peers) = self.try_get_peer_list().await {
+            self.add_peers(new_peers).await;
+            log::info!("✓ Peer discovery successful");
+        } else {
+            log::warn!("⚠️ Could not discover peers from network, will retry periodically");
+        }
 
         Ok(())
     }
@@ -262,6 +270,42 @@ impl PeerManager {
         }
     }
 
+    /// Try to get peer list from multiple peers until one succeeds
+    async fn try_get_peer_list(&self) -> Option<Vec<(String, u16)>> {
+        let healthy_peers = self.get_healthy_peers().await;
+
+        if healthy_peers.is_empty() {
+            log::warn!("⚠️ No healthy peers available");
+            return None;
+        }
+
+        // Try up to 3 peers
+        for peer in healthy_peers.iter().take(3) {
+            let endpoint = format!("{}:{}", peer.address, peer.port);
+            log::debug!("🔍 Requesting peer list from {}", endpoint);
+
+            match tokio::net::TcpStream::connect(&endpoint).await {
+                Ok(mut stream) => match self.request_peer_list(&mut stream).await {
+                    Ok(new_peers) => {
+                        log::info!("📥 Received {} peers from {}", new_peers.len(), endpoint);
+                        self.record_success(&peer.address, peer.port).await;
+                        return Some(new_peers);
+                    }
+                    Err(e) => {
+                        log::error!("❌ Failed to get peer list from {}: {}", endpoint, e);
+                        self.record_failure(&peer.address, peer.port).await;
+                    }
+                },
+                Err(e) => {
+                    log::warn!("⚠️ Failed to connect to peer {}: {}", endpoint, e);
+                    self.record_failure(&peer.address, peer.port).await;
+                }
+            }
+        }
+
+        None
+    }
+
     /// Start periodic peer discovery and cleanup
     pub fn start_maintenance(self: Arc<Self>) {
         tokio::spawn(async move {
@@ -270,33 +314,11 @@ impl PeerManager {
             loop {
                 tick.tick().await;
 
-                // Try to discover new peers from random healthy peer
-                if let Some(peer) = self.get_best_peer().await {
-                    let endpoint = format!("{}:{}", peer.address, peer.port);
-                    log::debug!("🔍 Requesting peer list from {}", endpoint);
-
-                    match tokio::net::TcpStream::connect(&endpoint).await {
-                        Ok(mut stream) => match self.request_peer_list(&mut stream).await {
-                            Ok(new_peers) => {
-                                log::debug!(
-                                    "📥 Received {} peers from {}",
-                                    new_peers.len(),
-                                    endpoint
-                                );
-                                self.add_peers(new_peers).await;
-                                self.record_success(&peer.address, peer.port).await;
-                            }
-                            Err(e) => {
-                                log::error!("❌ Failed to get peer list from {}: {}", endpoint, e);
-                                self.record_failure(&peer.address, peer.port).await;
-                            }
-                        },
-                        Err(e) => {
-                            let error_msg = e.to_string();
-                            log::warn!("⚠️ Failed to connect to peer {}: {}", endpoint, error_msg);
-                            self.record_failure(&peer.address, peer.port).await;
-                        }
-                    }
+                // Try to discover new peers from healthy peers
+                if let Some(new_peers) = self.try_get_peer_list().await {
+                    self.add_peers(new_peers).await;
+                } else {
+                    log::warn!("⚠️ Failed to get peer list from any peer, will retry in 5 minutes");
                 }
 
                 // Peers are automatically saved to database, no periodic save needed
