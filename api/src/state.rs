@@ -6,7 +6,6 @@ use time_network::{PeerDiscovery, PeerManager, PeerQuarantine};
 use tokio::sync::RwLock;
 
 use crate::{ApiError, ApiResult};
-use crate::{SubscriptionManager, WsConnectionManager};
 
 pub struct ApiState {
     pub dev_mode: bool,
@@ -26,10 +25,6 @@ pub struct ApiState {
     pub recent_broadcasts: Arc<RwLock<HashMap<String, Instant>>>,
     /// Peer quarantine system
     pub quarantine: Option<Arc<PeerQuarantine>>,
-    /// WebSocket connection manager for wallet notifications
-    pub ws_manager: Arc<WsConnectionManager>,
-    /// TIME Coin Protocol subscription manager
-    pub protocol_subscriptions: Arc<SubscriptionManager>,
     /// Instant finality manager for transaction validation
     pub instant_finality: Option<Arc<time_consensus::instant_finality::InstantFinalityManager>>,
 }
@@ -62,8 +57,6 @@ impl ApiState {
             tx_broadcaster: None,
             recent_broadcasts: Arc::new(RwLock::new(HashMap::new())),
             quarantine: None,
-            ws_manager: Arc::new(WsConnectionManager::new()),
-            protocol_subscriptions: Arc::new(SubscriptionManager::new()),
             instant_finality: None,
         };
 
@@ -166,8 +159,6 @@ impl Clone for ApiState {
             tx_broadcaster: self.tx_broadcaster.clone(),
             recent_broadcasts: self.recent_broadcasts.clone(),
             quarantine: self.quarantine.clone(),
-            ws_manager: self.ws_manager.clone(),
-            protocol_subscriptions: self.protocol_subscriptions.clone(),
             instant_finality: self.instant_finality.clone(),
         }
     }

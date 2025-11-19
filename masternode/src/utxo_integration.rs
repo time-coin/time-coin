@@ -3,7 +3,7 @@
 //! Integrates the UTXO state protocol with the P2P network layer,
 //! enabling instant finality through masternode consensus.
 
-use crate::{utxo_tracker::UtxoTracker, voting::VoteTracker, TransactionNotification, WsBridge};
+use crate::{utxo_tracker::UtxoTracker, voting::VoteTracker};
 use std::net::IpAddr;
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOStateNotification};
@@ -17,7 +17,6 @@ use tracing::{debug, info, warn};
 /// - UTXO State Protocol (consensus layer)
 /// - P2P Network (communication layer)
 /// - Instant Finality (voting layer)
-/// - WebSocket clients (wallet notifications)
 /// - Mempool (transaction management)
 /// - UTXO Tracker (wallet-specific transaction tracking)
 /// - Address Monitor (xpub address tracking)
@@ -29,8 +28,6 @@ pub struct MasternodeUTXOIntegration {
     utxo_handler: Arc<UTXOProtocolHandler>,
     /// P2P peer manager
     peer_manager: Arc<PeerManager>,
-    /// WebSocket bridge for wallet notifications
-    ws_bridge: Option<Arc<WsBridge>>,
     /// Vote tracker for instant finality
     vote_tracker: Arc<VoteTracker>,
     /// Node identifier
@@ -59,19 +56,12 @@ impl MasternodeUTXOIntegration {
             utxo_manager,
             utxo_handler,
             peer_manager,
-            ws_bridge: None,
             vote_tracker,
             node_id,
             mempool,
             utxo_tracker,
             address_monitor: None,
         }
-    }
-
-    /// Set WebSocket bridge for wallet notifications
-    pub fn set_ws_bridge(&mut self, ws_bridge: Arc<WsBridge>) {
-        self.ws_bridge = Some(ws_bridge);
-        info!(node = %self.node_id, "WebSocket bridge connected for transaction notifications");
     }
 
     /// Set address monitor for xpub tracking
@@ -187,9 +177,6 @@ impl MasternodeUTXOIntegration {
                             }
 
                             // Notify connected wallets about the new transaction
-                            if let Some(ref bridge) = self.ws_bridge {
-                                self.notify_wallets_of_transaction(bridge, tx).await;
-                            }
                         }
                         Err(e) => {
                             warn!(
@@ -214,10 +201,6 @@ impl MasternodeUTXOIntegration {
                 );
 
                 // Broadcast to WebSocket clients if bridge is available
-                if let Some(ref bridge) = self.ws_bridge {
-                    self.broadcast_transaction_to_wallets(bridge, transaction)
-                        .await;
-                }
 
                 // Return Ok - transaction notification doesn't need a response
                 Ok(None)
@@ -287,9 +270,6 @@ impl MasternodeUTXOIntegration {
                     );
 
                     // Notify wallet via WebSocket
-                    if let Some(ref bridge) = self.ws_bridge {
-                        self.notify_wallet_consensus(bridge, txid, consensus).await;
-                    }
 
                     // If approved, finalize the transaction
                     if consensus {
@@ -351,9 +331,6 @@ impl MasternodeUTXOIntegration {
                                 added_count += 1;
 
                                 // Notify connected wallets about synced transaction
-                                if let Some(ref bridge) = self.ws_bridge {
-                                    self.notify_wallets_of_transaction(bridge, tx).await;
-                                }
                             }
                             Err(e) => {
                                 debug!(
@@ -654,9 +631,6 @@ impl MasternodeUTXOIntegration {
         self.peer_manager.broadcast_message(tx_msg).await;
 
         // Notify connected wallets about the new transaction
-        if let Some(ref bridge) = self.ws_bridge {
-            self.notify_wallets_of_transaction(bridge, tx).await;
-        }
 
         info!(
             node = %self.node_id,
@@ -739,98 +713,9 @@ impl MasternodeUTXOIntegration {
         });
     }
 
-    /// Broadcast transaction to WebSocket wallet clients
-    async fn broadcast_transaction_to_wallets(
-        &self,
-        bridge: &Arc<WsBridge>,
-        transaction: &time_network::protocol::WalletTransaction,
-    ) {
-        // WalletTransaction already has from/to addresses
-        let input_addresses = vec![transaction.from_address.clone()];
-        let output_addresses = vec![transaction.to_address.clone()];
-
-        // Create notification
-        let notification = TransactionNotification {
-            txid: transaction.tx_hash.clone(),
-            inputs: input_addresses,
-            outputs: output_addresses,
-            amount: transaction.amount,
-            timestamp: transaction.timestamp as i64,
-        };
-
-        // Broadcast to subscribed clients
-        bridge.broadcast_transaction(notification).await;
-
-        info!(
-            node = %self.node_id,
-            txid = %transaction.tx_hash,
-            from = %transaction.from_address,
-            to = %transaction.to_address,
-            amount = %transaction.amount,
-            "Broadcasted transaction to WebSocket clients"
-        );
-    }
-
-    /// Notify wallets of a new transaction (from time_core::Transaction)
-    async fn notify_wallets_of_transaction(
-        &self,
-        bridge: &Arc<WsBridge>,
-        tx: &time_core::Transaction,
-    ) {
-        // Extract addresses from transaction
-        let input_addresses = Vec::new();
-        let mut output_addresses = Vec::new();
-        let mut total_amount = 0u64;
-
-        // Get input addresses (would need UTXO lookup in real implementation)
-        // For now, we'll use the output addresses
-        for output in &tx.outputs {
-            output_addresses.push(output.address.clone());
-            total_amount += output.amount;
-        }
-
-        // Check if any monitored addresses are involved
-        if let Some(address_monitor) = &self.address_monitor {
-            let mut relevant_addresses = Vec::new();
-            for addr in &output_addresses {
-                if address_monitor.is_monitored_address(addr).await {
-                    relevant_addresses.push(addr.clone());
-                }
-            }
-
-            if !relevant_addresses.is_empty() {
-                info!(
-                    node = %self.node_id,
-                    txid = %tx.txid,
-                    addresses = ?relevant_addresses,
-                    "Transaction involves monitored wallet addresses"
-                );
-            }
-        }
-
-        // Create notification
-        let notification = TransactionNotification {
-            txid: tx.txid.clone(),
-            inputs: input_addresses,
-            outputs: output_addresses,
-            amount: total_amount,
-            timestamp: tx.timestamp,
-        };
-
-        // Broadcast to subscribed clients
-        bridge.broadcast_transaction(notification).await;
-
-        info!(
-            node = %self.node_id,
-            txid = %tx.txid,
-            outputs = %tx.outputs.len(),
-            amount = %total_amount,
-            "Notified WebSocket clients of new transaction"
-        );
-    }
-
-    /// Notify wallet of consensus result
-    async fn notify_wallet_consensus(&self, _bridge: &Arc<WsBridge>, txid: &str, approved: bool) {
+    /// Notify wallet of consensus result (TCP-based notification)
+    #[allow(dead_code)]
+    async fn notify_wallet_consensus(&self, txid: &str, approved: bool) {
         info!(
             node = %self.node_id,
             txid = %txid,
@@ -838,7 +723,7 @@ impl MasternodeUTXOIntegration {
             "Notifying wallet of consensus result"
         );
 
-        // TODO: Send proper consensus notification to wallet
+        // TODO: Send proper consensus notification to wallet via TCP
         // For now, we'll use the existing notification system
         // In a full implementation, add a ConsensusNotification type
     }

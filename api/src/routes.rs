@@ -69,13 +69,7 @@ pub fn create_routes() -> Router<ApiState> {
         // Transaction endpoints
         .route("/transactions", post(add_to_mempool)) // REST endpoint
         .route("/transactions/{txid}", get(get_transaction)) // Get single transaction
-        // WebSocket endpoint for wallet notifications
-        .route("/ws/wallet", get(crate::websocket::wallet_ws_handler))
-        // TIME Coin Protocol WebSocket endpoint
-        .route(
-            "/ws/utxo-protocol",
-            get(crate::protocol_ws::protocol_ws_handler),
-        )
+        // WebSocket endpoints removed - using TCP protocol instead
         // Wallet sync endpoints
         .route(
             "/wallet/sync",
@@ -805,52 +799,7 @@ async fn add_to_mempool(
 
     println!("📥 Transaction {} received from peer", &tx.txid[..16]);
 
-    // Notify wallets of incoming transaction
-    for output in &tx.outputs {
-        let event = crate::websocket::IncomingPaymentEvent {
-            txid: tx.txid.clone(),
-            amount: output.amount,
-            from_address: None, // TODO: Extract from inputs
-            to_address: output.address.clone(),
-            timestamp: chrono::Utc::now().timestamp(),
-        };
-        state.ws_manager.notify_incoming_payment(event).await;
-    }
-
-    // Notify TIME Coin Protocol subscribers
-    for output in tx.outputs.iter() {
-        let notification = crate::protocol_ws::ProtocolMessage::NewTransaction {
-            txid: tx.txid.clone(),
-            inputs: tx
-                .inputs
-                .iter()
-                .map(|i| crate::protocol_ws::OutPoint {
-                    txid: i.previous_output.txid.clone(),
-                    vout: i.previous_output.vout,
-                })
-                .collect(),
-            outputs: tx
-                .outputs
-                .iter()
-                .enumerate()
-                .map(|(idx, o)| crate::protocol_ws::TransactionOutput {
-                    address: o.address.clone(),
-                    amount: o.amount,
-                    vout: idx as u32,
-                })
-                .collect(),
-            timestamp: chrono::Utc::now().timestamp(),
-            block_height: None,
-        };
-        state
-            .protocol_subscriptions
-            .notify_address(&output.address, notification)
-            .await;
-        println!(
-            "📨 Notified protocol subscribers for address {}",
-            output.address
-        );
-    }
+    // WebSocket notifications removed - using TCP protocol instead
 
     // Trigger instant finality via BFT consensus
     trigger_instant_finality_for_received_tx(state.clone(), tx.clone()).await;
@@ -1265,8 +1214,7 @@ pub async fn trigger_instant_finality_for_received_tx(
     let tx_broadcaster = state.tx_broadcaster.clone();
     let peer_manager = state.peer_manager.clone();
     let wallet_address = state.wallet_address.clone();
-    let ws_manager = state.ws_manager.clone();
-    let protocol_subscriptions = state.protocol_subscriptions.clone();
+    // WebSocket removed - using TCP protocol only
 
     // Spawn async task to handle consensus voting
     tokio::spawn(async move {
@@ -1288,7 +1236,7 @@ pub async fn trigger_instant_finality_for_received_tx(
 
                 // Apply transaction to UTXO set for instant balance update
                 let mut blockchain = blockchain.write().await;
-                let block_height = blockchain.chain_tip_height();
+                let _block_height = blockchain.chain_tip_height();
                 if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
                     println!("❌ Failed to apply transaction to UTXO set: {}", e);
                 } else {
@@ -1310,16 +1258,7 @@ pub async fn trigger_instant_finality_for_received_tx(
                         );
                     }
 
-                    // Notify wallets of confirmation
-                    for output in &tx.outputs {
-                        let event = crate::websocket::TxConfirmationEvent {
-                            txid: txid.clone(),
-                            block_height,
-                            confirmations: 1,
-                            timestamp: chrono::Utc::now().timestamp(),
-                        };
-                        ws_manager.notify_tx_confirmed(event, &output.address).await;
-                    }
+                    // WebSocket notifications removed - using TCP protocol instead
                 }
             }
             return;
@@ -1403,27 +1342,9 @@ pub async fn trigger_instant_finality_for_received_tx(
                             }
 
                             // Notify wallets of confirmation
-                            for output in &tx.outputs {
-                                let event = crate::websocket::TxConfirmationEvent {
-                                    txid: txid.clone(),
-                                    block_height,
-                                    confirmations: 1,
-                                    timestamp: chrono::Utc::now().timestamp(),
-                                };
-                                ws_manager.notify_tx_confirmed(event, &output.address).await;
-                            }
-
-                            // Notify TIME Coin Protocol subscribers about finalization
-                            let finality_notification =
-                                crate::protocol_ws::ProtocolMessage::TransactionFinalized {
-                                    txid: txid.clone(),
-                                    votes: approvals,
-                                    total_nodes: masternodes.len(),
-                                    finalized_at: chrono::Utc::now().timestamp(),
-                                };
-                            protocol_subscriptions
-                                .broadcast(finality_notification)
-                                .await;
+                            // TODO: Implement TCP-based notification to wallet
+                            // For now, wallet will poll or use long-polling
+                            tracing::info!("Transaction {} approved by consensus at height {}", txid, block_height);
                             println!(
                                 "📨 Broadcast transaction finalization to protocol subscribers"
                             );
@@ -1450,36 +1371,14 @@ pub async fn trigger_instant_finality_for_received_tx(
 
                 // Remove rejected transaction from mempool
                 if let Some(mempool) = &mempool {
-                    if let Some(removed_tx) = mempool.remove_transaction(&txid).await {
+                    if let Some(_removed_tx) = mempool.remove_transaction(&txid).await {
                         println!(
                             "🗑️  Removed rejected transaction {} from mempool",
                             &txid[..16]
                         );
 
-                        // Notify protocol subscribers about rejection
-                        let rejection_notification =
-                            crate::protocol_ws::ProtocolMessage::TransactionRejected {
-                                txid: txid.clone(),
-                                rejections,
-                                total_nodes: masternodes.len(),
-                                rejected_at: chrono::Utc::now().timestamp(),
-                            };
-                        protocol_subscriptions
-                            .broadcast(rejection_notification)
-                            .await;
-
-                        // Notify wallet subscribers about rejection
-                        for output in &removed_tx.outputs {
-                            let event = crate::websocket::TxRejectionEvent {
-                                txid: txid.clone(),
-                                reason: format!(
-                                    "Failed BFT validation ({}/{} rejections)",
-                                    rejections, total_votes
-                                ),
-                                timestamp: chrono::Utc::now().timestamp(),
-                            };
-                            ws_manager.notify_tx_rejected(event, &output.address).await;
-                        }
+                        // TODO: Implement TCP-based notification to wallet
+                        tracing::info!("Transaction {} rejected by consensus ({}/{} rejections)", txid, rejections, total_votes);
                     }
                 }
             } else {

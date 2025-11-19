@@ -1,12 +1,12 @@
 //! TIME Coin Masternode Binary
-//! Masternode with TIME Coin Protocol via P2P network and WebSocket bridge for wallets
+//! Masternode with TIME Coin Protocol via P2P network
 
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::UTXOStateManager;
 use time_core::db::BlockchainDB;
 use time_masternode::{
     address_monitor::AddressMonitor, BlockchainScanner, MasternodeRegistry,
-    MasternodeUTXOIntegration, WsBridge,
+    MasternodeUTXOIntegration,
 };
 use time_network::{connection::PeerListener, discovery::NetworkType, PeerManager};
 
@@ -40,11 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Start WebSocket bridge for wallet connections
-    let ws_addr = std::env::var("WS_ADDR").unwrap_or_else(|_| "0.0.0.0:24002".to_string());
-    let bridge = Arc::new(WsBridge::new(ws_addr.clone()));
-    println!("✅ WebSocket bridge configured on {}", ws_addr);
-
     // Initialize UTXO state manager
     let node_id = "masternode-1".to_string();
     let utxo_manager = Arc::new(UTXOStateManager::new(node_id.clone()));
@@ -73,10 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         p2p_addr, network_type
     );
 
-    // Initialize UTXO integration and connect WebSocket bridge and address monitor
+    // Initialize UTXO integration and connect address monitor
     let mut utxo_integration =
         MasternodeUTXOIntegration::new(node_id.clone(), utxo_manager.clone(), peer_manager.clone());
-    utxo_integration.set_ws_bridge(bridge.clone());
     utxo_integration.set_address_monitor(address_monitor.clone());
     let utxo_integration = Arc::new(utxo_integration);
 
@@ -84,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("❌ Failed to initialize UTXO integration: {}", e);
         return Err(e.into());
     }
-    println!("✅ UTXO integration initialized with WebSocket bridge");
+    println!("✅ UTXO integration initialized");
 
     // Initialize blockchain scanner
     let blockchain_scanner = Arc::new(BlockchainScanner::new(
@@ -125,14 +119,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start finality retry task for unfinalized transactions
     utxo_integration.start_finality_retry_task();
     println!("✅ Finality retry task started");
-
-    // Start WebSocket server
-    let bridge_clone = bridge.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bridge_clone.start().await {
-            eprintln!("❌ WebSocket bridge error: {}", e);
-        }
-    });
 
     // Start P2P message listener
     let listener = PeerListener::bind(p2p_addr, network_type, p2p_addr, None, None, None)
@@ -217,7 +203,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎉 TIME Coin Masternode is running!");
     println!();
     println!("P2P Network: {}", p2p_addr);
-    println!("WebSocket Bridge: ws://{}", ws_addr);
     println!("Node ID: {}", node_id);
     println!("Press Ctrl+C to stop");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

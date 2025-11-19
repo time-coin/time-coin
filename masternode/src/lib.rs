@@ -371,13 +371,15 @@ pub mod selection;
 pub mod utxo_integration;
 pub mod utxo_tracker;
 pub mod voting;
-pub mod ws_bridge;
+pub mod wallet_dat;
+pub mod wallet_manager;
 
 pub use blockchain_scanner::BlockchainScanner;
 pub use registry::MasternodeRegistry;
 pub use utxo_integration::MasternodeUTXOIntegration;
 pub use utxo_tracker::UtxoTracker;
-pub use ws_bridge::{TransactionNotification, WsBridge};
+pub use wallet_dat::WalletDat;
+pub use wallet_manager::WalletManager;
 
 // --- Tests
 #[cfg(test)]

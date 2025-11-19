@@ -26,8 +26,7 @@ use config::Config;
 use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
 use peer_manager::PeerManager;
-use protocol_client::{ProtocolClient, WalletNotification};
-use tokio::sync::mpsc;
+use protocol_client::ProtocolClient;
 use wallet_db::{AddressContact, WalletDb};
 use wallet_manager::WalletManager;
 
@@ -123,8 +122,8 @@ struct WalletApp {
 
     // TIME Coin Protocol client for real-time notifications
     protocol_client: Option<Arc<ProtocolClient>>,
-    notification_rx: Option<mpsc::UnboundedReceiver<WalletNotification>>,
-    recent_notifications: Vec<WalletNotification>,
+    // notification_rx: Option<mpsc::UnboundedReceiver<WalletNotification>>, // Removed - WebSocket notifications
+    // recent_notifications: Vec<WalletNotification>, // Removed - WebSocket notifications
 
     // Mnemonic setup - NEW enhanced interface
     mnemonic_interface: MnemonicInterface,
@@ -176,8 +175,8 @@ impl Default for WalletApp {
             network_status: "Not connected".to_string(),
             peer_manager: None,
             protocol_client: None,
-            notification_rx: None,
-            recent_notifications: Vec::new(),
+            // notification_rx: None, // Removed - WebSocket notifications
+            // recent_notifications: Vec::new(), // Removed - WebSocket notifications
             mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
             selected_address: None,
@@ -357,21 +356,13 @@ impl WalletApp {
                                                     };
 
                                                     if let Some(peer) = connected_peers.first() {
-                                                        let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
-                                                        let ws_url = format!("ws://{}:24101/ws", peer_ip);
+                                                        let peer_addr = format!("{}:24101", peer.address.split(':').next().unwrap_or(&peer.address));
+                                                        let client = ProtocolClient::new(peer_addr, wallet::NetworkType::Mainnet);
 
-                                                        let (client, _rx) = ProtocolClient::new(NetworkType::Mainnet, vec![ws_url]);
-
-                                                        // Create closure to derive addresses from xpub
-                                                        let xpub_clone = xpub.clone();
-                                                        let derive_fn = |index: u32| -> Result<String, String> {
-                                                            wallet::xpub_to_address(&xpub_clone, 0, index, wallet::NetworkType::Mainnet)
-                                                                .map_err(|e| format!("Failed to derive address: {}", e))
-                                                        };
-
-                                                        match client.sync_historical_utxos(derive_fn, db).await {
-                                                            Ok(_) => log::info!("✅ Blockchain sync complete!"),
-                                                            Err(e) => log::error!("❌ Blockchain sync failed: {}", e),
+                                                        // Register xpub for monitoring
+                                                        match client.register_xpub(xpub.clone()) {
+                                                            Ok(_) => log::info!("✅ Xpub registered with masternode!"),
+                                                            Err(e) => log::error!("❌ Xpub registration failed: {}", e),
                                                         }
                                                     }
                                                 }
@@ -1471,7 +1462,7 @@ impl WalletApp {
                                                 let db_opt = self.wallet_db.clone();
 
                                                 tokio::spawn(async move {
-                                                    match client.send_transaction(tx).await {
+                                                    match client.submit_transaction(tx) {
                                                         Ok(txid) => {
                                                             log::info!("✓ Transaction sent successfully: {}", txid);
                                                         }
@@ -2234,12 +2225,10 @@ impl WalletApp {
     }
 
     fn trigger_transaction_sync(&mut self) {
-        // Transaction sync now happens automatically via WebSocket protocol_client
-        // The xpub subscription is already active from the connection established on startup
-        log::info!("✅ Wallet sync via TCP WebSocket (automatic - already connected)");
+        // Transaction sync via TCP protocol
+        log::info!("✅ Wallet sync via TCP protocol");
 
-        // The protocol_client is already subscribed to our xpub and receiving real-time updates
-        // No manual HTTP sync needed
+        // TODO: Implement periodic blockchain scan request from masternode
     }
 
     fn show_settings_screen(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -2491,197 +2480,25 @@ impl WalletApp {
             masternodes.len()
         );
 
-        // Get network type from wallet
-        let network = self
-            .wallet_manager
-            .as_ref()
-            .map(|m| m.network())
-            .unwrap_or(NetworkType::Testnet);
-
-        let (client, rx) = ProtocolClient::new(network, masternodes);
-        let client = Arc::new(client);
-
-        // Connect in background
-        let client_clone = client.clone();
-        tokio::spawn(async move {
-            match client_clone.connect().await {
-                Ok(_) => log::info!("✅ TIME Coin Protocol client connected!"),
-                Err(e) => log::error!("❌ Protocol client connection failed: {}", e),
-            }
-        });
-
-        // Subscribe to wallet xpub and sync
-        if let Some(manager) = &self.wallet_manager {
-            // Get xpub from wallet
-            let xpub = manager.get_xpub().to_string();
-            log::info!("Subscribing to xpub: {}...", &xpub[..20]);
-            let client_clone = client.clone();
-            let wallet_db = self.wallet_db.clone();
-            tokio::spawn(async move {
-                // Register xpub for real-time updates (currently not functional - TCP protocol needed)
-                if let Err(e) = client_clone.subscribe_xpub(xpub.clone()).await {
-                    log::warn!("Xpub subscription not available: {}", e);
-                    // Continue anyway - wallet will use address-based monitoring
-                }
-
-                // Perform initial sync to get historical transactions
-                log::info!("🔄 Starting initial wallet sync...");
-                match client_clone.sync_wallet_from_xpub(&xpub).await {
-                    Ok(sync_data) => {
-                        log::info!(
-                            "✅ Initial sync complete: {} UTXOs, {} transactions",
-                            sync_data.utxos.values().map(|v| v.len()).sum::<usize>(),
-                            sync_data.recent_transactions.len()
-                        );
-
-                        // Store transactions in database
-                        if let Some(db) = wallet_db {
-                            for tx_info in sync_data.recent_transactions {
-                                let tx_record = wallet_db::TransactionRecord {
-                                    tx_hash: tx_info.txid,
-                                    timestamp: tx_info.timestamp,
-                                    from_address: Some(tx_info.from_address),
-                                    to_address: tx_info.to_address,
-                                    amount: tx_info.amount,
-                                    status: wallet_db::TransactionStatus::Confirmed,
-                                    block_height: tx_info.block_height,
-                                    notes: None,
-                                };
-                                if let Err(e) = db.save_transaction(&tx_record) {
-                                    log::warn!("Failed to save synced transaction: {}", e);
-                                }
-                            }
-                            log::info!("✅ Synced transactions saved to database");
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("❌ Initial sync failed: {}", e);
-                    }
-                }
-            });
+        // For now, just take the first masternode
+        if let Some(first_peer) = masternodes.first() {
+            let client = Arc::new(ProtocolClient::new(
+                first_peer.clone(),
+                wallet::NetworkType::Testnet,
+            ));
+            self.protocol_client = Some(client);
+            log::info!("✅ Protocol client initialized for peer: {}", first_peer);
+        } else {
+            log::warn!("No masternodes available for protocol client");
         }
-
-        self.protocol_client = Some(client);
-        self.notification_rx = Some(rx);
 
         log::info!("✅ TIME Coin Protocol client initialized");
     }
 
     /// Check for new transaction notifications
     fn check_notifications(&mut self) {
-        // Take receiver temporarily to avoid borrow issues
-        let mut rx = match self.notification_rx.take() {
-            Some(rx) => rx,
-            None => return,
-        };
-
-        // Process all pending notifications
-        while let Ok(notification) = rx.try_recv() {
-            log::info!(
-                "📨 Transaction notification: {} - state: {:?}",
-                notification.txid,
-                notification.state
-            );
-
-            // Store or update transaction in database
-            if let Some(db) = &self.wallet_db {
-                // Check if transaction already exists
-                let existing_tx = db.get_transaction(&notification.txid).ok().flatten();
-
-                let status = match notification.state {
-                    protocol_client::TransactionState::Pending => {
-                        wallet_db::TransactionStatus::Pending
-                    }
-                    protocol_client::TransactionState::Approved { .. } => {
-                        wallet_db::TransactionStatus::Approved
-                    }
-                    protocol_client::TransactionState::Finalized => {
-                        wallet_db::TransactionStatus::Approved
-                    }
-                    protocol_client::TransactionState::Declined { .. } => {
-                        wallet_db::TransactionStatus::Declined
-                    }
-                    protocol_client::TransactionState::Confirmed { .. } => {
-                        wallet_db::TransactionStatus::Confirmed
-                    }
-                };
-
-                let block_height = match notification.state {
-                    protocol_client::TransactionState::Confirmed { block_height } => {
-                        Some(block_height)
-                    }
-                    _ => None,
-                };
-
-                // If transaction exists, update its status
-                if let Some(mut existing) = existing_tx {
-                    existing.status = status;
-                    if let Some(height) = block_height {
-                        existing.block_height = Some(height);
-                    }
-
-                    if let Err(e) = db.save_transaction(&existing) {
-                        log::error!("Failed to update transaction: {}", e);
-                    } else {
-                        log::info!(
-                            "✓ Updated transaction {} status to {:?}",
-                            notification.txid,
-                            existing.status
-                        );
-                    }
-                } else if notification.amount > 0 {
-                    // New transaction - only save if we have amount info
-                    let tx_record = wallet_db::TransactionRecord {
-                        tx_hash: notification.txid.clone(),
-                        timestamp: notification.timestamp,
-                        from_address: if notification.is_incoming {
-                            Some(notification.address.clone())
-                        } else {
-                            None
-                        },
-                        to_address: notification.address.clone(),
-                        amount: notification.amount,
-                        status,
-                        block_height,
-                        notes: None,
-                    };
-
-                    if let Err(e) = db.save_transaction(&tx_record) {
-                        log::error!("Failed to save transaction: {}", e);
-                    } else {
-                        log::info!("💾 Saved new transaction {} to database", notification.txid);
-                    }
-                }
-            }
-
-            // Add to recent notifications
-            self.recent_notifications.push(notification.clone());
-
-            // Keep only last 100 notifications
-            if self.recent_notifications.len() > 100 {
-                self.recent_notifications.remove(0);
-            }
-
-            // Show appropriate message based on state
-            match notification.state {
-                protocol_client::TransactionState::Approved { votes, total_nodes } => {
-                    self.set_success(format!(
-                        "✓ Transaction approved ({}/{} votes)",
-                        votes, total_nodes
-                    ));
-                }
-                protocol_client::TransactionState::Confirmed { block_height } => {
-                    self.set_success(format!("✓ Transaction confirmed at block {}", block_height));
-                }
-                protocol_client::TransactionState::Declined { ref reason } => {
-                    self.set_error(format!("✗ Transaction declined: {}", reason));
-                }
-                _ => {}
-            }
-        }
-
-        // Put receiver back
-        self.notification_rx = Some(rx);
+        // WebSocket notifications removed - TCP-only communication now
+        // TODO: Implement polling or push notifications via TCP protocol
     }
 
     fn check_message_timeout(&mut self) {
@@ -2719,11 +2536,8 @@ impl eframe::App for WalletApp {
         // Check for new transaction notifications
         self.check_notifications();
 
-        // Request repaint if messages are showing or if we're receiving notifications
-        if self.success_message.is_some()
-            || self.error_message.is_some()
-            || self.notification_rx.is_some()
-        {
+        // Request repaint if messages are showing
+        if self.success_message.is_some() || self.error_message.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
