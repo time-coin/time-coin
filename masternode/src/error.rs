@@ -61,6 +61,12 @@ pub enum MasternodeError {
 
     #[error("Network error: {0}")]
     NetworkError(String),
+
+    #[error("Invalid xpub: {0}")]
+    InvalidXpub(String),
+
+    #[error("Address derivation error: {0}")]
+    AddressDerivation(String),
 }
 
 pub type Result<T> = std::result::Result<T, MasternodeError>;

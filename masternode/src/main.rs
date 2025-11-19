@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::UTXOStateManager;
-use time_masternode::{MasternodeRegistry, MasternodeUTXOIntegration, WsBridge};
+use time_masternode::{
+    address_monitor::AddressMonitor, MasternodeRegistry, MasternodeUTXOIntegration, WsBridge,
+};
 use time_network::{connection::PeerListener, discovery::NetworkType, PeerManager};
 
 #[tokio::main]
@@ -16,6 +18,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize masternode registry
     let _registry = Arc::new(MasternodeRegistry::new());
     println!("✅ Masternode registry initialized");
+
+    // Initialize address monitor for xpub tracking
+    let address_monitor = Arc::new(AddressMonitor::new());
+    println!("✅ Address monitor initialized");
 
     // Start WebSocket bridge for wallet connections
     let ws_addr = std::env::var("WS_ADDR").unwrap_or_else(|_| "0.0.0.0:24002".to_string());
@@ -35,10 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer_manager = Arc::new(PeerManager::new(NetworkType::Mainnet, p2p_addr, p2p_addr));
     println!("✅ P2P network manager initialized on {}", p2p_addr);
 
-    // Initialize UTXO integration and connect WebSocket bridge
+    // Initialize UTXO integration and connect WebSocket bridge and address monitor
     let mut utxo_integration =
         MasternodeUTXOIntegration::new(node_id.clone(), utxo_manager.clone(), peer_manager.clone());
     utxo_integration.set_ws_bridge(bridge.clone());
+    utxo_integration.set_address_monitor(address_monitor.clone());
     let utxo_integration = Arc::new(utxo_integration);
 
     if let Err(e) = utxo_integration.initialize().await {

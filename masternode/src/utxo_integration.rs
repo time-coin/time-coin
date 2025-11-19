@@ -20,6 +20,7 @@ use tracing::{debug, info, warn};
 /// - WebSocket clients (wallet notifications)
 /// - Mempool (transaction management)
 /// - UTXO Tracker (wallet-specific transaction tracking)
+/// - Address Monitor (xpub address tracking)
 pub struct MasternodeUTXOIntegration {
     /// UTXO state manager
     utxo_manager: Arc<UTXOStateManager>,
@@ -37,6 +38,8 @@ pub struct MasternodeUTXOIntegration {
     mempool: Arc<Mempool>,
     /// UTXO tracker for wallet subscriptions
     utxo_tracker: Arc<UtxoTracker>,
+    /// Address monitor for xpub tracking
+    address_monitor: Option<Arc<crate::address_monitor::AddressMonitor>>,
 }
 
 impl MasternodeUTXOIntegration {
@@ -60,6 +63,7 @@ impl MasternodeUTXOIntegration {
             node_id,
             mempool,
             utxo_tracker,
+            address_monitor: None,
         }
     }
 
@@ -67,6 +71,15 @@ impl MasternodeUTXOIntegration {
     pub fn set_ws_bridge(&mut self, ws_bridge: Arc<WsBridge>) {
         self.ws_bridge = Some(ws_bridge);
         info!(node = %self.node_id, "WebSocket bridge connected for transaction notifications");
+    }
+
+    /// Set address monitor for xpub tracking
+    pub fn set_address_monitor(
+        &mut self,
+        address_monitor: Arc<crate::address_monitor::AddressMonitor>,
+    ) {
+        self.address_monitor = Some(address_monitor);
+        info!(node = %self.node_id, "Address monitor connected for xpub tracking");
     }
 
     /// Initialize the integration - sets up notification handlers
@@ -351,6 +364,49 @@ impl MasternodeUTXOIntegration {
 
                 // No response needed
                 Ok(None)
+            }
+            // NEW: Handle xpub registration for wallet address tracking
+            time_network::protocol::NetworkMessage::RegisterXpub { xpub } => {
+                info!(
+                    node = %self.node_id,
+                    xpub = %xpub,
+                    "Received xpub registration request"
+                );
+
+                let (success, message) = if let Some(ref monitor) = self.address_monitor {
+                    match monitor.register_xpub(xpub).await {
+                        Ok(_) => {
+                            let stats = monitor.get_stats().await;
+                            info!(
+                                node = %self.node_id,
+                                xpub_count = stats.xpub_count,
+                                addresses = stats.total_addresses,
+                                "Xpub registered successfully"
+                            );
+                            (
+                                true,
+                                format!(
+                                    "Xpub registered. Monitoring {} addresses.",
+                                    stats.total_addresses
+                                ),
+                            )
+                        }
+                        Err(e) => {
+                            warn!(
+                                node = %self.node_id,
+                                error = %e,
+                                "Failed to register xpub"
+                            );
+                            (false, format!("Failed to register xpub: {}", e))
+                        }
+                    }
+                } else {
+                    (false, "Address monitor not available".to_string())
+                };
+
+                Ok(Some(
+                    time_network::protocol::NetworkMessage::XpubRegistered { success, message },
+                ))
             }
             _ => {
                 // Not a UTXO protocol message

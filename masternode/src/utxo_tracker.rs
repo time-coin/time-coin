@@ -145,7 +145,10 @@ impl UtxoTracker {
         for tx in &block.transactions {
             // Mark inputs as spent
             for input in &tx.inputs {
-                let utxo_key = format!("{}:{}", input.previous_output.txid, input.previous_output.vout);
+                let utxo_key = format!(
+                    "{}:{}",
+                    input.previous_output.txid, input.previous_output.vout
+                );
                 spent.insert(utxo_key);
             }
 

@@ -360,6 +360,7 @@ pub mod detector;
 pub mod violations;
 
 // Supporting modules
+pub mod address_monitor;
 pub mod error;
 pub mod heartbeat;
 pub mod node;

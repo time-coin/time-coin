@@ -691,6 +691,13 @@ pub enum NetworkMessage {
     },
 
     // Wallet transaction sync
+    RegisterXpub {
+        xpub: String,
+    },
+    XpubRegistered {
+        success: bool,
+        message: String,
+    },
     RequestWalletTransactions {
         xpub: String,
     },
