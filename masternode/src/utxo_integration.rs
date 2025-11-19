@@ -1012,7 +1012,8 @@ impl MasternodeUTXOIntegration {
                     );
 
                     // Broadcast instant finality request to all peers
-                    let request = time_network::protocol::NetworkMessage::InstantFinalityRequest(tx);
+                    let request =
+                        time_network::protocol::NetworkMessage::InstantFinalityRequest(tx);
                     peer_manager.broadcast_message(request).await;
                 }
             }

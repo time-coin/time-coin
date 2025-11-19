@@ -102,6 +102,13 @@ pub enum ProtocolMessage {
         total_nodes: usize,
         finalized_at: i64,
     },
+    /// Transaction rejected by consensus
+    TransactionRejected {
+        txid: String,
+        rejections: usize,
+        total_nodes: usize,
+        rejected_at: i64,
+    },
     /// Transaction confirmed in block
     TransactionConfirmed {
         txid: String,

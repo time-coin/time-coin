@@ -44,14 +44,14 @@ pub struct PeerManager {
 impl PeerManager {
     pub fn new(network: NetworkType, listen_addr: SocketAddr, public_addr: SocketAddr) -> Self {
         let manager = PeerManager {
-            network: network.clone(),
+            network,
             listen_addr,
             public_addr,
             peers: Arc::new(RwLock::new(HashMap::new())),
             connections: Arc::new(RwLock::new(HashMap::new())),
             peer_exchange: Arc::new(RwLock::new(crate::peer_exchange::PeerExchange::new(
                 "/root/time-coin-node/data/peers.json".to_string(),
-                network.clone(),
+                network,
             ))),
             last_seen: Arc::new(RwLock::new(HashMap::new())),
             stale_after: Duration::from_secs(90),
@@ -113,7 +113,7 @@ impl PeerManager {
 
         match PeerConnection::connect(
             peer_arc.clone(),
-            self.network.clone(),
+            self.network,
             self.public_addr,
             None, // No blockchain for outgoing connections
             None, // No consensus for outgoing connections
@@ -1054,7 +1054,7 @@ impl PeerManager {
                         match parsed {
                             Ok(addr) => {
                                 let peer_info =
-                                    PeerInfo::with_version(addr, self.network.clone(), p.version);
+                                    PeerInfo::with_version(addr, self.network, p.version);
                                 peer_infos.push(peer_info);
                             }
                             Err(e) => {
@@ -1325,7 +1325,7 @@ impl PeerManager {
                         // Convert peer_exchange::PeerInfo to discovery::PeerInfo
                         match pex_peer.full_address().parse() {
                             Ok(addr) => {
-                                let peer_info = PeerInfo::new(addr, manager.network.clone());
+                                let peer_info = PeerInfo::new(addr, manager.network);
 
                                 let mgr = manager.clone();
                                 let peer_addr = peer_info.address;
@@ -1509,7 +1509,7 @@ impl PeerManager {
 impl Clone for PeerManager {
     fn clone(&self) -> Self {
         PeerManager {
-            network: self.network.clone(),
+            network: self.network,
             public_addr: self.public_addr,
             listen_addr: self.listen_addr,
             peers: self.peers.clone(),

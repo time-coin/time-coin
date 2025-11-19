@@ -767,11 +767,11 @@ async fn main() {
             std::process::exit(1);
         }
     });
-    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type.clone())));
+    let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type)));
     let p2p_listen_addr = "0.0.0.0:24100".parse().unwrap();
     let p2p_manager_public = format!("{}:24100", node_id).parse().unwrap();
     let peer_manager = Arc::new(PeerManager::new(
-        network_type.clone(),
+        network_type,
         p2p_listen_addr,
         p2p_manager_public,
     ));
@@ -854,7 +854,7 @@ async fn main() {
                     let mut connected_count = 0;
                     for pex_peer in new_peers_to_connect.iter() {
                         if let Ok(addr) = pex_peer.full_address().parse() {
-                            let peer_info = time_network::PeerInfo::new(addr, network_type.clone());
+                            let peer_info = time_network::PeerInfo::new(addr, network_type);
                             let mgr = peer_manager.clone();
                             if mgr.connect_to_peer(peer_info).await.is_ok() {
                                 connected_count += 1;
@@ -873,7 +873,7 @@ async fn main() {
                     // Also spawn async connections for any remaining
                     for pex_peer in new_peers_to_connect {
                         if let Ok(addr) = pex_peer.full_address().parse() {
-                            let peer_info = time_network::PeerInfo::new(addr, network_type.clone());
+                            let peer_info = time_network::PeerInfo::new(addr, network_type);
                             let mgr = peer_manager.clone();
                             tokio::spawn(async move {
                                 let _ = mgr.connect_to_peer(peer_info).await;
@@ -1364,7 +1364,7 @@ async fn main() {
         let p2p_public_addr = format!("{}:24100", node_id).parse().unwrap();
         match PeerListener::bind(
             p2p_bind_addr,
-            network_type.clone(),
+            network_type,
             p2p_public_addr,
             Some(blockchain.clone()),
             Some(consensus.clone()),

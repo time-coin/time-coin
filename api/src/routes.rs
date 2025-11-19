@@ -1438,10 +1438,59 @@ pub async fn trigger_instant_finality_for_received_tx(
             // Clear votes after finalization
             consensus.clear_transaction_votes(&txid).await;
         } else {
-            println!(
-                "❌ BFT consensus NOT reached ({}/{} approvals, need 2/3+) - transaction remains pending",
-                approvals, total_votes
-            );
+            // Check if transaction was explicitly rejected (>1/3 rejections)
+            let (_, rejections) = consensus.get_transaction_vote_count(&txid).await;
+            let rejection_threshold = total_votes.div_ceil(3); // More than 1/3
+
+            if rejections > rejection_threshold {
+                println!(
+                    "❌ Transaction REJECTED by consensus ({}/{} rejections, threshold: {}) - removing from mempool",
+                    rejections, total_votes, rejection_threshold
+                );
+
+                // Remove rejected transaction from mempool
+                if let Some(mempool) = &mempool {
+                    if let Some(removed_tx) = mempool.remove_transaction(&txid).await {
+                        println!(
+                            "🗑️  Removed rejected transaction {} from mempool",
+                            &txid[..16]
+                        );
+
+                        // Notify protocol subscribers about rejection
+                        let rejection_notification =
+                            crate::protocol_ws::ProtocolMessage::TransactionRejected {
+                                txid: txid.clone(),
+                                rejections,
+                                total_nodes: masternodes.len(),
+                                rejected_at: chrono::Utc::now().timestamp(),
+                            };
+                        protocol_subscriptions
+                            .broadcast(rejection_notification)
+                            .await;
+
+                        // Notify wallet subscribers about rejection
+                        for output in &removed_tx.outputs {
+                            let event = crate::websocket::TxRejectionEvent {
+                                txid: txid.clone(),
+                                reason: format!(
+                                    "Failed BFT validation ({}/{} rejections)",
+                                    rejections, total_votes
+                                ),
+                                timestamp: chrono::Utc::now().timestamp(),
+                            };
+                            ws_manager.notify_tx_rejected(event, &output.address).await;
+                        }
+                    }
+                }
+            } else {
+                println!(
+                    "⏳ BFT consensus NOT reached yet ({}/{} approvals, need 2/3+) - transaction remains pending for retry",
+                    approvals, total_votes
+                );
+            }
+
+            // Clear votes after decision
+            consensus.clear_transaction_votes(&txid).await;
         }
     });
 }

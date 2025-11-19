@@ -183,7 +183,7 @@ impl HttpDiscovery {
                 addr_str.parse::<SocketAddr>().ok().and_then(|addr| {
                     // Only include peers matching the expected port for this network
                     if addr.port() == expected_port {
-                        Some(PeerInfo::new(addr, self.network.clone()))
+                        Some(PeerInfo::new(addr, self.network))
                     } else {
                         None
                     }
@@ -257,9 +257,9 @@ impl PeerDiscovery {
     /// Create new peer discovery system
     pub fn new(network: NetworkType) -> Self {
         PeerDiscovery {
-            network: network.clone(),
-            http_discovery: HttpDiscovery::new(network.clone()),
-            dns_discovery: DnsDiscovery::new(network.clone()),
+            network,
+            http_discovery: HttpDiscovery::new(network),
+            dns_discovery: DnsDiscovery::new(network),
             known_peers: HashSet::new(),
         }
     }
@@ -274,7 +274,7 @@ impl PeerDiscovery {
             println!("📡 Discovering peers from environment seeds...");
             for seed in env_seeds {
                 if let Ok(addr) = seed.parse() {
-                    all_peers.push(PeerInfo::new(addr, self.network.clone()));
+                    all_peers.push(PeerInfo::new(addr, self.network));
                 }
             }
             println!("  ✓ Found {} seed nodes from environment", all_peers.len());
@@ -299,7 +299,7 @@ impl PeerDiscovery {
             Ok(addrs) => {
                 println!("  ✓ Found {} peers via DNS", addrs.len());
                 for addr in addrs {
-                    all_peers.push(PeerInfo::new(addr, self.network.clone()));
+                    all_peers.push(PeerInfo::new(addr, self.network));
                 }
             }
             Err(e) => {

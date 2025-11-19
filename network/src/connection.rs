@@ -49,11 +49,8 @@ impl PeerConnection {
             None
         };
 
-        let our_handshake = HandshakeMessage::new_with_genesis(
-            network.clone(),
-            our_listen_addr,
-            our_genesis_hash.clone(),
-        );
+        let our_handshake =
+            HandshakeMessage::new_with_genesis(network, our_listen_addr, our_genesis_hash.clone());
         Self::send_handshake(&mut stream, &our_handshake, &network).await?;
         let their_handshake = Self::receive_handshake(&mut stream, &network).await?;
 
@@ -341,12 +338,12 @@ impl PeerListener {
         let their_handshake = PeerConnection::receive_handshake(&mut stream, &self.network).await?;
         their_handshake.validate(&self.network)?;
 
-        let our_handshake = HandshakeMessage::new(self.network.clone(), self.our_listen_addr);
+        let our_handshake = HandshakeMessage::new(self.network, self.our_listen_addr);
         PeerConnection::send_handshake(&mut stream, &our_handshake, &self.network).await?;
 
         let mut peer_info = PeerInfo::with_version(
             their_handshake.listen_addr,
-            self.network.clone(),
+            self.network,
             their_handshake.version.clone(),
         );
 

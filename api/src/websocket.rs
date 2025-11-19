@@ -29,6 +29,13 @@ pub struct TxConfirmationEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TxRejectionEvent {
+    pub txid: String,
+    pub reason: String,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncomingPaymentEvent {
     pub txid: String,
     pub amount: u64,
@@ -43,6 +50,11 @@ pub enum WalletNotification {
     TxInvalidated {
         txid: String,
         reason: InvalidationReason,
+        timestamp: i64,
+    },
+    TxRejected {
+        txid: String,
+        reason: String,
         timestamp: i64,
     },
     TxConfirmed {
@@ -131,6 +143,17 @@ impl WsConnectionManager {
             txid: event.txid,
             block_height: event.block_height,
             confirmations: event.confirmations,
+            timestamp: event.timestamp,
+        };
+
+        self.notify_address(address, notification).await;
+    }
+
+    /// Notify transaction rejection
+    pub async fn notify_tx_rejected(&self, event: TxRejectionEvent, address: &str) {
+        let notification = WalletNotification::TxRejected {
+            txid: event.txid,
+            reason: event.reason,
             timestamp: event.timestamp,
         };
 
