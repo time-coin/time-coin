@@ -1520,7 +1520,7 @@ async fn main() {
                                                     // Could trigger sync here if our height is lower
                                                 }
                                                 time_network::protocol::NetworkMessage::GetPeerList => {
-                                                    // Respond with our known peers
+                                                    // Respond with our known peers directly on this connection
                                                     let peers = peer_manager_listen.get_peers().await;
                                                     let peer_list: Vec<time_network::protocol::PeerAddress> = peers
                                                         .iter()
@@ -1531,11 +1531,9 @@ async fn main() {
                                                         })
                                                         .collect();
 
-                                                    if peer_manager_listen
-                                                        .send_message_to_peer(
-                                                            SocketAddr::new(peer_ip_listen, 24100),
-                                                            time_network::protocol::NetworkMessage::PeerList(peer_list),
-                                                        )
+                                                    // Send response directly on the connection
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(time_network::protocol::NetworkMessage::PeerList(peer_list))
                                                         .await
                                                         .is_err()
                                                     {
