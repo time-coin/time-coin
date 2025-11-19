@@ -218,9 +218,9 @@ impl PeerManager {
         use time_network::protocol::NetworkMessage;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        // Send GetPeerList request
+        // Send GetPeerList request (using JSON like masternode)
         let request = NetworkMessage::GetPeerList;
-        let request_bytes = bincode::serialize(&request).map_err(|e| e.to_string())?;
+        let request_bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
         let len = request_bytes.len() as u32;
 
         stream
@@ -248,7 +248,7 @@ impl PeerManager {
             .map_err(|e| e.to_string())?;
 
         let response: NetworkMessage =
-            bincode::deserialize(&response_bytes).map_err(|e| e.to_string())?;
+            serde_json::from_slice(&response_bytes).map_err(|e| e.to_string())?;
 
         match response {
             NetworkMessage::PeerList(peer_addresses) => {

@@ -822,14 +822,14 @@ mod tests {
     #[tokio::test]
     async fn test_client_creation() {
         let masternodes = vec!["http://localhost:24101".to_string()];
-        let (client, _rx) = ProtocolClient::new(masternodes);
+        let (client, _rx) = ProtocolClient::new(wallet::NetworkType::Testnet, masternodes);
         assert!(!client.is_connected().await);
     }
 
     #[tokio::test]
     async fn test_subscription() {
         let masternodes = vec!["http://localhost:24101".to_string()];
-        let (client, _rx) = ProtocolClient::new(masternodes);
+        let (client, _rx) = ProtocolClient::new(wallet::NetworkType::Testnet, masternodes);
 
         let addresses = vec!["addr1".to_string(), "addr2".to_string()];
         client.subscribe(addresses.clone()).await.unwrap();
