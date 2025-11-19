@@ -420,8 +420,10 @@ impl MasternodeUTXOIntegration {
                             }
 
                             // Register the addresses for this xpub
-                            if let Err(e) =
-                                self.utxo_tracker.register_addresses(xpub, addresses).await
+                            if let Err(e) = self
+                                .utxo_tracker
+                                .register_addresses(xpub, addresses.clone())
+                                .await
                             {
                                 warn!(
                                     node = %self.node_id,
@@ -435,6 +437,15 @@ impl MasternodeUTXOIntegration {
                                     },
                                 ));
                             }
+
+                            // Scan existing blockchain for UTXOs
+                            // TODO: Need to add blockchain access to scan existing blocks
+                            info!(
+                                node = %self.node_id,
+                                address_count = addresses.len(),
+                                "Registered {} addresses. Wallet will receive UTXOs from new blocks.",
+                                addresses.len()
+                            );
 
                             // Get existing UTXOs for this xpub
                             match self.utxo_tracker.get_utxos_for_xpub(xpub).await {
@@ -513,11 +524,12 @@ impl MasternodeUTXOIntegration {
 
                 // Get all peers from peer manager
                 let peer_ips = self.peer_manager.get_peer_ips().await;
+                let network = self.peer_manager.network;
                 let peer_addresses: Vec<time_network::protocol::PeerAddress> = peer_ips
                     .into_iter()
                     .map(|ip| time_network::protocol::PeerAddress {
                         ip: ip.to_string(),
-                        port: match self.network {
+                        port: match network {
                             time_network::discovery::NetworkType::Mainnet => 24101,
                             time_network::discovery::NetworkType::Testnet => 24100,
                         },

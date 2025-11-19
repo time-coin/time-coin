@@ -24,6 +24,9 @@ pub struct Config {
 
     #[serde(default = "default_api_endpoint")]
     pub api_endpoint: String,
+
+    #[serde(default)]
+    pub addnode: Vec<String>,
 }
 
 fn default_network() -> String {
@@ -59,7 +62,7 @@ fn default_bootstrap_nodes() -> Vec<String> {
 }
 
 fn default_api_endpoint() -> String {
-    "https://time-coin.io/api".to_string()
+    "https://time-coin.io/api/peers".to_string()
 }
 
 impl Default for Config {
@@ -72,6 +75,7 @@ impl Default for Config {
             rpc_password: default_rpc_password(),
             bootstrap_nodes: default_bootstrap_nodes(),
             api_endpoint: default_api_endpoint(),
+            addnode: Vec::new(),
         }
     }
 }

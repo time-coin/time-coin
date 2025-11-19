@@ -307,10 +307,22 @@ impl WalletApp {
 
                                     // Trigger network bootstrap in background
                                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
+                                    let addnodes = main_config.addnode.clone();
                                     let ctx_clone = ctx.clone();
                                     let wallet_db = self.wallet_db.clone();
 
                                     tokio::spawn(async move {
+                                        // Add manual nodes first to peer manager
+                                        for node in addnodes {
+                                            // Parse IP:port or use default port
+                                            let (ip, port) = if let Some((ip, port_str)) = node.split_once(':') {
+                                                (ip.to_string(), port_str.parse().unwrap_or(24100))
+                                            } else {
+                                                (node.clone(), 24100)
+                                            };
+                                            peer_mgr.add_peer(ip, port).await;
+                                        }
+
                                         let api_endpoint = {
                                             let net = network_mgr.lock().unwrap();
                                             net.api_endpoint().to_string()

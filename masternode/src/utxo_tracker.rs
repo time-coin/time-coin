@@ -202,6 +202,69 @@ impl UtxoTracker {
         Ok(())
     }
 
+    /// Scan existing blockchain for UTXOs belonging to registered addresses
+    pub async fn scan_blockchain_for_addresses(
+        &self,
+        blocks: Vec<time_core::Block>,
+        addresses: &[String],
+    ) -> Result<(), String> {
+        log::info!(
+            "🔍 Scanning {} blocks for {} addresses",
+            blocks.len(),
+            addresses.len()
+        );
+
+        for block in &blocks {
+            // Process all transactions in the block
+            for tx in &block.transactions {
+                // Check outputs for matching addresses
+                for (vout, output) in tx.outputs.iter().enumerate() {
+                    if addresses.contains(&output.address) {
+                        let utxo = UtxoInfo {
+                            txid: tx.txid.clone(),
+                            vout: vout as u32,
+                            address: output.address.clone(),
+                            amount: output.amount,
+                            block_height: Some(block.header.block_number),
+                            confirmations: 0,
+                        };
+
+                        let mut utxos = self.utxos.write().await;
+                        utxos
+                            .entry(output.address.clone())
+                            .or_insert_with(Vec::new)
+                            .push(utxo);
+
+                        log::info!(
+                            "💰 Found UTXO: {} TIME at address {}",
+                            output.amount,
+                            output.address
+                        );
+                    }
+                }
+
+                // Mark spent outputs
+                for input in &tx.inputs {
+                    let utxo_key = format!(
+                        "{}:{}",
+                        input.previous_output.txid, input.previous_output.vout
+                    );
+                    let mut spent = self.spent.write().await;
+                    spent.insert(utxo_key);
+                }
+            }
+        }
+
+        // Update height
+        if let Some(last_block) = blocks.last() {
+            let mut height = self.height.write().await;
+            *height = last_block.header.block_number;
+        }
+
+        log::info!("✅ Blockchain scan complete");
+        Ok(())
+    }
+
     /// Get transactions for a specific xpub (for wallet sync)
     pub async fn get_transactions_for_xpub(&self, xpub: &str) -> Result<Vec<Transaction>, String> {
         // This will be implemented when we have transaction storage
