@@ -366,11 +366,13 @@ pub mod node;
 pub mod reputation;
 pub mod selection;
 pub mod utxo_integration;
+pub mod utxo_tracker;
 pub mod voting;
 pub mod ws_bridge;
 
 pub use registry::MasternodeRegistry;
 pub use utxo_integration::MasternodeUTXOIntegration;
+pub use utxo_tracker::UtxoTracker;
 pub use ws_bridge::{TransactionNotification, WsBridge};
 
 // --- Tests

@@ -3,7 +3,7 @@
 //! Integrates the UTXO state protocol with the P2P network layer,
 //! enabling instant finality through masternode consensus.
 
-use crate::{voting::VoteTracker, TransactionNotification, WsBridge};
+use crate::{utxo_tracker::UtxoTracker, voting::VoteTracker, TransactionNotification, WsBridge};
 use std::net::IpAddr;
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOStateNotification};
@@ -19,6 +19,7 @@ use tracing::{debug, info, warn};
 /// - Instant Finality (voting layer)
 /// - WebSocket clients (wallet notifications)
 /// - Mempool (transaction management)
+/// - UTXO Tracker (wallet-specific transaction tracking)
 pub struct MasternodeUTXOIntegration {
     /// UTXO state manager
     utxo_manager: Arc<UTXOStateManager>,
@@ -34,6 +35,8 @@ pub struct MasternodeUTXOIntegration {
     node_id: String,
     /// Transaction mempool
     mempool: Arc<Mempool>,
+    /// UTXO tracker for wallet subscriptions
+    utxo_tracker: Arc<UtxoTracker>,
 }
 
 impl MasternodeUTXOIntegration {
@@ -46,6 +49,7 @@ impl MasternodeUTXOIntegration {
         let utxo_handler = Arc::new(UTXOProtocolHandler::new(utxo_manager.clone()));
         let vote_tracker = Arc::new(VoteTracker::new(2)); // Require 2 votes for consensus
         let mempool = Arc::new(Mempool::new("mainnet".to_string()));
+        let utxo_tracker = Arc::new(UtxoTracker::new());
 
         Self {
             utxo_manager,
@@ -55,6 +59,7 @@ impl MasternodeUTXOIntegration {
             vote_tracker,
             node_id,
             mempool,
+            utxo_tracker,
         }
     }
 
@@ -142,6 +147,16 @@ impl MasternodeUTXOIntegration {
                                 txid = %tx.txid,
                                 "Added broadcasted transaction to mempool"
                             );
+
+                            // Track in UTXO tracker for wallet notifications
+                            if let Err(e) = self.track_mempool_transaction(tx).await {
+                                warn!(
+                                    node = %self.node_id,
+                                    txid = %tx.txid,
+                                    error = %e,
+                                    "Failed to track transaction in UTXO tracker"
+                                );
+                            }
 
                             // Notify connected wallets about the new transaction
                             if let Some(ref bridge) = self.ws_bridge {
@@ -681,6 +696,46 @@ impl MasternodeUTXOIntegration {
         );
 
         true
+    }
+
+    /// Subscribe wallet xpub for UTXO tracking
+    pub async fn subscribe_xpub(&self, xpub: String) -> Result<(), String> {
+        info!(
+            node = %self.node_id,
+            xpub = %&xpub[..20],
+            "Subscribing wallet xpub for UTXO tracking"
+        );
+
+        self.utxo_tracker.subscribe_xpub(xpub).await
+    }
+
+    /// Get UTXOs for a subscribed xpub
+    pub async fn get_utxos_for_xpub(
+        &self,
+        xpub: &str,
+    ) -> Result<Vec<crate::utxo_tracker::UtxoInfo>, String> {
+        self.utxo_tracker.get_utxos_for_xpub(xpub).await
+    }
+
+    /// Process a new block and update UTXO tracker
+    pub async fn process_block(&self, block: &time_core::Block) -> Result<(), String> {
+        info!(
+            node = %self.node_id,
+            height = block.header.block_number,
+            "Processing block for UTXO tracking"
+        );
+
+        self.utxo_tracker.process_block(block).await
+    }
+
+    /// Get UTXO tracker statistics
+    pub async fn get_tracker_stats(&self) -> crate::utxo_tracker::UtxoStats {
+        self.utxo_tracker.stats().await
+    }
+
+    /// Process mempool transaction in UTXO tracker
+    async fn track_mempool_transaction(&self, tx: &time_core::Transaction) -> Result<(), String> {
+        self.utxo_tracker.process_mempool_tx(tx).await
     }
 
     /// Start periodic mempool synchronization task
