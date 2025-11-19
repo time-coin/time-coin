@@ -6,8 +6,10 @@
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
+use wallet::NetworkType;
 
 /// UTXO State as defined in TIME Coin Protocol
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -130,6 +132,8 @@ pub enum TransactionState {
 
 /// TIME Coin Protocol client
 pub struct ProtocolClient {
+    /// Network type
+    network: NetworkType,
     /// Connected masternodes (WebSocket URLs)
     masternodes: Vec<String>,
     /// Subscribed addresses
@@ -144,11 +148,15 @@ pub struct ProtocolClient {
 
 impl ProtocolClient {
     /// Create new protocol client
-    pub fn new(masternodes: Vec<String>) -> (Self, mpsc::UnboundedReceiver<WalletNotification>) {
+    pub fn new(
+        network: NetworkType,
+        masternodes: Vec<String>,
+    ) -> (Self, mpsc::UnboundedReceiver<WalletNotification>) {
         let (notification_tx, notification_rx) = mpsc::unbounded_channel();
 
         (
             Self {
+                network,
                 masternodes,
                 subscribed_addresses: Arc::new(RwLock::new(Vec::new())),
                 subscribed_xpub: Arc::new(RwLock::new(None)),
@@ -184,17 +192,32 @@ impl ProtocolClient {
 
     /// Connect to specific masternode
     async fn connect_to_masternode(&self, masternode: &str) -> Result<(), String> {
-        // Convert HTTP endpoint to WebSocket
-        let ws_url = masternode
-            .replace("http://", "ws://")
-            .replace("https://", "wss://");
-        let ws_url = format!("{}/ws/wallet", ws_url); // Use wallet endpoint
+        // Extract IP from masternode URL (format: http://IP:PORT)
+        let ip = masternode
+            .replace("http://", "")
+            .replace("https://", "")
+            .split(':')
+            .next()
+            .ok_or("Invalid masternode URL")?
+            .to_string();
 
-        log::info!("Connecting to WebSocket: {}", ws_url);
+        // Connect directly to TCP port (24100 for testnet, 24101 for mainnet)
+        let port = if self.network == NetworkType::Testnet {
+            24100
+        } else {
+            24101
+        };
+        let tcp_addr = format!("{}:{}", ip, port);
 
-        let (ws_stream, _) = connect_async(&ws_url)
+        log::info!("Connecting to masternode via TCP: {}", tcp_addr);
+
+        let stream = TcpStream::connect(&tcp_addr)
             .await
-            .map_err(|e| format!("WebSocket connection failed: {}", e))?;
+            .map_err(|e| format!("TCP connection failed: {}", e))?;
+
+        let ws_stream = tokio_tungstenite::accept_async(stream)
+            .await
+            .map_err(|e| format!("Protocol handshake failed: {}", e))?;
 
         let (mut write, mut read) = ws_stream.split();
 

@@ -721,10 +721,10 @@ impl NetworkManager {
         // Sort by latency (lowest first)
         peers_with_latency.sort_by_key(|p| p.latency_ms);
 
-        // Keep top 5 fastest peers
-        let top_peers: Vec<PeerInfo> = peers_with_latency.into_iter().take(5).collect();
+        // Use all peers (sorted by latency)
+        let top_peers: Vec<PeerInfo> = peers_with_latency;
 
-        log::info!("Selected top {} peers based on latency:", top_peers.len());
+        log::info!("Selected {} peers based on latency:", top_peers.len());
         for peer in &top_peers {
             log::info!("  {}:{} - {}ms", peer.address, peer.port, peer.latency_ms);
         }

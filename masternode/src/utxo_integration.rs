@@ -486,7 +486,11 @@ impl MasternodeUTXOIntegration {
                                             })
                                             .collect();
 
-                                    // Send UTXOs back to wallet
+                                    // Send UTXOs via WebSocket to wallet
+                                    // WebSocket bridge removed - wallets now use TCP protocol directly
+                                    // UTXOs will be sent via the TCP response below
+
+                                    // Also return as response
                                     Ok(Some(time_network::protocol::NetworkMessage::UtxoUpdate {
                                         xpub: xpub.clone(),
                                         utxos: network_utxos,

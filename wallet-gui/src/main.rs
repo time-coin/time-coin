@@ -357,7 +357,7 @@ impl WalletApp {
                                                         let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
                                                         let ws_url = format!("ws://{}:24101/ws", peer_ip);
 
-                                                        let (client, _rx) = ProtocolClient::new(vec![ws_url]);
+                                                        let (client, _rx) = ProtocolClient::new(NetworkType::Mainnet, vec![ws_url]);
 
                                                         // Create closure to derive addresses from xpub
                                                         let xpub_clone = xpub.clone();
@@ -2441,7 +2441,12 @@ impl WalletApp {
             masternodes.len()
         );
 
-        let (client, rx) = ProtocolClient::new(masternodes);
+        // Get network type from wallet
+        let network = self.wallet_manager.as_ref()
+            .map(|m| m.network())
+            .unwrap_or(NetworkType::Testnet);
+
+        let (client, rx) = ProtocolClient::new(network, masternodes);
         let client = Arc::new(client);
 
         // Connect in background
