@@ -293,16 +293,6 @@ impl WalletApp {
 
                                     self.peer_manager = Some(peer_mgr.clone());
 
-                                    // Bootstrap peers
-                                    let peer_mgr_clone = peer_mgr.clone();
-                                    tokio::spawn(async move {
-                                        if let Err(e) = peer_mgr_clone.bootstrap().await {
-                                            log::warn!("Failed to bootstrap peers: {}", e);
-                                        }
-                                        // Start periodic peer maintenance
-                                        peer_mgr_clone.clone().start_maintenance();
-                                    });
-
                                     let network_mgr = Arc::new(Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
                                     self.network_manager = Some(network_mgr.clone());
                                     self.network_status = "Connecting...".to_string();
@@ -312,18 +302,59 @@ impl WalletApp {
                                     let addnodes = main_config.addnode.clone();
                                     let ctx_clone = ctx.clone();
                                     let wallet_db = self.wallet_db.clone();
+                                    let api_endpoint_str = main_config.api_endpoint.clone();
 
                                     tokio::spawn(async move {
-                                        // Add manual nodes first to peer manager
-                                        for node in addnodes {
-                                            // Parse IP:port or use default port
-                                            let (ip, port) = if let Some((ip, port_str)) = node.split_once(':') {
-                                                (ip.to_string(), port_str.parse().unwrap_or(24100))
-                                            } else {
-                                                (node.clone(), 24100)
-                                            };
-                                            peer_mgr.add_peer(ip, port).await;
+                                        // PRIORITY 1: Load peers from database first
+                                        let db_peer_count = peer_mgr.peer_count().await;
+                                        log::info!("📂 Found {} peers in database", db_peer_count);
+
+                                        // PRIORITY 2: Add manual nodes from config to database if not already there
+                                        if !addnodes.is_empty() {
+                                            log::info!("📝 Adding {} nodes from config", addnodes.len());
+                                            for node in addnodes {
+                                                // Parse IP:port or use default port
+                                                let (ip, port) = if let Some((ip, port_str)) = node.split_once(':') {
+                                                    (ip.to_string(), port_str.parse().unwrap_or(24100))
+                                                } else {
+                                                    (node.clone(), 24100)
+                                                };
+                                                peer_mgr.add_peer(ip, port).await;
+                                            }
                                         }
+
+                                        // PRIORITY 3: If we have no peers at all, fetch from API
+                                        let total_peer_count = peer_mgr.peer_count().await;
+                                        if total_peer_count == 0 {
+                                            log::info!("🌐 No peers found, fetching from API: {}", api_endpoint_str);
+                                            // Fetch peers from API and add to database
+                                            if let Ok(client) = reqwest::Client::builder()
+                                                .timeout(std::time::Duration::from_secs(10))
+                                                .build()
+                                            {
+                                                if let Ok(response) = client.get(&api_endpoint_str).send().await {
+                                                    if let Ok(peers) = response.json::<Vec<String>>().await {
+                                                        log::info!("✓ Fetched {} peers from API", peers.len());
+                                                        for peer_str in peers {
+                                                            let (ip, port) = if let Some((ip, port_str)) = peer_str.split_once(':') {
+                                                                (ip.to_string(), port_str.parse().unwrap_or(24100))
+                                                            } else {
+                                                                (peer_str, 24100)
+                                                            };
+                                                            peer_mgr.add_peer(ip, port).await;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Now bootstrap with whatever peers we have
+                                        if let Err(e) = peer_mgr.bootstrap().await {
+                                            log::warn!("Failed to bootstrap peers: {}", e);
+                                        }
+
+                                        // Start periodic peer maintenance
+                                        peer_mgr.clone().start_maintenance();
 
                                         let api_endpoint = {
                                             let net = network_mgr.lock().unwrap();
