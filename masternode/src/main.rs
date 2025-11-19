@@ -98,7 +98,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         .await
                                     {
                                         Ok(Some(response)) => {
-                                            let _ = connection.send_message(response).await;
+                                            log::info!(
+                                                "📤 Sending response: {:?}",
+                                                std::mem::discriminant(&response)
+                                            );
+                                            match connection.send_message(response).await {
+                                                Ok(_) => {
+                                                    log::info!("✅ Response sent successfully")
+                                                }
+                                                Err(e) => {
+                                                    log::error!("❌ Failed to send response: {}", e)
+                                                }
+                                            }
                                         }
                                         Ok(None) => {
                                             // Check if it's a TransactionBroadcast to re-broadcast

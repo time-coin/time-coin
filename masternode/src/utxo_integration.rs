@@ -385,11 +385,14 @@ impl MasternodeUTXOIntegration {
                             );
 
                             // Get all monitored addresses for this xpub
-                            let addresses: Vec<String> = monitor.get_all_monitored_addresses().await.into_iter().collect();
+                            let addresses: Vec<String> = monitor
+                                .get_all_monitored_addresses()
+                                .await
+                                .into_iter()
+                                .collect();
 
                             // Subscribe the xpub in UTXO tracker
-                            if let Err(e) = self.utxo_tracker.subscribe_xpub(xpub.clone()).await
-                            {
+                            if let Err(e) = self.utxo_tracker.subscribe_xpub(xpub.clone()).await {
                                 warn!(
                                     node = %self.node_id,
                                     error = %e,
@@ -407,7 +410,8 @@ impl MasternodeUTXOIntegration {
                             }
 
                             // Register the addresses for this xpub
-                            if let Err(e) = self.utxo_tracker.register_addresses(xpub, addresses).await
+                            if let Err(e) =
+                                self.utxo_tracker.register_addresses(xpub, addresses).await
                             {
                                 warn!(
                                     node = %self.node_id,
@@ -417,10 +421,7 @@ impl MasternodeUTXOIntegration {
                                 return Ok(Some(
                                     time_network::protocol::NetworkMessage::XpubRegistered {
                                         success: false,
-                                        message: format!(
-                                            "Failed to register addresses: {}",
-                                            e
-                                        ),
+                                        message: format!("Failed to register addresses: {}", e),
                                     },
                                 ));
                             }
@@ -450,12 +451,10 @@ impl MasternodeUTXOIntegration {
                                             .collect();
 
                                     // Send UTXOs back to wallet
-                                    Ok(Some(
-                                        time_network::protocol::NetworkMessage::UtxoUpdate {
-                                            xpub: xpub.clone(),
-                                            utxos: network_utxos,
-                                        },
-                                    ))
+                                    Ok(Some(time_network::protocol::NetworkMessage::UtxoUpdate {
+                                        xpub: xpub.clone(),
+                                        utxos: network_utxos,
+                                    }))
                                 }
                                 Err(e) => {
                                     warn!(

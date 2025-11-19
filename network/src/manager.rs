@@ -586,6 +586,7 @@ impl PeerManager {
         let json = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
 
+        tracing::debug!("📤 Sending request to {}: {} bytes", peer_addr, len);
         stream
             .write_all(&len.to_be_bytes())
             .await
@@ -598,17 +599,21 @@ impl PeerManager {
             .flush()
             .await
             .map_err(|e| format!("Failed to flush: {}", e))?;
+        tracing::debug!("✅ Request sent and flushed");
 
         // Read response with timeout
         let timeout_duration = tokio::time::Duration::from_secs(timeout_secs);
+        tracing::debug!("⏳ Waiting for response with {}s timeout", timeout_secs);
         let response_result = timeout(timeout_duration, async {
             // Read response length
             let mut len_bytes = [0u8; 4];
+            tracing::debug!("📥 Reading response length...");
             stream
                 .read_exact(&mut len_bytes)
                 .await
                 .map_err(|e| format!("Failed to read response length: {}", e))?;
             let response_len = u32::from_be_bytes(len_bytes) as usize;
+            tracing::debug!("📏 Response length: {} bytes", response_len);
 
             // Sanity check on length
             if response_len > 10_000_000 {

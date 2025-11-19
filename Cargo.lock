@@ -5097,6 +5097,8 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
  "time-consensus",
  "time-core 0.1.0",
  "time-mempool",
