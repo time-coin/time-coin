@@ -1708,17 +1708,17 @@ mod tests {
     //
     //         // Create three peers with the same IP but different ports (simulating ephemeral ports)
     //         let peer1 = PeerInfo::with_version(
-    //             "178.128.199.144:52341".parse().unwrap(),
+    //             "192.0.2.10:52341".parse().unwrap(),
     //             NetworkType::Testnet,
     //             "0.1.0".to_string(),
     //         );
     //         let peer2 = PeerInfo::with_version(
-    //             "178.128.199.144:52342".parse().unwrap(),
+    //             "192.0.2.10:52342".parse().unwrap(),
     //             NetworkType::Testnet,
     //             "0.1.0".to_string(),
     //         );
     //         let peer3 = PeerInfo::with_version(
-    //             "178.128.199.144:52343".parse().unwrap(),
+    //             "192.0.2.10:52343".parse().unwrap(),
     //             NetworkType::Testnet,
     //             "0.1.0".to_string(),
     //         );
@@ -1760,7 +1760,7 @@ mod tests {
 
         // Create three peers with different IPs
         let peer1 = PeerInfo::with_version(
-            "178.128.199.144:24100".parse().unwrap(),
+            "192.0.2.10:24100".parse().unwrap(),
             NetworkType::Testnet,
             "0.1.0".to_string(),
         );

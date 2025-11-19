@@ -4,7 +4,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiPeer {
-    pub address: String, // This includes port like "134.199.175.106:24100"
+    pub address: String, // IP:port format
     pub version: String,
     pub connected: bool,
 }

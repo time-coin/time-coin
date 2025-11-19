@@ -425,7 +425,7 @@ mod tests {
         // Test that ephemeral ports are normalized to the standard P2P port for testnet
 
         // Simulate what PeerListener::accept() does with an ephemeral port
-        let ephemeral_addr: SocketAddr = "69.167.168.176:56236".parse().unwrap();
+        let ephemeral_addr: SocketAddr = "192.0.2.1:56236".parse().unwrap();
         assert!(ephemeral_addr.port() >= 49152, "Port should be ephemeral");
 
         // This is what the fixed code does
@@ -454,7 +454,7 @@ mod tests {
     fn test_ephemeral_port_normalization_mainnet() {
         // Test that ephemeral ports are normalized to the standard P2P port for mainnet
 
-        let ephemeral_addr: SocketAddr = "178.128.199.144:58378".parse().unwrap();
+        let ephemeral_addr: SocketAddr = "192.0.2.2:58378".parse().unwrap();
         assert!(ephemeral_addr.port() >= 49152, "Port should be ephemeral");
 
         // This is what the fixed code does for mainnet
@@ -484,7 +484,7 @@ mod tests {
         // Test that standard P2P ports are not modified
 
         // Testnet standard port
-        let testnet_addr: SocketAddr = "161.35.129.70:24100".parse().unwrap();
+        let testnet_addr: SocketAddr = "192.0.2.3:24100".parse().unwrap();
         let normalized_port = if testnet_addr.port() >= 49152 {
             24100
         } else {
@@ -496,7 +496,7 @@ mod tests {
         );
 
         // Mainnet standard port
-        let mainnet_addr: SocketAddr = "161.35.129.70:24000".parse().unwrap();
+        let mainnet_addr: SocketAddr = "192.0.2.4:24000".parse().unwrap();
         let normalized_port = if mainnet_addr.port() >= 49152 {
             24000
         } else {

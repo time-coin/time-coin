@@ -186,25 +186,11 @@ impl PeerManager {
         let peer_count = self.peer_count().await;
 
         if peer_count == 0 {
-            log::info!("🌱 Using hardcoded seed peers...");
-
-            // Hardcoded seed peers since there is no central server
-            let new_peers = match self.network {
-                wallet::NetworkType::Mainnet => vec![
-                    ("161.35.129.70".to_string(), 24100),
-                    ("69.167.168.176".to_string(), 24100),
-                ],
-                wallet::NetworkType::Testnet => vec![
-                    ("161.35.129.70".to_string(), 24101),
-                    ("69.167.168.176".to_string(), 24101),
-                ],
-            };
-
-            log::info!("🌱 Adding {} seed peers", new_peers.len());
-            self.add_peers(new_peers).await;
-        } else {
-            log::info!("✓ Already have {} peers", peer_count);
+            log::warn!("⚠️  No peers available! Please configure peers in wallet.conf using 'addnode' or via API endpoint");
+            return Ok(());
         }
+
+        log::info!("✓ Using {} configured peers", peer_count);
 
         // Immediately try to get more peers from the network
         log::info!("🔍 Discovering peers from network...");
