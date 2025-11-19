@@ -153,11 +153,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         message,
                                         time_network::protocol::NetworkMessage::GetPeerList
                                     ) {
+                                        log::info!(
+                                            "📥 Received GetPeerList request from {}",
+                                            peer_ip
+                                        );
                                         let response = pm.handle_get_peer_list().await;
+                                        log::info!("📤 Sending peer list response with {} peers", 
+                                            match &response {
+                                                time_network::protocol::NetworkMessage::PeerList(peers) => peers.len(),
+                                                _ => 0
+                                            }
+                                        );
                                         match connection.send_message(response).await {
-                                            Ok(_) => log::info!("✅ Peer list sent successfully"),
+                                            Ok(_) => log::info!(
+                                                "✅ Peer list sent successfully to {}",
+                                                peer_ip
+                                            ),
                                             Err(e) => {
-                                                log::error!("❌ Failed to send peer list: {}", e)
+                                                log::error!(
+                                                    "❌ Failed to send peer list to {}: {}",
+                                                    peer_ip,
+                                                    e
+                                                )
                                             }
                                         }
                                         continue;
