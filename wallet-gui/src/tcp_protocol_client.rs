@@ -2,7 +2,6 @@
 //!
 //! Communicates with masternodes using raw TCP and NetworkMessage protocol
 
-use bincode;
 use std::sync::Arc;
 use time_network::protocol::{NetworkMessage, WalletTransaction};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -142,11 +141,11 @@ impl TcpProtocolClient {
         stream: &mut TcpStream,
         msg: &NetworkMessage,
     ) -> Result<(), String> {
-        let encoded =
-            bincode::serialize(msg).map_err(|e| format!("Failed to serialize message: {}", e))?;
+        let json =
+            serde_json::to_vec(msg).map_err(|e| format!("Failed to serialize message: {}", e))?;
 
         // Send length prefix (4 bytes)
-        let len = encoded.len() as u32;
+        let len = json.len() as u32;
         stream
             .write_all(&len.to_be_bytes())
             .await
@@ -154,7 +153,7 @@ impl TcpProtocolClient {
 
         // Send message
         stream
-            .write_all(&encoded)
+            .write_all(&json)
             .await
             .map_err(|e| format!("Failed to send message: {}", e))?;
 
@@ -180,6 +179,11 @@ impl TcpProtocolClient {
             .map_err(|e| format!("Failed to read length: {}", e))?;
         let len = u32::from_be_bytes(len_buf) as usize;
 
+        // Size limit check
+        if len > 10 * 1024 * 1024 {
+            return Err("Message too large (>10MB)".into());
+        }
+
         // Read message
         let mut buf = vec![0u8; len];
         stream
@@ -187,8 +191,8 @@ impl TcpProtocolClient {
             .await
             .map_err(|e| format!("Failed to read message: {}", e))?;
 
-        // Deserialize
-        bincode::deserialize(&buf).map_err(|e| format!("Failed to deserialize message: {}", e))
+        // Deserialize from JSON
+        serde_json::from_slice(&buf).map_err(|e| format!("Failed to deserialize message: {}", e))
     }
 
     pub async fn disconnect(&self) {
