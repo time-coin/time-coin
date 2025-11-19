@@ -200,6 +200,16 @@ setup_masternode_config() {
     # NOTE: We don't create data directories here - the node will create them on first run
     # This ensures proper permissions and structure
     
+    # Copy genesis block file
+    print_info "Installing genesis block file..."
+    if [ -f "$REPO_DIR/config/genesis-testnet.json" ]; then
+        cp "$REPO_DIR/config/genesis-testnet.json" "$CONFIG_DIR/genesis-testnet.json"
+        print_success "Genesis block file installed"
+    else
+        print_warning "Genesis block file not found at $REPO_DIR/config/genesis-testnet.json"
+        print_warning "Node will attempt to download from network"
+    fi
+    
     local CONFIG_FILE="$CONFIG_DIR/testnet.toml"
 
     print_info "Writing config to $CONFIG_FILE"
@@ -214,8 +224,8 @@ mode = "masternode"
 data_dir = "${DATA_DIR}"
 
 [blockchain]
-# Genesis file will be downloaded from network if not present
-# Or place your genesis.json in the data directory
+# Genesis block file location
+genesis_file = "${CONFIG_DIR}/genesis-testnet.json"
 
 [consensus]
 dev_mode = false
@@ -242,6 +252,7 @@ CONFIGEOF
 
     print_success "Configuration created"
     print_info "Config location: $CONFIG_FILE"
+    print_info "Genesis block:  $CONFIG_DIR/genesis-testnet.json"
     print_info "Data dir:       $DATA_DIR (will be created on first run)"
     print_info "Ports:          P2P=${P2P_PORT}, API=${API_PORT} (testnet)"
 }
