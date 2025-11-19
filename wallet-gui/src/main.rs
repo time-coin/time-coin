@@ -262,6 +262,9 @@ impl WalletApp {
                                     }
                                 }
 
+                                // Extract xpub before moving manager
+                                let xpub = manager.get_xpub().to_string();
+
                                 self.wallet_manager = Some(manager);
                                 self.current_screen = Screen::Overview;
                                 self.set_success("Wallet unlocked successfully!".to_string());
@@ -284,8 +287,8 @@ impl WalletApp {
                                         };
 
                                         let mut temp_net = NetworkManager::new(api_endpoint);
-                                        let result = if let Some(db) = wallet_db {
-                                            temp_net.bootstrap_with_db(&db, bootstrap_nodes).await
+                                        let result = if let Some(db) = &wallet_db {
+                                            temp_net.bootstrap_with_db(db, bootstrap_nodes).await
                                         } else {
                                             temp_net.bootstrap(bootstrap_nodes).await
                                         };
@@ -296,6 +299,36 @@ impl WalletApp {
                                                 {
                                                     let mut net = network_mgr.lock().unwrap();
                                                     *net = temp_net;
+                                                }
+
+                                                // Sync historical UTXOs from blockchain
+                                                if let Some(db) = &wallet_db {
+                                                    log::info!("🔄 Starting blockchain sync for historical transactions...");
+
+                                                    // Get masternode URL
+                                                    let connected_peers = {
+                                                        let net = network_mgr.lock().unwrap();
+                                                        net.get_connected_peers()
+                                                    };
+
+                                                    if let Some(peer) = connected_peers.first() {
+                                                        let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                                                        let ws_url = format!("ws://{}:24101/ws", peer_ip);
+
+                                                        let (client, _rx) = ProtocolClient::new(vec![ws_url]);
+
+                                                        // Create closure to derive addresses from xpub
+                                                        let xpub_clone = xpub.clone();
+                                                        let derive_fn = |index: u32| -> Result<String, String> {
+                                                            wallet::xpub_to_address(&xpub_clone, 0, index, wallet::NetworkType::Mainnet)
+                                                                .map_err(|e| format!("Failed to derive address: {}", e))
+                                                        };
+
+                                                        match client.sync_historical_utxos(derive_fn, db).await {
+                                                            Ok(_) => log::info!("✅ Blockchain sync complete!"),
+                                                            Err(e) => log::error!("❌ Blockchain sync failed: {}", e),
+                                                        }
+                                                    }
                                                 }
 
                                                 // Trigger initial transaction sync

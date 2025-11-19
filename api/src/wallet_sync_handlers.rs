@@ -63,11 +63,40 @@ pub async fn sync_wallet_addresses(
 
     // For each address, find all UTXOs and recent transactions
     for address in &request.addresses {
-        let address_utxos = Vec::new();
-
         // Scan UTXO set for this address
-        let balance = blockchain.get_balance(address);
-        total_balance += balance;
+        let utxo_entries = blockchain.utxo_set().get_utxos_for_address(address);
+
+        let mut address_utxos = Vec::new();
+        for (outpoint, output) in utxo_entries {
+            // Find the block containing this transaction to get confirmations
+            let mut block_height = 0u64;
+            let mut confirmations = 0u64;
+
+            // Search for transaction in recent blocks (optimization: could cache this)
+            for height in (current_height.saturating_sub(1000))..=current_height {
+                if let Some(block) = blockchain.get_block_by_height(height) {
+                    if block.transactions.iter().any(|tx| tx.txid == outpoint.txid) {
+                        block_height = height;
+                        confirmations = current_height.saturating_sub(height);
+                        break;
+                    }
+                }
+            }
+
+            address_utxos.push(UtxoInfo {
+                tx_hash: outpoint.txid.clone(),
+                output_index: outpoint.vout,
+                amount: output.amount,
+                address: address.clone(),
+                block_height,
+                confirmations,
+            });
+
+            total_balance += output.amount;
+        }
+
+        // Get balance for validation
+        let _balance = blockchain.get_balance(address);
 
         // Get recent transactions (last 10 blocks)
         let start_height = current_height.saturating_sub(10);
@@ -278,7 +307,37 @@ pub async fn sync_wallet_xpub(
                 balance
             );
             gap_count = 0; // Reset gap counter
-            total_balance += balance;
+
+            // Get UTXOs for this address
+            let utxo_entries = blockchain.utxo_set().get_utxos_for_address(&address);
+            let mut address_utxos = Vec::new();
+
+            for (outpoint, output) in utxo_entries {
+                // Find block height for this UTXO
+                let mut block_height = 0u64;
+                let mut confirmations = 0u64;
+
+                for height in (current_height.saturating_sub(1000))..=current_height {
+                    if let Some(block) = blockchain.get_block_by_height(height) {
+                        if block.transactions.iter().any(|tx| tx.txid == outpoint.txid) {
+                            block_height = height;
+                            confirmations = current_height.saturating_sub(height);
+                            break;
+                        }
+                    }
+                }
+
+                address_utxos.push(UtxoInfo {
+                    tx_hash: outpoint.txid.clone(),
+                    output_index: outpoint.vout,
+                    amount: output.amount,
+                    address: address.clone(),
+                    block_height,
+                    confirmations,
+                });
+
+                total_balance += output.amount;
+            }
 
             // Scan recent transactions for this address
             let start_height = current_height.saturating_sub(100);
@@ -315,7 +374,7 @@ pub async fn sync_wallet_xpub(
                 }
             }
 
-            utxos_by_address.insert(address, Vec::new());
+            utxos_by_address.insert(address, address_utxos);
         } else {
             gap_count += 1;
             tracing::debug!("No activity at index {}, gap count: {}", index, gap_count);

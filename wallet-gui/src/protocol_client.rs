@@ -565,6 +565,140 @@ impl ProtocolClient {
         log::info!("xpub subscription queued");
         Ok(())
     }
+
+    /// Sync historical UTXOs from blockchain for derived addresses
+    /// Uses BIP44 gap limit of 20 - stops scanning after 20 consecutive empty addresses
+    pub async fn sync_historical_utxos(
+        &self,
+        derive_address_fn: impl Fn(u32) -> Result<String, String>,
+        wallet_db: &crate::wallet_db::WalletDb,
+    ) -> Result<(), String> {
+        log::info!("🔄 Starting historical UTXO sync from blockchain...");
+
+        const GAP_LIMIT: u32 = 20;
+        let mut index = 0u32;
+        let mut consecutive_empty = 0u32;
+        let mut total_utxos = 0usize;
+
+        // Get first masternode for HTTP queries
+        let masternode = self.masternodes.first().ok_or("No masternodes available")?;
+        let base_url = masternode
+            .replace("ws://", "http://")
+            .replace("wss://", "https://");
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        loop {
+            // Derive address at current index
+            let address = derive_address_fn(index)?;
+            log::debug!("Checking address {} at index {}", address, index);
+
+            // Query UTXOs for this address
+            let url = format!("{}/utxos/{}", base_url, address);
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    #[derive(serde::Deserialize)]
+                    struct UtxoResponse {
+                        utxos: Vec<UtxoEntry>,
+                    }
+                    #[derive(serde::Deserialize)]
+                    struct UtxoEntry {
+                        outpoint: String,
+                        amount: u64,
+                    }
+
+                    match response.json::<UtxoResponse>().await {
+                        Ok(utxo_response) => {
+                            if utxo_response.utxos.is_empty() {
+                                consecutive_empty += 1;
+                                log::debug!(
+                                    "Address {} is empty ({}/{})",
+                                    address,
+                                    consecutive_empty,
+                                    GAP_LIMIT
+                                );
+                            } else {
+                                consecutive_empty = 0;
+                                log::info!(
+                                    "✅ Found {} UTXOs for address {} (index {})",
+                                    utxo_response.utxos.len(),
+                                    address,
+                                    index
+                                );
+
+                                // Store UTXOs in database
+                                for utxo in utxo_response.utxos {
+                                    let parts: Vec<&str> = utxo.outpoint.split(':').collect();
+                                    if parts.len() == 2 {
+                                        let txid = parts[0].to_string();
+                                        let vout: u32 = parts[1].parse().unwrap_or(0);
+
+                                        let tx_record = crate::wallet_db::TransactionRecord {
+                                            tx_hash: txid.clone(),
+                                            timestamp: chrono::Utc::now().timestamp(),
+                                            from_address: None,
+                                            to_address: address.clone(),
+                                            amount: utxo.amount,
+                                            status: crate::wallet_db::TransactionStatus::Confirmed,
+                                            block_height: None,
+                                            notes: Some(
+                                                "Historical UTXO from blockchain sync".to_string(),
+                                            ),
+                                        };
+
+                                        if let Err(e) = wallet_db.save_transaction(&tx_record) {
+                                            log::warn!(
+                                                "Failed to store UTXO {}: {}",
+                                                utxo.outpoint,
+                                                e
+                                            );
+                                        } else {
+                                            total_utxos += 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to parse UTXO response for {}: {}", address, e);
+                        }
+                    }
+                }
+                Ok(response) => {
+                    log::warn!(
+                        "Failed to fetch UTXOs for address {}: HTTP {}",
+                        address,
+                        response.status()
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Network error fetching UTXOs for {}: {}", address, e);
+                }
+            }
+
+            // Check if we've hit the gap limit
+            if consecutive_empty >= GAP_LIMIT {
+                log::info!(
+                    "✅ UTXO sync complete: scanned {} addresses, found {} UTXOs",
+                    index + 1,
+                    total_utxos
+                );
+                break;
+            }
+
+            index += 1;
+
+            // Safety limit to prevent infinite loops
+            if index > 1000 {
+                log::warn!("⚠️  Reached maximum address scan limit (1000)");
+                break;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -700,7 +700,7 @@ impl MasternodeUTXOIntegration {
                 // Save mempool to disk
                 let mempool_path = format!("data/{}/mempool.json", node_id);
                 let had_error = mempool.save_to_disk(&mempool_path).await.is_err();
-                
+
                 if !had_error {
                     let size = mempool.size().await;
                     if size > 0 {
