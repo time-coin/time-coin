@@ -971,32 +971,52 @@ async fn main() {
             );
 
             let network = config.node.network.as_deref().unwrap_or("testnet");
-            let genesis_url = format!(
-                "https://raw.githubusercontent.com/your-org/time-coin/main/config/genesis-{}.json",
-                network
-            );
 
-            match download_genesis_from_url(&genesis_url, &genesis_path, network).await {
-                Ok(g) => {
-                    display_genesis(&g);
-                    println!("{}", "✓ Genesis block downloaded from repository".green());
-                    _genesis = Some(g);
+            // Try multiple sources
+            let genesis_urls = [
+                format!(
+                    "https://raw.githubusercontent.com/timechain-network/time-coin/main/config/genesis-{}.json",
+                    network
+                ),
+                format!(
+                    "https://time-coin.io/genesis/genesis-{}.json",
+                    network
+                ),
+            ];
+
+            let mut download_succeeded = false;
+            for genesis_url in genesis_urls.iter() {
+                match download_genesis_from_url(genesis_url, &genesis_path, network).await {
+                    Ok(g) => {
+                        display_genesis(&g);
+                        println!("{}", "✓ Genesis block downloaded from repository".green());
+                        _genesis = Some(g);
+                        download_succeeded = true;
+                        break;
+                    }
+                    Err(e) => {
+                        println!(
+                            "   ✗ {}: {}",
+                            genesis_url.bright_black(),
+                            e.to_string().bright_black()
+                        );
+                    }
                 }
-                Err(e) => {
-                    eprintln!("\n{}", "❌ Failed to obtain genesis block".red().bold());
-                    eprintln!("   Peer download: failed");
-                    eprintln!("   Repository download: {}", e);
-                    eprintln!(
-                        "\n{}",
-                        "Genesis block is required to start the node.".yellow()
-                    );
-                    eprintln!("   Genesis file: {}", genesis_path);
-                    eprintln!("\n{}", "Solutions:".yellow().bold());
-                    eprintln!("   1. Place genesis file at the specified path");
-                    eprintln!("   2. Ensure network connectivity for automatic download");
-                    eprintln!("   3. Contact support if issue persists");
-                    std::process::exit(1);
-                }
+            }
+
+            if !download_succeeded {
+                eprintln!("\n{}", "❌ Failed to obtain genesis block".red().bold());
+                eprintln!("   All download sources failed");
+                eprintln!(
+                    "\n{}",
+                    "Genesis block is required to start the node.".yellow()
+                );
+                eprintln!("   Genesis file: {}", genesis_path);
+                eprintln!("\n{}", "Solutions:".yellow().bold());
+                eprintln!("   1. Place genesis file at the specified path");
+                eprintln!("   2. Ensure network connectivity for automatic download");
+                eprintln!("   3. Contact support if issue persists");
+                std::process::exit(1);
             }
         }
     }
