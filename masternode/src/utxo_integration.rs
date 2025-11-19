@@ -438,14 +438,29 @@ impl MasternodeUTXOIntegration {
                                 ));
                             }
 
-                            // Scan existing blockchain for UTXOs
-                            // TODO: Need to add blockchain access to scan existing blocks
+                            // Scan existing blockchain for UTXOs via RPC
                             info!(
                                 node = %self.node_id,
                                 address_count = addresses.len(),
-                                "Registered {} addresses. Wallet will receive UTXOs from new blocks.",
+                                "Scanning blockchain for existing transactions for {} addresses",
                                 addresses.len()
                             );
+
+                            // Spawn background task to scan blockchain
+                            let xpub_clone = xpub.clone();
+                            let addresses_clone = addresses.clone();
+                            let utxo_tracker_clone = self.utxo_tracker.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = scan_blockchain_for_addresses(
+                                    &xpub_clone,
+                                    &addresses_clone,
+                                    utxo_tracker_clone,
+                                )
+                                .await
+                                {
+                                    warn!("Failed to scan blockchain: {}", e);
+                                }
+                            });
 
                             // Get existing UTXOs for this xpub
                             match self.utxo_tracker.get_utxos_for_xpub(xpub).await {
@@ -1065,6 +1080,112 @@ impl MasternodeUTXOIntegration {
 
         info!(node = %self.node_id, "✅ Finality retry task started");
     }
+}
+
+/// Scan blockchain for existing transactions for addresses
+async fn scan_blockchain_for_addresses(
+    xpub: &str,
+    addresses: &[String],
+    utxo_tracker: Arc<UtxoTracker>,
+) -> Result<(), String> {
+    info!(
+        "🔍 Scanning blockchain for {} addresses associated with xpub {}",
+        addresses.len(),
+        xpub
+    );
+
+    // Get current block height from RPC
+    let client = reqwest::Client::new();
+    let rpc_url = std::env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:3030".to_string());
+
+    // Get blockchain height
+    let height_response = client
+        .post(format!("{}/rpc", rpc_url))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "getblockcount",
+            "params": [],
+            "id": 1
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get block height: {}", e))?;
+
+    let height_result: serde_json::Value = height_response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse height response: {}", e))?;
+
+    let current_height = height_result["result"]
+        .as_u64()
+        .ok_or_else(|| "Invalid block height response".to_string())?;
+
+    info!("📊 Current blockchain height: {}", current_height);
+
+    // Scan all blocks from genesis to current height
+    let mut found_txs = 0;
+    for height in 0..=current_height {
+        // Get block at height
+        let block_response = client
+            .post(format!("{}/rpc", rpc_url))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "getblock",
+                "params": [height],
+                "id": 1
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to get block {}: {}", height, e))?;
+
+        let block_result: serde_json::Value = block_response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse block {}: {}", height, e))?;
+
+        if let Some(block_data) = block_result["result"].as_object() {
+            if let Some(transactions) = block_data["transactions"].as_array() {
+                for tx in transactions {
+                    if let Some(outputs) = tx["outputs"].as_array() {
+                        for (vout, output) in outputs.iter().enumerate() {
+                            if let Some(addr) = output["address"].as_str() {
+                                if addresses.contains(&addr.to_string()) {
+                                    // Found a transaction for one of our addresses
+                                    let utxo = crate::utxo_tracker::UtxoInfo {
+                                        txid: tx["txid"].as_str().unwrap_or("").to_string(),
+                                        vout: vout as u32,
+                                        address: addr.to_string(),
+                                        amount: output["amount"].as_u64().unwrap_or(0),
+                                        block_height: Some(height),
+                                        confirmations: (current_height - height),
+                                    };
+
+                                    // Add to UTXO tracker
+                                    utxo_tracker.add_utxo(utxo).await;
+                                    found_txs += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Log progress every 100 blocks
+        if height % 100 == 0 && height > 0 {
+            info!(
+                "⏳ Scanned {} blocks, found {} transactions",
+                height, found_txs
+            );
+        }
+    }
+
+    info!(
+        "✅ Blockchain scan complete: found {} transactions for xpub {}",
+        found_txs, xpub
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]

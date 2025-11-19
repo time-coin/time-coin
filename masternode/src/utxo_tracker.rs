@@ -275,6 +275,15 @@ impl UtxoTracker {
         Ok(Vec::new())
     }
 
+    /// Add a single UTXO directly (used by blockchain scanner)
+    pub async fn add_utxo(&self, utxo: UtxoInfo) {
+        let mut utxos = self.utxos.write().await;
+        utxos
+            .entry(utxo.address.clone())
+            .or_insert_with(Vec::new)
+            .push(utxo);
+    }
+
     /// Get statistics
     pub async fn stats(&self) -> UtxoStats {
         let utxos = self.utxos.read().await;

@@ -5055,6 +5055,7 @@ dependencies = [
  "futures-util",
  "hex",
  "log",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
