@@ -1,0 +1,306 @@
+//! Peer Manager for GUI Wallet
+//!
+//! Manages masternode peers, discovers new peers, and maintains connections.
+
+use crate::wallet_db::{PeerRecord, WalletDb};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio::time::{interval, Duration};
+
+pub struct PeerManager {
+    wallet_db: Arc<RwLock<Option<WalletDb>>>,
+    network: wallet::NetworkType,
+}
+
+impl PeerManager {
+    pub fn new(network: wallet::NetworkType) -> Self {
+        Self {
+            wallet_db: Arc::new(RwLock::new(None)),
+            network,
+        }
+    }
+
+    /// Set the wallet database (called after wallet is initialized)
+    pub async fn set_wallet_db(&self, db: WalletDb) {
+        let mut wallet_db = self.wallet_db.write().await;
+        *wallet_db = Some(db);
+        log::info!("📂 Wallet database connected to PeerManager");
+    }
+
+    /// Helper to convert PeerRecord to display format
+    fn peer_to_info(peer: &PeerRecord) -> (String, u16, i64) {
+        (peer.address.clone(), peer.port, peer.last_seen as i64)
+    }
+
+    /// Helper to calculate peer score
+    fn calculate_score(peer: &PeerRecord) -> i64 {
+        let base_score = peer.successful_connections as i64 * 10;
+        let penalty = peer.failed_connections as i64 * 20;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let age_penalty = (now as i64 - peer.last_seen as i64) / 3600;
+        base_score - penalty - age_penalty
+    }
+
+    /// Add a peer
+    pub async fn add_peer(&self, address: String, port: u16) {
+        let db_guard = self.wallet_db.read().await;
+        if let Some(db) = db_guard.as_ref() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let peer = PeerRecord {
+                address: address.clone(),
+                port,
+                version: None,
+                last_seen: now,
+                first_seen: now,
+                successful_connections: 0,
+                failed_connections: 0,
+                latency_ms: 0,
+            };
+
+            if let Err(e) = db.save_peer(&peer) {
+                log::error!("❌ Failed to save peer: {}", e);
+            } else {
+                log::info!("➕ Added new peer: {}:{}", address, port);
+            }
+        }
+    }
+
+    /// Add multiple peers
+    pub async fn add_peers(&self, new_peers: Vec<(String, u16)>) {
+        let db_guard = self.wallet_db.read().await;
+        if let Some(db) = db_guard.as_ref() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let mut added = 0;
+            for (address, port) in new_peers {
+                let peer = PeerRecord {
+                    address: address.clone(),
+                    port,
+                    version: None,
+                    last_seen: now,
+                    first_seen: now,
+                    successful_connections: 0,
+                    failed_connections: 0,
+                    latency_ms: 0,
+                };
+
+                if db.save_peer(&peer).is_ok() {
+                    added += 1;
+                }
+            }
+
+            if added > 0 {
+                if let Ok(total) = db.get_all_peers() {
+                    log::info!("➕ Added {} new peers (total: {})", added, total.len());
+                }
+            }
+        }
+    }
+
+    /// Record successful connection
+    pub async fn record_success(&self, address: &str, port: u16) {
+        let db_guard = self.wallet_db.read().await;
+        if let Some(db) = db_guard.as_ref() {
+            if let Ok(peers) = db.get_all_peers() {
+                if let Some(mut peer) = peers
+                    .into_iter()
+                    .find(|p| p.address == address && p.port == port)
+                {
+                    peer.successful_connections += 1;
+                    peer.failed_connections = 0;
+                    peer.last_seen = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let _ = db.save_peer(&peer);
+                }
+            }
+        }
+    }
+
+    /// Record failed connection
+    pub async fn record_failure(&self, address: &str, port: u16) {
+        let db_guard = self.wallet_db.read().await;
+        if let Some(db) = db_guard.as_ref() {
+            if let Ok(peers) = db.get_all_peers() {
+                if let Some(mut peer) = peers
+                    .into_iter()
+                    .find(|p| p.address == address && p.port == port)
+                {
+                    peer.failed_connections += 1;
+                    if peer.failed_connections < 5 {
+                        let _ = db.save_peer(&peer);
+                    } else {
+                        log::warn!("🗑️ Removing unhealthy peer: {}:{}", address, port);
+                        let _ = db.delete_peer(address, port);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get all healthy peers sorted by score
+    pub async fn get_healthy_peers(&self) -> Vec<PeerRecord> {
+        let db_guard = self.wallet_db.read().await;
+        if let Some(db) = db_guard.as_ref() {
+            if let Ok(peers) = db.get_all_peers() {
+                let mut healthy: Vec<_> = peers
+                    .into_iter()
+                    .filter(|p| p.failed_connections < 5)
+                    .collect();
+                healthy.sort_by_key(|p| -Self::calculate_score(p));
+                return healthy;
+            }
+        }
+        Vec::new()
+    }
+
+    /// Get best peer to connect to
+    pub async fn get_best_peer(&self) -> Option<PeerRecord> {
+        self.get_healthy_peers().await.into_iter().next()
+    }
+
+    /// Get peer count
+    pub async fn peer_count(&self) -> usize {
+        let db_guard = self.wallet_db.read().await;
+        if let Some(db) = db_guard.as_ref() {
+            if let Ok(peers) = db.get_all_peers() {
+                return peers.len();
+            }
+        }
+        0
+    }
+
+    /// Bootstrap from seed peers
+    pub async fn bootstrap(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let peer_count = self.peer_count().await;
+
+        if peer_count > 0 {
+            log::info!("✓ Already have {} peers, skipping bootstrap", peer_count);
+            return Ok(());
+        }
+
+        log::info!("🌱 Using hardcoded seed peers...");
+
+        // Hardcoded seed peers since there is no central server
+        let new_peers = match self.network {
+            wallet::NetworkType::Mainnet => vec![
+                ("161.35.129.70".to_string(), 24100),
+                ("69.167.168.176".to_string(), 24100),
+            ],
+            wallet::NetworkType::Testnet => vec![
+                ("161.35.129.70".to_string(), 24101),
+                ("69.167.168.176".to_string(), 24101),
+            ],
+        };
+
+        log::info!("🌱 Adding {} seed peers", new_peers.len());
+        self.add_peers(new_peers).await;
+
+        Ok(())
+    }
+
+    /// Request peer list from a connected peer
+    pub async fn request_peer_list(
+        &self,
+        stream: &mut tokio::net::TcpStream,
+    ) -> Result<Vec<(String, u16)>, String> {
+        use time_network::protocol::NetworkMessage;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Send GetPeerList request
+        let request = NetworkMessage::GetPeerList;
+        let request_bytes = bincode::serialize(&request).map_err(|e| e.to_string())?;
+        let len = request_bytes.len() as u32;
+
+        stream
+            .write_all(&len.to_be_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        stream
+            .write_all(&request_bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+        stream.flush().await.map_err(|e| e.to_string())?;
+
+        // Read response
+        let mut len_bytes = [0u8; 4];
+        stream
+            .read_exact(&mut len_bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+        let response_len = u32::from_be_bytes(len_bytes) as usize;
+
+        let mut response_bytes = vec![0u8; response_len];
+        stream
+            .read_exact(&mut response_bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let response: NetworkMessage =
+            bincode::deserialize(&response_bytes).map_err(|e| e.to_string())?;
+
+        match response {
+            NetworkMessage::PeerList(peer_addresses) => {
+                let peers: Vec<_> = peer_addresses
+                    .into_iter()
+                    .map(|pa| (pa.ip, pa.port))
+                    .collect();
+                Ok(peers)
+            }
+            _ => Err("Unexpected response to GetPeerList".into()),
+        }
+    }
+
+    /// Start periodic peer discovery and cleanup
+    pub fn start_maintenance(self: Arc<Self>) {
+        tokio::spawn(async move {
+            let mut tick = interval(Duration::from_secs(300)); // Every 5 minutes
+
+            loop {
+                tick.tick().await;
+
+                // Try to discover new peers from random healthy peer
+                if let Some(peer) = self.get_best_peer().await {
+                    let endpoint = format!("{}:{}", peer.address, peer.port);
+                    log::debug!("🔍 Requesting peer list from {}", endpoint);
+
+                    match tokio::net::TcpStream::connect(&endpoint).await {
+                        Ok(mut stream) => match self.request_peer_list(&mut stream).await {
+                            Ok(new_peers) => {
+                                log::debug!(
+                                    "📥 Received {} peers from {}",
+                                    new_peers.len(),
+                                    endpoint
+                                );
+                                self.add_peers(new_peers).await;
+                                self.record_success(&peer.address, peer.port).await;
+                            }
+                            Err(e) => {
+                                log::error!("❌ Failed to get peer list from {}: {}", endpoint, e);
+                                self.record_failure(&peer.address, peer.port).await;
+                            }
+                        },
+                        Err(e) => {
+                            let error_msg = e.to_string();
+                            log::warn!("⚠️ Failed to connect to peer {}: {}", endpoint, error_msg);
+                            self.record_failure(&peer.address, peer.port).await;
+                        }
+                    }
+                }
+
+                // Peers are automatically saved to database, no periodic save needed
+            }
+        });
+    }
+}

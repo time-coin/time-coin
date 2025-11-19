@@ -1062,9 +1062,7 @@ This specification is released under the MIT License.
 
 ## Contact & Resources
 
-- **Website**: https://timecoin.org
 - **GitHub**: https://github.com/time-coin/time-coin
-- **Documentation**: https://docs.timecoin.org
 - **Discord**: https://discord.gg/timecoin
 - **Twitter**: @timecoin
 

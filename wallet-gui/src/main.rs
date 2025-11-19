@@ -13,6 +13,7 @@ use wallet::NetworkType;
 mod config;
 mod mnemonic_ui;
 mod network;
+mod peer_manager;
 mod protocol_client;
 mod wallet_dat;
 mod wallet_db;
@@ -21,6 +22,7 @@ mod wallet_manager;
 use config::Config;
 use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
+use peer_manager::PeerManager;
 use protocol_client::{ProtocolClient, WalletNotification};
 use tokio::sync::mpsc;
 use wallet_db::{AddressContact, WalletDb};
@@ -113,6 +115,9 @@ struct WalletApp {
     network_manager: Option<Arc<Mutex<NetworkManager>>>,
     network_status: String,
 
+    // Peer manager for discovering and managing masternode peers
+    peer_manager: Option<Arc<PeerManager>>,
+
     // TIME Coin Protocol client for real-time notifications
     protocol_client: Option<Arc<ProtocolClient>>,
     notification_rx: Option<mpsc::UnboundedReceiver<WalletNotification>>,
@@ -166,6 +171,7 @@ impl Default for WalletApp {
             is_syncing_transactions: false,
             network_manager: None,
             network_status: "Not connected".to_string(),
+            peer_manager: None,
             protocol_client: None,
             notification_rx: None,
             recent_notifications: Vec::new(),
@@ -269,8 +275,32 @@ impl WalletApp {
                                 self.current_screen = Screen::Overview;
                                 self.set_success("Wallet unlocked successfully!".to_string());
 
-                                // Load config and initialize network
+                                // Load config and initialize network + peer manager
                                 if let Ok(main_config) = Config::load() {
+                                    // Initialize peer manager
+                                    let peer_mgr = Arc::new(PeerManager::new(self.network));
+
+                                    // Connect peer manager to wallet database
+                                    if let Some(db) = &self.wallet_db {
+                                        let db_clone = db.clone();
+                                        let peer_mgr_clone = peer_mgr.clone();
+                                        tokio::spawn(async move {
+                                            peer_mgr_clone.set_wallet_db(db_clone).await;
+                                        });
+                                    }
+
+                                    self.peer_manager = Some(peer_mgr.clone());
+
+                                    // Bootstrap peers
+                                    let peer_mgr_clone = peer_mgr.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = peer_mgr_clone.bootstrap().await {
+                                            log::warn!("Failed to bootstrap peers: {}", e);
+                                        }
+                                        // Start periodic peer maintenance
+                                        peer_mgr_clone.clone().start_maintenance();
+                                    });
+
                                     let network_mgr = Arc::new(Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
                                     self.network_manager = Some(network_mgr.clone());
                                     self.network_status = "Connecting...".to_string();
@@ -503,8 +533,32 @@ impl WalletApp {
                 self.mnemonic_interface.clear();
                 self.mnemonic_confirmed = false;
 
-                // Load config and initialize network
+                // Load config and initialize network + peer manager
                 if let Ok(main_config) = Config::load() {
+                    // Initialize peer manager
+                    let peer_mgr = Arc::new(PeerManager::new(self.network));
+
+                    // Connect peer manager to wallet database
+                    if let Some(db) = &self.wallet_db {
+                        let db_clone = db.clone();
+                        let peer_mgr_clone = peer_mgr.clone();
+                        tokio::spawn(async move {
+                            peer_mgr_clone.set_wallet_db(db_clone).await;
+                        });
+                    }
+
+                    self.peer_manager = Some(peer_mgr.clone());
+
+                    // Bootstrap peers
+                    let peer_mgr_clone = peer_mgr.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = peer_mgr_clone.bootstrap().await {
+                            log::warn!("Failed to bootstrap peers: {}", e);
+                        }
+                        // Start periodic peer maintenance
+                        peer_mgr_clone.clone().start_maintenance();
+                    });
+
                     let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
                         main_config.api_endpoint.clone(),
                     )));
