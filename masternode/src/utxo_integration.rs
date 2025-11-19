@@ -68,6 +68,19 @@ impl MasternodeUTXOIntegration {
     pub async fn initialize(&self) -> Result<(), String> {
         info!(node = %self.node_id, "Initializing UTXO protocol integration");
 
+        // Load mempool from disk if it exists
+        let mempool_path = format!("data/{}/mempool.json", self.node_id);
+        match self.mempool.load_from_disk(&mempool_path).await {
+            Ok(count) => {
+                if count > 0 {
+                    info!(node = %self.node_id, count = count, "Loaded transactions from mempool cache");
+                }
+            }
+            Err(e) => {
+                warn!(node = %self.node_id, error = %e, "Failed to load mempool from disk");
+            }
+        }
+
         // Set up notification handler to route UTXO state changes to P2P network
         let peer_manager = self.peer_manager.clone();
         let node_id = self.node_id.clone();
@@ -129,6 +142,11 @@ impl MasternodeUTXOIntegration {
                                 txid = %tx.txid,
                                 "Added broadcasted transaction to mempool"
                             );
+
+                            // Notify connected wallets about the new transaction
+                            if let Some(ref bridge) = self.ws_bridge {
+                                self.notify_wallets_of_transaction(bridge, tx).await;
+                            }
                         }
                         Err(e) => {
                             warn!(
@@ -288,6 +306,11 @@ impl MasternodeUTXOIntegration {
                                     "Added transaction from peer mempool"
                                 );
                                 added_count += 1;
+
+                                // Notify connected wallets about synced transaction
+                                if let Some(ref bridge) = self.ws_bridge {
+                                    self.notify_wallets_of_transaction(bridge, tx).await;
+                                }
                             }
                             Err(e) => {
                                 debug!(
@@ -383,6 +406,11 @@ impl MasternodeUTXOIntegration {
         // Broadcast transaction to network
         let tx_msg = time_network::protocol::NetworkMessage::TransactionBroadcast(tx.clone());
         self.peer_manager.broadcast_message(tx_msg).await;
+
+        // Notify connected wallets about the new transaction
+        if let Some(ref bridge) = self.ws_bridge {
+            self.notify_wallets_of_transaction(bridge, tx).await;
+        }
 
         info!(
             node = %self.node_id,
@@ -494,6 +522,45 @@ impl MasternodeUTXOIntegration {
             to = %transaction.to_address,
             amount = %transaction.amount,
             "Broadcasted transaction to WebSocket clients"
+        );
+    }
+
+    /// Notify wallets of a new transaction (from time_core::Transaction)
+    async fn notify_wallets_of_transaction(
+        &self,
+        bridge: &Arc<WsBridge>,
+        tx: &time_core::Transaction,
+    ) {
+        // Extract addresses from transaction
+        let input_addresses = Vec::new();
+        let mut output_addresses = Vec::new();
+        let mut total_amount = 0u64;
+
+        // Get input addresses (would need UTXO lookup in real implementation)
+        // For now, we'll use the output addresses
+        for output in &tx.outputs {
+            output_addresses.push(output.address.clone());
+            total_amount += output.amount;
+        }
+
+        // Create notification
+        let notification = TransactionNotification {
+            txid: tx.txid.clone(),
+            inputs: input_addresses,
+            outputs: output_addresses,
+            amount: total_amount,
+            timestamp: tx.timestamp,
+        };
+
+        // Broadcast to subscribed clients
+        bridge.broadcast_transaction(notification).await;
+
+        info!(
+            node = %self.node_id,
+            txid = %tx.txid,
+            outputs = %tx.outputs.len(),
+            amount = %total_amount,
+            "Notified WebSocket clients of new transaction"
         );
     }
 
@@ -620,6 +687,7 @@ impl MasternodeUTXOIntegration {
     pub fn start_mempool_sync_task(&self) {
         let peer_manager = self.peer_manager.clone();
         let node_id = self.node_id.clone();
+        let mempool = self.mempool.clone();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
@@ -628,6 +696,19 @@ impl MasternodeUTXOIntegration {
                 interval.tick().await;
 
                 info!(node = %node_id, "🔄 Starting mempool synchronization");
+
+                // Save mempool to disk
+                let mempool_path = format!("data/{}/mempool.json", node_id);
+                let had_error = mempool.save_to_disk(&mempool_path).await.is_err();
+                
+                if !had_error {
+                    let size = mempool.size().await;
+                    if size > 0 {
+                        debug!(node = %node_id, transactions = size, "Mempool saved to disk");
+                    }
+                } else {
+                    warn!(node = %node_id, "Failed to save mempool to disk");
+                }
 
                 // Get connected peers
                 let peers = peer_manager.get_connected_peers().await;
