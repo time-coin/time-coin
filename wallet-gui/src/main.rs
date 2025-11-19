@@ -2387,17 +2387,54 @@ impl WalletApp {
             }
         });
 
-        // Subscribe to wallet xpub
+        // Subscribe to wallet xpub and sync
         if let Some(manager) = &self.wallet_manager {
             // Get xpub from wallet
             let xpub = manager.get_xpub().to_string();
             log::info!("Subscribing to xpub: {}...", &xpub[..20]);
             let client_clone = client.clone();
+            let wallet_db = self.wallet_db.clone();
             tokio::spawn(async move {
-                if let Err(e) = client_clone.subscribe_xpub(xpub).await {
+                // Register xpub for real-time updates
+                if let Err(e) = client_clone.subscribe_xpub(xpub.clone()).await {
                     log::error!("Failed to subscribe to xpub: {}", e);
-                } else {
-                    log::info!("✅ Subscribed to xpub for real-time updates!");
+                    return;
+                }
+                log::info!("✅ Subscribed to xpub for real-time updates!");
+
+                // Perform initial sync to get historical transactions
+                log::info!("🔄 Starting initial wallet sync...");
+                match client_clone.sync_wallet_from_xpub(&xpub).await {
+                    Ok(sync_data) => {
+                        log::info!(
+                            "✅ Initial sync complete: {} UTXOs, {} transactions",
+                            sync_data.utxos.values().map(|v| v.len()).sum::<usize>(),
+                            sync_data.recent_transactions.len()
+                        );
+
+                        // Store transactions in database
+                        if let Some(db) = wallet_db {
+                            for tx_info in sync_data.recent_transactions {
+                                let tx_record = wallet_db::TransactionRecord {
+                                    tx_hash: tx_info.txid,
+                                    timestamp: tx_info.timestamp,
+                                    from_address: Some(tx_info.from_address),
+                                    to_address: tx_info.to_address,
+                                    amount: tx_info.amount,
+                                    status: wallet_db::TransactionStatus::Confirmed,
+                                    block_height: tx_info.block_height,
+                                    notes: None,
+                                };
+                                if let Err(e) = db.save_transaction(&tx_record) {
+                                    log::warn!("Failed to save synced transaction: {}", e);
+                                }
+                            }
+                            log::info!("✅ Synced transactions saved to database");
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("❌ Initial sync failed: {}", e);
+                    }
                 }
             });
         }

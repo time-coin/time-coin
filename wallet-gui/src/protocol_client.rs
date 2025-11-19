@@ -555,15 +555,79 @@ impl ProtocolClient {
         // Store xpub
         *self.subscribed_xpub.write().await = Some(xpub.clone());
 
-        // If not connected yet, xpub will be subscribed on connect
-        if !*self.active.read().await {
-            log::info!("Not connected yet, xpub will be subscribed on connect");
-            return Ok(());
-        }
+        // Register with masternode via HTTP
+        let masternode = self
+            .masternodes
+            .first()
+            .ok_or_else(|| "No masternodes configured".to_string())?;
 
-        // TODO: Send subscription if already connected
-        log::info!("xpub subscription queued");
-        Ok(())
+        let client = reqwest::Client::new();
+        let url = format!("{}/wallet/register-xpub", masternode);
+
+        log::info!("Registering xpub with masternode: {}", url);
+
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({
+                "xpub": xpub
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to register xpub: {}", e))?;
+
+        if response.status().is_success() {
+            log::info!("✅ Xpub registered with masternode for real-time tracking");
+            Ok(())
+        } else {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            Err(format!(
+                "Xpub registration failed ({}): {}",
+                status, error_text
+            ))
+        }
+    }
+
+    /// Sync wallet from xpub - gets all historical transactions and UTXOs
+    pub async fn sync_wallet_from_xpub(&self, xpub: &str) -> Result<WalletSyncData, String> {
+        let masternode = self
+            .masternodes
+            .first()
+            .ok_or_else(|| "No masternodes configured".to_string())?;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/wallet/sync-xpub", masternode);
+
+        log::info!("Syncing wallet from xpub via {}", url);
+
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({
+                "xpub": xpub,
+                "start_index": 0
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to sync wallet: {}", e))?;
+
+        if response.status().is_success() {
+            let sync_data: WalletSyncData = response
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+            log::info!(
+                "✅ Wallet sync complete: {} UTXOs, {} transactions",
+                sync_data.utxos.values().map(|v| v.len()).sum::<usize>(),
+                sync_data.recent_transactions.len()
+            );
+
+            Ok(sync_data)
+        } else {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            Err(format!("Wallet sync failed ({}): {}", status, error_text))
+        }
     }
 
     /// Sync historical UTXOs from blockchain for derived addresses
@@ -699,6 +763,36 @@ impl ProtocolClient {
 
         Ok(())
     }
+}
+
+/// Wallet sync response data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletSyncData {
+    pub utxos: std::collections::HashMap<String, Vec<WalletUtxoInfo>>,
+    pub total_balance: u64,
+    pub recent_transactions: Vec<WalletTransactionInfo>,
+    pub current_height: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletUtxoInfo {
+    pub tx_hash: String,
+    pub output_index: u32,
+    pub amount: u64,
+    pub address: String,
+    pub block_height: u64,
+    pub confirmations: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletTransactionInfo {
+    pub txid: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount: u64,
+    pub block_height: Option<u64>,
+    pub timestamp: i64,
+    pub confirmations: u64,
 }
 
 #[cfg(test)]

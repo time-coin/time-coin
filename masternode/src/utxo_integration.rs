@@ -614,6 +614,25 @@ impl MasternodeUTXOIntegration {
             total_amount += output.amount;
         }
 
+        // Check if any monitored addresses are involved
+        if let Some(address_monitor) = &self.address_monitor {
+            let mut relevant_addresses = Vec::new();
+            for addr in &output_addresses {
+                if address_monitor.is_monitored_address(addr).await {
+                    relevant_addresses.push(addr.clone());
+                }
+            }
+
+            if !relevant_addresses.is_empty() {
+                info!(
+                    node = %self.node_id,
+                    txid = %tx.txid,
+                    addresses = ?relevant_addresses,
+                    "Transaction involves monitored wallet addresses"
+                );
+            }
+        }
+
         // Create notification
         let notification = TransactionNotification {
             txid: tx.txid.clone(),

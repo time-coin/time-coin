@@ -113,7 +113,11 @@ impl AddressMonitor {
 
         for xpub_data in monitored.values_mut() {
             // Check external addresses
-            if let Some(pos) = xpub_data.external_addresses.iter().position(|a| a == address) {
+            if let Some(pos) = xpub_data
+                .external_addresses
+                .iter()
+                .position(|a| a == address)
+            {
                 let index = pos as u32;
                 if index > xpub_data.last_external_used {
                     xpub_data.last_external_used = index;
@@ -137,7 +141,11 @@ impl AddressMonitor {
             }
 
             // Check internal addresses
-            if let Some(pos) = xpub_data.internal_addresses.iter().position(|a| a == address) {
+            if let Some(pos) = xpub_data
+                .internal_addresses
+                .iter()
+                .position(|a| a == address)
+            {
                 let index = pos as u32;
                 if index > xpub_data.last_internal_used {
                     xpub_data.last_internal_used = index;

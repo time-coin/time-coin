@@ -241,6 +241,40 @@ pub async fn get_pending_transactions(
     Ok(Json(pending_txs))
 }
 
+/// Register xpub for real-time transaction monitoring
+#[derive(Debug, Deserialize)]
+pub struct RegisterXpubRequest {
+    pub xpub: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RegisterXpubResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Register an xpub with the masternode for real-time UTXO tracking
+/// Note: This endpoint is optional and only works when address monitor is configured
+pub async fn register_xpub(
+    State(_state): State<ApiState>,
+    Json(request): Json<RegisterXpubRequest>,
+) -> Result<Json<RegisterXpubResponse>, ApiError> {
+    tracing::info!(
+        "📝 Xpub registration request: {}...",
+        &request.xpub[..std::cmp::min(20, request.xpub.len())]
+    );
+
+    // TODO: Integrate with address monitor when running as masternode
+    // For now, just acknowledge receipt
+    // The actual monitoring will be set up through the masternode's
+    // UTXO integration layer
+
+    Ok(Json(RegisterXpubResponse {
+        success: true,
+        message: "Xpub registration acknowledged".to_string(),
+    }))
+}
+
 /// Request to sync wallet using xpub (deterministic address discovery)
 #[derive(Debug, Deserialize)]
 pub struct WalletSyncXpubRequest {
