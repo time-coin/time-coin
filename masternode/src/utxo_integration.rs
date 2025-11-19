@@ -517,7 +517,10 @@ impl MasternodeUTXOIntegration {
                     .into_iter()
                     .map(|ip| time_network::protocol::PeerAddress {
                         ip: ip.to_string(),
-                        port: 24100, // Default mainnet port
+                        port: match self.network {
+                            time_network::discovery::NetworkType::Mainnet => 24101,
+                            time_network::discovery::NetworkType::Testnet => 24100,
+                        },
                         version: "1.0.0".to_string(),
                     })
                     .collect();

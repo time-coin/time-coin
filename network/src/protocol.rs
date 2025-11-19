@@ -772,18 +772,6 @@ impl NetworkMessage {
     }
 }
 
-/// Request peer list from connected node
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PeerListRequest {
-    pub requesting_node: String,
-}
-
-/// Response with known peers
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PeerListResponse {
-    pub peers: Vec<PeerAddress>,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PeerAddress {
     pub ip: String,
