@@ -582,7 +582,43 @@ impl PeerManager {
             .await
             .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
 
-        // Send request
+        // Perform handshake first
+        let handshake = crate::protocol::HandshakeMessage::new(self.network, self.listen_addr);
+        let handshake_json = serde_json::to_vec(&handshake).map_err(|e| e.to_string())?;
+        let handshake_len = handshake_json.len() as u32;
+
+        stream
+            .write_all(&handshake_len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to write handshake length: {}", e))?;
+        stream
+            .write_all(&handshake_json)
+            .await
+            .map_err(|e| format!("Failed to write handshake: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush handshake: {}", e))?;
+
+        // Receive their handshake
+        let mut len_bytes = [0u8; 4];
+        stream
+            .read_exact(&mut len_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake length: {}", e))?;
+        let handshake_len = u32::from_be_bytes(len_bytes) as usize;
+        let mut handshake_bytes = vec![0u8; handshake_len];
+        stream
+            .read_exact(&mut handshake_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake: {}", e))?;
+
+        // Validate their handshake
+        let _their_handshake: crate::protocol::HandshakeMessage =
+            serde_json::from_slice(&handshake_bytes)
+                .map_err(|e| format!("Failed to deserialize handshake: {}", e))?;
+
+        // Now send the actual request
         let json = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
 

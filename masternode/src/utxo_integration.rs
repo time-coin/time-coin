@@ -103,13 +103,22 @@ impl MasternodeUTXOIntegration {
         let peer_manager = self.peer_manager.clone();
         let node_id = self.node_id.clone();
 
+        // Get network-aware port
+        let network_port = match peer_manager.network {
+            time_network::discovery::NetworkType::Mainnet => 24000,
+            time_network::discovery::NetworkType::Testnet => 24100,
+        };
+
         self.utxo_handler
             .setup_notification_handler(move |peer_ip: IpAddr, message| {
                 let peer_manager = peer_manager.clone();
                 let node_id = node_id.clone();
                 Box::pin(async move {
                     if let Err(e) = peer_manager
-                        .send_message_to_peer(std::net::SocketAddr::new(peer_ip, 24000), message)
+                        .send_message_to_peer(
+                            std::net::SocketAddr::new(peer_ip, network_port),
+                            message,
+                        )
                         .await
                     {
                         debug!(
