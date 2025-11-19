@@ -17,6 +17,16 @@ pub struct WalletTransaction {
     pub confirmations: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UtxoInfo {
+    pub txid: String,
+    pub vout: u32,
+    pub address: String,
+    pub amount: u64,
+    pub block_height: Option<u64>,
+    pub confirmations: u64,
+}
+
 /// Current TIME Coin version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -697,6 +707,10 @@ pub enum NetworkMessage {
     XpubRegistered {
         success: bool,
         message: String,
+    },
+    UtxoUpdate {
+        xpub: String,
+        utxos: Vec<UtxoInfo>,
     },
     RequestWalletTransactions {
         xpub: String,

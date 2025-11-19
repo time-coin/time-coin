@@ -5741,6 +5741,7 @@ dependencies = [
  "sha3",
  "sled",
  "thiserror 2.0.17",
+ "time-network",
  "tiny-skia",
  "tokio",
  "tokio-tungstenite",

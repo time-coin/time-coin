@@ -34,4 +34,5 @@ printpdf = "0.7"
 
 # Local wallet dependency from parent project
 wallet = { path = "../wallet", version = "0.1.0" }
+time-network = { path = "../network", version = "0.1.0" }
 

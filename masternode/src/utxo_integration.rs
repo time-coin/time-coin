@@ -373,7 +373,7 @@ impl MasternodeUTXOIntegration {
                     "Received xpub registration request"
                 );
 
-                let (success, message) = if let Some(ref monitor) = self.address_monitor {
+                if let Some(ref monitor) = self.address_monitor {
                     match monitor.register_xpub(xpub).await {
                         Ok(_) => {
                             let stats = monitor.get_stats().await;
@@ -381,15 +381,96 @@ impl MasternodeUTXOIntegration {
                                 node = %self.node_id,
                                 xpub_count = stats.xpub_count,
                                 addresses = stats.total_addresses,
-                                "Xpub registered successfully"
+                                "Xpub registered successfully, now scanning for UTXOs..."
                             );
-                            (
-                                true,
-                                format!(
-                                    "Xpub registered. Monitoring {} addresses.",
-                                    stats.total_addresses
-                                ),
-                            )
+
+                            // Get all monitored addresses for this xpub
+                            let addresses: Vec<String> = monitor.get_all_monitored_addresses().await.into_iter().collect();
+
+                            // Subscribe the xpub in UTXO tracker
+                            if let Err(e) = self.utxo_tracker.subscribe_xpub(xpub.clone()).await
+                            {
+                                warn!(
+                                    node = %self.node_id,
+                                    error = %e,
+                                    "Failed to subscribe xpub to UTXO tracker"
+                                );
+                                return Ok(Some(
+                                    time_network::protocol::NetworkMessage::XpubRegistered {
+                                        success: false,
+                                        message: format!(
+                                            "Failed to subscribe to UTXO tracker: {}",
+                                            e
+                                        ),
+                                    },
+                                ));
+                            }
+
+                            // Register the addresses for this xpub
+                            if let Err(e) = self.utxo_tracker.register_addresses(xpub, addresses).await
+                            {
+                                warn!(
+                                    node = %self.node_id,
+                                    error = %e,
+                                    "Failed to register addresses for xpub"
+                                );
+                                return Ok(Some(
+                                    time_network::protocol::NetworkMessage::XpubRegistered {
+                                        success: false,
+                                        message: format!(
+                                            "Failed to register addresses: {}",
+                                            e
+                                        ),
+                                    },
+                                ));
+                            }
+
+                            // Get existing UTXOs for this xpub
+                            match self.utxo_tracker.get_utxos_for_xpub(xpub).await {
+                                Ok(utxos) => {
+                                    info!(
+                                        node = %self.node_id,
+                                        utxo_count = utxos.len(),
+                                        "Found {} UTXOs for xpub, sending to wallet",
+                                        utxos.len()
+                                    );
+
+                                    // Convert masternode UtxoInfo to network UtxoInfo
+                                    let network_utxos: Vec<time_network::protocol::UtxoInfo> =
+                                        utxos
+                                            .into_iter()
+                                            .map(|u| time_network::protocol::UtxoInfo {
+                                                txid: u.txid,
+                                                vout: u.vout,
+                                                address: u.address,
+                                                amount: u.amount,
+                                                block_height: u.block_height,
+                                                confirmations: u.confirmations,
+                                            })
+                                            .collect();
+
+                                    // Send UTXOs back to wallet
+                                    Ok(Some(
+                                        time_network::protocol::NetworkMessage::UtxoUpdate {
+                                            xpub: xpub.clone(),
+                                            utxos: network_utxos,
+                                        },
+                                    ))
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        node = %self.node_id,
+                                        error = %e,
+                                        "Failed to get UTXOs for xpub"
+                                    );
+                                    Ok(Some(
+                                        time_network::protocol::NetworkMessage::XpubRegistered {
+                                            success: false,
+                                            message: format!("Failed to get UTXOs: {}", e),
+                                        },
+                                    ))
+                                }
+                            }
                         }
                         Err(e) => {
                             warn!(
@@ -397,16 +478,22 @@ impl MasternodeUTXOIntegration {
                                 error = %e,
                                 "Failed to register xpub"
                             );
-                            (false, format!("Failed to register xpub: {}", e))
+                            Ok(Some(
+                                time_network::protocol::NetworkMessage::XpubRegistered {
+                                    success: false,
+                                    message: format!("Failed to register xpub: {}", e),
+                                },
+                            ))
                         }
                     }
                 } else {
-                    (false, "Address monitor not available".to_string())
-                };
-
-                Ok(Some(
-                    time_network::protocol::NetworkMessage::XpubRegistered { success, message },
-                ))
+                    Ok(Some(
+                        time_network::protocol::NetworkMessage::XpubRegistered {
+                            success: false,
+                            message: "Address monitor not available".to_string(),
+                        },
+                    ))
+                }
             }
             _ => {
                 // Not a UTXO protocol message

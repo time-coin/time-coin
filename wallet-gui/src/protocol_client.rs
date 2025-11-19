@@ -204,18 +204,17 @@ impl ProtocolClient {
         // Subscribe to xpub if available
         let xpub = self.subscribed_xpub.read().await.clone();
         if let Some(xpub) = xpub {
-            let subscribe_msg = serde_json::json!({
-                "type": "xpub",
-                "xpub": xpub
-            });
-            let msg_json = serde_json::to_string(&subscribe_msg)
-                .map_err(|e| format!("Failed to serialize: {}", e))?;
+            // Send RegisterXpub network message
+            let register_msg =
+                time_network::protocol::NetworkMessage::RegisterXpub { xpub: xpub.clone() };
+            let msg_json = serde_json::to_string(&register_msg)
+                .map_err(|e| format!("Failed to serialize RegisterXpub: {}", e))?;
             write
                 .send(Message::Text(msg_json.into()))
                 .await
-                .map_err(|e| format!("Failed to send xpub subscribe: {}", e))?;
+                .map_err(|e| format!("Failed to send RegisterXpub: {}", e))?;
 
-            log::info!("Subscribed to xpub: {}...", &xpub[..20]);
+            log::info!("📤 Sent RegisterXpub message for xpub: {}...", &xpub[..20]);
         }
 
         // Subscribe to existing addresses (fallback/additional)
@@ -280,7 +279,57 @@ impl ProtocolClient {
         text: &str,
         notification_tx: &mpsc::UnboundedSender<WalletNotification>,
     ) -> Result<(), String> {
-        // Try parsing as API WalletNotification format first
+        // Try parsing as NetworkMessage first
+        if let Ok(network_msg) =
+            serde_json::from_str::<time_network::protocol::NetworkMessage>(text)
+        {
+            match network_msg {
+                time_network::protocol::NetworkMessage::UtxoUpdate { xpub, utxos } => {
+                    log::info!(
+                        "📦 Received UTXO update for xpub {}...: {} UTXOs",
+                        &xpub[..20],
+                        utxos.len()
+                    );
+
+                    // For each UTXO, create a transaction notification
+                    for utxo in utxos {
+                        let notification = WalletNotification {
+                            txid: utxo.txid.clone(),
+                            address: utxo.address.clone(),
+                            amount: utxo.amount,
+                            is_incoming: true,
+                            timestamp: chrono::Utc::now().timestamp(),
+                            state: if utxo.block_height.is_some() {
+                                TransactionState::Confirmed {
+                                    block_height: utxo.block_height.unwrap(),
+                                }
+                            } else {
+                                TransactionState::Pending
+                            },
+                        };
+
+                        if let Err(e) = notification_tx.send(notification) {
+                            log::error!("Failed to send UTXO notification: {}", e);
+                        }
+                    }
+
+                    return Ok(());
+                }
+                time_network::protocol::NetworkMessage::XpubRegistered { success, message } => {
+                    if success {
+                        log::info!("✅ Xpub registration successful: {}", message);
+                    } else {
+                        log::error!("❌ Xpub registration failed: {}", message);
+                    }
+                    return Ok(());
+                }
+                _ => {
+                    // Not a message we handle here, fall through to old format
+                }
+            }
+        }
+
+        // Try parsing as API WalletNotification format
         if let Ok(api_notif) = serde_json::from_str::<serde_json::Value>(text) {
             if let Some(notif_type) = api_notif.get("type").and_then(|v| v.as_str()) {
                 match notif_type {
@@ -572,7 +621,9 @@ impl ProtocolClient {
         // Return empty sync data - wallet will fall back to historical UTXO scanning
         Ok(WalletSyncData {
             utxos: std::collections::HashMap::new(),
+            total_balance: 0,
             recent_transactions: Vec::new(),
+            current_height: 0,
         })
     }
 
