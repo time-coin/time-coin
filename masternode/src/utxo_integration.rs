@@ -21,6 +21,7 @@ use tracing::{debug, info, warn};
 /// - Mempool (transaction management)
 /// - UTXO Tracker (wallet-specific transaction tracking)
 /// - Address Monitor (xpub address tracking)
+#[derive(Clone)]
 pub struct MasternodeUTXOIntegration {
     /// UTXO state manager
     utxo_manager: Arc<UTXOStateManager>,
@@ -961,6 +962,63 @@ impl MasternodeUTXOIntegration {
         });
 
         info!(node = %self.node_id, "✅ Mempool sync task started");
+    }
+
+    /// Start background task to retry instant finality for unfinalized transactions
+    /// Checks every 15 seconds and retries voting for transactions that haven't reached consensus
+    pub fn start_finality_retry_task(&self) {
+        let node_id = self.node_id.clone();
+        let mempool = self.mempool.clone();
+        let peer_manager = self.peer_manager.clone();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
+
+            loop {
+                interval.tick().await;
+
+                // Get all unfinalized transactions
+                let unfinalized = mempool.get_unfinalized_transactions().await;
+
+                if unfinalized.is_empty() {
+                    continue;
+                }
+
+                info!(
+                    node = %node_id,
+                    count = unfinalized.len(),
+                    "🔄 Retrying instant finality for unfinalized transactions"
+                );
+
+                for tx in unfinalized {
+                    let txid = tx.txid.clone();
+
+                    // Check if we have enough connected peers
+                    let peers = peer_manager.get_connected_peers().await;
+                    if peers.len() < 2 {
+                        debug!(
+                            node = %node_id,
+                            txid = %txid,
+                            peers = peers.len(),
+                            "Not enough peers connected for voting, skipping retry"
+                        );
+                        continue;
+                    }
+
+                    info!(
+                        node = %node_id,
+                        txid = %txid,
+                        "♻️  Retrying instant finality vote"
+                    );
+
+                    // Broadcast instant finality request to all peers
+                    let request = time_network::protocol::NetworkMessage::InstantFinalityRequest(tx);
+                    peer_manager.broadcast_message(request).await;
+                }
+            }
+        });
+
+        info!(node = %self.node_id, "✅ Finality retry task started");
     }
 }
 

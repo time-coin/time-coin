@@ -356,6 +356,15 @@ impl Mempool {
             .collect()
     }
 
+    /// Get all unfinalized transactions (for retry mechanism)
+    pub async fn get_unfinalized_transactions(&self) -> Vec<Transaction> {
+        let pool = self.transactions.read().await;
+        pool.values()
+            .filter(|entry| !entry.finalized)
+            .map(|entry| entry.transaction.clone())
+            .collect()
+    }
+
     /// Select transactions for a block (by priority)
     pub async fn select_transactions(&self, max_count: usize) -> Vec<Transaction> {
         let pool = self.transactions.read().await;

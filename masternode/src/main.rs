@@ -77,6 +77,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     utxo_integration.start_mempool_sync_task();
     println!("✅ Mempool sync task started");
 
+    // Start finality retry task for unfinalized transactions
+    utxo_integration.start_finality_retry_task();
+    println!("✅ Finality retry task started");
+
     // Start WebSocket server
     let bridge_clone = bridge.clone();
     tokio::spawn(async move {
