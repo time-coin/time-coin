@@ -504,6 +504,35 @@ impl MasternodeUTXOIntegration {
                     ))
                 }
             }
+            // Handle peer list request
+            time_network::protocol::NetworkMessage::GetPeerList => {
+                info!(
+                    node = %self.node_id,
+                    "Received peer list request"
+                );
+
+                // Get all peers from peer manager
+                let peer_ips = self.peer_manager.get_peer_ips().await;
+                let peer_addresses: Vec<time_network::protocol::PeerAddress> = peer_ips
+                    .into_iter()
+                    .map(|ip| time_network::protocol::PeerAddress {
+                        ip: ip.to_string(),
+                        port: 24100, // Default mainnet port
+                        version: "1.0.0".to_string(),
+                    })
+                    .collect();
+
+                info!(
+                    node = %self.node_id,
+                    peer_count = peer_addresses.len(),
+                    "Sending peer list response"
+                );
+
+                // Return peer list
+                Ok(Some(time_network::protocol::NetworkMessage::PeerList(
+                    peer_addresses,
+                )))
+            }
             _ => {
                 // Not a UTXO protocol message
                 Ok(None)
