@@ -212,12 +212,12 @@ mod tests {
         let handler = SecureMasternodeHandler::new(quarantine);
         let peer_ip: IpAddr = "127.0.0.1".parse().unwrap();
 
-        // First 100 requests should succeed
-        for _ in 0..100 {
+        // First 20 requests should succeed (within burst limit)
+        for _ in 0..20 {
             assert!(handler.check_peer_allowed(peer_ip).await.is_ok());
         }
 
-        // 101st request should fail
+        // 21st request in quick succession should fail (exceeds burst)
         assert!(handler.check_peer_allowed(peer_ip).await.is_err());
 
         // Peer should be quarantined
