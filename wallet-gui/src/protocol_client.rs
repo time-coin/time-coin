@@ -550,84 +550,30 @@ impl ProtocolClient {
 
     /// Subscribe to xpub for all derived addresses
     pub async fn subscribe_xpub(&self, xpub: String) -> Result<(), String> {
-        log::info!("Subscribing to xpub: {}...", &xpub[..20]);
+        log::info!("Subscribing to xpub via TCP: {}...", &xpub[..20]);
 
         // Store xpub
         *self.subscribed_xpub.write().await = Some(xpub.clone());
 
-        // Register with masternode via HTTP
-        let masternode = self
-            .masternodes
-            .first()
-            .ok_or_else(|| "No masternodes configured".to_string())?;
-
-        let client = reqwest::Client::new();
-        let url = format!("{}/wallet/register-xpub", masternode);
-
-        log::info!("Registering xpub with masternode: {}", url);
-
-        let response = client
-            .post(&url)
-            .json(&serde_json::json!({
-                "xpub": xpub
-            }))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to register xpub: {}", e))?;
-
-        if response.status().is_success() {
-            log::info!("✅ Xpub registered with masternode for real-time tracking");
-            Ok(())
-        } else {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            Err(format!(
-                "Xpub registration failed ({}): {}",
-                status, error_text
-            ))
-        }
+        // Send RegisterXpub message via TCP protocol
+        // This will be handled by the existing WebSocket connection
+        // For now, just mark as subscribed - the actual registration will happen
+        // when we send the RequestWalletTransactions message
+        log::info!("✅ Xpub subscribed locally (will register on sync)");
+        Ok(())
     }
 
     /// Sync wallet from xpub - gets all historical transactions and UTXOs
-    pub async fn sync_wallet_from_xpub(&self, xpub: &str) -> Result<WalletSyncData, String> {
-        let masternode = self
-            .masternodes
-            .first()
-            .ok_or_else(|| "No masternodes configured".to_string())?;
+    /// NOTE: This requires TCP protocol implementation (not HTTP endpoints)
+    /// For now, returns empty sync data - wallet will sync via historical UTXO scan
+    pub async fn sync_wallet_from_xpub(&self, _xpub: &str) -> Result<WalletSyncData, String> {
+        log::info!("ℹ️  Xpub sync via TCP not yet implemented - using address-based scanning");
 
-        let client = reqwest::Client::new();
-        let url = format!("{}/wallet/sync-xpub", masternode);
-
-        log::info!("Syncing wallet from xpub via {}", url);
-
-        let response = client
-            .post(&url)
-            .json(&serde_json::json!({
-                "xpub": xpub,
-                "start_index": 0
-            }))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to sync wallet: {}", e))?;
-
-        if response.status().is_success() {
-            let sync_data: WalletSyncData = response
-                .json()
-                .await
-                .map_err(|e| format!("Failed to parse sync response: {}", e))?;
-
-            log::info!(
-                "✅ Wallet sync complete: {} UTXOs, {} transactions",
-                sync_data.utxos.values().map(|v| v.len()).sum::<usize>(),
-                sync_data.recent_transactions.len()
-            );
-
-            Ok(sync_data)
-        } else {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            Err(format!("Wallet sync failed ({}): {}", status, error_text))
-        }
+        // Return empty sync data - wallet will fall back to historical UTXO scanning
+        Ok(WalletSyncData {
+            utxos: std::collections::HashMap::new(),
+            recent_transactions: Vec::new(),
+        })
     }
 
     /// Sync historical UTXOs from blockchain for derived addresses

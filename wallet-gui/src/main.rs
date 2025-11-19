@@ -2395,12 +2395,11 @@ impl WalletApp {
             let client_clone = client.clone();
             let wallet_db = self.wallet_db.clone();
             tokio::spawn(async move {
-                // Register xpub for real-time updates
+                // Register xpub for real-time updates (currently not functional - TCP protocol needed)
                 if let Err(e) = client_clone.subscribe_xpub(xpub.clone()).await {
-                    log::error!("Failed to subscribe to xpub: {}", e);
-                    return;
+                    log::warn!("Xpub subscription not available: {}", e);
+                    // Continue anyway - wallet will use address-based monitoring
                 }
-                log::info!("✅ Subscribed to xpub for real-time updates!");
 
                 // Perform initial sync to get historical transactions
                 log::info!("🔄 Starting initial wallet sync...");
