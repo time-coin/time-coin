@@ -193,6 +193,56 @@ impl HttpDiscovery {
 
         Ok(peers)
     }
+
+    /// Fetch bootstrap peers from GitHub repository as fallback
+    pub async fn fetch_github_bootstrap(&self) -> Result<Vec<PeerInfo>, String> {
+        let network_name = match self.network {
+            NetworkType::Mainnet => "mainnet",
+            NetworkType::Testnet => "testnet",
+        };
+
+        let github_urls = [
+            format!(
+                "https://raw.githubusercontent.com/timechain-network/time-coin/main/config/bootstrap-peers-{}.json",
+                network_name
+            ),
+            format!(
+                "https://time-coin.io/bootstrap/bootstrap-peers-{}.json",
+                network_name
+            ),
+        ];
+
+        for url in &github_urls {
+            match self.client.get(url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    #[derive(Deserialize)]
+                    struct BootstrapFile {
+                        peers: Vec<String>,
+                    }
+
+                    if let Ok(bootstrap_file) = response.json::<BootstrapFile>().await {
+                        let peers: Vec<PeerInfo> = bootstrap_file
+                            .peers
+                            .into_iter()
+                            .filter_map(|addr_str| {
+                                addr_str
+                                    .parse::<SocketAddr>()
+                                    .ok()
+                                    .map(|addr| PeerInfo::new(addr, self.network))
+                            })
+                            .collect();
+
+                        if !peers.is_empty() {
+                            return Ok(peers);
+                        }
+                    }
+                }
+                _ => continue,
+            }
+        }
+
+        Err("All bootstrap sources failed".to_string())
+    }
 }
 
 /// DNS-based peer discovery
@@ -304,6 +354,20 @@ impl PeerDiscovery {
             }
             Err(e) => {
                 println!("  ⚠ DNS discovery failed: {}", e);
+            }
+        }
+
+        // 4. If we have no peers yet, try GitHub bootstrap as fallback
+        if all_peers.is_empty() {
+            println!("📡 Fetching bootstrap peers from GitHub...");
+            match self.http_discovery.fetch_github_bootstrap().await {
+                Ok(peers) => {
+                    println!("  ✓ Found {} bootstrap peers from GitHub", peers.len());
+                    all_peers.extend(peers);
+                }
+                Err(e) => {
+                    println!("  ⚠ GitHub bootstrap failed: {}", e);
+                }
             }
         }
 
