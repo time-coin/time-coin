@@ -184,6 +184,48 @@ fn display_genesis(genesis: &GenesisFile) {
     println!();
 }
 
+async fn download_genesis_from_url(
+    url: &str,
+    genesis_path: &str,
+    network: &str,
+) -> Result<GenesisFile, Box<dyn std::error::Error>> {
+    println!("   Trying {}...", url.bright_black());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    let response = client.get(url).send().await?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()).into());
+    }
+
+    let genesis_json = response.text().await?;
+    let genesis_file: GenesisFile = serde_json::from_str(&genesis_json)?;
+
+    // Verify network matches
+    if genesis_file.network != network {
+        return Err(format!(
+            "Network mismatch: expected {}, got {}",
+            network, genesis_file.network
+        )
+        .into());
+    }
+
+    // Save to disk
+    let genesis_dir = std::path::Path::new(genesis_path)
+        .parent()
+        .ok_or("Invalid genesis path")?;
+    std::fs::create_dir_all(genesis_dir)?;
+    std::fs::write(genesis_path, genesis_json)?;
+
+    println!("{}", "   ✓ Genesis downloaded successfully!".green());
+    println!("   ✓ Saved to: {}", genesis_path.bright_black());
+
+    Ok(genesis_file)
+}
+
 async fn download_genesis_from_peers(
     peer_manager: &Arc<PeerManager>,
     genesis_path: &str,
@@ -906,26 +948,55 @@ async fn main() {
 
     // Download genesis if we didn't have it
     let mut _genesis = _genesis;
-    if _genesis.is_none() && !peer_manager.get_peer_ips().await.is_empty() {
-        match download_genesis_from_peers(&peer_manager, &genesis_path).await {
-            Ok(g) => {
-                display_genesis(&g);
-                println!("{}", "✓ Genesis block downloaded and verified".green());
-                _genesis = Some(g);
+    if _genesis.is_none() {
+        // First try downloading from connected peers
+        if !peer_manager.get_peer_ips().await.is_empty() {
+            match download_genesis_from_peers(&peer_manager, &genesis_path).await {
+                Ok(g) => {
+                    display_genesis(&g);
+                    println!("{}", "✓ Genesis block downloaded and verified".green());
+                    _genesis = Some(g);
+                }
+                Err(e) => {
+                    println!("{}", format!("⚠ Peer download failed: {}", e).yellow());
+                }
             }
-            Err(e) => {
-                eprintln!("\n{}", "❌ Failed to obtain genesis block".red().bold());
-                eprintln!("   {}", e);
-                eprintln!(
-                    "\n{}",
-                    "Genesis block is required to start the node.".yellow()
-                );
-                eprintln!("   Genesis file: {}", genesis_path);
-                eprintln!("\n{}", "Solutions:".yellow().bold());
-                eprintln!("   1. Ensure the genesis file exists at the specified path");
-                eprintln!("   2. Connect to peers who can provide the genesis block");
-                eprintln!("   3. Download the genesis file from the official repository");
-                std::process::exit(1);
+        }
+
+        // If still no genesis, try downloading from repository URL as fallback
+        if _genesis.is_none() {
+            println!(
+                "{}",
+                "📥 Attempting to download genesis from repository...".yellow()
+            );
+
+            let network = config.node.network.as_deref().unwrap_or("testnet");
+            let genesis_url = format!(
+                "https://raw.githubusercontent.com/your-org/time-coin/main/config/genesis-{}.json",
+                network
+            );
+
+            match download_genesis_from_url(&genesis_url, &genesis_path, network).await {
+                Ok(g) => {
+                    display_genesis(&g);
+                    println!("{}", "✓ Genesis block downloaded from repository".green());
+                    _genesis = Some(g);
+                }
+                Err(e) => {
+                    eprintln!("\n{}", "❌ Failed to obtain genesis block".red().bold());
+                    eprintln!("   Peer download: failed");
+                    eprintln!("   Repository download: {}", e);
+                    eprintln!(
+                        "\n{}",
+                        "Genesis block is required to start the node.".yellow()
+                    );
+                    eprintln!("   Genesis file: {}", genesis_path);
+                    eprintln!("\n{}", "Solutions:".yellow().bold());
+                    eprintln!("   1. Place genesis file at the specified path");
+                    eprintln!("   2. Ensure network connectivity for automatic download");
+                    eprintln!("   3. Contact support if issue persists");
+                    std::process::exit(1);
+                }
             }
         }
     }
@@ -935,17 +1006,13 @@ async fn main() {
         // Use the block directly from the genesis file to preserve timestamp and hash
         genesis.block.clone()
     } else {
-        // No genesis available and no peers to download from
-        eprintln!("\n{}", "❌ Genesis block not found".red().bold());
-        eprintln!("   Genesis file: {}", genesis_path);
+        // This should not happen as we exit above if all downloads fail
         eprintln!(
             "\n{}",
-            "Genesis block is required to start the node.".yellow()
+            "❌ Unexpected error: Genesis block still not available"
+                .red()
+                .bold()
         );
-        eprintln!("\n{}", "Solutions:".yellow().bold());
-        eprintln!("   1. Ensure the genesis file exists at the specified path");
-        eprintln!("   2. Connect to peers who can provide the genesis block");
-        eprintln!("   3. Download the genesis file from the official repository");
         std::process::exit(1);
     };
 
