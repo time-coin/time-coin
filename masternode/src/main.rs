@@ -142,6 +142,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let peer_info = connection.peer_info().await;
                                     let peer_ip = peer_info.address.ip();
 
+                                    log::debug!(
+                                        "📨 Received message: {:?} from {}",
+                                        std::mem::discriminant(&message),
+                                        peer_ip
+                                    );
+
                                     // Handle message via UTXO integration
                                     match integration
                                         .handle_network_message(&message, peer_ip)
@@ -162,6 +168,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                         Ok(None) => {
+                                            log::debug!(
+                                                "ℹ️ No response needed for message: {:?}",
+                                                std::mem::discriminant(&message)
+                                            );
                                             // Check if it's a TransactionBroadcast to re-broadcast
                                             if let time_network::protocol::NetworkMessage::TransactionBroadcast(
                                                 tx,

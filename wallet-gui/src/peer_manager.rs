@@ -231,32 +231,41 @@ impl PeerManager {
         let request_bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
         let len = request_bytes.len() as u32;
 
+        log::debug!("📤 Sending GetPeerList request ({}  bytes)", len);
         stream
             .write_all(&len.to_be_bytes())
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Failed to write length: {}", e))?;
         stream
             .write_all(&request_bytes)
             .await
-            .map_err(|e| e.to_string())?;
-        stream.flush().await.map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Failed to write request: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush: {}", e))?;
+        log::debug!("✅ Request sent, waiting for response...");
 
         // Read response
+        log::debug!("📥 Reading response length...");
         let mut len_bytes = [0u8; 4];
         stream
             .read_exact(&mut len_bytes)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Failed to read response length: {}", e))?;
         let response_len = u32::from_be_bytes(len_bytes) as usize;
+        log::debug!("📥 Response length: {} bytes", response_len);
 
         let mut response_bytes = vec![0u8; response_len];
         stream
             .read_exact(&mut response_bytes)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Failed to read response body: {}", e))?;
+        log::debug!("📥 Response received, parsing...");
 
-        let response: NetworkMessage =
-            serde_json::from_slice(&response_bytes).map_err(|e| e.to_string())?;
+        let response: NetworkMessage = serde_json::from_slice(&response_bytes)
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        log::debug!("✅ Response parsed successfully");
 
         match response {
             NetworkMessage::PeerList(peer_addresses) => {
