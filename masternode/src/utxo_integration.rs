@@ -83,6 +83,11 @@ impl MasternodeUTXOIntegration {
         info!(node = %self.node_id, "Address monitor connected for xpub tracking");
     }
 
+    /// Get reference to UTXO tracker
+    pub fn utxo_tracker(&self) -> &Arc<UtxoTracker> {
+        &self.utxo_tracker
+    }
+
     /// Initialize the integration - sets up notification handlers
     pub async fn initialize(&self) -> Result<(), String> {
         info!(node = %self.node_id, "Initializing UTXO protocol integration");

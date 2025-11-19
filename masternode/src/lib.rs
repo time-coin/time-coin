@@ -362,6 +362,7 @@ pub mod violations;
 
 // Supporting modules
 pub mod address_monitor;
+pub mod blockchain_scanner;
 pub mod error;
 pub mod heartbeat;
 pub mod node;
@@ -372,6 +373,7 @@ pub mod utxo_tracker;
 pub mod voting;
 pub mod ws_bridge;
 
+pub use blockchain_scanner::BlockchainScanner;
 pub use registry::MasternodeRegistry;
 pub use utxo_integration::MasternodeUTXOIntegration;
 pub use utxo_tracker::UtxoTracker;

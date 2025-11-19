@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::UTXOStateManager;
+use time_core::db::BlockchainDB;
 use time_masternode::{
-    address_monitor::AddressMonitor, MasternodeRegistry, MasternodeUTXOIntegration, WsBridge,
+    address_monitor::AddressMonitor, BlockchainScanner, MasternodeRegistry,
+    MasternodeUTXOIntegration, WsBridge,
 };
 use time_network::{connection::PeerListener, discovery::NetworkType, PeerManager};
 
@@ -22,6 +24,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize address monitor for xpub tracking
     let address_monitor = Arc::new(AddressMonitor::new());
     println!("✅ Address monitor initialized");
+
+    // Initialize blockchain database
+    let db_path = std::env::var("DB_PATH").unwrap_or_else(|_| "data/blockchain.db".to_string());
+    let blockchain_db = match BlockchainDB::open(&db_path) {
+        Ok(db) => {
+            println!("✅ Blockchain database opened at {}", db_path);
+            Arc::new(db)
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to open blockchain database: {}", e);
+            eprintln!("   Continuing without blockchain scanning capability");
+            eprintln!("   Wallet sync will only work for new transactions");
+            return Err(e.into());
+        }
+    };
 
     // Start WebSocket bridge for wallet connections
     let ws_addr = std::env::var("WS_ADDR").unwrap_or_else(|_| "0.0.0.0:24002".to_string());
@@ -68,6 +85,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(e.into());
     }
     println!("✅ UTXO integration initialized with WebSocket bridge");
+
+    // Initialize blockchain scanner
+    let blockchain_scanner = Arc::new(BlockchainScanner::new(
+        blockchain_db.clone(),
+        address_monitor.clone(),
+        utxo_integration.utxo_tracker().clone(),
+        node_id.clone(),
+    ));
+    println!("✅ Blockchain scanner initialized");
+
+    // Perform initial blockchain scan for any already-registered xpubs
+    tokio::spawn({
+        let scanner = blockchain_scanner.clone();
+        async move {
+            println!("🔍 Starting initial blockchain scan...");
+            match scanner.scan_blockchain().await {
+                Ok(utxo_count) => {
+                    println!(
+                        "✅ Initial blockchain scan complete: found {} UTXOs",
+                        utxo_count
+                    );
+                }
+                Err(e) => {
+                    eprintln!("❌ Initial blockchain scan failed: {}", e);
+                }
+            }
+        }
+    });
 
     // Start vote cleanup task
     utxo_integration.start_cleanup_task();

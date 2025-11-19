@@ -2442,7 +2442,9 @@ impl WalletApp {
         );
 
         // Get network type from wallet
-        let network = self.wallet_manager.as_ref()
+        let network = self
+            .wallet_manager
+            .as_ref()
             .map(|m| m.network())
             .unwrap_or(NetworkType::Testnet);
 
