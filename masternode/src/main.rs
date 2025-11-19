@@ -34,12 +34,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ UTXO state manager initialized");
 
     // Initialize P2P network peer manager
+    // Default to testnet for development
+    let network_type = if std::env::var("NETWORK").as_deref() == Ok("mainnet") {
+        NetworkType::Mainnet
+    } else {
+        NetworkType::Testnet
+    };
+
+    let default_port = match network_type {
+        NetworkType::Mainnet => "0.0.0.0:24000",
+        NetworkType::Testnet => "0.0.0.0:24100",
+    };
+
     let p2p_addr = std::env::var("P2P_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:24000".to_string())
+        .unwrap_or_else(|_| default_port.to_string())
         .parse()
         .expect("Invalid P2P address");
-    let peer_manager = Arc::new(PeerManager::new(NetworkType::Mainnet, p2p_addr, p2p_addr));
-    println!("✅ P2P network manager initialized on {}", p2p_addr);
+    let peer_manager = Arc::new(PeerManager::new(network_type, p2p_addr, p2p_addr));
+    println!(
+        "✅ P2P network manager initialized on {} ({:?})",
+        p2p_addr, network_type
+    );
 
     // Initialize UTXO integration and connect WebSocket bridge and address monitor
     let mut utxo_integration =
@@ -71,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Start P2P message listener
-    let listener = PeerListener::bind(p2p_addr, NetworkType::Mainnet, p2p_addr, None, None, None)
+    let listener = PeerListener::bind(p2p_addr, network_type, p2p_addr, None, None, None)
         .await
         .expect("Failed to bind P2P listener");
     println!("✅ P2P listener started");
