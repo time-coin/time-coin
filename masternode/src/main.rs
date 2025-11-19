@@ -148,6 +148,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         peer_ip
                                     );
 
+                                    // Handle GetPeerList directly via PeerManager
+                                    if matches!(
+                                        message,
+                                        time_network::protocol::NetworkMessage::GetPeerList
+                                    ) {
+                                        let response = pm.handle_get_peer_list().await;
+                                        match connection.send_message(response).await {
+                                            Ok(_) => log::info!("✅ Peer list sent successfully"),
+                                            Err(e) => {
+                                                log::error!("❌ Failed to send peer list: {}", e)
+                                            }
+                                        }
+                                        continue;
+                                    }
+
                                     // Handle message via UTXO integration
                                     match integration
                                         .handle_network_message(&message, peer_ip)

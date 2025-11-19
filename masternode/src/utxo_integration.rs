@@ -516,50 +516,6 @@ impl MasternodeUTXOIntegration {
                     ))
                 }
             }
-            // Handle peer list request
-            time_network::protocol::NetworkMessage::GetPeerList => {
-                info!(
-                    node = %self.node_id,
-                    "📨 Received GetPeerList request"
-                );
-
-                // Get all peers from peer manager
-                let peer_ips = self.peer_manager.get_peer_ips().await;
-                info!(
-                    node = %self.node_id,
-                    raw_peer_count = peer_ips.len(),
-                    "Got peer IPs from manager"
-                );
-
-                let network = self.peer_manager.network;
-                let port = match network {
-                    time_network::discovery::NetworkType::Mainnet => 24101,
-                    time_network::discovery::NetworkType::Testnet => 24100,
-                };
-
-                let peer_addresses: Vec<time_network::protocol::PeerAddress> = peer_ips
-                    .into_iter()
-                    .map(|ip| time_network::protocol::PeerAddress {
-                        ip: ip.to_string(),
-                        port,
-                        version: "1.0.0".to_string(),
-                    })
-                    .collect();
-
-                info!(
-                    node = %self.node_id,
-                    peer_count = peer_addresses.len(),
-                    network = ?network,
-                    port = port,
-                    "📤 Returning PeerList with {} peers",
-                    peer_addresses.len()
-                );
-
-                // Return peer list
-                Ok(Some(time_network::protocol::NetworkMessage::PeerList(
-                    peer_addresses,
-                )))
-            }
             _ => {
                 // Not a UTXO protocol message
                 Ok(None)
