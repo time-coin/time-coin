@@ -23,6 +23,7 @@ pub struct BlockProducer {
     #[allow(dead_code)]
     tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
     is_active: Arc<RwLock<bool>>,
+    #[allow(dead_code)]
     allow_block_recreation: bool,
 }
 
@@ -99,9 +100,10 @@ impl BlockProducer {
         loop {
             let now = Utc::now();
 
-            // DISABLED: Catch-up is too aggressive when all nodes are behind
-            // Nodes will sync via periodic chain sync instead
-            // self.catch_up_missed_blocks().await;
+            // Check if we need to catch up on missed blocks
+            if self.allow_block_recreation {
+                self.catch_up_missed_blocks().await;
+            }
 
             // Calculate next midnight UTC
             let tomorrow = now.date_naive() + chrono::Duration::days(1);
@@ -139,6 +141,8 @@ impl BlockProducer {
         }
     }
 
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     async fn catch_up_missed_blocks(&self) {
         let now = Utc::now();
         let current_date = now.date_naive();
@@ -1581,6 +1585,8 @@ impl BlockProducer {
         }
     }
 
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     async fn produce_catchup_block_with_bft_consensus(
         &self,
         block_num: u64,
@@ -2101,6 +2107,7 @@ impl BlockProducer {
 
     // --- finalize_catchup_block_with_rewards kept inside impl ---
 
+    #[allow(dead_code)]
     async fn finalize_catchup_block_with_rewards(
         &self,
         block_num: u64,
