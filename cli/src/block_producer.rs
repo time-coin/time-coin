@@ -27,6 +27,7 @@ pub struct BlockProducer {
     #[allow(dead_code)]
     tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
     is_active: Arc<RwLock<bool>>,
+    allow_block_recreation: bool,
 }
 
 impl BlockProducer {
@@ -49,6 +50,7 @@ impl BlockProducer {
             block_consensus,
             tx_consensus,
             is_active: Arc::new(RwLock::new(false)),
+            allow_block_recreation: false, // Default to false for safety
         }
     }
 
@@ -63,6 +65,7 @@ impl BlockProducer {
         block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
         tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
         is_active: Arc<RwLock<bool>>,
+        allow_block_recreation: bool,
     ) -> Self {
         BlockProducer {
             node_id,
@@ -73,6 +76,7 @@ impl BlockProducer {
             block_consensus,
             tx_consensus,
             is_active,
+            allow_block_recreation,
         }
     }
 
@@ -209,14 +213,14 @@ impl BlockProducer {
         let max_sync_attempts = 3;
         for attempt in 1..=max_sync_attempts {
             let current_height = self.blockchain.read().await.chain_tip_height();
-            
+
             if current_height >= expected_height {
                 println!("      ✔ Fully synced to height {}!", current_height);
                 return;
             }
 
             println!("      📥 Sync attempt {}/{}", attempt, max_sync_attempts);
-            
+
             let peers = self.peer_manager.get_peer_ips().await;
             if peers.is_empty() {
                 println!("      ⚠️  No peers available for sync");
@@ -243,10 +247,8 @@ impl BlockProducer {
                             let mut downloaded = 0;
 
                             for height in (current_height + 1)..=sync_to_height {
-                                let url = format!(
-                                    "http://{}:24101/blockchain/block/{}",
-                                    peer_ip, height
-                                );
+                                let url =
+                                    format!("http://{}:24101/blockchain/block/{}", peer_ip, height);
 
                                 match reqwest::Client::new()
                                     .get(&url)
@@ -262,11 +264,15 @@ impl BlockProducer {
                                                 >(
                                                     block_data.clone()
                                                 ) {
-                                                    let mut blockchain = self.blockchain.write().await;
+                                                    let mut blockchain =
+                                                        self.blockchain.write().await;
                                                     match blockchain.add_block(block) {
                                                         Ok(_) => {
                                                             downloaded += 1;
-                                                            println!("         ✓ Block #{} downloaded", height);
+                                                            println!(
+                                                                "         ✓ Block #{} downloaded",
+                                                                height
+                                                            );
                                                             synced_any = true;
                                                         }
                                                         Err(e) => {
@@ -290,7 +296,10 @@ impl BlockProducer {
                             }
 
                             if downloaded > 0 {
-                                println!("      ✓ Downloaded {} blocks from {}", downloaded, peer_ip);
+                                println!(
+                                    "      ✓ Downloaded {} blocks from {}",
+                                    downloaded, peer_ip
+                                );
                             }
                         }
                     }
@@ -306,7 +315,10 @@ impl BlockProducer {
         // Final check after all sync attempts
         let final_height = self.blockchain.read().await.chain_tip_height();
         if final_height >= expected_height {
-            println!("   ✅ Successfully synced all blocks to height {}!", final_height);
+            println!(
+                "   ✅ Successfully synced all blocks to height {}!",
+                final_height
+            );
             return;
         } else if final_height > actual_height {
             println!(
@@ -318,10 +330,19 @@ impl BlockProducer {
             println!("   ⚠️  Could not download any blocks from peers");
         }
 
+        // Check if block recreation is allowed
+        if !self.allow_block_recreation {
+            println!("   ⚠️  Block recreation is disabled in config");
+            println!("   ℹ️  Historical blocks can only be downloaded, not recreated");
+            println!("   ℹ️  Set 'allow_block_recreation = true' in config to enable");
+            println!("   ⏸️  Will retry sync on next cycle");
+            return;
+        }
+
         // SYNCHRONIZED NODES: Allow block creation since nodes are now in consensus
         // Nodes have agreed on blocks 0-3 via fork resolution and can safely build forward
         println!("   ⚠️  Could not download blocks from peers");
-        println!("   ✅ Nodes are synchronized - creating blocks via BFT consensus");
+        println!("   ✅ Block recreation enabled - creating blocks via BFT consensus");
         println!("   📝 This ensures complete blockchain from genesis to present");
 
         // Wait for BFT consensus to stabilize

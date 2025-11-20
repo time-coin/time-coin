@@ -99,6 +99,10 @@ struct BlockchainConfig {
 
     #[allow(dead_code)]
     data_dir: Option<String>,
+
+    /// Allow recreating missing historical blocks via consensus
+    /// Default: false (download only)
+    allow_block_recreation: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1667,6 +1671,9 @@ async fn main() {
         }
     }
 
+    // Get allow_block_recreation flag from config
+    let allow_block_recreation = config.blockchain.allow_block_recreation.unwrap_or(false);
+
     let block_producer = BlockProducer::with_shared_state(
         node_id.clone(),
         peer_manager.clone(),
@@ -1676,6 +1683,7 @@ async fn main() {
         block_consensus.clone(),
         tx_consensus.clone(),
         block_producer_active_state,
+        allow_block_recreation,
     );
 
     tokio::spawn(async move {

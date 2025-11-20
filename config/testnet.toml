@@ -10,6 +10,12 @@ mode = "production"
 genesis_file = "/root/time-coin-node/config/genesis-testnet.json"
 data_dir = "./data"
 
+# Allow creating missing historical blocks via consensus if download fails
+# When false (default): Only download blocks from peers, never recreate
+# When true: Create missing blocks via BFT consensus if peers don't have them
+# WARNING: Only enable this during initial network setup or recovery
+allow_block_recreation = false
+
 [network]
 listen_addr = "0.0.0.0:24100"
 external_addr = ""
