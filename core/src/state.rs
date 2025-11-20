@@ -7,6 +7,7 @@
 //! - Chain tip and reorganization
 
 use crate::block::{Block, BlockError, MasternodeCounts, MasternodeTier};
+use crate::db::BlockchainDB;
 use crate::transaction::{OutPoint, Transaction, TransactionError};
 use crate::utxo_set::UTXOSet;
 use serde::{Deserialize, Serialize};
@@ -772,6 +773,11 @@ impl BlockchainState {
         self.db.path().to_string()
     }
 
+    /// Get reference to the database
+    pub fn db(&self) -> &BlockchainDB {
+        &self.db
+    }
+
     /// Save a finalized transaction to database
     pub fn save_finalized_tx(
         &self,
@@ -917,6 +923,26 @@ impl BlockchainState {
                 }
 
                 self.db.save_block(&block)?;
+                
+                // Save wallet balances for all addresses that received outputs in this block
+                let mut addresses_to_update = std::collections::HashSet::new();
+                for tx in &block.transactions {
+                    for output in &tx.outputs {
+                        // Skip special addresses
+                        if output.address != "TREASURY" && output.address != "BURNED" {
+                            addresses_to_update.insert(output.address.clone());
+                        }
+                    }
+                }
+                
+                // Update balances for all affected addresses
+                for address in addresses_to_update {
+                    let balance = self.utxo_set.get_balance(&address);
+                    if let Err(e) = self.db.save_wallet_balance(&address, balance) {
+                        eprintln!("⚠️  Failed to save wallet balance for {}: {}", address, e);
+                    }
+                }
+                
                 self.blocks_by_height
                     .insert(block.header.block_number, block.hash.clone());
                 self.chain_tip_height = block.header.block_number;

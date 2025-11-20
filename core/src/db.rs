@@ -259,4 +259,45 @@ impl BlockchainDB {
 
         Ok(())
     }
+
+    /// Save wallet balance to database
+    pub fn save_wallet_balance(&self, address: &str, balance: u64) -> Result<(), StateError> {
+        let key = format!("wallet_balance:{}", address);
+        let value = balance.to_le_bytes();
+
+        self.db
+            .insert(key.as_bytes(), &value)
+            .map_err(|e| StateError::IoError(format!("Failed to save wallet balance: {}", e)))?;
+
+        // Flush to ensure it's on disk
+        self.db
+            .flush()
+            .map_err(|e| StateError::IoError(format!("Failed to flush wallet balance: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Load wallet balance from database
+    pub fn load_wallet_balance(&self, address: &str) -> Result<Option<u64>, StateError> {
+        let key = format!("wallet_balance:{}", address);
+
+        match self.db.get(key.as_bytes()) {
+            Ok(Some(data)) => {
+                if data.len() == 8 {
+                    let mut bytes = [0u8; 8];
+                    bytes.copy_from_slice(&data);
+                    Ok(Some(u64::from_le_bytes(bytes)))
+                } else {
+                    Err(StateError::IoError(
+                        "Invalid wallet balance data".to_string(),
+                    ))
+                }
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(StateError::IoError(format!(
+                "Failed to load wallet balance: {}",
+                e
+            ))),
+        }
+    }
 }

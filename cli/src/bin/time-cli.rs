@@ -1180,6 +1180,106 @@ async fn handle_wallet_command(
             }
         }
 
+        WalletCommands::Rescan { address } => {
+            // Get the wallet address to rescan
+            let client = reqwest::Client::new();
+            let addr = if let Some(a) = address {
+                a
+            } else {
+                // Get node wallet address from API
+                let response = client
+                    .get(format!("{}/blockchain/info", api))
+                    .send()
+                    .await?;
+
+                if response.status().is_success() {
+                    let info: serde_json::Value = response.json().await?;
+                    info["wallet_address"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
+                } else {
+                    if json_output {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "error": "Failed to get node wallet address"
+                            }))?
+                        );
+                    } else {
+                        println!("✗ Failed to get node wallet address");
+                    }
+                    return Ok(());
+                }
+            };
+
+            if addr.is_empty() {
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": "No wallet address found"
+                        }))?
+                    );
+                } else {
+                    println!("✗ No wallet address found");
+                }
+                return Ok(());
+            }
+
+            if !json_output {
+                println!("\n🔍 Rescanning blockchain for address: {}", addr);
+                println!("This will update your balance from the UTXO set...\n");
+            }
+
+            // Call the wallet sync API endpoint to rescan
+            let response = client
+                .post(format!("{}/wallet/sync", api))
+                .json(&json!({
+                    "addresses": vec![addr.clone()]
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    let balance = result["total_balance"].as_u64().unwrap_or(0);
+                    let utxo_count = result["utxos"]
+                        .as_object()
+                        .and_then(|obj| obj.get(&addr))
+                        .and_then(|arr| arr.as_array())
+                        .map(|arr| arr.len())
+                        .unwrap_or(0);
+                    let current_height = result["current_height"].as_u64().unwrap_or(0);
+                    
+                    // Convert from smallest units to TIME (8 decimals)
+                    let balance_time = balance as f64 / 100_000_000.0;
+
+                    println!("✅ Rescan complete!");
+                    println!("Address:        {}", addr);
+                    println!("Balance:        {} TIME", balance_time);
+                    println!("UTXOs:          {}", utxo_count);
+                    println!("Current Height: {}", current_height);
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("✗ Failed to rescan: {}", error);
+                }
+            }
+        }
+
         _ => {
             if json_output {
                 println!(
