@@ -1966,6 +1966,24 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} finalized and stored", block_num);
+                drop(blockchain); // Release lock before broadcasting
+
+                // CRITICAL: Broadcast finalized block to all peers so they can sync
+                println!("      📡 Broadcasting finalized block to peers...");
+                let peers = self.peer_manager.get_peer_ips().await;
+                for peer_ip in &peers {
+                    let url = format!("http://{}:24101/consensus/finalized-block", peer_ip);
+                    let block_clone = block.clone();
+                    tokio::spawn(async move {
+                        let _ = reqwest::Client::new()
+                            .post(&url)
+                            .json(&block_clone)
+                            .timeout(std::time::Duration::from_secs(5))
+                            .send()
+                            .await;
+                    });
+                }
+
                 true
             }
             Err(e) => {

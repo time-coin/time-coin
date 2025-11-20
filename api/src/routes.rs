@@ -16,6 +16,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chrono::TimeZone;
 use owo_colors::OwoColorize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -1136,7 +1137,7 @@ async fn receive_block_vote(
 }
 
 async fn request_block_proposal(
-    State(_state): State<ApiState>,
+    State(state): State<ApiState>,
     Json(request): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let block_height = request["block_height"]
@@ -1153,16 +1154,235 @@ async fn request_block_proposal(
     println!("   Block height: {}", block_height);
     println!("   Leader (me): {}", leader_ip);
     println!("   Requested by: {}", requester_ip);
-    println!("   ⚠️  NOTE: This node should now create and broadcast a block proposal!");
 
-    // TODO: Trigger block production immediately
-    // For now, just acknowledge the request
-    // The block producer loop should detect it's the leader and create the block
+    // Spawn task to create and broadcast block proposal immediately
+    let state_clone = state.clone();
+    let leader_ip = leader_ip.to_string();
+    tokio::spawn(async move {
+        if let Err(e) =
+            create_and_broadcast_catchup_proposal(state_clone, block_height, leader_ip).await
+        {
+            println!("   ❌ Failed to create block proposal: {}", e);
+        }
+    });
 
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Block proposal request received"
     })))
+}
+
+async fn create_and_broadcast_catchup_proposal(
+    state: ApiState,
+    block_height: u64,
+    leader_ip: String,
+) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    use time_consensus::block_consensus::{BlockProposal, BlockVote};
+    use time_core::block::{Block, BlockHeader};
+
+    println!(
+        "   🔨 Creating block proposal for height {}...",
+        block_height
+    );
+
+    // Get block consensus manager
+    let block_consensus = state
+        .block_consensus
+        .as_ref()
+        .ok_or_else(|| "Block consensus not initialized".to_string())?;
+
+    // Get mempool
+    let mempool = state
+        .mempool
+        .as_ref()
+        .ok_or_else(|| "Mempool not initialized".to_string())?;
+
+    // Check if proposal already exists
+    if let Some(existing) = block_consensus.get_proposal(block_height).await {
+        println!(
+            "   ℹ️  Proposal already exists for block {}, re-broadcasting...",
+            block_height
+        );
+
+        // Re-broadcast existing proposal
+        let proposal_json = serde_json::to_value(&existing).unwrap();
+        state
+            .peer_manager
+            .broadcast_block_proposal(proposal_json)
+            .await;
+
+        // Leader re-votes
+        let vote = BlockVote {
+            block_height,
+            block_hash: existing.block_hash.clone(),
+            voter: leader_ip.clone(),
+            approve: true,
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+        let _ = block_consensus.vote_on_block(vote.clone()).await;
+        let vote_json = serde_json::to_value(&vote).unwrap();
+        state.peer_manager.broadcast_block_vote(vote_json).await;
+
+        println!("   ✓ Re-broadcast existing proposal and vote");
+        return Ok(());
+    }
+
+    // Get blockchain state
+    let blockchain = state.blockchain.read().await;
+    let previous_hash = blockchain.chain_tip_hash().to_string();
+    let current_height = blockchain.chain_tip_height();
+
+    // Verify we're creating the right block
+    if block_height != current_height + 1 {
+        drop(blockchain);
+        return Err(format!(
+            "Block height mismatch: requested {}, expected {}",
+            block_height,
+            current_height + 1
+        ));
+    }
+
+    let masternode_counts = blockchain.masternode_counts().clone();
+    let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+        .get_active_masternodes()
+        .iter()
+        .map(|mn| (mn.wallet_address.clone(), mn.tier))
+        .collect();
+
+    // Calculate block timestamp (use genesis date + block_height days)
+    let genesis_block = blockchain
+        .get_block_by_height(0)
+        .ok_or_else(|| "Genesis block not found".to_string())?;
+    let genesis_date = genesis_block.header.timestamp.date_naive();
+    drop(blockchain);
+
+    let block_date = genesis_date + chrono::Duration::days(block_height as i64);
+    let timestamp = chrono::Utc.from_utc_datetime(&block_date.and_hms_opt(0, 0, 0).unwrap());
+
+    // Get mempool transactions
+    let mut transactions = mempool.get_all_transactions().await;
+    transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
+
+    // Create coinbase transaction
+    let coinbase_tx = time_core::block::create_coinbase_transaction(
+        block_height,
+        &active_masternodes,
+        &masternode_counts,
+        0, // No fees for catch-up blocks
+        timestamp.timestamp(),
+    );
+
+    println!(
+        "      💰 Distributing rewards to {} registered masternodes",
+        active_masternodes.len()
+    );
+    println!(
+        "      ✓ Created coinbase with {} outputs (incl. treasury)",
+        coinbase_tx.outputs.len()
+    );
+
+    // Build transaction list
+    let mut all_transactions = vec![coinbase_tx];
+    all_transactions.extend(transactions);
+
+    // Calculate merkle root
+    let merkle_root = {
+        let tx_hashes: Vec<String> = all_transactions.iter().map(|tx| tx.txid.clone()).collect();
+        if tx_hashes.is_empty() {
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+        } else {
+            let combined = tx_hashes.join("");
+            let mut hasher = Sha256::new();
+            hasher.update(combined.as_bytes());
+            format!("{:x}", hasher.finalize())
+        }
+    };
+
+    // Create block header
+    let header = BlockHeader {
+        block_number: block_height,
+        timestamp,
+        previous_hash: previous_hash.clone(),
+        merkle_root: merkle_root.clone(),
+        validator_signature: {
+            let sig_data = format!("{}{}{}", block_height, previous_hash, merkle_root);
+            let mut hasher = Sha256::new();
+            hasher.update(sig_data.as_bytes());
+            hasher.update(leader_ip.as_bytes());
+            format!("{:x}", hasher.finalize())
+        },
+        validator_address: leader_ip.clone(),
+    };
+
+    // Calculate block hash
+    let header_json =
+        serde_json::to_string(&header).map_err(|e| format!("Serialization error: {}", e))?;
+    let mut hasher = Sha256::new();
+    hasher.update(header_json.as_bytes());
+    let block_hash = format!("{:x}", hasher.finalize());
+
+    // Create block
+    let block = Block {
+        header: header.clone(),
+        hash: block_hash.clone(),
+        transactions: all_transactions.clone(),
+    };
+
+    println!("      🔧 Finalizing block #{}...", block_height);
+
+    // Create and store proposal
+    let proposal = BlockProposal {
+        block_height,
+        proposer: leader_ip.clone(),
+        block_hash: block_hash.clone(),
+        merkle_root: merkle_root.clone(),
+        previous_hash: previous_hash.clone(),
+        timestamp: timestamp.timestamp(),
+        is_reward_only: false,
+        strategy: None,
+    };
+
+    block_consensus.propose_block(proposal.clone()).await;
+
+    // Leader auto-votes
+    let vote = BlockVote {
+        block_height,
+        block_hash: block_hash.clone(),
+        voter: leader_ip.clone(),
+        approve: true,
+        timestamp: chrono::Utc::now().timestamp(),
+    };
+
+    let _ = block_consensus.vote_on_block(vote.clone()).await;
+
+    println!("      ✓ Leader auto-voted APPROVE");
+
+    // Broadcast proposal and vote
+    let proposal_json =
+        serde_json::to_value(&proposal).map_err(|e| format!("JSON error: {}", e))?;
+    state
+        .peer_manager
+        .broadcast_block_proposal(proposal_json)
+        .await;
+
+    let vote_json = serde_json::to_value(&vote).map_err(|e| format!("JSON error: {}", e))?;
+    state.peer_manager.broadcast_block_vote(vote_json).await;
+
+    println!("      📡 Proposal and vote broadcast to peers");
+
+    // Add block to leader's blockchain immediately so peers can fetch it
+    let mut blockchain = state.blockchain.write().await;
+    match blockchain.add_block(block) {
+        Ok(_) => {
+            println!("      ✔ Block #{} finalized and stored", block_height);
+            Ok(())
+        }
+        Err(e) => {
+            println!("      ❌ Failed to add block: {:?}", e);
+            Err(format!("Failed to add block: {:?}", e))
+        }
+    }
 }
 
 async fn receive_finalized_block(
