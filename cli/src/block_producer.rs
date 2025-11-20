@@ -366,7 +366,29 @@ impl BlockProducer {
             missing_blocks
         );
 
+        // CRITICAL: Process blocks sequentially, ONE AT A TIME
+        // Wait for each block to be fully consensus-accepted before starting the next
         for block_num in (actual_height + 1)..=expected_height {
+            println!("\n╔═══════════════════════════════════════════════════════════╗");
+            println!("║  BLOCK #{:<50} ║", block_num);
+            println!("╚═══════════════════════════════════════════════════════════╝");
+
+            // Verify current chain height before attempting next block
+            let current_height = self.load_block_height().await;
+            if current_height >= block_num {
+                println!("   ℹ️  Block {} already exists, skipping...", block_num);
+                continue;
+            }
+
+            if current_height + 1 != block_num {
+                println!(
+                    "   ⚠️  Chain height mismatch: have {}, trying to create {}",
+                    current_height, block_num
+                );
+                println!("   ⏸️  Pausing catch-up - chain not ready for this block");
+                break;
+            }
+
             let timestamp_date = genesis_date + chrono::Duration::days(block_num as i64);
             let timestamp = Utc.from_utc_datetime(&timestamp_date.and_hms_opt(0, 0, 0).unwrap());
 
@@ -377,9 +399,11 @@ impl BlockProducer {
 
             if success {
                 println!("   ✅ Block {} created successfully!", block_num);
+                // Give network MORE time to settle and propagate
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             } else {
                 println!("   ❌ Failed to create block {}", block_num);
-                println!("   ℹ️  Ensure all nodes are running and properly configured");
+                println!("   ⏸️  Pausing catch-up - will retry on next cycle");
                 break;
             }
         }
