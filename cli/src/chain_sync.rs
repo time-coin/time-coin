@@ -253,14 +253,14 @@ impl ChainSync {
         for (peer_ip, height, hash) in &filtered_peer_heights {
             height_groups
                 .entry(*height)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((peer_ip.as_str(), hash.clone()));
         }
 
         // Find the highest height that has multiple peers agreeing
         let best_height_and_peer = height_groups
             .iter()
-            .filter(|(_, peers)| peers.len() >= 1) // At least one peer
+            .filter(|(_, peers)| !peers.is_empty()) // At least one peer
             .max_by_key(|(height, peers)| (*height, peers.len()))
             .and_then(|(height, peers)| {
                 // Pick the peer with the most common hash at this height
@@ -548,6 +548,29 @@ impl ChainSync {
             println!("   ✓ Fork resolved - now on correct chain");
         } else {
             println!("   ✓ Our block won - no action needed");
+
+            // Check if we're still behind the network after fork resolution
+            let current_height = {
+                let blockchain = self.blockchain.read().await;
+                blockchain.chain_tip_height()
+            };
+
+            // Query network for the highest block
+            let peer_heights = self.query_peer_heights().await;
+            if let Some(max_network_height) = peer_heights.iter().map(|(_, h, _)| h).max() {
+                if *max_network_height > current_height {
+                    println!(
+                        "\n   ⚠️  Network is ahead: local height {} vs network height {}",
+                        current_height, max_network_height
+                    );
+                    println!("   💡 Triggering catchup block generation...");
+
+                    // Trigger catchup for missing blocks
+                    if let Err(e) = self.generate_catchup_blocks().await {
+                        println!("   ⚠️  Catchup generation failed: {}", e);
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -636,6 +659,145 @@ impl ChainSync {
                 Err(format!("Fork resolution failed: {:?}", e))
             }
         }
+    }
+
+    /// Generate catchup blocks when we're behind the network
+    async fn generate_catchup_blocks(&self) -> Result<(), String> {
+        use chrono::TimeZone;
+
+        let (current_height, genesis_block) = {
+            let blockchain = self.blockchain.read().await;
+            let genesis = blockchain
+                .get_block_by_height(0)
+                .ok_or("Genesis block not found")?
+                .clone();
+            (blockchain.chain_tip_height(), genesis)
+        };
+
+        let now = Utc::now();
+        let current_date = now.date_naive();
+        let genesis_date = genesis_block.header.timestamp.date_naive();
+
+        let days_since_genesis = (current_date - genesis_date).num_days();
+        let expected_height = days_since_genesis as u64;
+
+        if current_height >= expected_height {
+            println!("   ℹ️  No catchup needed - chain is current");
+            return Ok(());
+        }
+
+        let missing_blocks = expected_height - current_height;
+        println!("   📊 Need to create {} catchup blocks", missing_blocks);
+        println!(
+            "   ℹ️  Current height: {}, Expected height: {}",
+            current_height, expected_height
+        );
+
+        // Create each missing block
+        for height in (current_height + 1)..=expected_height {
+            println!("\n   🔧 Creating catchup block #{}...", height);
+
+            // Calculate the timestamp for this block (midnight UTC on the day)
+            let timestamp_date = genesis_date + chrono::Duration::days(height as i64);
+            let timestamp = Utc.from_utc_datetime(&timestamp_date.and_hms_opt(0, 0, 0).unwrap());
+
+            // Create the block
+            let block = {
+                let mut blockchain = self.blockchain.write().await;
+                let previous_hash = blockchain.chain_tip_hash().to_string();
+                let masternode_counts = blockchain.masternode_counts().clone();
+                let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+                    .get_active_masternodes()
+                    .iter()
+                    .map(|mn| (mn.wallet_address.clone(), mn.tier))
+                    .collect();
+
+                // Get the node ID for the validator
+                let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+                    if let Ok(ip) = local_ip_address::local_ip() {
+                        ip.to_string()
+                    } else {
+                        "catchup_node".to_string()
+                    }
+                });
+
+                // Create coinbase transaction with masternode rewards
+                let coinbase_tx = time_core::block::create_coinbase_transaction(
+                    height,
+                    &active_masternodes,
+                    &masternode_counts,
+                    0, // No transaction fees in catchup blocks
+                    timestamp.timestamp(),
+                );
+
+                use sha2::{Digest, Sha256};
+                use time_core::block::{Block, BlockHeader};
+
+                let mut block = Block {
+                    hash: String::new(),
+                    header: BlockHeader {
+                        block_number: height,
+                        timestamp,
+                        previous_hash,
+                        merkle_root: String::new(),
+                        validator_signature: my_id.clone(),
+                        validator_address: my_id.clone(),
+                    },
+                    transactions: vec![coinbase_tx],
+                };
+
+                block.header.merkle_root = block.calculate_merkle_root();
+
+                // Calculate block hash
+                let header_json = serde_json::to_string(&block.header)
+                    .map_err(|e| format!("Failed to serialize header: {}", e))?;
+                let mut hasher = Sha256::new();
+                hasher.update(header_json.as_bytes());
+                block.hash = format!("{:x}", hasher.finalize());
+
+                // Add the block to the chain
+                match blockchain.add_block(block.clone()) {
+                    Ok(_) => {
+                        println!("      ✅ Block #{} created successfully", height);
+                        println!(
+                            "         Timestamp: {}",
+                            timestamp.format("%Y-%m-%d %H:%M:%S UTC")
+                        );
+                        println!("         Hash: {}...", &block.hash[..16]);
+                        println!("         Rewards: {} masternodes", active_masternodes.len());
+                    }
+                    Err(e) => {
+                        return Err(format!("Failed to add block {}: {:?}", height, e));
+                    }
+                }
+
+                block
+            };
+
+            // Small delay between blocks to avoid overwhelming the system
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+            // Broadcast the new block to peers
+            let peers = self.peer_manager.get_peer_ips().await;
+            for peer_ip in peers {
+                let url = format!("http://{}:24101/consensus/finalized-block", peer_ip);
+                let block_clone = block.clone();
+                tokio::spawn(async move {
+                    let _ = reqwest::Client::new()
+                        .post(&url)
+                        .json(&serde_json::json!({"block": block_clone}))
+                        .timeout(std::time::Duration::from_secs(3))
+                        .send()
+                        .await;
+                });
+            }
+        }
+
+        println!(
+            "\n   ✅ Catchup complete! Created {} blocks",
+            missing_blocks
+        );
+        Ok(())
     }
 
     /// Start periodic sync task

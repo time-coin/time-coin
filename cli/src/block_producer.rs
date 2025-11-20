@@ -29,6 +29,7 @@ pub struct BlockProducer {
 
 impl BlockProducer {
     #[allow(dead_code)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_id: String,
         peer_manager: Arc<PeerManager>,
@@ -234,7 +235,7 @@ impl BlockProducer {
             // If we're at genesis (height 0), try to download the entire chain from one valid peer
             if current_height == 0 {
                 println!("      🔄 At genesis - attempting full chain sync from longest chain...");
-                
+
                 // Find peers with the longest valid chain
                 let mut peer_heights: Vec<(String, u64)> = Vec::new();
                 for peer_ip in &peers {
@@ -245,29 +246,29 @@ impl BlockProducer {
                         }
                     }
                 }
-                
+
                 // Sort by height descending
                 peer_heights.sort_by(|a, b| b.1.cmp(&a.1));
-                
+
                 // Try downloading complete chain from longest chains first
                 for (peer_ip, peer_height) in peer_heights {
                     if peer_height == 0 {
                         continue;
                     }
-                    
+
                     println!(
                         "      🔗 Trying full chain download from {} (height {})...",
                         peer_ip, peer_height
                     );
-                    
+
                     let sync_to_height = std::cmp::min(peer_height, expected_height);
                     let mut all_blocks = Vec::new();
                     let mut download_success = true;
-                    
+
                     // Download all blocks first before adding any
                     for height in 1..=sync_to_height {
                         let url = format!("http://{}:24101/blockchain/block/{}", peer_ip, height);
-                        
+
                         match reqwest::Client::new()
                             .get(&url)
                             .timeout(std::time::Duration::from_secs(10))
@@ -277,11 +278,11 @@ impl BlockProducer {
                             Ok(resp) => {
                                 if let Ok(json) = resp.json::<serde_json::Value>().await {
                                     if let Some(block_data) = json.get("block") {
-                                        if let Ok(block) = serde_json::from_value::<
-                                            time_core::block::Block,
-                                        >(
-                                            block_data.clone()
-                                        ) {
+                                        if let Ok(block) =
+                                            serde_json::from_value::<time_core::block::Block>(
+                                                block_data.clone(),
+                                            )
+                                        {
                                             all_blocks.push((height, block));
                                         } else {
                                             download_success = false;
@@ -302,13 +303,13 @@ impl BlockProducer {
                             }
                         }
                     }
-                    
+
                     if download_success && !all_blocks.is_empty() {
                         println!(
                             "      ✓ Downloaded {} blocks, validating chain...",
                             all_blocks.len()
                         );
-                        
+
                         // Try to add all blocks sequentially
                         let mut added = 0;
                         let mut blockchain = self.blockchain.write().await;
@@ -331,7 +332,7 @@ impl BlockProducer {
                             }
                         }
                         drop(blockchain);
-                        
+
                         if added > 0 {
                             println!(
                                 "      ✅ Successfully synced {} blocks from {}!",
@@ -341,10 +342,7 @@ impl BlockProducer {
                             break; // Successfully synced, exit peer loop
                         }
                     } else {
-                        println!(
-                            "      ✗ Failed to download complete chain from {}",
-                            peer_ip
-                        );
+                        println!("      ✗ Failed to download complete chain from {}", peer_ip);
                     }
                 }
             } else {
@@ -367,8 +365,10 @@ impl BlockProducer {
                                 let mut downloaded = 0;
 
                                 for height in (current_height + 1)..=sync_to_height {
-                                    let url =
-                                        format!("http://{}:24101/blockchain/block/{}", peer_ip, height);
+                                    let url = format!(
+                                        "http://{}:24101/blockchain/block/{}",
+                                        peer_ip, height
+                                    );
 
                                     match reqwest::Client::new()
                                         .get(&url)
@@ -377,7 +377,8 @@ impl BlockProducer {
                                         .await
                                     {
                                         Ok(resp) => {
-                                            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                                            if let Ok(json) = resp.json::<serde_json::Value>().await
+                                            {
                                                 if let Some(block_data) = json.get("block") {
                                                     if let Ok(block) = serde_json::from_value::<
                                                         time_core::block::Block,
