@@ -1286,18 +1286,22 @@ async fn create_and_broadcast_catchup_proposal(
     let mut all_transactions = vec![coinbase_tx];
     all_transactions.extend(transactions);
 
-    // Calculate merkle root
-    let merkle_root = {
-        let tx_hashes: Vec<String> = all_transactions.iter().map(|tx| tx.txid.clone()).collect();
-        if tx_hashes.is_empty() {
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
-        } else {
-            let combined = tx_hashes.join("");
-            let mut hasher = Sha256::new();
-            hasher.update(combined.as_bytes());
-            format!("{:x}", hasher.finalize())
-        }
+    // Create a temporary block to calculate merkle root properly
+    let temp_block = Block {
+        header: BlockHeader {
+            block_number: block_height,
+            timestamp,
+            previous_hash: previous_hash.clone(),
+            merkle_root: String::new(), // Will be calculated
+            validator_signature: String::new(),
+            validator_address: leader_ip.clone(),
+        },
+        hash: String::new(),
+        transactions: all_transactions.clone(),
     };
+
+    // Calculate merkle root using the proper method
+    let merkle_root = temp_block.calculate_merkle_root();
 
     // Create block header
     let header = BlockHeader {
