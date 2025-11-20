@@ -1673,6 +1673,14 @@ async fn main() {
 
     // Get allow_block_recreation flag from config
     let allow_block_recreation = config.blockchain.allow_block_recreation.unwrap_or(false);
+    println!(
+        "🔧 Block recreation: {}",
+        if allow_block_recreation {
+            "ENABLED"
+        } else {
+            "DISABLED"
+        }
+    );
 
     let block_producer = BlockProducer::with_shared_state(
         node_id.clone(),
