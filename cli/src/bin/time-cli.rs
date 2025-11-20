@@ -261,6 +261,13 @@ enum WalletCommands {
         #[arg(long, default_value = "/var/lib/time-coin/wallets")]
         db_path: PathBuf,
     },
+
+    /// Rescan the blockchain to update wallet balance
+    Rescan {
+        /// Wallet address to rescan (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
