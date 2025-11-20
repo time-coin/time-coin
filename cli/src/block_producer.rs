@@ -203,114 +203,119 @@ impl BlockProducer {
             return;
         }
 
-        // CRITICAL: Try to download from peers first
-        println!("   🔍 Checking if peers have these blocks...");
+        // CRITICAL: Try to download from peers first - retry multiple times
+        println!("   🔍 Attempting to download blocks from peers...");
 
-        let peers = self.peer_manager.get_peer_ips().await;
-        if !peers.is_empty() {
+        let max_sync_attempts = 3;
+        for attempt in 1..=max_sync_attempts {
+            let current_height = self.blockchain.read().await.chain_tip_height();
+            
+            if current_height >= expected_height {
+                println!("      ✔ Fully synced to height {}!", current_height);
+                return;
+            }
+
+            println!("      📥 Sync attempt {}/{}", attempt, max_sync_attempts);
+            
+            let peers = self.peer_manager.get_peer_ips().await;
+            if peers.is_empty() {
+                println!("      ⚠️  No peers available for sync");
+                break;
+            }
+
+            let mut synced_any = false;
+
             for peer_ip in &peers {
-                println!("      Checking {}...", peer_ip);
                 let url = format!("http://{}:24101/blockchain/info", peer_ip);
                 if let Ok(response) = reqwest::get(&url).await {
                     if let Ok(info) = response.json::<BlockchainInfo>().await {
-                        println!("      Peer {} height: {}", peer_ip, info.height);
+                        // If peer has blocks we need, try to sync
+                        if info.height > current_height {
+                            println!(
+                                "      🔗 Peer {} has height {}, downloading blocks {}-{}...",
+                                peer_ip,
+                                info.height,
+                                current_height + 1,
+                                std::cmp::min(info.height, expected_height)
+                            );
 
-                        // If peer has ANY of the blocks we need, try to sync
-                        if info.height > actual_height {
-                            println!("      ✓ Peer has blocks we need! Syncing from peer...");
-
-                            // Download blocks from peer
-                            let mut blockchain = self.blockchain.write().await;
-                            let current_height = blockchain.chain_tip_height();
-
-                            // Only sync up to what the peer has
                             let sync_to_height = std::cmp::min(info.height, expected_height);
+                            let mut downloaded = 0;
 
                             for height in (current_height + 1)..=sync_to_height {
-                                println!("      🔽 Downloading block #{}...", height);
-
-                                match reqwest::get(format!(
+                                let url = format!(
                                     "http://{}:24101/blockchain/block/{}",
                                     peer_ip, height
-                                ))
-                                .await
+                                );
+
+                                match reqwest::Client::new()
+                                    .get(&url)
+                                    .timeout(std::time::Duration::from_secs(10))
+                                    .send()
+                                    .await
                                 {
-                                    Ok(resp) => match resp.json::<serde_json::Value>().await {
-                                        Ok(json) => {
+                                    Ok(resp) => {
+                                        if let Ok(json) = resp.json::<serde_json::Value>().await {
                                             if let Some(block_data) = json.get("block") {
-                                                match serde_json::from_value::<
+                                                if let Ok(block) = serde_json::from_value::<
                                                     time_core::block::Block,
                                                 >(
                                                     block_data.clone()
                                                 ) {
-                                                    Ok(block) => {
-                                                        match blockchain.add_block(block.clone()) {
-                                                            Ok(_) => {
-                                                                println!(
-                                                                    "         ✓ Block #{} synced",
-                                                                    height
-                                                                );
-                                                            }
-                                                            Err(e) => {
-                                                                println!("         ✗ Failed to add block #{}: {:?}", height, e);
-                                                                println!("      ⚠️ Sync failed, stopping");
-                                                                return;
-                                                            }
+                                                    let mut blockchain = self.blockchain.write().await;
+                                                    match blockchain.add_block(block) {
+                                                        Ok(_) => {
+                                                            downloaded += 1;
+                                                            println!("         ✓ Block #{} downloaded", height);
+                                                            synced_any = true;
                                                         }
-                                                    }
-                                                    Err(e) => {
-                                                        println!("         ✗ Failed to parse block: {:?}", e);
-                                                        return;
+                                                        Err(e) => {
+                                                            println!(
+                                                                "         ✗ Failed to add block #{}: {:?}",
+                                                                height, e
+                                                            );
+                                                            // Skip this peer and try next
+                                                            break;
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                        Err(e) => {
-                                            println!(
-                                                "         ✗ Failed to parse response: {:?}",
-                                                e
-                                            );
-                                            return;
-                                        }
-                                    },
-                                    Err(e) => {
-                                        println!("         ✗ Failed to download block: {:?}", e);
-                                        // Don't return, try next peer
-                                        break; // Exit inner block loop, try next peer
+                                    }
+                                    Err(_) => {
+                                        // Network error, try next peer
+                                        break;
                                     }
                                 }
                             }
 
-                            // Update height and check if we're done
-                            drop(blockchain); // Release lock
-                            let new_height = self.blockchain.read().await.chain_tip_height();
-
-                            if new_height >= sync_to_height {
-                                println!("      ✔ Synced to height {}!", new_height);
-                                if new_height >= expected_height {
-                                    println!("      ✔ All blocks synced!");
-                                    return;
-                                }
-                                // Continue to create remaining blocks if needed
+                            if downloaded > 0 {
+                                println!("      ✓ Downloaded {} blocks from {}", downloaded, peer_ip);
                             }
                         }
                     }
                 }
             }
 
-            // Check current height after trying all peers
-            let final_height = self.blockchain.read().await.chain_tip_height();
-            if final_height >= expected_height {
-                println!("      ✔ Sync complete!");
-                return;
-            } else if final_height > actual_height {
-                println!(
-                    "      ℹ️ Partially synced to height {}, will create remaining blocks",
-                    final_height
-                );
-            } else {
-                println!("      ℹ️ No peers have the missing blocks yet");
+            if !synced_any && attempt < max_sync_attempts {
+                println!("      ⏳ Waiting 10s before retry...");
+                tokio::time::sleep(Duration::from_secs(10)).await;
             }
+        }
+
+        // Final check after all sync attempts
+        let final_height = self.blockchain.read().await.chain_tip_height();
+        if final_height >= expected_height {
+            println!("   ✅ Successfully synced all blocks to height {}!", final_height);
+            return;
+        } else if final_height > actual_height {
+            println!(
+                "   ℹ️  Partially synced to height {} (need {})",
+                final_height, expected_height
+            );
+            println!("   ▶️  Will create remaining blocks via consensus");
+        } else {
+            println!("   ⚠️  Could not download any blocks from peers");
         }
 
         // SYNCHRONIZED NODES: Allow block creation since nodes are now in consensus
