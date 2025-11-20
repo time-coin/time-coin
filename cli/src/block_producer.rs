@@ -102,8 +102,9 @@ impl BlockProducer {
         loop {
             let now = Utc::now();
 
-            // Run a catch-up check each iteration
-            self.catch_up_missed_blocks().await;
+            // DISABLED: Catch-up is too aggressive when all nodes are behind
+            // Nodes will sync via periodic chain sync instead
+            // self.catch_up_missed_blocks().await;
 
             // Calculate next midnight UTC
             let tomorrow = now.date_naive() + chrono::Duration::days(1);
