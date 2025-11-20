@@ -8,9 +8,9 @@ use time_network::{PeerManager, PeerQuarantine, QuarantineReason};
 use tokio::sync::RwLock;
 
 #[derive(Deserialize)]
-struct BlockchainInfo {
-    height: u64,
-    best_block_hash: String,
+pub struct BlockchainInfo {
+    pub height: u64,
+    pub best_block_hash: String,
 }
 
 #[derive(Deserialize)]
@@ -660,9 +660,18 @@ impl ChainSync {
 
                 // Then sync missing blocks
                 match self.sync_from_peers().await {
-                    Ok(0) => println!("   ✓ Chain is up to date"),
-                    Ok(n) => println!("   ✓ Synced {} blocks", n),
-                    Err(e) => println!("   ⚠️  Sync failed: {}", e),
+                    Ok(0) => {
+                        println!("   ✓ Chain is up to date");
+                    }
+                    Ok(n) => {
+                        println!("   ✓ Synced {} blocks", n);
+                        // After successful sync, check if we're still behind
+                        // If so, the periodic sync will try again next interval
+                    }
+                    Err(e) => {
+                        println!("   ⚠️  Sync failed: {}", e);
+                        println!("   ℹ️  Will retry on next sync interval (5 minutes)");
+                    }
                 }
             }
         });

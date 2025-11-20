@@ -1,6 +1,7 @@
+use crate::chain_sync::BlockchainInfo;
 use chrono::{TimeZone, Utc};
+use crossterm::style::Stylize;
 use owo_colors::OwoColorize;
-use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
 use time_consensus::ConsensusEngine;
@@ -10,11 +11,6 @@ use time_core::transaction::{Transaction, TxOutput};
 use time_core::MasternodeTier;
 use time_network::PeerManager;
 use tokio::sync::RwLock;
-
-#[derive(Deserialize)]
-struct BlockchainInfo {
-    height: u64,
-}
 
 pub struct BlockProducer {
     #[allow(dead_code)]
@@ -40,6 +36,7 @@ impl BlockProducer {
         mempool: Arc<time_mempool::Mempool>,
         block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
         #[allow(dead_code)] tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+        allow_block_recreation: bool,
     ) -> Self {
         BlockProducer {
             node_id,
@@ -50,7 +47,7 @@ impl BlockProducer {
             block_consensus,
             tx_consensus,
             is_active: Arc::new(RwLock::new(false)),
-            allow_block_recreation: false, // Default to false for safety
+            allow_block_recreation,
         }
     }
 
