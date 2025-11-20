@@ -730,7 +730,6 @@ impl ChainSync {
                     timestamp.timestamp(),
                 );
 
-                use sha2::{Digest, Sha256};
                 use time_core::block::{Block, BlockHeader};
 
                 let mut block = Block {
@@ -747,13 +746,7 @@ impl ChainSync {
                 };
 
                 block.header.merkle_root = block.calculate_merkle_root();
-
-                // Calculate block hash
-                let header_json = serde_json::to_string(&block.header)
-                    .map_err(|e| format!("Failed to serialize header: {}", e))?;
-                let mut hasher = Sha256::new();
-                hasher.update(header_json.as_bytes());
-                block.hash = format!("{:x}", hasher.finalize());
+                block.hash = block.calculate_hash();
 
                 // Add the block to the chain
                 match blockchain.add_block(block.clone()) {
