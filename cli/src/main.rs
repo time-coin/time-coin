@@ -273,77 +273,6 @@ async fn download_genesis_from_peers(
     Err("Could not download genesis from any peer".into())
 }
 
-async fn snapshot_sync(
-    peer_manager: &Arc<PeerManager>,
-) -> Result<time_network::Snapshot, Box<dyn std::error::Error>> {
-    println!(
-        "\n{}",
-        "⚡ FAST SYNC: Downloading network snapshot..."
-            .cyan()
-            .bold()
-    );
-    println!(
-        "{}",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black()
-    );
-
-    let peers = peer_manager.get_peer_ips().await;
-
-    if peers.is_empty() {
-        return Err("No peers available for snapshot sync".into());
-    }
-
-    for peer in peers.iter() {
-        println!("   📡 Requesting snapshot from {}...", peer.bright_black());
-
-        match peer_manager.request_snapshot(peer).await {
-            Ok(snapshot) => {
-                println!("{}", "   ✓ Snapshot downloaded!".green());
-                println!("     Height: {}", snapshot.height.to_string().yellow());
-                println!(
-                    "     Accounts: {}",
-                    snapshot.balances.len().to_string().yellow()
-                );
-                println!(
-                    "     Masternodes: {}",
-                    snapshot.masternodes.len().to_string().yellow()
-                );
-                println!(
-                    "     State Hash: {}...",
-                    snapshot.state_hash[..16].to_string().bright_blue()
-                );
-
-                // Verify snapshot integrity with deterministic serialization
-                let mut sorted_balances: Vec<_> = snapshot.balances.iter().collect();
-                sorted_balances.sort_by_key(|&(k, _)| k);
-                let mut sorted_masternodes = snapshot.masternodes.clone();
-                sorted_masternodes.sort();
-
-                let state_data = format!("{:?}{:?}", sorted_balances, sorted_masternodes);
-                let computed_hash = format!("{:x}", md5::compute(&state_data));
-
-                if computed_hash == snapshot.state_hash {
-                    println!("{}", "   ✓ Snapshot verified!".green());
-                } else {
-                    println!(
-                        "{}",
-                        "   ⚠ Snapshot hash mismatch, trying next peer...".yellow()
-                    );
-                    continue;
-                }
-
-                return Ok(snapshot);
-            }
-            Err(e) => {
-                println!("   ✗ Failed: {}", e.to_string().bright_black());
-                continue;
-            }
-        }
-    }
-
-    Err("Could not download valid snapshot from any peer".into())
-}
-
 /// Get local blockchain height from disk
 async fn get_local_height(blockchain: &Arc<RwLock<BlockchainState>>) -> u64 {
     let chain = blockchain.read().await;
@@ -1094,69 +1023,10 @@ async fn main() {
     // ═══════════════════════════════════════════════════════════════
 
     if needs_sync && !peer_manager.get_peer_ips().await.is_empty() {
-        if !cli.full_sync {
-            // Try FAST SYNC first
-            match snapshot_sync(&peer_manager).await {
-                Ok(snapshot) => {
-                    println!(
-                        "\n{}",
-                        "╔═══════════════════════════════════════════════════╗"
-                            .green()
-                            .bold()
-                    );
-                    println!(
-                        "{}",
-                        "║     ⚡ FAST SYNC COMPLETE                         ║"
-                            .green()
-                            .bold()
-                    );
-                    println!(
-                        "{}",
-                        "╚═══════════════════════════════════════════════════╝"
-                            .green()
-                            .bold()
-                    );
-                    println!(
-                        "  Synchronized to height: {}",
-                        snapshot.height.to_string().yellow().bold()
-                    );
-                    println!(
-                        "  Loaded {} account balances",
-                        snapshot.balances.len().to_string().yellow()
-                    );
-                    println!(
-                        "  Registered {} masternodes",
-                        snapshot.masternodes.len().to_string().yellow()
-                    );
-                    println!("  Sync time: <1 second {}", "⚡".green());
-                    println!(
-                        "{}",
-                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_black()
-                    );
-
-                    // TODO: Load the snapshot into the blockchain state
-                }
-                Err(e) => {
-                    println!("{} Fast sync failed: {}", "⚠".yellow(), e);
-                    println!("{}", "  Falling back to block-by-block sync...".cyan());
-
-                    // TODO: Implement block-by-block sync fallback
-                    println!(
-                        "{}",
-                        "  📚 Block-by-block sync not yet implemented".yellow()
-                    );
-                    println!("  {}", "Continuing with current state".bright_black());
-                }
-            }
-        } else {
-            // Full sync requested
-            println!(
-                "{}",
-                "📚 Full sync mode - downloading entire blockchain...".cyan()
-            );
-            // TODO: Implement full block-by-block sync
-            println!("{}", "  Block-by-block sync not yet implemented".yellow());
-        }
+        println!("{}", "📚 Downloading blockchain blocks...".cyan());
+        // TODO: Implement block-by-block sync
+        println!("{}", "  Block-by-block sync not yet implemented".yellow());
+        println!("  {}", "Continuing with current state".bright_black());
     } else if needs_sync {
         println!(
             "{}",

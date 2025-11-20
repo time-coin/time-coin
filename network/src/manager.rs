@@ -953,25 +953,9 @@ impl PeerManager {
 
         // Try TCP first
         let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
-            let mut conn = conn_arc.lock().await;
-
-            // Send request
-            conn.send_message(crate::protocol::NetworkMessage::GetSnapshot)
-                .await?;
-
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(30), conn.receive_message())
-                    .await??;
-
-            match response {
-                crate::protocol::NetworkMessage::Snapshot(json_str) => {
-                    let snapshot: Snapshot = serde_json::from_str(&json_str)?;
-                    return Ok(snapshot);
-                }
-                _ => return Err("Unexpected response type".into()),
-            }
+        if let Some(_conn_arc) = connections.get(&peer_ip) {
+            // Snapshot protocol removed - use HTTP API instead
+            return Err("Snapshot via TCP not supported - use HTTP API /snapshot endpoint".into());
         }
 
         Err("No TCP connection available".into())

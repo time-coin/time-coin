@@ -733,8 +733,6 @@ pub enum NetworkMessage {
         height: u64,
         best_block_hash: String,
     },
-    GetSnapshot,
-    Snapshot(String), // JSON serialized snapshot
     GetPeerList,
     PeerList(Vec<PeerAddress>),
 

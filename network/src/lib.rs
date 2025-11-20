@@ -13,7 +13,6 @@ pub use connection::PeerConnection;
 pub use connection::PeerListener;
 pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, SeedNodes};
 pub use manager::PeerManager;
-pub use manager::Snapshot;
 pub use message_auth::{AuthError, AuthenticatedMessage, NonceTracker};
 pub use protocol::{HandshakeMessage, ProtocolVersion, PROTOCOL_VERSION, VERSION};
 pub use protocol::{NetworkMessage, TransactionMessage, TransactionValidation};

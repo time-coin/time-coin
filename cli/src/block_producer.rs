@@ -313,46 +313,16 @@ impl BlockProducer {
             }
         }
 
-        // Wait for BFT consensus to stabilize
-        println!("   ▶️ Waiting for BFT consensus...");
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        // CRITICAL: Do NOT create historical blocks - only download from peers
+        // Historical blocks already exist on the network and should never be recreated
+        println!("   ⚠️  Could not download blocks from peers");
+        println!("   ℹ️  Historical blocks should only be downloaded, never recreated");
+        println!("   ℹ️  Will retry sync on next cycle");
 
-        // Recheck consensus mode after wait
-        let consensus_mode = self.consensus.consensus_mode().await;
-        if consensus_mode != time_consensus::ConsensusMode::BFT {
-            println!("   ⚠️ BFT not yet active, aborting catch-up");
-            return;
-        }
-
-        // Determine which node should create catch-up blocks
-        let masternodes = self.consensus.get_masternodes().await;
-        println!("   🔍 Masternode list: {:?}", masternodes);
-
-        // Create catch-up blocks
-        println!(
-            "   Processing with BFT consensus: {} missed block(s)...",
-            missing_blocks
-        );
-
-        for block_num in (actual_height + 1)..=expected_height {
-            let timestamp_date = genesis_date + chrono::Duration::days(block_num as i64);
-            let timestamp = Utc.from_utc_datetime(&timestamp_date.and_hms_opt(0, 0, 0).unwrap());
-
-            // Single attempt with improved consensus (fast-track + emergency fallback)
-            let success = self
-                .produce_catchup_block_with_bft_consensus(block_num, timestamp, &masternodes)
-                .await;
-
-            if success {
-                println!("   ✅ Block {} created successfully!", block_num);
-            } else {
-                println!("   ❌ Failed to create block {}", block_num);
-                println!("   ℹ️  Ensure all nodes are running and properly configured");
-                break;
-            }
-        }
-
-        println!("   ✔ Catch-up complete!");
+        // NOTE: The only time we should create blocks via catch-up consensus is:
+        // 1. We're at or past midnight UTC for a NEW block (not historical)
+        // 2. The block doesn't exist anywhere on the network yet
+        // This prevents nodes from creating competing versions of historical blocks
     }
 
     async fn create_and_propose_block(&self) {
@@ -1841,6 +1811,7 @@ impl BlockProducer {
         }
     }
 
+    #[allow(dead_code)]
     async fn notify_leader_to_produce_block(
         &self,
         leader_ip: &str,
@@ -1883,6 +1854,7 @@ impl BlockProducer {
 
     // --- finalize_catchup_block_with_rewards kept inside impl ---
 
+    #[allow(dead_code)]
     async fn finalize_catchup_block_with_rewards(
         &self,
         block_num: u64,
