@@ -1194,10 +1194,7 @@ async fn handle_wallet_command(
 
                 if response.status().is_success() {
                     let info: serde_json::Value = response.json().await?;
-                    info["wallet_address"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string()
+                    info["wallet_address"].as_str().unwrap_or("").to_string()
                 } else {
                     if json_output {
                         println!(
@@ -1255,7 +1252,7 @@ async fn handle_wallet_command(
                         .map(|arr| arr.len())
                         .unwrap_or(0);
                     let current_height = result["current_height"].as_u64().unwrap_or(0);
-                    
+
                     // Convert from smallest units to TIME (8 decimals)
                     let balance_time = balance as f64 / 100_000_000.0;
 

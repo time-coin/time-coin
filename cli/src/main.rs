@@ -1903,19 +1903,16 @@ fn load_or_create_wallet(data_dir: &str) -> Result<Wallet, Box<dyn std::error::E
 }
 
 /// Load and display wallet balance from database
-async fn load_wallet_balance(
-    wallet_address: &str,
-    blockchain: Arc<RwLock<BlockchainState>>,
-) {
+async fn load_wallet_balance(wallet_address: &str, blockchain: Arc<RwLock<BlockchainState>>) {
     let blockchain_read = blockchain.read().await;
-    
+
     // Try to load balance from database
     if let Ok(Some(balance)) = blockchain_read.db().load_wallet_balance(wallet_address) {
         let utxo_count = blockchain_read
             .utxo_set()
             .get_utxos_for_address(wallet_address)
             .len();
-        
+
         if balance > 0 {
             let balance_time = balance as f64 / 100_000_000.0;
             println!(
@@ -1926,29 +1923,36 @@ async fn load_wallet_balance(
             println!("ℹ️  Wallet has zero balance");
         }
     } else {
-        println!("ℹ️  No saved balance found - use 'time-cli wallet rescan' to sync from blockchain");
+        println!(
+            "ℹ️  No saved balance found - use 'time-cli wallet rescan' to sync from blockchain"
+        );
     }
 }
 
 /// Sync wallet balance from blockchain UTXO set and save to database
+/// Note: Currently unused - wallet balance sync handled by API handlers
+#[allow(dead_code)]
 async fn sync_wallet_balance(
     wallet_address: &str,
     blockchain: Arc<RwLock<BlockchainState>>,
 ) -> u64 {
     let blockchain_read = blockchain.read().await;
     let balance = blockchain_read.get_balance(wallet_address);
-    
+
     // Save balance to database
-    if let Err(e) = blockchain_read.db().save_wallet_balance(wallet_address, balance) {
+    if let Err(e) = blockchain_read
+        .db()
+        .save_wallet_balance(wallet_address, balance)
+    {
         eprintln!("⚠️  Failed to save wallet balance: {}", e);
     }
-    
+
     // Count UTXOs for logging
     let utxo_count = blockchain_read
         .utxo_set()
         .get_utxos_for_address(wallet_address)
         .len();
-    
+
     if balance > 0 {
         let balance_time = balance as f64 / 100_000_000.0;
         println!(
@@ -1956,10 +1960,13 @@ async fn sync_wallet_balance(
             balance_time, utxo_count
         );
     } else if utxo_count > 0 {
-        println!("ℹ️  Wallet has {} UTXOs but zero spendable balance", utxo_count);
+        println!(
+            "ℹ️  Wallet has {} UTXOs but zero spendable balance",
+            utxo_count
+        );
     } else {
         println!("ℹ️  No UTXOs found for wallet address");
     }
-    
+
     balance
 }

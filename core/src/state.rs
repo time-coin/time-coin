@@ -923,7 +923,7 @@ impl BlockchainState {
                 }
 
                 self.db.save_block(&block)?;
-                
+
                 // Save wallet balances for all addresses that received outputs in this block
                 let mut addresses_to_update = std::collections::HashSet::new();
                 for tx in &block.transactions {
@@ -934,7 +934,7 @@ impl BlockchainState {
                         }
                     }
                 }
-                
+
                 // Update balances for all affected addresses
                 for address in addresses_to_update {
                     let balance = self.utxo_set.get_balance(&address);
@@ -942,7 +942,7 @@ impl BlockchainState {
                         eprintln!("⚠️  Failed to save wallet balance for {}: {}", address, e);
                     }
                 }
-                
+
                 self.blocks_by_height
                     .insert(block.header.block_number, block.hash.clone());
                 self.chain_tip_height = block.header.block_number;

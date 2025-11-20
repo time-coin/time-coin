@@ -140,7 +140,7 @@ pub async fn sync_wallet_addresses(
         }
 
         utxos_by_address.insert(address.clone(), address_utxos);
-        
+
         // Note: Wallet balance persistence is handled by the wallet component
         // The blockchain state is temporary and will be recalculated on restart
     }
