@@ -245,18 +245,59 @@ impl ChainSync {
             return Err("No non-quarantined peers available for sync".to_string());
         }
 
-        // Find highest peer
-        let (best_peer, max_height, _) = filtered_peer_heights
+        // Find the longest valid chain by checking multiple peers
+        // Group peers by height to find consensus
+        let mut height_groups: std::collections::HashMap<u64, Vec<(&str, String)>> =
+            std::collections::HashMap::new();
+
+        for (peer_ip, height, hash) in &filtered_peer_heights {
+            height_groups
+                .entry(*height)
+                .or_insert_with(Vec::new)
+                .push((peer_ip.as_str(), hash.clone()));
+        }
+
+        // Find the highest height that has multiple peers agreeing
+        let best_height_and_peer = height_groups
             .iter()
-            .max_by_key(|(_, h, _)| h)
+            .filter(|(_, peers)| peers.len() >= 1) // At least one peer
+            .max_by_key(|(height, peers)| (*height, peers.len()))
+            .and_then(|(height, peers)| {
+                // Pick the peer with the most common hash at this height
+                let mut hash_counts: std::collections::HashMap<&str, usize> =
+                    std::collections::HashMap::new();
+                for (_, hash) in peers {
+                    *hash_counts.entry(hash.as_str()).or_insert(0) += 1;
+                }
+
+                hash_counts
+                    .iter()
+                    .max_by_key(|(_, count)| *count)
+                    .and_then(|(target_hash, _)| {
+                        // Find a peer with this hash
+                        peers
+                            .iter()
+                            .find(|(_, hash)| hash == target_hash)
+                            .map(|(peer, hash)| (*peer, *height, hash.clone()))
+                    })
+            })
             .ok_or("No valid peer heights")?;
+
+        let (best_peer, max_height, best_hash) = best_height_and_peer;
+
+        println!(
+            "   🎯 Selected longest chain: peer {} at height {} (hash: {}...)",
+            best_peer,
+            max_height,
+            &best_hash[..16]
+        );
 
         // Validate that the height is reasonable based on time elapsed
         let now = chrono::Utc::now().timestamp();
         let elapsed_days = (now - genesis_time) / 86400; // seconds per day
         let max_expected_height = elapsed_days as u64 + 10; // Allow some tolerance
 
-        if *max_height > max_expected_height {
+        if max_height > max_expected_height {
             println!(
                 "   ⚠️  Peer height {} exceeds expected maximum {} (based on time since genesis)",
                 max_height, max_expected_height
@@ -270,40 +311,17 @@ impl ChainSync {
                     .quarantine_peer(
                         peer_addr,
                         QuarantineReason::SuspiciousHeight {
-                            their_height: *max_height,
+                            their_height: max_height,
                             max_expected: max_expected_height,
                         },
                     )
                     .await;
             }
 
-            // Don't sync from this peer, find another
-            let valid_peers: Vec<_> = filtered_peer_heights
-                .iter()
-                .filter(|(_, h, _)| *h <= max_expected_height)
-                .collect();
-
-            if valid_peers.is_empty() {
-                return Err("No peers with valid height found".to_string());
-            }
-
-            let (best_peer, max_height, _) = valid_peers
-                .iter()
-                .max_by_key(|(_, h, _)| h)
-                .ok_or("No valid peer heights")?;
-
-            if *max_height <= our_height {
-                // Chain is up to date - message already printed in calling code
-                return Ok(0);
-            }
-
-            println!(
-                "   Using peer {} with validated height {}",
-                best_peer, max_height
-            );
+            return Err("Best peer has invalid height".to_string());
         }
 
-        if *max_height <= our_height {
+        if max_height <= our_height {
             // Chain is up to date - message already printed in calling code
             return Ok(0);
         }
@@ -320,7 +338,7 @@ impl ChainSync {
         let mut synced_blocks = 0;
 
         // Download and import missing blocks
-        for height in (our_height + 1)..=*max_height {
+        for height in (our_height + 1)..=max_height {
             println!("   📥 Downloading block {}...", height);
 
             if let Some(block) = self.download_block(best_peer, height).await {
