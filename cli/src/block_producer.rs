@@ -434,8 +434,10 @@ impl BlockProducer {
 
             if success {
                 println!("   ✅ Block {} created successfully!", block_num);
-                // Give network MORE time to settle and propagate
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                // Give network time to settle - add randomized delay to prevent all nodes rushing
+                let delay_secs = 10 + (block_num % 5); // 10-14 seconds
+                println!("   ⏸️  Waiting {}s before next block...", delay_secs);
+                tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
             } else {
                 println!("   ❌ Failed to create block {}", block_num);
                 println!("   ⏸️  Pausing catch-up - will retry on next cycle");
