@@ -345,11 +345,44 @@ impl BlockProducer {
         println!("   ✅ Block recreation enabled - creating blocks via BFT consensus");
         println!("   📝 This ensures complete blockchain from genesis to present");
 
-        // Wait for BFT consensus to stabilize
-        println!("   ▶️ Waiting for BFT consensus...");
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        // Wait and watch - see if other nodes are creating blocks
+        println!("   ▶️ Waiting 10s to observe network activity...");
+        tokio::time::sleep(Duration::from_secs(10)).await;
 
-        // Recheck consensus mode after wait
+        // Recheck - did we sync more blocks while waiting?
+        let current_height_after_wait = self.load_block_height().await;
+        if current_height_after_wait >= expected_height {
+            println!(
+                "   ✅ Blocks synced while waiting! Now at height {}",
+                current_height_after_wait
+            );
+            return;
+        }
+
+        // If we gained blocks, other nodes are working - wait longer
+        if current_height_after_wait > actual_height {
+            println!(
+                "   📊 Height increased from {} to {} - other nodes are building blocks",
+                actual_height, current_height_after_wait
+            );
+            println!("   ⏸️  Waiting for them to complete...");
+
+            // Watch for progress every 15 seconds, up to 2 minutes
+            for _ in 0..8 {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                let check_height = self.load_block_height().await;
+                println!("   📊 Current height: {}", check_height);
+
+                if check_height >= expected_height {
+                    println!("   ✅ Caught up to height {}!", check_height);
+                    return;
+                }
+            }
+
+            println!("   ⚠️  Still missing blocks after 2 minutes of waiting");
+        }
+
+        // Recheck consensus mode
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
             println!("   ⚠️ BFT not yet active, aborting catch-up");
@@ -361,14 +394,16 @@ impl BlockProducer {
         println!("   🔍 Masternode list: {:?}", masternodes);
 
         // Create catch-up blocks
+        let still_missing = expected_height - self.load_block_height().await;
         println!(
             "   Processing with BFT consensus: {} missed block(s)...",
-            missing_blocks
+            still_missing
         );
 
         // CRITICAL: Process blocks sequentially, ONE AT A TIME
         // Wait for each block to be fully consensus-accepted before starting the next
-        for block_num in (actual_height + 1)..=expected_height {
+        let start_from = self.load_block_height().await + 1;
+        for block_num in start_from..=expected_height {
             println!("\n╔═══════════════════════════════════════════════════════════╗");
             println!("║  BLOCK #{:<50} ║", block_num);
             println!("╚═══════════════════════════════════════════════════════════╝");
