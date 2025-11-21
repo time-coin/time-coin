@@ -176,12 +176,15 @@ impl ChainSync {
 
     /// Validate a block before importing
     fn validate_block(&self, block: &Block, expected_prev_hash: &str) -> Result<(), String> {
-        // Check previous hash matches
-        if block.header.previous_hash != expected_prev_hash {
-            return Err(format!(
-                "Invalid previous hash: expected {}, got {}",
-                expected_prev_hash, block.header.previous_hash
-            ));
+        // Skip previous hash check for genesis block (height 0)
+        if block.header.block_number > 0 {
+            // Check previous hash matches
+            if block.header.previous_hash != expected_prev_hash {
+                return Err(format!(
+                    "Invalid previous hash: expected {}, got {}",
+                    expected_prev_hash, block.header.previous_hash
+                ));
+            }
         }
 
         // Check hash is correctly calculated
@@ -210,13 +213,29 @@ impl ChainSync {
     pub async fn sync_from_peers(&self) -> Result<u64, String> {
         let (our_height, genesis_time) = {
             let blockchain = self.blockchain.read().await;
-            let genesis_block = blockchain
-                .get_block_by_height(0)
-                .ok_or("Genesis block not found")?;
-            (
-                blockchain.chain_tip_height(),
-                genesis_block.header.timestamp.timestamp(),
-            )
+
+            // Check if we have any blocks yet
+            if blockchain.chain_tip_height() == 0 && blockchain.genesis_hash().is_empty() {
+                // No blockchain yet - use a default time (October 12, 2025 as per original genesis)
+                // We'll download genesis from peers and it will have the actual timestamp
+                (
+                    0,
+                    chrono::NaiveDate::from_ymd_opt(2025, 10, 12)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap()
+                        .and_utc()
+                        .timestamp(),
+                )
+            } else {
+                let genesis_block = blockchain
+                    .get_block_by_height(0)
+                    .ok_or("Genesis block not found")?;
+                (
+                    blockchain.chain_tip_height(),
+                    genesis_block.header.timestamp.timestamp(),
+                )
+            }
         };
 
         // Query all peers (already filters quarantined peers)
@@ -326,26 +345,42 @@ impl ChainSync {
             return Ok(0);
         }
 
+        // Determine starting height: if we have no blocks, start from genesis (0)
+        let start_height = if our_height == 0 {
+            let blockchain = self.blockchain.read().await;
+            if blockchain.genesis_hash().is_empty() {
+                0 // No genesis yet, download from block 0
+            } else {
+                1 // We have genesis, start from block 1
+            }
+        } else {
+            our_height + 1
+        };
+
         println!(
             "   Peer {} has height {} (we have {})",
             best_peer, max_height, our_height
         );
         println!(
             "   Downloading {} missing blocks...",
-            max_height - our_height
+            max_height - start_height + 1
         );
 
         let mut synced_blocks = 0;
 
         // Download and import missing blocks
-        for height in (our_height + 1)..=max_height {
+        for height in start_height..=max_height {
             println!("   📥 Downloading block {}...", height);
 
             if let Some(block) = self.download_block(best_peer, height).await {
-                // Get expected previous hash
+                // Get expected previous hash (empty for genesis block)
                 let prev_hash = {
                     let blockchain = self.blockchain.read().await;
-                    blockchain.chain_tip_hash().to_string()
+                    if height == 0 {
+                        String::new() // Genesis has no previous hash requirement
+                    } else {
+                        blockchain.chain_tip_hash().to_string()
+                    }
                 };
 
                 // Validate block
@@ -458,6 +493,11 @@ impl ChainSync {
                 blockchain.genesis_hash().to_string(),
             )
         };
+
+        // If we have no genesis yet, we're starting fresh - skip fork detection
+        if our_genesis.is_empty() {
+            return Ok(());
+        }
 
         // Query all peers for their blocks at our current height
         let peer_heights = self.query_peer_heights().await;
