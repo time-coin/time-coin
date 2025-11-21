@@ -354,6 +354,34 @@ impl ChainSync {
         }
 
         if max_height <= our_height {
+            // Special case: if both are at height 0, check if we actually have genesis
+            if our_height == 0 && max_height == 0 {
+                let blockchain = self.blockchain.read().await;
+                let has_genesis = !blockchain.genesis_hash().is_empty();
+                drop(blockchain);
+
+                if !has_genesis {
+                    // We don't have genesis but peer does - download it
+                    println!("   📥 Downloading genesis block (block 0)...");
+
+                    if let Some(block) = self.download_block(best_peer, 0).await {
+                        let mut blockchain = self.blockchain.write().await;
+                        match blockchain.add_block(block) {
+                            Ok(()) => {
+                                println!("   ✓ Genesis block imported");
+                                return Ok(1);
+                            }
+                            Err(e) => {
+                                eprintln!("   ⚠️  Failed to import genesis: {}", e);
+                                return Err(format!("Failed to import genesis: {}", e));
+                            }
+                        }
+                    } else {
+                        return Err("Failed to download genesis block".to_string());
+                    }
+                }
+            }
+
             // Chain is up to date - message already printed in calling code
             return Ok(0);
         }
