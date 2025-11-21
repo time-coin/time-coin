@@ -403,21 +403,30 @@ impl ChainSync {
                                 );
 
                                 if is_coinbase_error {
-                                    // InvalidCoinbase: Don't quarantine, just log and skip
-                                    // This could be due to:
-                                    // - Different network rules (mainnet vs testnet coinbase acceptance)
-                                    // - Sync timing issues
-                                    // - Temporary network inconsistencies
-                                    // We discard this block and maintain network integrity
+                                    // InvalidCoinbase: This peer's chain is incompatible
+                                    // Quarantine and try a different peer
                                     println!(
-                                        "   ⚠️  Block {} has invalid coinbase - discarding block, not quarantining peer",
+                                        "   ⚠️  Block {} has invalid coinbase - peer has incompatible chain",
                                         height
                                     );
                                     println!("      Reason: {}", e);
-                                    println!("      Network integrity maintained - this block will not be added to chain");
-                                    // Skip this block and continue syncing
-                                    // The network will eventually reach consensus
-                                    continue;
+
+                                    if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
+                                        self.quarantine
+                                            .quarantine_peer(
+                                                peer_addr,
+                                                QuarantineReason::InvalidBlock {
+                                                    height,
+                                                    reason: format!("Invalid coinbase: {:?}", e),
+                                                },
+                                            )
+                                            .await;
+                                    }
+
+                                    return Err(format!(
+                                        "Block {} validation failed: Invalid coinbase (will retry with different peer)",
+                                        height
+                                    ));
                                 } else {
                                     // Other errors: Quarantine peer for sending block that failed to import
                                     if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
