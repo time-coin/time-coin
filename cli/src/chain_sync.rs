@@ -921,8 +921,33 @@ impl ChainSync {
                         // If so, the periodic sync will try again next interval
                     }
                     Err(e) => {
-                        println!("   ⚠️  Sync failed: {}", e);
-                        println!("   ℹ️  Will retry on next sync interval (5 minutes)");
+                        // Check if this is a fork-related error
+                        if e.contains("Fork detected") {
+                            println!("   ⚠️  {}", e);
+                            println!("   🔄 Re-running fork resolution...");
+                            if let Err(fork_err) = self.detect_and_resolve_forks().await {
+                                println!("   ⚠️  Fork resolution failed: {}", fork_err);
+                            } else {
+                                // Try sync again after fork resolution
+                                match self.sync_from_peers().await {
+                                    Ok(0) => {
+                                        println!("   ✓ Chain is up to date after fork resolution")
+                                    }
+                                    Ok(n) => {
+                                        println!("   ✓ Synced {} blocks after fork resolution", n)
+                                    }
+                                    Err(e2) => {
+                                        println!("   ⚠️  Sync failed: {}", e2);
+                                        println!(
+                                            "   ℹ️  Will retry on next sync interval (5 minutes)"
+                                        );
+                                    }
+                                }
+                            }
+                        } else {
+                            println!("   ⚠️  Sync failed: {}", e);
+                            println!("   ℹ️  Will retry on next sync interval (5 minutes)");
+                        }
                     }
                 }
             }

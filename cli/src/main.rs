@@ -807,7 +807,34 @@ async fn main() {
     match chain_sync.sync_from_peers().await {
         Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
         Ok(n) => println!("   {} Synced {} blocks", "✓".green(), n),
-        Err(e) => println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e),
+        Err(e) => {
+            // Check if this is a fork-related error
+            if e.contains("Fork detected") {
+                println!("   {} {}", "⚠️".yellow(), e);
+                println!("   {} Re-running fork resolution...", "🔄".yellow());
+                if let Err(fork_err) = chain_sync.detect_and_resolve_forks().await {
+                    println!("   {} Fork resolution failed: {}", "⚠️".yellow(), fork_err);
+                } else {
+                    // Try sync again after fork resolution
+                    match chain_sync.sync_from_peers().await {
+                        Ok(0) => println!(
+                            "   {}",
+                            "✓ Blockchain is up to date after fork resolution".green()
+                        ),
+                        Ok(n) => println!(
+                            "   {} Synced {} blocks after fork resolution",
+                            "✓".green(),
+                            n
+                        ),
+                        Err(e2) => {
+                            println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e2)
+                        }
+                    }
+                }
+            } else {
+                println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e);
+            }
+        }
     }
 
     // Start periodic sync
