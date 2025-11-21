@@ -405,7 +405,21 @@ impl ChainSync {
                         }
                     }
                     Err(validation_error) => {
-                        // Quarantine peer for sending invalid block
+                        // Check if this is a previous hash mismatch - indicates a fork
+                        if validation_error.contains("Invalid previous hash") {
+                            println!("   ⚠️  Previous hash mismatch detected - fork at height {}", height - 1);
+                            println!("      Will trigger fork resolution and retry sync");
+                            
+                            // Don't quarantine - this is a legitimate fork situation
+                            // The fork resolution process will handle it
+                            return Err(format!(
+                                "Fork detected at height {} - {}",
+                                height - 1,
+                                validation_error
+                            ));
+                        }
+                        
+                        // Other validation errors: Quarantine peer for sending invalid block
                         println!("   ✗ Block validation failed: {}", validation_error);
                         if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
                             self.quarantine

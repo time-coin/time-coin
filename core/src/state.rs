@@ -481,6 +481,124 @@ pub struct BlockchainState {
 }
 
 impl BlockchainState {
+    /// Create a new blockchain state, loading from disk or downloading from peers
+    /// If blockchain exists on disk, loads it. Otherwise waits for sync to download genesis and chain.
+    pub fn new_from_disk_or_sync(db_path: &str) -> Result<Self, StateError> {
+        let db = crate::db::BlockchainDB::open(db_path)?;
+        let existing_blocks = db.load_all_blocks()?;
+
+        if existing_blocks.is_empty() {
+            // No blockchain on disk - create empty state that will be populated by sync
+            eprintln!("📥 No blockchain found on disk - will download from peers");
+
+            let state = Self {
+                utxo_set: UTXOSet::new(),
+                blocks: HashMap::new(),
+                blocks_by_height: HashMap::new(),
+                chain_tip_height: 0,
+                chain_tip_hash: String::new(), // Will be set when genesis is downloaded
+                masternodes: HashMap::new(),
+                masternode_counts: MasternodeCounts {
+                    free: 0,
+                    bronze: 0,
+                    silver: 0,
+                    gold: 0,
+                },
+                genesis_hash: String::new(), // Will be set when genesis is downloaded
+                db,
+                invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
+                treasury: Treasury::new(),
+            };
+
+            return Ok(state);
+        }
+
+        // Load existing blockchain from disk
+        eprintln!("🔍 Loading blockchain from disk...");
+        let validation_start = std::time::Instant::now();
+
+        // Validate the entire chain
+        match Self::validate_blockchain_integrity(&existing_blocks) {
+            Ok(()) => {
+                eprintln!(
+                    "✅ Blockchain validation passed ({} blocks verified in {:?})",
+                    existing_blocks.len(),
+                    validation_start.elapsed()
+                );
+
+                let genesis = &existing_blocks[0];
+                let mut state = Self {
+                    utxo_set: UTXOSet::new(),
+                    blocks: HashMap::new(),
+                    blocks_by_height: HashMap::new(),
+                    chain_tip_height: 0,
+                    chain_tip_hash: genesis.hash.clone(),
+                    masternodes: HashMap::new(),
+                    masternode_counts: MasternodeCounts {
+                        free: 0,
+                        bronze: 0,
+                        silver: 0,
+                        gold: 0,
+                    },
+                    genesis_hash: genesis.hash.clone(),
+                    db,
+                    invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
+                    treasury: Treasury::new(),
+                };
+
+                // Apply validated blocks to state
+                for block in existing_blocks {
+                    for tx in &block.transactions {
+                        state.utxo_set.apply_transaction(tx)?;
+                    }
+                    state.chain_tip_height = block.header.block_number;
+                    state.chain_tip_hash = block.hash.clone();
+                    state.blocks.insert(block.hash.clone(), block.clone());
+                    state
+                        .blocks_by_height
+                        .insert(block.header.block_number, block.hash.clone());
+                }
+
+                eprintln!(
+                    "✅ Blockchain ready: {} blocks (genesis: {}...)",
+                    state.blocks.len(),
+                    &state.genesis_hash[..16]
+                );
+
+                Ok(state)
+            }
+            Err(e) => {
+                eprintln!("❌ Blockchain validation failed: {}", e);
+                eprintln!("   Clearing corrupted blockchain - will re-download from peers");
+
+                // Clear corrupted data
+                db.clear_all()?;
+
+                // Return empty state that will be populated by sync
+                let state = Self {
+                    utxo_set: UTXOSet::new(),
+                    blocks: HashMap::new(),
+                    blocks_by_height: HashMap::new(),
+                    chain_tip_height: 0,
+                    chain_tip_hash: String::new(),
+                    masternodes: HashMap::new(),
+                    masternode_counts: MasternodeCounts {
+                        free: 0,
+                        bronze: 0,
+                        silver: 0,
+                        gold: 0,
+                    },
+                    genesis_hash: String::new(),
+                    db,
+                    invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
+                    treasury: Treasury::new(),
+                };
+
+                Ok(state)
+            }
+        }
+    }
+
     /// Create a new blockchain state with genesis block
     pub fn new(genesis_block: Block, db_path: &str) -> Result<Self, StateError> {
         let db = crate::db::BlockchainDB::open(db_path)?;
@@ -797,9 +915,32 @@ impl BlockchainState {
             return Err(StateError::DuplicateBlock);
         }
         block.validate_structure()?;
+
+        // Special handling for genesis block when starting from empty chain
         if block.header.block_number == 0 {
-            return Err(StateError::InvalidBlockHeight);
+            if !self.blocks.is_empty() {
+                return Err(StateError::InvalidBlockHeight);
+            }
+
+            // This is genesis block for an empty chain - initialize it
+            for tx in &block.transactions {
+                self.utxo_set.apply_transaction(tx)?;
+            }
+
+            self.genesis_hash = block.hash.clone();
+            self.chain_tip_hash = block.hash.clone();
+            self.chain_tip_height = 0;
+            self.blocks.insert(block.hash.clone(), block.clone());
+            self.blocks_by_height.insert(0, block.hash.clone());
+            self.db.save_block(&block)?;
+
+            eprintln!(
+                "✅ Genesis block downloaded and initialized: {}...",
+                &block.hash[..16]
+            );
+            return Ok(());
         }
+
         if !self.has_block(&block.header.previous_hash) {
             return Err(StateError::OrphanBlock);
         }

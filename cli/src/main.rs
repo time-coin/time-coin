@@ -23,8 +23,6 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_core::block::Block;
-
 use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
 
 use time_consensus::ConsensusEngine;
@@ -95,8 +93,6 @@ struct NodeConfig {
 
 #[derive(Debug, Deserialize, Default)]
 struct BlockchainConfig {
-    genesis_file: Option<String>,
-
     #[allow(dead_code)]
     data_dir: Option<String>,
 
@@ -133,29 +129,10 @@ struct SyncConfig {
     midnight_window_check_consensus: Option<bool>,
 }
 
-/// Genesis file structure
-#[derive(Debug, Deserialize)]
-struct GenesisFile {
-    #[allow(dead_code)]
-    network: String,
-    #[allow(dead_code)]
-    version: u32,
-    #[allow(dead_code)]
-    #[serde(default)]
-    message: String,
-    block: Block,
-}
-
 fn load_config(path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
     let contents = std::fs::read_to_string(path)?;
     let config: Config = toml::from_str(&contents)?;
     Ok(config)
-}
-
-fn load_genesis(path: &str) -> Result<GenesisFile, Box<dyn std::error::Error>> {
-    let contents = std::fs::read_to_string(path)?;
-    let genesis: GenesisFile = serde_json::from_str(&contents)?;
-    Ok(genesis)
 }
 
 fn expand_path(path: &str) -> String {
@@ -174,107 +151,7 @@ fn ensure_data_directories(base_dir: &str) -> Result<(), Box<dyn std::error::Err
     fs::create_dir_all(format!("{}/wallets", base_dir))?;
     fs::create_dir_all(format!("{}/logs", base_dir))?;
 
-    println!("✓ Data directories verified: {}", base_dir);
-
     Ok(())
-}
-
-fn display_genesis(genesis: &GenesisFile) {
-    println!(
-        "✓ Genesis block loaded ({})",
-        genesis.block.hash[..16].to_string().bright_blue()
-    );
-
-    println!();
-}
-
-async fn download_genesis_from_url(
-    url: &str,
-    genesis_path: &str,
-    network: &str,
-) -> Result<GenesisFile, Box<dyn std::error::Error>> {
-    println!("   Trying {}...", url.bright_black());
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
-
-    let response = client.get(url).send().await?;
-
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()).into());
-    }
-
-    let genesis_json = response.text().await?;
-    let genesis_file: GenesisFile = serde_json::from_str(&genesis_json)?;
-
-    // Verify network matches
-    if genesis_file.network != network {
-        return Err(format!(
-            "Network mismatch: expected {}, got {}",
-            network, genesis_file.network
-        )
-        .into());
-    }
-
-    // Save to disk
-    let genesis_dir = std::path::Path::new(genesis_path)
-        .parent()
-        .ok_or("Invalid genesis path")?;
-    std::fs::create_dir_all(genesis_dir)?;
-    std::fs::write(genesis_path, genesis_json)?;
-
-    println!("{}", "   ✓ Genesis downloaded successfully!".green());
-    println!("   ✓ Saved to: {}", genesis_path.bright_black());
-
-    Ok(genesis_file)
-}
-
-async fn download_genesis_from_peers(
-    peer_manager: &Arc<PeerManager>,
-    genesis_path: &str,
-) -> Result<GenesisFile, Box<dyn std::error::Error>> {
-    println!("{}", "📥 Genesis block not found locally".yellow());
-    println!(
-        "{}",
-        "   Attempting to download from network...".bright_black()
-    );
-
-    let peers = peer_manager.get_peer_ips().await;
-
-    if peers.is_empty() {
-        return Err("No peers available to download genesis from".into());
-    }
-
-    for peer in peers.iter() {
-        println!("   Trying {}...", peer.bright_black());
-
-        match peer_manager.request_genesis(peer).await {
-            Ok(genesis) => {
-                println!("{}", "   ✓ Genesis downloaded successfully!".green());
-
-                let genesis_dir = std::path::Path::new(genesis_path)
-                    .parent()
-                    .ok_or("Invalid genesis path")?;
-                std::fs::create_dir_all(genesis_dir)?;
-
-                let genesis_json = serde_json::to_string_pretty(&genesis)?;
-                std::fs::write(genesis_path, genesis_json)?;
-
-                println!("   ✓ Saved to: {}", genesis_path.bright_black());
-
-                // Parse the downloaded genesis into our structure
-                let genesis_file: GenesisFile = serde_json::from_value(genesis)?;
-                return Ok(genesis_file);
-            }
-            Err(e) => {
-                println!("   ✗ Failed: {}", e.to_string().bright_black());
-                continue;
-            }
-        }
-    }
-
-    Err("Could not download genesis from any peer".into())
 }
 
 /// Get local blockchain height from disk
@@ -651,51 +528,8 @@ async fn main() {
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 1: Load blockchain from disk (or genesis if first run)
+    // STEP 1: Get data directory and ensure it exists
     // ═══════════════════════════════════════════════════════════════
-
-    // Get genesis path from config
-    let genesis_path = config
-        .blockchain
-        .genesis_file
-        .as_ref()
-        .map(|p| expand_path(p))
-        .unwrap_or_else(|| {
-            // Make genesis file selection network-aware
-            let network = config.node.network.as_deref().unwrap_or("testnet");
-            let genesis_filename = format!("genesis-{}.json", network);
-            format!("/root/time-coin-node/config/{}", genesis_filename)
-        });
-
-    std::env::set_var("GENESIS_PATH", &genesis_path);
-
-    // Try to load genesis block
-    let _genesis = match load_genesis(&genesis_path) {
-        Ok(g) => {
-            display_genesis(&g);
-
-            // Verify the genesis block hash matches what's calculated
-            let calculated_hash = g.block.calculate_hash();
-            if calculated_hash != g.block.hash {
-                println!("{}", "⚠ Warning: Genesis block hash mismatch!".yellow());
-                println!("  Expected: {}", g.block.hash);
-                println!("  Calculated: {}", calculated_hash);
-                println!("  Using hash from file (ensure all nodes use same genesis file)");
-            } else {
-                println!("{}", "✓ Genesis block hash verified".green());
-            }
-
-            Some(g)
-        }
-        Err(_) => {
-            println!("{}", "⚠ Genesis block not found locally".yellow());
-            println!(
-                "{}",
-                "  Will attempt to download from peers after connection".bright_black()
-            );
-            None
-        }
-    };
 
     // Get data directory from config or use default
     let data_dir = config
@@ -712,6 +546,10 @@ async fn main() {
         std::process::exit(1);
     }
 
+    println!(
+        "{}",
+        format!("✓ Data directories verified: {}", data_dir).green()
+    );
     println!("{}\n", format!("Data Directory: {}", data_dir).cyan());
 
     // ═══════════════════════════════════════════════════════════════
@@ -879,125 +717,13 @@ async fn main() {
         }
     }
 
-    // Download genesis if we didn't have it
-    let mut _genesis = _genesis;
-    if _genesis.is_none() {
-        // First try downloading from connected peers
-        if !peer_manager.get_peer_ips().await.is_empty() {
-            match download_genesis_from_peers(&peer_manager, &genesis_path).await {
-                Ok(g) => {
-                    display_genesis(&g);
-                    println!("{}", "✓ Genesis block downloaded and verified".green());
-                    _genesis = Some(g);
-                }
-                Err(e) => {
-                    println!("{}", format!("⚠ Peer download failed: {}", e).yellow());
-                }
-            }
-        }
-
-        // If still no genesis, try downloading from repository URL as fallback
-        if _genesis.is_none() {
-            println!(
-                "{}",
-                "📥 Attempting to download genesis from repository...".yellow()
-            );
-
-            let network = config.node.network.as_deref().unwrap_or("testnet");
-
-            // Try multiple sources
-            let genesis_urls = [
-                format!(
-                    "https://raw.githubusercontent.com/timechain-network/time-coin/main/config/genesis-{}.json",
-                    network
-                ),
-                format!(
-                    "https://time-coin.io/genesis/genesis-{}.json",
-                    network
-                ),
-            ];
-
-            let mut download_succeeded = false;
-            for genesis_url in genesis_urls.iter() {
-                match download_genesis_from_url(genesis_url, &genesis_path, network).await {
-                    Ok(g) => {
-                        display_genesis(&g);
-                        println!("{}", "✓ Genesis block downloaded from repository".green());
-                        _genesis = Some(g);
-                        download_succeeded = true;
-                        break;
-                    }
-                    Err(e) => {
-                        println!(
-                            "   ✗ {}: {}",
-                            genesis_url.bright_black(),
-                            e.to_string().bright_black()
-                        );
-                    }
-                }
-            }
-
-            if !download_succeeded {
-                eprintln!("\n{}", "❌ Failed to obtain genesis block".red().bold());
-                eprintln!("   All download sources failed");
-                eprintln!(
-                    "\n{}",
-                    "Genesis block is required to start the node.".yellow()
-                );
-                eprintln!("   Genesis file: {}", genesis_path);
-                eprintln!("\n{}", "Solutions:".yellow().bold());
-                eprintln!("   1. Place genesis file at the specified path");
-                eprintln!("   2. Ensure network connectivity for automatic download");
-                eprintln!("   3. Contact support if issue persists");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    // Ensure we have a genesis block at this point
-    let genesis_block = if let Some(ref genesis) = _genesis {
-        // Use the block directly from the genesis file to preserve timestamp and hash
-        genesis.block.clone()
-    } else {
-        // This should not happen as we exit above if all downloads fail
-        eprintln!(
-            "\n{}",
-            "❌ Unexpected error: Genesis block still not available"
-                .red()
-                .bold()
-        );
-        std::process::exit(1);
-    };
-
-    // Validate genesis block structure before proceeding
-    if let Err(e) = genesis_block.validate_structure() {
-        eprintln!("{}", "❌ Genesis block validation failed!".red().bold());
-        eprintln!("   Error: {}", e);
-        eprintln!(
-            "   Transactions count: {}",
-            genesis_block.transactions.len()
-        );
-        if genesis_block.transactions.is_empty() {
-            eprintln!("\n{}", "⚠ The genesis block has no transactions!".yellow());
-            eprintln!("   This usually indicates:");
-            eprintln!("   1. A corrupted genesis JSON file ({})", genesis_path);
-            eprintln!("   2. An incompatible genesis file format");
-            eprintln!("\n   Solutions:");
-            eprintln!("   - Verify the genesis file has a valid 'transactions' array");
-            eprintln!("   - Re-download a valid genesis file from the repository");
-        }
-        std::process::exit(1);
-    }
-
-    println!("{}", "✅ Genesis block structure validated".green());
-
     // ═══════════════════════════════════════════════════════════════
-    // Initialize blockchain state with validated genesis block
+    // STEP 3: Initialize blockchain state (load from disk or prepare for sync)
     // ═══════════════════════════════════════════════════════════════
 
     let blockchain = Arc::new(RwLock::new(
-        BlockchainState::new(genesis_block, &format!("{}/blockchain", data_dir))
-            .expect("Failed to create blockchain state"),
+        BlockchainState::new_from_disk_or_sync(&format!("{}/blockchain", data_dir))
+            .expect("Failed to initialize blockchain state"),
     ));
 
     let local_height = get_local_height(&blockchain).await;
@@ -1007,7 +733,7 @@ async fn main() {
     );
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 3: Check if we need to sync
+    // STEP 4: Check if we need to sync
     // ═══════════════════════════════════════════════════════════════
 
     let network_height = get_network_height(&peer_manager).await;
@@ -1016,14 +742,14 @@ async fn main() {
             "{}",
             format!("📊 Network blockchain height: {}", net_height).cyan()
         );
-        net_height > local_height
+        net_height > local_height || local_height == 0
     } else {
-        // If we can't determine network height, assume we might need sync if we have peers
+        // If we can't determine network height, assume we need sync if we have peers and no blocks
         !peer_manager.get_peer_ips().await.is_empty() && local_height == 0
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 4: Synchronize blockchain if needed
+    // STEP 5: Synchronize blockchain if needed
     // ═══════════════════════════════════════════════════════════════
 
     if needs_sync && !peer_manager.get_peer_ips().await.is_empty() {
@@ -1043,7 +769,7 @@ async fn main() {
     println!("\n{}", "✓ Blockchain initialized".green());
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 4.5: Initialize Chain Sync
+    // STEP 6: Initialize Chain Sync
     // ═══════════════════════════════════════════════════════════════
 
     // Create shared state for block producer activity

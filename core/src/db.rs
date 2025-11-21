@@ -13,7 +13,13 @@ impl BlockchainDB {
     /// Open or create the database
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StateError> {
         let path_str = path.as_ref().to_string_lossy().to_string();
-        let db = sled::open(&path)
+
+        // Configure sled for maximum durability to ensure blocks persist across reboots
+        let db = sled::Config::new()
+            .path(&path)
+            .mode(sled::Mode::HighThroughput) // Balances performance with durability
+            .flush_every_ms(Some(1000)) // Flush to disk every second
+            .open()
             .map_err(|e| StateError::IoError(format!("Failed to open database: {}", e)))?;
 
         Ok(BlockchainDB { db, path: path_str })
@@ -34,7 +40,7 @@ impl BlockchainDB {
             .insert(key.as_bytes(), value)
             .map_err(|e| StateError::IoError(format!("Failed to save block: {}", e)))?;
 
-        // Flush to disk to ensure durability - critical for persistence after reboot
+        // Flush to disk and fsync to ensure durability across reboots
         self.db
             .flush()
             .map_err(|e| StateError::IoError(format!("Failed to flush block to disk: {}", e)))?;
