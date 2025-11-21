@@ -142,14 +142,29 @@ struct WalletApp {
 
 impl Default for WalletApp {
     fn default() -> Self {
-        // Don't initialize wallet database here - it will be opened when wallet is loaded
-        // to avoid lock conflicts with WalletManager's database
+        // Load config to determine network
+        let config = Config::load().unwrap_or_default();
+        let network = if config.network == "mainnet" {
+            NetworkType::Mainnet
+        } else {
+            NetworkType::Testnet
+        };
 
-        Self {
-            current_screen: Screen::Welcome,
+        // Check if wallet exists for this network
+        let wallet_exists = WalletManager::exists(network);
+
+        // Start on Overview if wallet exists, otherwise show Welcome screen
+        let initial_screen = if wallet_exists {
+            Screen::Overview
+        } else {
+            Screen::Welcome
+        };
+
+        let mut app = Self {
+            current_screen: initial_screen,
             wallet_manager: None,
             wallet_db: None,
-            network: NetworkType::Testnet,
+            network,
             password: String::new(),
             error_message: None,
             error_message_time: None,
@@ -175,8 +190,6 @@ impl Default for WalletApp {
             network_status: "Not connected".to_string(),
             peer_manager: None,
             protocol_client: None,
-            // notification_rx: None, // Removed - WebSocket notifications
-            // recent_notifications: Vec::new(), // Removed - WebSocket notifications
             mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
             selected_address: None,
@@ -187,11 +200,132 @@ impl Default for WalletApp {
             address_search: String::new(),
             show_qr_for_address: None,
             is_creating_new_address: false,
+        };
+
+        // If wallet exists, auto-load it
+        if wallet_exists {
+            app.auto_load_wallet();
         }
+
+        app
     }
 }
 
 impl WalletApp {
+    /// Auto-load wallet on startup (without UI context)
+    fn auto_load_wallet(&mut self) {
+        match WalletManager::load(self.network) {
+            Ok(mut manager) => {
+                // IMPORTANT: Set UI network to match the loaded wallet's network
+                self.network = manager.network();
+
+                // Initialize wallet database
+                if let Ok(main_config) = Config::load() {
+                    let wallet_dir = main_config.wallet_dir();
+                    let db_path = wallet_dir.join("wallet.db");
+                    match WalletDb::open(&db_path) {
+                        Ok(db) => {
+                            // Sync address index with database
+                            if let Ok(owned_addresses) = db.get_owned_addresses() {
+                                if let Some(max_index) = owned_addresses
+                                    .iter()
+                                    .filter_map(|a| a.derivation_index)
+                                    .max()
+                                {
+                                    manager.sync_address_index(max_index);
+                                    log::info!("Synced address index to {}", max_index + 1);
+                                }
+                            }
+                            self.wallet_db = Some(db);
+                            log::info!("Wallet database initialized");
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to open wallet database: {}", e);
+                        }
+                    }
+
+                    // Initialize peer manager
+                    let peer_mgr = Arc::new(PeerManager::new(self.network));
+                    if let Some(db) = &self.wallet_db {
+                        let db_clone = db.clone();
+                        let peer_mgr_clone = peer_mgr.clone();
+                        tokio::spawn(async move {
+                            peer_mgr_clone.set_wallet_db(db_clone).await;
+                        });
+                    }
+                    self.peer_manager = Some(peer_mgr.clone());
+
+                    // Initialize network manager
+                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
+                        main_config.api_endpoint.clone(),
+                    )));
+                    self.network_manager = Some(network_mgr.clone());
+                    self.network_status = "Connecting...".to_string();
+
+                    // Spawn network bootstrap task
+                    let bootstrap_nodes = main_config.bootstrap_nodes.clone();
+                    let addnodes = main_config.addnode.clone();
+                    let api_endpoint_str = main_config.api_endpoint.clone();
+
+                    tokio::spawn(async move {
+                        let db_peer_count = peer_mgr.peer_count().await;
+                        log::info!("📂 Found {} peers in database", db_peer_count);
+
+                        if !addnodes.is_empty() {
+                            log::info!("📝 Adding {} nodes from config", addnodes.len());
+                            for node in addnodes {
+                                let (ip, port) = if let Some((ip, port_str)) = node.split_once(':')
+                                {
+                                    (ip.to_string(), port_str.parse().unwrap_or(24100))
+                                } else {
+                                    (node.clone(), 24100)
+                                };
+                                peer_mgr.add_peer(ip, port).await;
+                            }
+                        }
+
+                        let total_peer_count = peer_mgr.peer_count().await;
+                        if total_peer_count == 0 {
+                            log::info!(
+                                "🌐 No peers found, fetching from API: {}",
+                                api_endpoint_str
+                            );
+                            if let Ok(client) = reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(10))
+                                .build()
+                            {
+                                if let Ok(response) = client.get(&api_endpoint_str).send().await {
+                                    if let Ok(peers) = response.json::<Vec<String>>().await {
+                                        log::info!("✓ Fetched {} peers from API", peers.len());
+                                        for peer_str in peers {
+                                            let (ip, port) = if let Some((ip, port_str)) =
+                                                peer_str.split_once(':')
+                                            {
+                                                (ip.to_string(), port_str.parse().unwrap_or(24100))
+                                            } else {
+                                                (peer_str, 24100)
+                                            };
+                                            peer_mgr.add_peer(ip, port).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+
+                self.wallet_manager = Some(manager);
+                log::info!("Wallet auto-loaded successfully");
+            }
+            Err(e) => {
+                log::error!("Failed to auto-load wallet: {}", e);
+                self.error_message = Some(format!("Failed to load wallet: {}", e));
+                self.error_message_time = Some(std::time::Instant::now());
+                self.current_screen = Screen::Welcome;
+            }
+        }
+    }
+
     fn show_welcome_screen(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
@@ -511,6 +645,15 @@ impl WalletApp {
                     ui.add_space(20.0);
 
                     if ui.button(egui::RichText::new("Create Wallet").size(16.0)).clicked() {
+                        // Save network selection to config before creating wallet
+                        if let Ok(mut config) = Config::load() {
+                            let network_str = match self.network {
+                                NetworkType::Mainnet => "mainnet",
+                                NetworkType::Testnet => "testnet",
+                            };
+                            let _ = config.set_network(network_str);
+                        }
+                        
                         // Transition to mnemonic setup screen
                         self.current_screen = Screen::MnemonicSetup;
                         self.mnemonic_interface = MnemonicInterface::new();

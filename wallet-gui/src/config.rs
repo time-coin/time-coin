@@ -120,4 +120,10 @@ impl Config {
         };
         self.data_dir.join(network_dir)
     }
+
+    /// Set network and save config
+    pub fn set_network(&mut self, network: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.network = network.to_string();
+        self.save()
+    }
 }

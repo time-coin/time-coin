@@ -367,7 +367,6 @@ pub mod error;
 pub mod heartbeat;
 pub mod node;
 pub mod reputation;
-pub mod selection;
 pub mod utxo_integration;
 pub mod utxo_tracker;
 pub mod voting;

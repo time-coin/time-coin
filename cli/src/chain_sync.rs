@@ -531,7 +531,9 @@ impl ChainSync {
     }
 
     /// Detect and resolve blockchain forks
-    pub async fn detect_and_resolve_forks(&self) -> Result<(), String> {
+    /// Returns Ok(true) if rollback occurred (caller should skip sync)
+    /// Returns Ok(false) if fork resolved normally
+    pub async fn detect_and_resolve_forks(&self) -> Result<bool, String> {
         let (our_height, our_genesis) = {
             let blockchain = self.blockchain.read().await;
             (
@@ -542,14 +544,14 @@ impl ChainSync {
 
         // If we have no genesis yet, we're starting fresh - skip fork detection
         if our_genesis.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         // Query all peers for their blocks at our current height
         let peer_heights = self.query_peer_heights().await;
 
         if peer_heights.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         // Check for genesis block mismatches first
@@ -627,7 +629,7 @@ impl ChainSync {
         }
 
         if competing_blocks.is_empty() {
-            return Ok(()); // No fork detected
+            return Ok(false); // No fork detected
         }
 
         println!("\n⚠️  FORK DETECTED at height {}!", our_height);
@@ -729,7 +731,7 @@ impl ChainSync {
                         .await?;
 
                     println!("   ✓ Fork resolved - now on longest chain");
-                    return Ok(());
+                    return Ok(false); // Fork resolved, continue with sync
                 }
             }
 
@@ -756,7 +758,8 @@ impl ChainSync {
                         println!(
                             "   ℹ️  The block producer will recreate missing blocks on next cycle"
                         );
-                        return Ok(());
+                        println!("   🚫 Skipping sync to prevent re-downloading bad blocks");
+                        return Ok(true); // Rollback occurred, skip sync
                     }
                     Err(e) => {
                         println!("   ❌ Rollback failed: {:?}", e);
@@ -791,7 +794,7 @@ impl ChainSync {
             println!("   ✓ Our block won - no action needed");
         }
 
-        Ok(())
+        Ok(false) // Fork resolved, continue with sync
     }
 
     /// Select the winning block from competing blocks
@@ -1028,8 +1031,18 @@ impl ChainSync {
                 println!("\n🔄 Running periodic chain sync...");
 
                 // First check for forks
-                if let Err(e) = self.detect_and_resolve_forks().await {
-                    println!("   ⚠️  Fork detection failed: {}", e);
+                let rollback_occurred = match self.detect_and_resolve_forks().await {
+                    Ok(rollback) => rollback,
+                    Err(e) => {
+                        println!("   ⚠️  Fork detection failed: {}", e);
+                        false
+                    }
+                };
+
+                // Skip sync if rollback occurred (let block recreation handle it)
+                if rollback_occurred {
+                    println!("   ⏭️  Skipping sync after rollback - waiting for block recreation");
+                    continue;
                 }
 
                 // Then sync missing blocks
@@ -1047,23 +1060,35 @@ impl ChainSync {
                         if e.contains("Fork detected") {
                             println!("   ⚠️  {}", e);
                             println!("   🔄 Re-running fork resolution...");
-                            if let Err(fork_err) = self.detect_and_resolve_forks().await {
-                                println!("   ⚠️  Fork resolution failed: {}", fork_err);
-                            } else {
-                                // Try sync again after fork resolution
-                                match self.sync_from_peers().await {
-                                    Ok(0) => {
-                                        println!("   ✓ Chain is up to date after fork resolution")
+                            match self.detect_and_resolve_forks().await {
+                                Ok(true) => {
+                                    // Rollback occurred, skip sync
+                                    println!("   ⏭️  Rollback completed - skipping sync");
+                                }
+                                Ok(false) => {
+                                    // Fork resolved, try sync again
+                                    match self.sync_from_peers().await {
+                                        Ok(0) => {
+                                            println!(
+                                                "   ✓ Chain is up to date after fork resolution"
+                                            )
+                                        }
+                                        Ok(n) => {
+                                            println!(
+                                                "   ✓ Synced {} blocks after fork resolution",
+                                                n
+                                            )
+                                        }
+                                        Err(e2) => {
+                                            println!("   ⚠️  Sync failed: {}", e2);
+                                            println!(
+                                                "   ℹ️  Will retry on next sync interval (5 minutes)"
+                                            );
+                                        }
                                     }
-                                    Ok(n) => {
-                                        println!("   ✓ Synced {} blocks after fork resolution", n)
-                                    }
-                                    Err(e2) => {
-                                        println!("   ⚠️  Sync failed: {}", e2);
-                                        println!(
-                                            "   ℹ️  Will retry on next sync interval (5 minutes)"
-                                        );
-                                    }
+                                }
+                                Err(fork_err) => {
+                                    println!("   ⚠️  Fork resolution failed: {}", fork_err);
                                 }
                             }
                         } else {
