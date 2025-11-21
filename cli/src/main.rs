@@ -796,6 +796,19 @@ async fn main() {
     // Get quarantine reference for API and monitoring
     let quarantine = chain_sync.quarantine();
 
+    // If blockchain is empty (only genesis or nothing), clear quarantine to allow fresh downloads
+    {
+        let blockchain_read = blockchain.read().await;
+        if blockchain_read.chain_tip_height() == 0 && blockchain_read.genesis_hash().is_empty() {
+            println!(
+                "{}",
+                "   🔄 Empty blockchain detected - clearing peer quarantine for fresh start"
+                    .bright_black()
+            );
+            quarantine.clear_all().await;
+        }
+    }
+
     // Run initial sync
     // Check for forks first
     println!("{}", "🔍 Checking for blockchain forks...".cyan());

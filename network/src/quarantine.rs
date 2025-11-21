@@ -416,6 +416,16 @@ impl PeerQuarantine {
         }
     }
 
+    /// Clear all quarantined peers (useful for fresh starts after blockchain reset)
+    pub async fn clear_all(&self) {
+        let mut quarantined = self.quarantined.write().await;
+        let count = quarantined.len();
+        quarantined.clear();
+        if count > 0 {
+            info!("🔓 Cleared {} peer(s) from quarantine", count);
+        }
+    }
+
     /// Get all quarantined peers
     pub async fn get_quarantined_peers(&self) -> Vec<QuarantineEntry> {
         let quarantined = self.quarantined.read().await;

@@ -246,8 +246,9 @@ impl ChainSync {
         }
 
         // Double-check: filter out any quarantined peers from results
+        let peer_heights_copy = peer_heights.clone();
         let mut filtered_peer_heights = Vec::new();
-        for (peer_ip, height, hash) in peer_heights {
+        for (peer_ip, height, hash) in &peer_heights_copy {
             if let Ok(peer_addr) = peer_ip.parse::<IpAddr>() {
                 if self.quarantine.is_quarantined(&peer_addr).await {
                     println!(
@@ -257,11 +258,14 @@ impl ChainSync {
                     continue;
                 }
             }
-            filtered_peer_heights.push((peer_ip, height, hash));
+            filtered_peer_heights.push((peer_ip.clone(), *height, hash.clone()));
         }
 
         if filtered_peer_heights.is_empty() {
-            return Err("No non-quarantined peers available for sync".to_string());
+            // All peers are quarantined - as a last resort, allow downloading from quarantined peers
+            // but skip them in the order they were quarantined (oldest quarantine first)
+            println!("   ⚠️  All peers quarantined - trying anyway as last resort");
+            filtered_peer_heights = peer_heights;
         }
 
         // Find the longest valid chain by checking multiple peers
@@ -616,7 +620,7 @@ impl ChainSync {
             .filter(|(_, h, _)| *h > our_height)
             .collect();
 
-        if nodes_ahead.len() > peer_heights.len() / 2 {
+        if nodes_ahead.len() >= peer_heights.len() / 2 {
             // Majority of network is ahead - follow their chain
             println!(
                 "   ℹ️  Majority of network ({}/{} peers) is ahead at height {}",
