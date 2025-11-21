@@ -1,7 +1,28 @@
 //! Sled-based persistence for blockchain data
-use crate::block::Block;
+use crate::block::{Block, BlockHeader, MasternodeCounts};
 use crate::state::StateError;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+/// Old BlockHeader format without masternode_counts (for migration)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BlockHeaderV1 {
+    pub block_number: u64,
+    pub timestamp: DateTime<Utc>,
+    pub previous_hash: String,
+    pub merkle_root: String,
+    pub validator_signature: String,
+    pub validator_address: String,
+}
+
+/// Old Block format (for migration)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BlockV1 {
+    pub header: BlockHeaderV1,
+    pub transactions: Vec<crate::transaction::Transaction>,
+    pub hash: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct BlockchainDB {
@@ -60,10 +81,42 @@ impl BlockchainDB {
 
         match self.db.get(key.as_bytes()) {
             Ok(Some(data)) => {
-                let block = bincode::deserialize(&data).map_err(|e| {
-                    StateError::IoError(format!("Failed to deserialize block: {}", e))
-                })?;
-                Ok(Some(block))
+                // Try to deserialize with new format first
+                match bincode::deserialize::<Block>(&data) {
+                    Ok(block) => Ok(Some(block)),
+                    Err(_) => {
+                        // Fall back to old format and migrate
+                        eprintln!("   ⚠️  Block {} uses old format, migrating...", height);
+                        match bincode::deserialize::<BlockV1>(&data) {
+                            Ok(old_block) => {
+                                // Convert old format to new format
+                                let new_block = Block {
+                                    header: BlockHeader {
+                                        block_number: old_block.header.block_number,
+                                        timestamp: old_block.header.timestamp,
+                                        previous_hash: old_block.header.previous_hash,
+                                        merkle_root: old_block.header.merkle_root,
+                                        validator_signature: old_block.header.validator_signature,
+                                        validator_address: old_block.header.validator_address,
+                                        masternode_counts: MasternodeCounts::default(),
+                                    },
+                                    transactions: old_block.transactions,
+                                    hash: old_block.hash,
+                                };
+
+                                // Save migrated block back to disk
+                                self.save_block(&new_block)?;
+                                eprintln!("   ✅ Block {} migrated to new format", height);
+
+                                Ok(Some(new_block))
+                            }
+                            Err(e) => Err(StateError::IoError(format!(
+                                "Failed to deserialize block {} (tried both old and new formats): {}",
+                                height, e
+                            ))),
+                        }
+                    }
+                }
             }
             Ok(None) => Ok(None),
             Err(e) => Err(StateError::IoError(format!("Failed to load block: {}", e))),
