@@ -1235,6 +1235,64 @@ impl BlockchainState {
         }
     }
 
+    /// Rollback chain to a specific height (removes all blocks after target_height)
+    pub fn rollback_to_height(&mut self, target_height: u64) -> Result<(), StateError> {
+        let current_height = self.chain_tip_height;
+
+        if target_height >= current_height {
+            return Ok(()); // Already at or before target
+        }
+
+        println!(
+            "   🔄 Rolling back from height {} to {}",
+            current_height, target_height
+        );
+
+        // Collect blocks to remove
+        let blocks_to_remove: Vec<u64> = self
+            .blocks_by_height
+            .keys()
+            .filter(|&&h| h > target_height)
+            .copied()
+            .collect();
+
+        // Remove blocks from memory and get their hashes for DB cleanup
+        for height in &blocks_to_remove {
+            if let Some(hash) = self.blocks_by_height.remove(height) {
+                self.blocks.remove(&hash);
+                println!(
+                    "      🗑️  Removed block {} (hash: {}...)",
+                    height,
+                    &hash[..16]
+                );
+            }
+        }
+
+        // Update chain tip to target height
+        if let Some(target_block) = self.get_block_by_height(target_height) {
+            self.chain_tip_hash = target_block.hash.clone();
+            self.chain_tip_height = target_height;
+
+            // Rebuild UTXO set from scratch up to target height
+            println!("      🔄 Rebuilding UTXO set...");
+            self.utxo_set = UTXOSet::new();
+
+            for height in 0..=target_height {
+                if let Some(block) = self.get_block_by_height(height) {
+                    let transactions = block.transactions.clone(); // Clone to avoid borrow conflict
+                    for tx in &transactions {
+                        self.utxo_set.apply_transaction(tx)?;
+                    }
+                }
+            }
+
+            println!("   ✅ Rolled back to height {}", target_height);
+            Ok(())
+        } else {
+            Err(StateError::BlockNotFound)
+        }
+    }
+
     /// Process orphaned transaction
     pub fn process_orphaned_transaction(&mut self, tx: Transaction) -> Result<bool, StateError> {
         match self.validate_transaction(&tx) {

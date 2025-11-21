@@ -85,6 +85,15 @@ impl BlockProducer {
         self.is_active.clone()
     }
 
+    /// Manually trigger block creation (for emergency use)
+    #[allow(dead_code)]
+    pub async fn force_create_block(&self) {
+        println!("🔧 MANUAL BLOCK CREATION TRIGGERED");
+        *self.is_active.write().await = true;
+        self.create_and_propose_block().await;
+        *self.is_active.write().await = false;
+    }
+
     async fn load_block_height(&self) -> u64 {
         let blockchain = self.blockchain.read().await;
         blockchain.chain_tip_height()
@@ -93,7 +102,10 @@ impl BlockProducer {
     pub async fn start(&self) {
         println!("Starting block producer...");
 
-        // Run initial catch-up check
+        // Run initial catch-up check if enabled
+        if self.allow_block_recreation {
+            self.catch_up_missed_blocks().await;
+        }
 
         println!("Block producer started (24-hour interval)");
 
@@ -101,10 +113,10 @@ impl BlockProducer {
         loop {
             let now = Utc::now();
 
-            // Disable automatic catch-up - let sync handle it
-            // if self.allow_block_recreation {
-            //     self.catch_up_missed_blocks().await;
-            // }
+            // Check for missed blocks periodically
+            if self.allow_block_recreation {
+                self.catch_up_missed_blocks().await;
+            }
 
             // Calculate next midnight UTC
             let tomorrow = now.date_naive() + chrono::Duration::days(1);
