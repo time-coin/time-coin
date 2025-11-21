@@ -361,24 +361,44 @@ impl ChainSync {
                 drop(blockchain);
 
                 if !has_genesis {
-                    // We don't have genesis but peer does - download it
+                    // We don't have genesis - try to download from any peer at height 0
                     println!("   📥 Downloading genesis block (block 0)...");
 
-                    if let Some(block) = self.download_block(best_peer, 0).await {
-                        let mut blockchain = self.blockchain.write().await;
-                        match blockchain.add_block(block) {
-                            Ok(()) => {
-                                println!("   ✓ Genesis block imported");
-                                return Ok(1);
-                            }
-                            Err(e) => {
-                                eprintln!("   ⚠️  Failed to import genesis: {}", e);
-                                return Err(format!("Failed to import genesis: {}", e));
-                            }
-                        }
-                    } else {
-                        return Err("Failed to download genesis block".to_string());
+                    // Get all peers at height 0
+                    let peers_at_zero: Vec<&str> = filtered_peer_heights
+                        .iter()
+                        .filter(|(_, height, _)| *height == 0)
+                        .map(|(peer, _, _)| peer.as_str())
+                        .collect();
+
+                    if peers_at_zero.is_empty() {
+                        return Err("No peers found at height 0".to_string());
                     }
+
+                    // Try each peer until we successfully download genesis
+                    for peer in peers_at_zero {
+                        if let Some(block) = self.download_block(peer, 0).await {
+                            let mut blockchain = self.blockchain.write().await;
+                            match blockchain.add_block(block) {
+                                Ok(()) => {
+                                    println!("   ✓ Genesis block imported from {}", peer);
+                                    return Ok(1);
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "   ⚠️  Failed to import genesis from {}: {}",
+                                        peer, e
+                                    );
+                                    continue; // Try next peer
+                                }
+                            }
+                        } else {
+                            eprintln!("   ⚠️  Failed to download from {} - trying next peer", peer);
+                            continue;
+                        }
+                    }
+
+                    return Err("Failed to download genesis block from any peer".to_string());
                 }
             }
 
