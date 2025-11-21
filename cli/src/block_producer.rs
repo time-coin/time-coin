@@ -1611,106 +1611,117 @@ impl BlockProducer {
 
         println!("   🔨 Creating catchup block #{}", block_num);
 
-        // Determine leader using VRF
-        let selected_producer = self.consensus.get_leader(block_num).await;
-        let am_i_leader = selected_producer.as_ref() == Some(&my_id);
+        // Try up to 3 times with rotating leaders
+        for attempt in 0..3 {
+            if attempt > 0 {
+                println!("      ⚠️  Attempt {} - rotating leader...", attempt + 1);
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
 
-        println!("      Leader: {:?}", selected_producer);
+            // Rotate leader: use round-robin on sorted masternode list
+            let mut sorted_masternodes = masternodes.to_vec();
+            sorted_masternodes.sort();
+            let leader_index = (block_num as usize + attempt) % sorted_masternodes.len();
+            let selected_producer = sorted_masternodes[leader_index].clone();
+            let am_i_leader = selected_producer == my_id;
 
-        // Leader creates and broadcasts proposal
-        if am_i_leader {
-            println!("      I'm the leader - creating proposal...");
+            println!("      Leader: {}", selected_producer);
 
-            let block = self
-                .create_catchup_block_structure(block_num, timestamp)
-                .await;
+            // Leader creates and broadcasts proposal
+            if am_i_leader {
+                println!("      I'm the leader - creating proposal...");
 
-            let proposal = BlockProposal {
-                block_height: block_num,
-                proposer: my_id.clone(),
-                block_hash: block.hash.clone(),
-                merkle_root: block.header.merkle_root.clone(),
-                previous_hash: block.header.previous_hash.clone(),
-                timestamp: timestamp.timestamp(),
-                is_reward_only: false,
-                strategy: None,
-            };
+                let block = self
+                    .create_catchup_block_structure(block_num, timestamp)
+                    .await;
 
-            self.block_consensus.propose_block(proposal.clone()).await;
-            self.broadcast_block_proposal(proposal.clone(), masternodes)
-                .await;
+                let proposal = BlockProposal {
+                    block_height: block_num,
+                    proposer: my_id.clone(),
+                    block_hash: block.hash.clone(),
+                    merkle_root: block.header.merkle_root.clone(),
+                    previous_hash: block.header.previous_hash.clone(),
+                    timestamp: timestamp.timestamp(),
+                    is_reward_only: false,
+                    strategy: None,
+                };
 
-            // Leader auto-votes
-            let vote = BlockVote {
-                block_height: block_num,
-                block_hash: block.hash.clone(),
-                voter: my_id.clone(),
-                approve: true,
-                timestamp: chrono::Utc::now().timestamp(),
-            };
-            let _ = self.block_consensus.vote_on_block(vote.clone()).await;
-            self.broadcast_block_vote(vote, masternodes).await;
-        } else {
-            // Notify leader to create proposal
-            if let Some(ref leader_ip) = selected_producer {
-                println!("      Notifying leader {}...", leader_ip);
-                self.notify_leader_to_produce_block(leader_ip, block_num, &my_id)
+                self.block_consensus.propose_block(proposal.clone()).await;
+                self.broadcast_block_proposal(proposal.clone(), masternodes)
+                    .await;
+
+                // Leader auto-votes
+                let vote = BlockVote {
+                    block_height: block_num,
+                    block_hash: block.hash.clone(),
+                    voter: my_id.clone(),
+                    approve: true,
+                    timestamp: chrono::Utc::now().timestamp(),
+                };
+                let _ = self.block_consensus.vote_on_block(vote.clone()).await;
+                self.broadcast_block_vote(vote, masternodes).await;
+            } else {
+                // Notify leader to create proposal
+                println!("      Notifying leader {}...", selected_producer);
+                self.notify_leader_to_produce_block(&selected_producer, block_num, &my_id)
                     .await;
             }
-        }
 
-        // Wait for consensus (30 second timeout)
-        println!("      Waiting for consensus...");
-        let start_time = chrono::Utc::now();
-        let timeout_secs = 30;
+            // Wait for consensus (20 second timeout per attempt)
+            println!("      Waiting for consensus...");
+            let start_time = chrono::Utc::now();
+            let timeout_secs = 20;
 
-        while (chrono::Utc::now() - start_time).num_seconds() < timeout_secs {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            while (chrono::Utc::now() - start_time).num_seconds() < timeout_secs {
+                tokio::time::sleep(Duration::from_secs(1)).await;
 
-            if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
-                // Non-leaders vote
-                if !am_i_leader {
-                    let vote = BlockVote {
-                        block_height: block_num,
-                        block_hash: proposal.block_hash.clone(),
-                        voter: my_id.clone(),
-                        approve: true,
-                        timestamp: chrono::Utc::now().timestamp(),
-                    };
+                if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
+                    // Non-leaders vote
+                    if !am_i_leader {
+                        let vote = BlockVote {
+                            block_height: block_num,
+                            block_hash: proposal.block_hash.clone(),
+                            voter: my_id.clone(),
+                            approve: true,
+                            timestamp: chrono::Utc::now().timestamp(),
+                        };
 
-                    if self
+                        if self
+                            .block_consensus
+                            .vote_on_block(vote.clone())
+                            .await
+                            .is_ok()
+                        {
+                            self.broadcast_block_vote(vote, masternodes).await;
+                        }
+                    }
+
+                    // Check consensus (need 2/3+ votes)
+                    let required_votes = ((masternodes.len() * 2) / 3) + 1;
+                    let (has_consensus, approvals, _total) = self
                         .block_consensus
-                        .vote_on_block(vote.clone())
-                        .await
-                        .is_ok()
-                    {
-                        self.broadcast_block_vote(vote, masternodes).await;
+                        .has_block_consensus(block_num, &proposal.block_hash)
+                        .await;
+
+                    if has_consensus && approvals >= required_votes {
+                        println!(
+                            "      ✅ Consensus reached ({}/{})!",
+                            approvals,
+                            masternodes.len()
+                        );
+
+                        // Finalize the block
+                        return self
+                            .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
+                            .await;
                     }
                 }
-
-                // Check consensus (need 2/3+ votes)
-                let required_votes = ((masternodes.len() * 2) / 3) + 1;
-                let (has_consensus, approvals, _total) = self
-                    .block_consensus
-                    .has_block_consensus(block_num, &proposal.block_hash)
-                    .await;
-
-                if has_consensus && approvals >= required_votes {
-                    println!(
-                        "      ✅ Consensus reached ({}/{})!",
-                        approvals,
-                        masternodes.len()
-                    );
-
-                    // Finalize the block
-                    return self
-                        .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
-                        .await;
-                }
             }
+
+            println!("      ❌ Attempt {} timeout", attempt + 1);
         }
 
-        println!("      ❌ Consensus timeout after {}s", timeout_secs);
+        println!("      ❌ All attempts failed for block #{}", block_num);
         false
     }
 
