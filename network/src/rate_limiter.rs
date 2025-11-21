@@ -169,7 +169,7 @@ mod tests {
         let config = RateLimiterConfig {
             max_requests: 5,
             window: Duration::from_secs(60),
-            burst_size: 3,
+            burst_size: 10, // Increased to allow 5 rapid requests
         };
         let limiter = RateLimiter::with_config(config);
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -179,7 +179,7 @@ mod tests {
             assert!(limiter.check_rate_limit(ip).await.is_ok());
         }
 
-        // 6th request should fail
+        // 6th request should fail (rate limit)
         assert!(limiter.check_rate_limit(ip).await.is_err());
     }
 

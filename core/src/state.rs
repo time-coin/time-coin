@@ -719,6 +719,19 @@ impl BlockchainState {
             );
         }
 
+        // Load and merge UTXO snapshot if it exists
+        // This preserves finalized transactions that haven't been included in blocks yet
+        if let Some(snapshot) = state.db.load_utxo_snapshot()? {
+            eprintln!("🔄 Merging UTXO snapshot with blockchain state...");
+            let before_count = state.utxo_set.len();
+            state.utxo_set.merge_snapshot(snapshot);
+            let after_count = state.utxo_set.len();
+            eprintln!(
+                "✅ UTXO snapshot merged ({} → {} UTXOs)",
+                before_count, after_count
+            );
+        }
+
         Ok(state)
     }
 
