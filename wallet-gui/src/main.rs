@@ -653,7 +653,7 @@ impl WalletApp {
                             };
                             let _ = config.set_network(network_str);
                         }
-                        
+
                         // Transition to mnemonic setup screen
                         self.current_screen = Screen::MnemonicSetup;
                         self.mnemonic_interface = MnemonicInterface::new();
