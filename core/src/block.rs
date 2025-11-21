@@ -325,6 +325,11 @@ impl Block {
         let max_coinbase = total_rewards;
 
         if coinbase_total > max_coinbase {
+            eprintln!(
+                "❌ Coinbase validation failed for block {}: total {} exceeds max {}",
+                self.header.block_number, coinbase_total, max_coinbase
+            );
+            eprintln!("   Base reward: {}, Fees: {}", base_masternode_reward, total_fees);
             return Err(BlockError::InvalidCoinbase);
         }
 
@@ -334,9 +339,18 @@ impl Block {
 
         if let Some(treasury_out) = treasury_output {
             if treasury_out.amount != expected_treasury {
+                eprintln!(
+                    "❌ Treasury allocation mismatch for block {}: got {}, expected {}",
+                    self.header.block_number, treasury_out.amount, expected_treasury
+                );
+                eprintln!("   Total rewards: {}", total_rewards);
                 return Err(BlockError::InvalidCoinbase);
             }
         } else if expected_treasury > 0 {
+            eprintln!(
+                "❌ Missing treasury output for block {} (expected {})",
+                self.header.block_number, expected_treasury
+            );
             // Treasury output must be present if there are rewards
             return Err(BlockError::InvalidCoinbase);
         }
