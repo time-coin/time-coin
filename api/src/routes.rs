@@ -216,6 +216,7 @@ struct BlockchainInfoResponse {
     best_block_hash: String,
     total_supply: u64,
     timestamp: i64,
+    wallet_address: String,
 }
 
 async fn get_blockchain_info(
@@ -231,6 +232,7 @@ async fn get_blockchain_info(
         best_block_hash: blockchain.chain_tip_hash().to_string(),
         total_supply,
         timestamp: chrono::Utc::now().timestamp(),
+        wallet_address: state.wallet_address.clone(),
     }))
 }
 

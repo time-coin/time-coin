@@ -20,6 +20,7 @@ use tokio::time;
 struct BlockchainInfo {
     height: u64,
     best_block_hash: String,
+    wallet_address: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,6 +162,11 @@ impl Dashboard {
             "│ {:<20} {}...",
             "Best Block Hash:".bright_black(),
             hash_preview.bright_blue()
+        );
+        println!(
+            "│ {:<20} {}",
+            "Wallet Address:".bright_black(),
+            info.wallet_address.bright_green()
         );
         println!(
             "{}",
