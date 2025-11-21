@@ -7,6 +7,15 @@ use time_core::state::BlockchainState;
 use time_network::{PeerManager, PeerQuarantine, QuarantineReason};
 use tokio::sync::RwLock;
 
+/// Helper to safely get hash preview
+fn hash_preview(hash: &str) -> &str {
+    if hash.len() >= 16 {
+        &hash[..16]
+    } else {
+        hash
+    }
+}
+
 #[derive(Deserialize)]
 pub struct BlockchainInfo {
     pub height: u64,
@@ -312,7 +321,7 @@ impl ChainSync {
             "   🎯 Selected longest chain: peer {} at height {} (hash: {}...)",
             best_peer,
             max_height,
-            &best_hash[..16]
+            hash_preview(&best_hash)
         );
 
         // Validate that the height is reasonable based on time elapsed
