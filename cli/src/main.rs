@@ -99,6 +99,10 @@ struct BlockchainConfig {
     /// Path to genesis block JSON file
     genesis_file: Option<String>,
 
+    /// Allow loading genesis from file (DANGEROUS - only for initial setup)
+    /// Default: false (must download from peers)
+    load_genesis_from_file: Option<bool>,
+
     /// Allow recreating missing historical blocks via consensus
     /// Default: false (download only)
     allow_block_recreation: Option<bool>,
@@ -768,44 +772,56 @@ async fn main() {
     // STEP 3: Initialize blockchain state (load from disk or prepare for sync)
     // ═══════════════════════════════════════════════════════════════
 
-    // Check if genesis file should be loaded
-    let genesis_file_path = config.blockchain.genesis_file.clone();
+    // Check if genesis file should be loaded (only if flag is enabled)
+    let load_genesis_enabled = config.blockchain.load_genesis_from_file.unwrap_or(false);
 
-    if let Some(genesis_path) = genesis_file_path {
-        // Check if we need to load genesis (no blocks on disk)
-        let db_path = format!("{}/blockchain", data_dir);
-        let needs_genesis = {
-            let db = time_core::db::BlockchainDB::open(&db_path).expect("Failed to open database");
-            let blocks = db.load_all_blocks().expect("Failed to check blocks");
-            blocks.is_empty()
-        };
+    if load_genesis_enabled {
+        let genesis_file_path = config.blockchain.genesis_file.clone();
 
-        if needs_genesis {
-            println!("{}", "📥 Loading genesis block from file...".cyan());
-            match std::fs::read_to_string(&genesis_path) {
-                Ok(json_data) => match load_genesis_from_json(&json_data, &db_path) {
-                    Ok(genesis_hash) => {
-                        println!(
-                            "{}",
-                            format!("✅ Genesis block loaded: {}...", &genesis_hash[..16]).green()
-                        );
-                    }
+        if let Some(genesis_path) = genesis_file_path {
+            // Check if we need to load genesis (no blocks on disk)
+            let db_path = format!("{}/blockchain", data_dir);
+            let needs_genesis = {
+                let db =
+                    time_core::db::BlockchainDB::open(&db_path).expect("Failed to open database");
+                let blocks = db.load_all_blocks().expect("Failed to check blocks");
+                blocks.is_empty()
+            };
+
+            if needs_genesis {
+                println!("{}", "📥 Loading genesis block from file...".cyan());
+                match std::fs::read_to_string(&genesis_path) {
+                    Ok(json_data) => match load_genesis_from_json(&json_data, &db_path) {
+                        Ok(genesis_hash) => {
+                            println!(
+                                "{}",
+                                format!("✅ Genesis block loaded: {}...", &genesis_hash[..16])
+                                    .green()
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "{}",
+                                format!("❌ Failed to load genesis block: {}", e).red()
+                            );
+                            eprintln!("{}", "   Will attempt to download from peers".yellow());
+                        }
+                    },
                     Err(e) => {
                         eprintln!(
                             "{}",
-                            format!("❌ Failed to load genesis block: {}", e).red()
+                            format!("⚠️  Could not read genesis file {}: {}", genesis_path, e)
+                                .yellow()
                         );
                         eprintln!("{}", "   Will attempt to download from peers".yellow());
                     }
-                },
-                Err(e) => {
-                    eprintln!(
-                        "{}",
-                        format!("⚠️  Could not read genesis file {}: {}", genesis_path, e).yellow()
-                    );
-                    eprintln!("{}", "   Will attempt to download from peers".yellow());
                 }
             }
+        } else {
+            eprintln!(
+                "{}",
+                "⚠️  load_genesis_from_file is true but genesis_file is not set".yellow()
+            );
         }
     }
 

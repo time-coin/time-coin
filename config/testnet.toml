@@ -5,9 +5,16 @@ network = "testnet"
 mode = "production"
 
 [blockchain]
-# Genesis will be downloaded from network if not present
-# Uncomment to use local file:
+# Genesis block configuration
+# Path to genesis block JSON file (only used if load_genesis_from_file is true)
 genesis_file = "/root/time-coin-node/config/genesis-testnet.json"
+
+# Allow loading genesis from file (DANGEROUS - only enable during initial network setup)
+# When false (default): Genesis must be downloaded from peers
+# When true: Will load genesis from genesis_file if blockchain is empty
+# WARNING: Set to false in production to prevent nodes from starting independent chains
+load_genesis_from_file = false
+
 data_dir = "./data"
 
 # Allow creating missing historical blocks via consensus if download fails

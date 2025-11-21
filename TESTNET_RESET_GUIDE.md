@@ -29,19 +29,22 @@ sudo rm -rf /var/lib/time-coin/blockchain/*
 
 ### 3. Configure ONE Seed Node to Load Genesis
 
-On **ONE** node (recommend the most stable/reliable node), ensure the genesis file path is set in the config:
+On **ONE** node (recommend the most stable/reliable node), enable genesis loading:
 
 ```bash
 # Edit testnet.toml
 sudo nano /root/time-coin-node/config/testnet.toml
 ```
 
-Verify this line exists and is uncommented:
+Enable genesis loading by setting this to **true**:
 
 ```toml
 [blockchain]
 genesis_file = "/root/time-coin-node/config/genesis-testnet.json"
+load_genesis_from_file = true  # CHANGE THIS TO true (normally false)
 ```
+
+**IMPORTANT:** After reset is complete, change it back to `false` to prevent independent chains!
 
 ### 4. Start the Seed Node First
 
@@ -106,16 +109,35 @@ All nodes should report:
 - The network will auto-resolve forks once majority has clean state
 - Worst case: stop, clear, and restart the problematic node
 
-## Alternative: Comment Out Genesis File
+## After Reset: Disable Genesis Loading
 
-If you want ALL nodes to download from network (no local genesis file):
+**CRITICAL:** After the network is running, disable genesis loading on all nodes:
+
+```bash
+# Edit testnet.toml
+sudo nano /root/time-coin-node/config/testnet.toml
+```
+
+Set back to false:
 
 ```toml
 [blockchain]
-# genesis_file = "/root/time-coin-node/config/genesis-testnet.json"  # Commented out
+load_genesis_from_file = false  # Prevent independent chains
 ```
 
-This requires at least one node somewhere in the network to have genesis. Good for normal operation after initial setup.
+This prevents nodes from accidentally starting independent chains if they clear their data.
+
+## Normal Operation
+
+In normal operation (not during reset):
+
+```toml
+[blockchain]
+genesis_file = "/root/time-coin-node/config/genesis-testnet.json"
+load_genesis_from_file = false  # Must download from network
+```
+
+This ensures all nodes must download genesis from existing peers, preventing chain splits.
 
 ## Expected Timeline
 
