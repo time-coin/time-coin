@@ -390,6 +390,9 @@ impl ChainSync {
                 // Validate block
                 match self.validate_block(&block, &prev_hash) {
                     Ok(_) => {
+                        // Store block hash before moving block
+                        let block_hash_for_comparison = block.hash.clone();
+                        
                         // Import block
                         let mut blockchain = self.blockchain.write().await;
                         match blockchain.add_block(block) {
@@ -407,13 +410,43 @@ impl ChainSync {
                                 );
 
                                 if is_coinbase_error {
-                                    // InvalidCoinbase: This peer's chain is incompatible
-                                    // Quarantine and try a different peer
-                                    println!(
-                                        "   ⚠️  Block {} has invalid coinbase - peer has incompatible chain",
-                                        height
-                                    );
+                                    // InvalidCoinbase: Check if other peers have same block
+                                    println!("   ⚠️  Block {} has invalid coinbase", height);
                                     println!("      Reason: {}", e);
+
+                                    // Compare with other peers to see if this is widespread
+                                    println!("      🔍 Checking other peers for this block...");
+                                    let mut peers_with_same_block = 0;
+                                    let mut total_peers_checked = 0;
+
+                                    let peers = self.peer_manager.get_connected_peers().await;
+                                    for peer in peers.iter() {
+                                        let peer_ip = peer.address.ip().to_string();
+                                        if peer_ip != best_peer {
+                                            total_peers_checked += 1;
+                                            if let Some(peer_block) =
+                                                self.download_block(&peer_ip, height).await
+                                            {
+                                                if peer_block.hash == block_hash_for_comparison {
+                                                    peers_with_same_block += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if total_peers_checked > 0 {
+                                        println!(
+                                            "      📊 {}/{} other peers have this same block",
+                                            peers_with_same_block, total_peers_checked
+                                        );
+
+                                        if peers_with_same_block >= total_peers_checked / 2 {
+                                            println!("      ⚠️  Majority of peers have this block - may indicate local validation issue");
+                                            println!("      💡 Consider: This node may need to accept this block or reset chain");
+                                        } else {
+                                            println!("      ✓ Minority of peers have this block - peer likely has incompatible chain");
+                                        }
+                                    }
 
                                     if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
                                         self.quarantine
