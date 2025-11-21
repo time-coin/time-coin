@@ -548,29 +548,6 @@ impl ChainSync {
             println!("   ✓ Fork resolved - now on correct chain");
         } else {
             println!("   ✓ Our block won - no action needed");
-
-            // Check if we're still behind the network after fork resolution
-            let current_height = {
-                let blockchain = self.blockchain.read().await;
-                blockchain.chain_tip_height()
-            };
-
-            // Query network for the highest block
-            let peer_heights = self.query_peer_heights().await;
-            if let Some(max_network_height) = peer_heights.iter().map(|(_, h, _)| h).max() {
-                if *max_network_height > current_height {
-                    println!(
-                        "\n   ⚠️  Network is ahead: local height {} vs network height {}",
-                        current_height, max_network_height
-                    );
-                    println!("   💡 Triggering catchup block generation...");
-
-                    // Trigger catchup for missing blocks
-                    if let Err(e) = self.generate_catchup_blocks().await {
-                        println!("   ⚠️  Catchup generation failed: {}", e);
-                    }
-                }
-            }
         }
 
         Ok(())
@@ -662,6 +639,7 @@ impl ChainSync {
     }
 
     /// Generate catchup blocks when we're behind the network
+    #[allow(dead_code)]
     async fn generate_catchup_blocks(&self) -> Result<(), String> {
         use chrono::TimeZone;
 
