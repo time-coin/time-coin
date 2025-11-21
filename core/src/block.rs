@@ -56,6 +56,8 @@ pub struct BlockHeader {
     /// Validator address
     pub validator_address: String,
     /// Masternode counts at time of block creation (for reward validation)
+    /// Optional for backwards compatibility with blocks created before this field was added
+    #[serde(default)]
     pub masternode_counts: MasternodeCounts,
 }
 
@@ -120,7 +122,7 @@ impl MasternodeTier {
 }
 
 /// Masternode count breakdown by tier
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MasternodeCounts {
     pub free: u64,
     pub bronze: u64,

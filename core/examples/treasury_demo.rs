@@ -15,7 +15,13 @@ fn main() {
         silver: 0,
         gold: 0,
     };
-    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs, &counts);
+    let genesis = Block::new(
+        0,
+        "0".repeat(64),
+        "genesis_validator".to_string(),
+        outputs,
+        &counts,
+    );
     println!("✅ Genesis block created\n");
 
     let db_path = env::temp_dir()
@@ -59,7 +65,13 @@ fn main() {
     };
     let masternode_reward = time_core::block::calculate_total_masternode_reward(&counts);
     let outputs = vec![TxOutput::new(masternode_reward, "miner1".to_string())];
-    let block1 = Block::new(1, genesis.hash.clone(), "miner1".to_string(), outputs, &counts);
+    let block1 = Block::new(
+        1,
+        genesis.hash.clone(),
+        "miner1".to_string(),
+        outputs,
+        &counts,
+    );
 
     state.add_block(block1).expect("Failed to add block");
     println!("✅ Block added, treasury automatically allocated funds\n");

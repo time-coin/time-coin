@@ -26,7 +26,13 @@ fn main() {
         silver: 0,
         gold: 0,
     };
-    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs, &counts);
+    let genesis = Block::new(
+        0,
+        "0".repeat(64),
+        "genesis_validator".to_string(),
+        outputs,
+        &counts,
+    );
 
     // Initialize blockchain state
     let mut state = BlockchainState::new(genesis, &db_path).unwrap();
@@ -115,7 +121,13 @@ fn main() {
         silver: 0,
         gold: 0,
     };
-    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs, &counts);
+    let genesis = Block::new(
+        0,
+        "0".repeat(64),
+        "genesis_validator".to_string(),
+        outputs,
+        &counts,
+    );
     let state = BlockchainState::new(genesis, &db_path).unwrap();
 
     println!("After restart:");
