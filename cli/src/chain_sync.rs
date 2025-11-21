@@ -699,25 +699,34 @@ impl ChainSync {
                         continue;
                     }
 
+                    // CRITICAL: Verify the next block chains correctly BEFORE adopting
+                    if *_peer_height > our_height {
+                        println!("   🔍 Pre-validating next block chains correctly...");
+                        if let Some(next_block) = self.download_block(peer_ip, our_height + 1).await
+                        {
+                            if next_block.header.previous_hash != their_block_at_our_height.hash {
+                                println!("   ⚠️  Next block doesn't chain correctly - this peer's chain is corrupted");
+                                println!(
+                                    "      Expected prev_hash: {}",
+                                    their_block_at_our_height.hash
+                                );
+                                println!(
+                                    "      Got prev_hash: {}",
+                                    next_block.header.previous_hash
+                                );
+                                println!("   ⚠️  Skipping this peer - trying next...");
+                                continue;
+                            }
+                            println!("   ✅ Next block validated - chain is consistent");
+                        } else {
+                            println!("   ⚠️  Could not download next block from peer - trying next peer...");
+                            continue;
+                        }
+                    }
+
                     println!("   ✓ Adopting block from longest chain (peer {})", peer_ip);
                     self.revert_and_replace_block(our_height, their_block_at_our_height.clone())
                         .await?;
-
-                    // Verify the next block from this peer actually builds on the block we just adopted
-                    if *_peer_height > our_height {
-                        println!("   🔍 Verifying next block chains correctly...");
-                        if let Some(next_block) = self.download_block(peer_ip, our_height + 1).await
-                        {
-                            if next_block.header.previous_hash == their_block_at_our_height.hash {
-                                println!("   ✅ Next block validated - chain is consistent");
-                            } else {
-                                println!("   ⚠️  Next block doesn't chain correctly - this peer's chain is corrupted");
-                                println!("   ⚠️  Reverting and trying next peer...");
-                                // Revert the bad block - we'll try another peer
-                                continue;
-                            }
-                        }
-                    }
 
                     println!("   ✓ Fork resolved - now on longest chain");
                     return Ok(());

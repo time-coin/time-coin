@@ -17,8 +17,8 @@ impl BlockchainDB {
         // Configure sled for maximum durability to ensure blocks persist across reboots
         let db = sled::Config::new()
             .path(&path)
-            .mode(sled::Mode::HighThroughput) // Balances performance with durability
-            .flush_every_ms(Some(1000)) // Flush to disk every second
+            .mode(sled::Mode::LowSpace) // Prioritize durability over performance
+            .flush_every_ms(Some(100)) // Flush to disk every 100ms for better persistence
             .open()
             .map_err(|e| StateError::IoError(format!("Failed to open database: {}", e)))?;
 
@@ -45,6 +45,12 @@ impl BlockchainDB {
             .flush()
             .map_err(|e| StateError::IoError(format!("Failed to flush block to disk: {}", e)))?;
 
+        // Debug: verify block was saved
+        eprintln!(
+            "   💾 Block {} saved to disk (path: {})",
+            block.header.block_number, self.path
+        );
+
         Ok(())
     }
 
@@ -69,10 +75,12 @@ impl BlockchainDB {
         let mut blocks = Vec::new();
         let mut height = 0u64;
 
+        eprintln!("   🔍 Loading blocks from disk (path: {})...", self.path);
         while let Some(block) = self.load_block(height)? {
             blocks.push(block);
             height += 1;
         }
+        eprintln!("   📦 Loaded {} blocks from disk", blocks.len());
 
         Ok(blocks)
     }
