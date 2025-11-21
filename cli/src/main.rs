@@ -776,15 +776,24 @@ async fn main() {
     let load_genesis_enabled = config.blockchain.load_genesis_from_file.unwrap_or(false);
 
     if load_genesis_enabled {
+        println!("{}", "🔍 Genesis loading is enabled".cyan());
         let genesis_file_path = config.blockchain.genesis_file.clone();
 
         if let Some(genesis_path) = genesis_file_path {
+            println!(
+                "{}",
+                format!("   Genesis file path: {}", genesis_path).bright_black()
+            );
             // Check if we need to load genesis (no blocks on disk)
             let db_path = format!("{}/blockchain", data_dir);
             let needs_genesis = {
                 let db =
                     time_core::db::BlockchainDB::open(&db_path).expect("Failed to open database");
                 let blocks = db.load_all_blocks().expect("Failed to check blocks");
+                println!(
+                    "{}",
+                    format!("   Blocks on disk: {}", blocks.len()).bright_black()
+                );
                 blocks.is_empty()
             };
 
@@ -816,6 +825,8 @@ async fn main() {
                         eprintln!("{}", "   Will attempt to download from peers".yellow());
                     }
                 }
+            } else {
+                println!("{}", "   Genesis already exists on disk".bright_black());
             }
         } else {
             eprintln!(
@@ -823,6 +834,11 @@ async fn main() {
                 "⚠️  load_genesis_from_file is true but genesis_file is not set".yellow()
             );
         }
+    } else {
+        println!(
+            "{}",
+            "ℹ️  Genesis loading from file is disabled - will sync from peers".bright_black()
+        );
     }
 
     let blockchain = Arc::new(RwLock::new(
