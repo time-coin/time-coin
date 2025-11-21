@@ -22,7 +22,19 @@ fn test_block_after_snapshot_causes_utxo_loss() {
 
     // Create a fixed genesis block (same instance will be serialized/deserialized)
     let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
-    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs);
+    let counts = MasternodeCounts {
+        free: 0,
+        bronze: 0,
+        silver: 0,
+        gold: 0,
+    };
+    let genesis = Block::new(
+        0,
+        "0".repeat(64),
+        "genesis_validator".to_string(),
+        outputs,
+        &counts,
+    );
     let genesis_hash = genesis.hash.clone();
 
     let expected_finalized_balance: u64;
@@ -84,7 +96,13 @@ fn test_block_after_snapshot_causes_utxo_loss() {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "block_miner".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), block_outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            block_outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         println!("\n✅ Phase 2: Block 1 added with payment to block_miner");

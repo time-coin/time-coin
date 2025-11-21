@@ -1297,6 +1297,7 @@ async fn create_and_broadcast_catchup_proposal(
             merkle_root: String::new(), // Will be calculated
             validator_signature: String::new(),
             validator_address: leader_ip.clone(),
+            masternode_counts: masternode_counts.clone(),
         },
         hash: String::new(),
         transactions: all_transactions.clone(),
@@ -1319,6 +1320,7 @@ async fn create_and_broadcast_catchup_proposal(
             format!("{:x}", hasher.finalize())
         },
         validator_address: leader_ip.clone(),
+        masternode_counts: masternode_counts.clone(),
     };
 
     // Calculate block hash

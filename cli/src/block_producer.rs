@@ -986,6 +986,7 @@ impl BlockProducer {
                     format!("{:x}", hasher.finalize())
                 },
                 validator_address: my_id.clone(),
+                masternode_counts: masternode_counts.clone(),
             };
 
             let header_json = serde_json::to_string(&temp_header).unwrap();
@@ -1424,6 +1425,12 @@ impl BlockProducer {
                 format!("{:x}", hasher.finalize())
             },
             validator_address: my_id,
+            masternode_counts: time_core::MasternodeCounts {
+                free: 0,
+                bronze: 0,
+                silver: 0,
+                gold: 0,
+            },
         };
 
         let header_json = serde_json::to_string(&header).unwrap();
@@ -1571,6 +1578,12 @@ impl BlockProducer {
                 merkle_root: String::new(),
                 validator_signature: my_id.clone(),
                 validator_address: my_id.clone(),
+                masternode_counts: time_core::MasternodeCounts {
+                    free: 0,
+                    bronze: 0,
+                    silver: 0,
+                    gold: 0,
+                },
             },
             transactions: vec![coinbase_tx],
         };
@@ -1859,6 +1872,12 @@ impl BlockProducer {
                 merkle_root: String::new(),
                 validator_signature: my_id.clone(),
                 validator_address: my_id.clone(),
+                masternode_counts: time_core::block::MasternodeCounts {
+                    free: 0,
+                    bronze: 0,
+                    silver: 0,
+                    gold: 0,
+                },
             },
             transactions: vec![coinbase_tx],
         };
@@ -1925,6 +1944,7 @@ impl BlockProducer {
                 merkle_root: String::new(),
                 validator_signature: my_id.clone(),
                 validator_address: my_id.clone(),
+                masternode_counts: masternode_counts.clone(),
             },
             transactions: vec![coinbase_tx],
         };
@@ -2082,6 +2102,7 @@ impl BlockProducer {
                 merkle_root: String::new(),
                 validator_signature: my_id.clone(),
                 validator_address: my_id.clone(),
+                masternode_counts: masternode_counts.clone(),
             },
             transactions: vec![coinbase_tx],
         };

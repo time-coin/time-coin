@@ -90,7 +90,19 @@ mod tests {
     fn test_add_pending_block() {
         let mut finalizer = Finalizer::new();
         let outputs = vec![TxOutput::new(100_000_000_000, "test".to_string())];
-        let block = Block::new(1, "prev".to_string(), "validator".to_string(), outputs);
+        let counts = crate::block::MasternodeCounts {
+            free: 0,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        let block = Block::new(
+            1,
+            "prev".to_string(),
+            "validator".to_string(),
+            outputs,
+            &counts,
+        );
 
         finalizer.add_pending_block(block);
         assert_eq!(finalizer.pending_blocks().len(), 1);

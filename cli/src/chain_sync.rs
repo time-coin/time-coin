@@ -963,6 +963,12 @@ impl ChainSync {
                         merkle_root: String::new(),
                         validator_signature: my_id.clone(),
                         validator_address: my_id.clone(),
+                        masternode_counts: time_core::MasternodeCounts {
+                            free: 0,
+                            bronze: 0,
+                            silver: 0,
+                            gold: 0,
+                        },
                     },
                     transactions: vec![coinbase_tx],
                 };

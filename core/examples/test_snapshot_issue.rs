@@ -20,7 +20,13 @@ fn main() {
 
     // Create genesis block
     let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
-    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs);
+    let counts = time_core::block::MasternodeCounts {
+        free: 0,
+        bronze: 0,
+        silver: 0,
+        gold: 0,
+    };
+    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs, &counts);
 
     // Initialize blockchain state
     let mut state = BlockchainState::new(genesis, &db_path).unwrap();
@@ -103,7 +109,13 @@ fn main() {
 
     // Recreate state (simulating restart)
     let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
-    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs);
+    let counts = time_core::block::MasternodeCounts {
+        free: 0,
+        bronze: 0,
+        silver: 0,
+        gold: 0,
+    };
+    let genesis = Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs, &counts);
     let state = BlockchainState::new(genesis, &db_path).unwrap();
 
     println!("After restart:");

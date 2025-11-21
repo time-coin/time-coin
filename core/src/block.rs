@@ -55,6 +55,8 @@ pub struct BlockHeader {
     pub validator_signature: String,
     /// Validator address
     pub validator_address: String,
+    /// Masternode counts at time of block creation (for reward validation)
+    pub masternode_counts: MasternodeCounts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +148,7 @@ impl Block {
         previous_hash: String,
         validator_address: String,
         coinbase_outputs: Vec<TxOutput>,
+        masternode_counts: &MasternodeCounts,
     ) -> Self {
         // Create coinbase transaction (no inputs, generates new coins)
         let coinbase = Transaction {
@@ -165,6 +168,7 @@ impl Block {
                 merkle_root: String::new(),
                 validator_signature: String::new(),
                 validator_address,
+                masternode_counts: masternode_counts.clone(),
             },
             transactions: vec![coinbase],
             hash: String::new(),
@@ -295,13 +299,13 @@ impl Block {
     }
 
     /// Validate block against UTXO set and apply it
-    pub fn validate_and_apply(
-        &self,
-        utxo_set: &mut UTXOSet,
-        masternode_counts: &MasternodeCounts,
-    ) -> Result<(), BlockError> {
+    /// Uses masternode counts stored in block header for reward validation
+    pub fn validate_and_apply(&self, utxo_set: &mut UTXOSet) -> Result<(), BlockError> {
         // First validate structure
         self.validate_structure()?;
+
+        // Use masternode counts from block header (stored when block was created)
+        let masternode_counts = &self.header.masternode_counts;
 
         // Calculate expected rewards including treasury allocation
         let base_masternode_reward = calculate_total_masternode_reward(masternode_counts);
@@ -332,6 +336,13 @@ impl Block {
             eprintln!(
                 "   Base reward: {}, Fees: {}",
                 base_masternode_reward, total_fees
+            );
+            eprintln!(
+                "   Masternode counts from block: free={}, bronze={}, silver={}, gold={}",
+                masternode_counts.free,
+                masternode_counts.bronze,
+                masternode_counts.silver,
+                masternode_counts.gold
             );
             return Err(BlockError::InvalidCoinbase);
         }
@@ -589,6 +600,7 @@ pub fn create_reward_only_block(
             merkle_root: String::new(),
             validator_signature: String::new(),
             validator_address,
+            masternode_counts: counts.clone(),
         },
         transactions: vec![coinbase_tx],
         hash: String::new(),
@@ -740,11 +752,18 @@ mod tests {
             10_000_000_000,
             "validator_address".to_string(),
         )];
+        let counts = MasternodeCounts {
+            free: 0,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
         let block = Block::new(
             1,
             "previous_hash".to_string(),
             "validator".to_string(),
             outputs,
+            &counts,
         );
 
         assert_eq!(block.header.block_number, 1);
@@ -1178,6 +1197,12 @@ mod tests {
                 merkle_root: String::new(),
                 validator_signature: "genesis".to_string(),
                 validator_address: "genesis".to_string(),
+                masternode_counts: MasternodeCounts {
+                    free: 0,
+                    bronze: 0,
+                    silver: 0,
+                    gold: 0,
+                },
             },
             transactions: vec![coinbase],
             hash: String::new(),

@@ -1,0 +1,60 @@
+   Compiling time-core v0.1.0 (C:\Users\wmcor\projects\time-coin\core)
+error[E0061]: this function takes 5 arguments but 4 arguments were supplied
+   --> core\src\block.rs:755:21
+    |
+755 |           let block = Block::new(
+    |  _____________________^^^^^^^^^^-
+756 | |             1,
+757 | |             "previous_hash".to_string(),
+758 | |             "validator".to_string(),
+759 | |             outputs,
+760 | |         );
+    | |_________- argument #5 of type `&block::MasternodeCounts` is missing
+    |
+note: associated function defined here
+   --> core\src\block.rs:146:12
+    |
+146 |     pub fn new(
+    |            ^^^
+...
+151 |         masternode_counts: &MasternodeCounts,
+    |         ------------------------------------
+help: provide the argument
+    |
+755 -         let block = Block::new(
+756 -             1,
+757 -             "previous_hash".to_string(),
+758 -             "validator".to_string(),
+759 -             outputs,
+760 -         );
+755 +         let block = Block::new(1, "previous_hash".to_string(), "validator".to_string(), outputs, /* &block::MasternodeCounts */);
+    |
+
+error[E0063]: missing field `masternode_counts` in initializer of `block::BlockHeader`
+    --> core\src\block.rs:1185:21
+     |
+1185 |             header: BlockHeader {
+     |                     ^^^^^^^^^^^ missing `masternode_counts`
+
+error[E0061]: this function takes 5 arguments but 4 arguments were supplied
+   --> core\src\finalizer.rs:93:21
+    |
+ 93 |         let block = Block::new(1, "prev".to_string(), "validator".to_string(), outputs);
+    |                     ^^^^^^^^^^--------------------------------------------------------- argument #5 of type `&block::MasternodeCounts` is missing
+    |
+note: associated function defined here
+   --> core\src\block.rs:146:12
+    |
+146 |     pub fn new(
+    |            ^^^
+...
+151 |         masternode_counts: &MasternodeCounts,
+    |         ------------------------------------
+help: provide the argument
+    |
+ 93 |         let block = Block::new(1, "prev".to_string(), "validator".to_string(), outputs, /* &block::MasternodeCounts */);
+    |                                                                                       ++++++++++++++++++++++++++++++++
+
+Some errors have detailed explanations: E0061, E0063.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `time-core` (lib test) due to 3 previous errors

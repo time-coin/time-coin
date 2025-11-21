@@ -966,7 +966,7 @@ impl BlockchainState {
 
         let utxo_snapshot = self.utxo_set.snapshot();
 
-        match block.validate_and_apply(&mut self.utxo_set, &self.masternode_counts) {
+        match block.validate_and_apply(&mut self.utxo_set) {
             Ok(_) => {
                 // Extract and allocate treasury funds from coinbase transaction
                 let timestamp = block.header.timestamp.timestamp();
@@ -1431,7 +1431,19 @@ mod tests {
 
     fn create_genesis_block() -> Block {
         let outputs = vec![TxOutput::new(100_000_000_000, "genesis".to_string())];
-        Block::new(0, "0".repeat(64), "genesis_validator".to_string(), outputs)
+        let counts = MasternodeCounts {
+            free: 0,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+        Block::new(
+            0,
+            "0".repeat(64),
+            "genesis_validator".to_string(),
+            outputs,
+            &counts,
+        )
     }
 
     #[test]
@@ -1497,7 +1509,13 @@ mod tests {
             TxOutput::new(treasury_amount, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
         assert_eq!(state.chain_tip_height(), 1);
         assert!(state.get_block_by_height(1).is_some());
@@ -1560,6 +1578,12 @@ mod tests {
                 merkle_root: String::new(),
                 validator_signature: "genesis".to_string(),
                 validator_address: "genesis".to_string(),
+                masternode_counts: MasternodeCounts {
+                    free: 0,
+                    bronze: 0,
+                    silver: 0,
+                    gold: 0,
+                },
             },
             transactions: vec![], // Empty transactions - invalid!
             hash: "invalid".to_string(),
@@ -1653,7 +1677,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
 
         state.add_block(block1).unwrap();
 
@@ -1703,7 +1733,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         let treasury_balance = state.treasury().balance();
@@ -1815,7 +1851,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         // Check stats
@@ -1907,7 +1949,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         // Approve a proposal
@@ -1934,7 +1982,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
+        let mut block2 = Block::new(
+            2,
+            block_hash,
+            "miner1".to_string(),
+            coinbase_outputs,
+            &counts,
+        );
 
         // Add the grant transaction to the block
         block2.add_transaction(grant_tx).unwrap();
@@ -1995,7 +2049,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         // Approve a proposal
@@ -2024,6 +2084,7 @@ mod tests {
             block_hash.clone(),
             "miner1".to_string(),
             coinbase_outputs2,
+            &counts,
         );
         block2.add_transaction(grant_tx1).unwrap();
         state.add_block(block2).unwrap();
@@ -2042,7 +2103,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let mut block3 = Block::new(3, block_hash2, "miner1".to_string(), coinbase_outputs3);
+        let mut block3 = Block::new(
+            3,
+            block_hash2,
+            "miner1".to_string(),
+            coinbase_outputs3,
+            &counts,
+        );
         block3.add_transaction(grant_tx2).unwrap();
 
         // This should fail because the proposal was already executed
@@ -2097,7 +2164,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         // Try to create a grant for an unapproved proposal
@@ -2114,7 +2187,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
+        let mut block2 = Block::new(
+            2,
+            block_hash,
+            "miner1".to_string(),
+            coinbase_outputs,
+            &counts,
+        );
         block2.add_transaction(grant_tx).unwrap();
 
         // This should fail because the proposal is not approved
@@ -2166,7 +2245,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         // Approve a proposal with a specific amount
@@ -2191,7 +2276,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let mut block2 = Block::new(2, block_hash, "miner1".to_string(), coinbase_outputs);
+        let mut block2 = Block::new(
+            2,
+            block_hash,
+            "miner1".to_string(),
+            coinbase_outputs,
+            &counts,
+        );
         block2.add_transaction(grant_tx).unwrap();
 
         // This should fail because the amount doesn't match
@@ -2241,7 +2332,13 @@ mod tests {
             TxOutput::new(treasury_allocation, "TREASURY".to_string()),
             TxOutput::new(masternode_share, "miner1".to_string()),
         ];
-        let block1 = Block::new(1, genesis_hash.clone(), "miner1".to_string(), outputs);
+        let block1 = Block::new(
+            1,
+            genesis_hash.clone(),
+            "miner1".to_string(),
+            outputs,
+            &counts,
+        );
         state.add_block(block1).unwrap();
 
         // Approve a proposal (should have treasury funds now)

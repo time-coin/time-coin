@@ -59,6 +59,10 @@ struct Args {
     /// Only works with testnet/devnet. Amount in smallest unit.
     #[arg(long, default_value = "0")]
     mint_coins: u64,
+
+    /// Use random recipient addresses for each transaction
+    #[arg(long)]
+    random_addresses: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +109,13 @@ struct TransactionResponse {
     #[allow(dead_code)]
     tx_id: String,
     message: String,
+}
+
+/// Generate a random TIME address for testing
+fn generate_random_address(network: &NetworkType) -> String {
+    // Generate a random wallet and return its address
+    let random_wallet = Wallet::new(*network).expect("Failed to generate random wallet");
+    random_wallet.address_string()
 }
 
 async fn submit_transaction(
@@ -266,11 +277,18 @@ async fn run_performance_test(args: Args) -> Result<PerformanceReport> {
         let tx_start = Instant::now();
         let submission_time = Utc::now();
 
+        // Use random address if flag is set, otherwise use provided recipient
+        let recipient = if args.random_addresses {
+            generate_random_address(&network)
+        } else {
+            args.recipient.clone()
+        };
+
         match submit_transaction(
             &client,
             &args.api_url,
             &mut wallet,
-            &args.recipient,
+            &recipient,
             args.amount,
             args.fee,
         )
