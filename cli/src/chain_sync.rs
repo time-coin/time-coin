@@ -619,6 +619,11 @@ impl ChainSync {
             .iter()
             .filter(|(_, h, _)| *h > our_height)
             .collect();
+        
+        println!("   🔍 Fork resolution debug:");
+        println!("      Total peers queried: {}", peer_heights.len());
+        println!("      Nodes ahead (height > {}): {}", our_height, nodes_ahead.len());
+        println!("      Majority threshold: {}", peer_heights.len() / 2);
 
         if nodes_ahead.len() >= peer_heights.len() / 2 {
             // Majority of network is ahead - follow their chain
