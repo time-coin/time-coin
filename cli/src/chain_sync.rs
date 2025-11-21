@@ -407,9 +407,12 @@ impl ChainSync {
                     Err(validation_error) => {
                         // Check if this is a previous hash mismatch - indicates a fork
                         if validation_error.contains("Invalid previous hash") {
-                            println!("   ⚠️  Previous hash mismatch detected - fork at height {}", height - 1);
+                            println!(
+                                "   ⚠️  Previous hash mismatch detected - fork at height {}",
+                                height - 1
+                            );
                             println!("      Will trigger fork resolution and retry sync");
-                            
+
                             // Don't quarantine - this is a legitimate fork situation
                             // The fork resolution process will handle it
                             return Err(format!(
@@ -418,7 +421,7 @@ impl ChainSync {
                                 validation_error
                             ));
                         }
-                        
+
                         // Other validation errors: Quarantine peer for sending invalid block
                         println!("   ✗ Block validation failed: {}", validation_error);
                         if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {
@@ -503,6 +506,7 @@ impl ChainSync {
         }
 
         // Check if any peer has a different block at our height
+        // OR if peers ahead of us have a chain that diverges from ours
         let our_hash = {
             let blockchain = self.blockchain.read().await;
             blockchain.chain_tip_hash().to_string()
@@ -510,11 +514,28 @@ impl ChainSync {
 
         let mut competing_blocks = Vec::new();
 
-        for (peer_ip, peer_height, peer_hash) in peer_heights {
-            if peer_height >= our_height && peer_hash != our_hash {
+        for (peer_ip, peer_height, peer_hash) in &peer_heights {
+            // Check for fork at our current height
+            if *peer_height == our_height && peer_hash != &our_hash {
                 // This peer has a different block at same height - potential fork!
-                if let Some(peer_block) = self.download_block(&peer_ip, our_height).await {
-                    competing_blocks.push((peer_ip, peer_block));
+                if let Some(peer_block) = self.download_block(peer_ip, our_height).await {
+                    competing_blocks.push((peer_ip.clone(), peer_block));
+                }
+            }
+            // Also check if peer is ahead - download their block at our height to verify chain compatibility
+            else if *peer_height > our_height {
+                // Download the peer's block at our height to see if chains diverged
+                if let Some(peer_block_at_our_height) =
+                    self.download_block(peer_ip, our_height).await
+                {
+                    if peer_block_at_our_height.hash != our_hash {
+                        // Peer's chain diverged at our height!
+                        println!(
+                            "   ⚠️  Peer {} has different block at height {} (we are at {})",
+                            peer_ip, our_height, our_height
+                        );
+                        competing_blocks.push((peer_ip.clone(), peer_block_at_our_height));
+                    }
                 }
             }
         }
