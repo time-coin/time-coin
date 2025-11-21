@@ -1671,11 +1671,18 @@ impl BlockProducer {
             println!("      Waiting for consensus...");
             let start_time = chrono::Utc::now();
             let timeout_secs = 20;
+            let mut last_log_time = start_time;
+            let mut proposal_seen = false;
 
             while (chrono::Utc::now() - start_time).num_seconds() < timeout_secs {
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
                 if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
+                    if !proposal_seen {
+                        println!("         📋 Proposal received from {}", proposal.proposer);
+                        proposal_seen = true;
+                    }
+
                     // Non-leaders vote
                     if !am_i_leader {
                         let vote = BlockVote {
@@ -1703,6 +1710,17 @@ impl BlockProducer {
                         .has_block_consensus(block_num, &proposal.block_hash)
                         .await;
 
+                    // Log progress every 5 seconds
+                    if (chrono::Utc::now() - last_log_time).num_seconds() >= 5 {
+                        println!(
+                            "         ⏳ Progress: {}/{} votes (need {})",
+                            approvals,
+                            masternodes.len(),
+                            required_votes
+                        );
+                        last_log_time = chrono::Utc::now();
+                    }
+
                     if has_consensus && approvals >= required_votes {
                         println!(
                             "      ✅ Consensus reached ({}/{})!",
@@ -1715,10 +1733,55 @@ impl BlockProducer {
                             .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
                             .await;
                     }
+                } else {
+                    // No proposal yet
+                    if (chrono::Utc::now() - last_log_time).num_seconds() >= 5 {
+                        println!("         ⏳ Waiting for proposal from leader...");
+                        last_log_time = chrono::Utc::now();
+                    }
                 }
             }
 
+            // Timeout - provide diagnostics
             println!("      ❌ Attempt {} timeout", attempt + 1);
+
+            if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
+                let required_votes = ((masternodes.len() * 2) / 3) + 1;
+                let (_, approvals, _) = self
+                    .block_consensus
+                    .has_block_consensus(block_num, &proposal.block_hash)
+                    .await;
+
+                println!(
+                    "         📊 Final tally: {}/{} votes (needed {})",
+                    approvals,
+                    masternodes.len(),
+                    required_votes
+                );
+
+                // Get list of who voted
+                let voters = self
+                    .block_consensus
+                    .get_voters(block_num, &proposal.block_hash)
+                    .await;
+                println!("         👥 Voters: {:?}", voters);
+
+                // Show who didn't vote
+                let non_voters: Vec<String> = masternodes
+                    .iter()
+                    .filter(|mn| !voters.contains(mn))
+                    .cloned()
+                    .collect();
+                if !non_voters.is_empty() {
+                    println!("         ❌ Missing votes from: {:?}", non_voters);
+                }
+            } else {
+                println!("         ⚠️  No proposal was ever received from leader");
+                println!(
+                    "         💡 Leader {} may be offline or unreachable",
+                    selected_producer
+                );
+            }
         }
 
         println!("      ❌ All attempts failed for block #{}", block_num);
