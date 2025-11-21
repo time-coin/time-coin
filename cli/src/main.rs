@@ -1438,7 +1438,11 @@ async fn main() {
     }
 
     // Get allow_block_recreation flag from config
-    let allow_block_recreation = config.blockchain.allow_block_recreation.unwrap_or(false);
+    // Default to true for testnet, false for mainnet
+    let allow_block_recreation = config
+        .blockchain
+        .allow_block_recreation
+        .unwrap_or(network_type == NetworkType::Testnet);
     println!(
         "🔧 Block recreation: {}",
         if allow_block_recreation {
