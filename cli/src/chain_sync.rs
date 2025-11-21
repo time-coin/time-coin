@@ -609,7 +609,42 @@ impl ChainSync {
         let mut all_blocks = vec![("self".to_string(), our_block.clone())];
         all_blocks.extend(competing_blocks);
 
-        // Determine the winning block
+        // CRITICAL: Check if majority of nodes have moved beyond this height
+        // If so, follow the longest chain (most work) principle
+        let nodes_ahead: Vec<_> = peer_heights
+            .iter()
+            .filter(|(_, h, _)| *h > our_height)
+            .collect();
+
+        if nodes_ahead.len() > peer_heights.len() / 2 {
+            // Majority of network is ahead - follow their chain
+            println!(
+                "   ℹ️  Majority of network ({}/{} peers) is ahead at height {}",
+                nodes_ahead.len(),
+                peer_heights.len(),
+                nodes_ahead
+                    .iter()
+                    .map(|(_, h, _)| h)
+                    .max()
+                    .unwrap_or(&our_height)
+            );
+            println!("   🔄 Following longest chain principle...");
+
+            // Download the winning block from the longest chain
+            if let Some((peer_ip, _peer_height, _)) = nodes_ahead.iter().max_by_key(|(_, h, _)| h) {
+                if let Some(their_block_at_our_height) =
+                    self.download_block(peer_ip, our_height).await
+                {
+                    println!("   ✓ Adopting block from longest chain (peer {})", peer_ip);
+                    self.revert_and_replace_block(our_height, their_block_at_our_height)
+                        .await?;
+                    println!("   ✓ Fork resolved - now on longest chain");
+                    return Ok(());
+                }
+            }
+        }
+
+        // Otherwise use timestamp-based selection for same-height forks
         let winner = self.select_winning_block(&all_blocks)?;
 
         println!("   📊 Block comparison:");
