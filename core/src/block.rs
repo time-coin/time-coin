@@ -329,7 +329,10 @@ impl Block {
                 "❌ Coinbase validation failed for block {}: total {} exceeds max {}",
                 self.header.block_number, coinbase_total, max_coinbase
             );
-            eprintln!("   Base reward: {}, Fees: {}", base_masternode_reward, total_fees);
+            eprintln!(
+                "   Base reward: {}, Fees: {}",
+                base_masternode_reward, total_fees
+            );
             return Err(BlockError::InvalidCoinbase);
         }
 

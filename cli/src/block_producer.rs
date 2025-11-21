@@ -101,10 +101,10 @@ impl BlockProducer {
         loop {
             let now = Utc::now();
 
-            // Check if we need to catch up on missed blocks
-            if self.allow_block_recreation {
-                self.catch_up_missed_blocks().await;
-            }
+            // Disable automatic catch-up - let sync handle it
+            // if self.allow_block_recreation {
+            //     self.catch_up_missed_blocks().await;
+            // }
 
             // Calculate next midnight UTC
             let tomorrow = now.date_naive() + chrono::Duration::days(1);
