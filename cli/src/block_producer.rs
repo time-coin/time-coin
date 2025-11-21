@@ -1595,19 +1595,11 @@ impl BlockProducer {
         masternodes: &[String],
     ) -> bool {
         use time_consensus::block_consensus::{BlockProposal, BlockVote};
-        use time_consensus::foolproof_block::{
-            BlockCreationStrategy, FoolproofBlockManager, FoolproofConfig,
-        };
 
-        // CRITICAL: Update block_consensus manager's masternode list before starting
-        // This ensures votes from all masternodes (including self) are authorized
+        // Update block_consensus manager's masternode list
         self.block_consensus
             .set_masternodes(masternodes.to_vec())
             .await;
-
-        // Initialize foolproof system
-        let foolproof = FoolproofBlockManager::new(FoolproofConfig::default());
-        foolproof.start_round().await;
 
         let my_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
             if let Ok(ip) = local_ip_address::local_ip() {
@@ -1617,286 +1609,109 @@ impl BlockProducer {
             }
         });
 
-        println!("   🆔 My node ID: {}", my_id);
-        println!("   📋 Masternode list: {:?}", masternodes);
-        println!(
-            "   ℹ️  This node is now entering catch-up mode and will check if it's the leader"
-        );
+        println!("   🔨 Creating catchup block #{}", block_num);
 
-        // Test connectivity to all masternodes
-        println!("   🔍 Testing connectivity to masternodes...");
-        for node in masternodes {
-            let url = format!("http://{}:24101/health", node);
-            match reqwest::Client::new()
-                .get(&url)
-                .timeout(Duration::from_secs(2))
-                .send()
-                .await
-            {
-                Ok(response) if response.status().is_success() => {
-                    println!("      ✓ {} is reachable", node);
-                }
-                Ok(response) => {
-                    println!(
-                        "      ⚠️  {} responded with status: {}",
-                        node,
-                        response.status()
-                    );
-                }
-                Err(e) => {
-                    println!("      ✗ {} is NOT reachable: {}", node, e);
-                }
-            }
-        }
+        // Determine leader using VRF
+        let selected_producer = self.consensus.get_leader(block_num).await;
+        let am_i_leader = selected_producer.as_ref() == Some(&my_id);
 
-        // Try each strategy in the foolproof chain
-        loop {
-            let strategy = foolproof.current_strategy().await;
-            let timeout_secs = strategy.timeout_secs();
+        println!("      Leader: {:?}", selected_producer);
 
-            println!();
-            println!("╔═══════════════════════════════════════════════════════════╗");
-            println!("║  Strategy: {:?}", strategy);
-            println!("║  Timeout: {}s", timeout_secs);
-            println!("║  Block: #{}", block_num);
-            println!("╚═══════════════════════════════════════════════════════════╝");
+        // Leader creates and broadcasts proposal
+        if am_i_leader {
+            println!("      I'm the leader - creating proposal...");
 
-            // Determine leader using consensus engine's VRF selection
-            // For LeaderRotation strategy, we'll override after getting base selection
-            let base_selected_producer = if strategy == BlockCreationStrategy::LeaderRotation {
-                // For rotation, use simple round-robin on the masternode list
-                let attempt_count = foolproof.attempt_count().await;
-                let index = (block_num as usize + attempt_count) % masternodes.len();
-                let mut sorted = masternodes.to_vec();
-                sorted.sort();
-                Some(sorted[index].clone())
-            } else {
-                // Use VRF-based selection for normal strategies
-                self.consensus.get_leader(block_num).await
+            let block = self
+                .create_catchup_block_structure(block_num, timestamp)
+                .await;
+
+            let proposal = BlockProposal {
+                block_height: block_num,
+                proposer: my_id.clone(),
+                block_hash: block.hash.clone(),
+                merkle_root: block.header.merkle_root.clone(),
+                previous_hash: block.header.previous_hash.clone(),
+                timestamp: timestamp.timestamp(),
+                is_reward_only: false,
+                strategy: None,
             };
 
-            let selected_producer = base_selected_producer;
-            let am_i_leader = selected_producer.as_ref() == Some(&my_id);
+            self.block_consensus.propose_block(proposal.clone()).await;
+            self.broadcast_block_proposal(proposal.clone(), masternodes)
+                .await;
 
-            println!(
-                "   Leader: {:?} (Strategy: {:?})",
-                selected_producer, strategy
-            );
-            println!(
-                "   Am I leader? {} (my_id='{}' vs selected='{:?}')",
-                am_i_leader, my_id, selected_producer
-            );
-
-            // Notify the leader if I'm not the leader
-            if !am_i_leader {
-                if let Some(ref leader_ip) = selected_producer {
-                    println!(
-                        "   📨 Notifying leader {} to create block proposal...",
-                        leader_ip
-                    );
-                    self.notify_leader_to_produce_block(leader_ip, block_num, &my_id)
-                        .await;
-                }
-            }
-
-            // Step 1: Leader creates and broadcasts proposal
-            if am_i_leader {
-                println!("   📝 I'm the leader - creating block proposal...");
-
-                let block = if strategy.includes_mempool_txs() {
-                    // Full block with mempool transactions
-                    self.create_catchup_block_structure(block_num, timestamp)
-                        .await
-                } else {
-                    // Reward-only or emergency block
-                    self.create_minimal_catchup_block(
-                        block_num,
-                        timestamp,
-                        strategy == BlockCreationStrategy::Emergency,
-                    )
-                    .await
-                };
-
-                let proposal = BlockProposal {
-                    block_height: block_num,
-                    proposer: my_id.clone(),
-                    block_hash: block.hash.clone(),
-                    merkle_root: block.header.merkle_root.clone(),
-                    previous_hash: block.header.previous_hash.clone(),
-                    timestamp: timestamp.timestamp(),
-                    is_reward_only: false, // Catch-up blocks are not marked as reward-only
-                    strategy: Some(format!("{:?}", strategy)), // Include strategy for synchronization
-                };
-
-                self.block_consensus.propose_block(proposal.clone()).await;
-                self.broadcast_block_proposal(proposal.clone(), masternodes)
+            // Leader auto-votes
+            let vote = BlockVote {
+                block_height: block_num,
+                block_hash: block.hash.clone(),
+                voter: my_id.clone(),
+                approve: true,
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            let _ = self.block_consensus.vote_on_block(vote.clone()).await;
+            self.broadcast_block_vote(vote, masternodes).await;
+        } else {
+            // Notify leader to create proposal
+            if let Some(ref leader_ip) = selected_producer {
+                println!("      Notifying leader {}...", leader_ip);
+                self.notify_leader_to_produce_block(leader_ip, block_num, &my_id)
                     .await;
-
-                // Leader auto-votes
-                let vote = BlockVote {
-                    block_height: block_num,
-                    block_hash: block.hash.clone(),
-                    voter: my_id.clone(),
-                    approve: true,
-                    timestamp: chrono::Utc::now().timestamp(),
-                };
-                let _ = self.block_consensus.vote_on_block(vote.clone()).await;
-                self.broadcast_block_vote(vote, masternodes).await;
             }
+        }
 
-            // Step 2: Wait for consensus with strategy-specific timeout
-            // NOTE: All nodes wait for ANY valid proposal, regardless of strategy mismatch
-            // This ensures network converges even if nodes are on different strategy rounds
-            println!(
-                "   ▶️ Waiting for consensus (timeout: {}s)...",
-                timeout_secs
-            );
-            println!("   ℹ️  Will accept proposals from ANY strategy to ensure convergence");
+        // Wait for consensus (30 second timeout)
+        println!("      Waiting for consensus...");
+        let start_time = chrono::Utc::now();
+        let timeout_secs = 30;
 
-            let start_time = Utc::now();
-            let mut best_votes = 0;
-            let mut best_total = masternodes.len();
-            let mut consensus_reached = false;
+        while (chrono::Utc::now() - start_time).num_seconds() < timeout_secs {
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
-            // For emergency strategy, always succeed
-            if strategy == BlockCreationStrategy::Emergency {
-                println!("   🚨 EMERGENCY MODE: Creating block without consensus");
+            if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
+                // Non-leaders vote
+                if !am_i_leader {
+                    let vote = BlockVote {
+                        block_height: block_num,
+                        block_hash: proposal.block_hash.clone(),
+                        voter: my_id.clone(),
+                        approve: true,
+                        timestamp: chrono::Utc::now().timestamp(),
+                    };
 
-                // Finalize immediately
-                let success = self
-                    .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
-                    .await;
-
-                foolproof
-                    .record_attempt(
-                        strategy,
-                        selected_producer.unwrap_or_else(|| "emergency".to_string()),
-                        1, // Emergency assumes 1 vote (self)
-                        masternodes.len(),
-                        success,
-                        if success {
-                            None
-                        } else {
-                            Some("Emergency finalization failed".to_string())
-                        },
-                    )
-                    .await;
-
-                foolproof.log_summary().await;
-                return success;
-            }
-
-            // Wait and check for consensus
-            while (Utc::now() - start_time).num_seconds() < timeout_secs as i64 {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-
-                if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
-                    // Non-leaders vote here
-                    if !am_i_leader {
-                        let vote = BlockVote {
-                            block_height: block_num,
-                            block_hash: proposal.block_hash.clone(),
-                            voter: my_id.clone(),
-                            approve: true,
-                            timestamp: chrono::Utc::now().timestamp(),
-                        };
-
-                        if self
-                            .block_consensus
-                            .vote_on_block(vote.clone())
-                            .await
-                            .is_ok()
-                        {
-                            self.broadcast_block_vote(vote, masternodes).await;
-                        }
-                    }
-
-                    // Check consensus with strategy-specific threshold
-                    let (_has_consensus, approvals, total) = self
+                    if self
                         .block_consensus
-                        .has_block_consensus(block_num, &proposal.block_hash)
-                        .await;
-
-                    best_votes = approvals.max(best_votes);
-                    best_total = total;
-
-                    // Check with foolproof threshold
-                    if foolproof
-                        .check_consensus_with_strategy(approvals, total)
+                        .vote_on_block(vote.clone())
                         .await
+                        .is_ok()
                     {
-                        consensus_reached = true;
-                        println!("   ✅ Consensus reached! ({}/{} votes)", approvals, total);
-                        break;
-                    }
-
-                    // Log progress
-                    if (Utc::now() - start_time).num_seconds() % 5 == 0 {
-                        let (num, denom) = strategy.vote_threshold();
-                        let required = (total * num).div_ceil(denom);
-                        println!("   ⏳ Votes: {}/{} (need {})", approvals, total, required);
+                        self.broadcast_block_vote(vote, masternodes).await;
                     }
                 }
-            }
 
-            // Record attempt result
-            if consensus_reached {
-                let success = self
-                    .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
+                // Check consensus (need 2/3+ votes)
+                let required_votes = ((masternodes.len() * 2) / 3) + 1;
+                let (has_consensus, approvals, _total) = self
+                    .block_consensus
+                    .has_block_consensus(block_num, &proposal.block_hash)
                     .await;
 
-                foolproof
-                    .record_attempt(
-                        strategy,
-                        selected_producer.unwrap_or_else(|| "unknown".to_string()),
-                        best_votes,
-                        best_total,
-                        success,
-                        if success {
-                            None
-                        } else {
-                            Some("Finalization failed".to_string())
-                        },
-                    )
-                    .await;
+                if has_consensus && approvals >= required_votes {
+                    println!(
+                        "      ✅ Consensus reached ({}/{})!",
+                        approvals,
+                        masternodes.len()
+                    );
 
-                if success {
-                    foolproof.log_summary().await;
-                    return true;
-                } else {
-                    // Finalization failed - try next strategy
-                    println!("   ⚠️  Finalization failed despite consensus - trying next strategy");
-                    if foolproof.advance_strategy().await.is_some() {
-                        continue;
-                    } else {
-                        foolproof.log_summary().await;
-                        return false;
-                    }
-                }
-            } else {
-                foolproof
-                    .record_attempt(
-                        strategy,
-                        selected_producer.unwrap_or_else(|| "unknown".to_string()),
-                        best_votes,
-                        best_total,
-                        false,
-                        Some(format!("Timeout after {}s without consensus", timeout_secs)),
-                    )
-                    .await;
-
-                // Try next strategy
-                if foolproof.advance_strategy().await.is_some() {
-                    // Clear consensus state for next attempt
-                    continue;
-                } else {
-                    // No more strategies - this should never happen as Emergency is last
-                    println!("   ❌ All strategies exhausted - CRITICAL ERROR");
-                    foolproof.log_summary().await;
-                    return false;
+                    // Finalize the block
+                    return self
+                        .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
+                        .await;
                 }
             }
         }
+
+        println!("      ❌ Consensus timeout after {}s", timeout_secs);
+        false
     }
 
     /// Create a minimal catchup block (reward-only or emergency)
