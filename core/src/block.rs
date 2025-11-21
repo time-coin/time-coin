@@ -307,10 +307,39 @@ impl Block {
         self.validate_structure()?;
 
         // Use masternode counts from block header (stored when block was created)
-        let masternode_counts = &self.header.masternode_counts;
+        let masternode_counts = self.header.masternode_counts.clone();
+
+        // For old blocks without masternode_counts (all zeros), skip strict validation
+        // These are blocks created before the masternode_counts field was added
+        let is_legacy_block = masternode_counts.free == 0
+            && masternode_counts.bronze == 0
+            && masternode_counts.silver == 0
+            && masternode_counts.gold == 0;
+
+        if is_legacy_block {
+            eprintln!(
+                "   ℹ️  Block {} is a legacy block (no masternode counts), using lenient validation",
+                self.header.block_number
+            );
+            // For legacy blocks, we'll validate that coinbase exists and has reasonable structure
+            // but won't validate the exact reward amounts
+            let coinbase = self.coinbase().ok_or(BlockError::InvalidCoinbase)?;
+
+            // Just verify coinbase has outputs
+            if coinbase.outputs.is_empty() {
+                return Err(BlockError::InvalidCoinbase);
+            }
+
+            // Apply transactions to UTXO set
+            for tx in &self.transactions {
+                utxo_set.apply_transaction(tx)?;
+            }
+
+            return Ok(());
+        }
 
         // Calculate expected rewards including treasury allocation
-        let base_masternode_reward = calculate_total_masternode_reward(masternode_counts);
+        let base_masternode_reward = calculate_total_masternode_reward(&masternode_counts);
 
         // Validate coinbase reward
         let coinbase = self.coinbase().ok_or(BlockError::InvalidCoinbase)?;
