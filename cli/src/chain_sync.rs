@@ -619,10 +619,14 @@ impl ChainSync {
             .iter()
             .filter(|(_, h, _)| *h > our_height)
             .collect();
-        
+
         println!("   🔍 Fork resolution debug:");
         println!("      Total peers queried: {}", peer_heights.len());
-        println!("      Nodes ahead (height > {}): {}", our_height, nodes_ahead.len());
+        println!(
+            "      Nodes ahead (height > {}): {}",
+            our_height,
+            nodes_ahead.len()
+        );
         println!("      Majority threshold: {}", peer_heights.len() / 2);
 
         if nodes_ahead.len() >= peer_heights.len() / 2 {
@@ -639,11 +643,29 @@ impl ChainSync {
             );
             println!("   🔄 Following longest chain principle...");
 
-            // Download the winning block from the longest chain
-            if let Some((peer_ip, _peer_height, _)) = nodes_ahead.iter().max_by_key(|(_, h, _)| h) {
+            // Download the winning block from the longest chain, trying peers by height (highest first)
+            let mut sorted_nodes_ahead: Vec<_> = nodes_ahead.iter().collect();
+            sorted_nodes_ahead.sort_by_key(|(_, h, _)| std::cmp::Reverse(*h));
+
+            for (peer_ip, _peer_height, _) in sorted_nodes_ahead {
                 if let Some(their_block_at_our_height) =
                     self.download_block(peer_ip, our_height).await
                 {
+                    // Validate block timestamp is not from the future
+                    let now = chrono::Utc::now();
+                    let block_time = their_block_at_our_height.header.timestamp;
+                    let max_drift = chrono::Duration::seconds(300); // Allow 5 minutes of clock drift
+
+                    if block_time > now + max_drift {
+                        let diff = (block_time - now).num_seconds();
+                        println!(
+                            "   ⚠️  Block from peer {} is from the future (diff: {}s)",
+                            peer_ip, diff
+                        );
+                        println!("   ⚠️  Skipping this peer - trying next...");
+                        continue;
+                    }
+
                     println!("   ✓ Adopting block from longest chain (peer {})", peer_ip);
                     self.revert_and_replace_block(our_height, their_block_at_our_height)
                         .await?;
@@ -651,6 +673,8 @@ impl ChainSync {
                     return Ok(());
                 }
             }
+
+            println!("   ⚠️  Could not adopt any block from longest chain");
         }
 
         // Otherwise use timestamp-based selection for same-height forks
