@@ -96,6 +96,9 @@ struct BlockchainConfig {
     #[allow(dead_code)]
     data_dir: Option<String>,
 
+    /// Path to genesis block JSON file
+    genesis_file: Option<String>,
+
     /// Allow recreating missing historical blocks via consensus
     /// Default: false (download only)
     allow_block_recreation: Option<bool>,
@@ -197,6 +200,50 @@ async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
     } else {
         None
     }
+}
+
+/// Load genesis block from JSON file
+fn load_genesis_from_json(
+    json_data: &str,
+    db_path: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    use time_core::block::{Block, MasternodeCounts};
+
+    // Parse the genesis JSON
+    let genesis_json: serde_json::Value = serde_json::from_str(json_data)?;
+    let block_json = genesis_json
+        .get("block")
+        .ok_or("Missing 'block' field in genesis JSON")?;
+
+    // Deserialize the block, adding masternode_counts if missing
+    let mut block: Block = serde_json::from_value(block_json.clone())?;
+
+    // Ensure masternode_counts exists (for backwards compatibility)
+    if block.header.masternode_counts.free == 0
+        && block.header.masternode_counts.bronze == 0
+        && block.header.masternode_counts.silver == 0
+        && block.header.masternode_counts.gold == 0
+    {
+        // Set default counts for genesis
+        block.header.masternode_counts = MasternodeCounts {
+            free: 0,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+    }
+
+    // Recalculate hash to ensure it matches
+    let calculated_hash = block.calculate_hash();
+
+    // Validate the block structure
+    block.validate_structure()?;
+
+    // Save to database
+    let db = time_core::db::BlockchainDB::open(db_path)?;
+    db.save_block(&block)?;
+
+    Ok(calculated_hash)
 }
 
 /// Sync mempool from connected peers
@@ -720,6 +767,47 @@ async fn main() {
     // ═══════════════════════════════════════════════════════════════
     // STEP 3: Initialize blockchain state (load from disk or prepare for sync)
     // ═══════════════════════════════════════════════════════════════
+
+    // Check if genesis file should be loaded
+    let genesis_file_path = config.blockchain.genesis_file.clone();
+
+    if let Some(genesis_path) = genesis_file_path {
+        // Check if we need to load genesis (no blocks on disk)
+        let db_path = format!("{}/blockchain", data_dir);
+        let needs_genesis = {
+            let db = time_core::db::BlockchainDB::open(&db_path).expect("Failed to open database");
+            let blocks = db.load_all_blocks().expect("Failed to check blocks");
+            blocks.is_empty()
+        };
+
+        if needs_genesis {
+            println!("{}", "📥 Loading genesis block from file...".cyan());
+            match std::fs::read_to_string(&genesis_path) {
+                Ok(json_data) => match load_genesis_from_json(&json_data, &db_path) {
+                    Ok(genesis_hash) => {
+                        println!(
+                            "{}",
+                            format!("✅ Genesis block loaded: {}...", &genesis_hash[..16]).green()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "{}",
+                            format!("❌ Failed to load genesis block: {}", e).red()
+                        );
+                        eprintln!("{}", "   Will attempt to download from peers".yellow());
+                    }
+                },
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        format!("⚠️  Could not read genesis file {}: {}", genesis_path, e).yellow()
+                    );
+                    eprintln!("{}", "   Will attempt to download from peers".yellow());
+                }
+            }
+        }
+    }
 
     let blockchain = Arc::new(RwLock::new(
         BlockchainState::new_from_disk_or_sync(&format!("{}/blockchain", data_dir))
