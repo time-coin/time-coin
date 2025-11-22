@@ -1117,7 +1117,7 @@ impl ChainSync {
                 println!("\n🔄 Running periodic chain sync...");
 
                 // First check for forks
-                let rollback_occurred = match self.detect_and_resolve_forks().await {
+                let _rollback_occurred = match self.detect_and_resolve_forks().await {
                     Ok(rollback) => rollback,
                     Err(e) => {
                         println!("   ⚠️  Fork detection failed: {}", e);
@@ -1125,11 +1125,8 @@ impl ChainSync {
                     }
                 };
 
-                // Skip sync if rollback occurred (let block recreation handle it)
-                if rollback_occurred {
-                    println!("   ⏭️  Skipping sync after rollback - waiting for block recreation");
-                    continue;
-                }
+                // After rollback, continue to sync missing blocks from peers
+                // Block recreation is only for when peers don't have the blocks
 
                 // Then sync missing blocks
                 match self.sync_from_peers().await {
