@@ -544,6 +544,49 @@ impl BlockProducer {
         let masternodes = self.consensus.get_masternodes().await;
         println!("   🔍 Masternode list: {:?}", masternodes);
 
+        // CRITICAL: Check if all masternodes have the required base blocks
+        // Before creating block N, all nodes must have block N-1
+        let our_height = self.load_block_height().await;
+        let start_from_height = our_height + 1;
+
+        // Query all masternodes to see their heights
+        println!("   🔍 Checking masternode heights before catch-up...");
+        let mut peer_heights: Vec<(String, u64)> = Vec::new();
+
+        for masternode_ip in &masternodes {
+            let url = format!("http://{}:24101/blockchain/info", masternode_ip);
+            match reqwest::get(&url).await {
+                Ok(response) => {
+                    if let Ok(info) = response.json::<BlockchainInfo>().await {
+                        peer_heights.push((masternode_ip.clone(), info.height));
+                        println!("      {} is at height {}", masternode_ip, info.height);
+                    }
+                }
+                Err(_) => {
+                    println!("      ⚠️  Could not reach {}", masternode_ip);
+                }
+            }
+        }
+
+        // Check if anyone is significantly behind
+        let min_height = peer_heights.iter().map(|(_, h)| *h).min().unwrap_or(0);
+        if min_height + 1 < start_from_height {
+            println!(
+                "   ⚠️  Cannot create blocks - some masternodes don't have required base blocks"
+            );
+            println!(
+                "      We're at height {}, but lowest peer is at height {}",
+                our_height, min_height
+            );
+            println!(
+                "      All peers must have block {} before we can create block {}",
+                start_from_height - 1,
+                start_from_height
+            );
+            println!("   ℹ️  Waiting for peers to sync genesis/base blocks first...");
+            return;
+        }
+
         // Create catch-up blocks
         let still_missing = expected_height - self.load_block_height().await;
         println!(

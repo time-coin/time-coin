@@ -1234,14 +1234,59 @@ impl BlockchainState {
         new_block.validate_structure()?;
         if let Some(old_hash) = self.blocks_by_height.get(&height) {
             let old_hash = old_hash.clone();
+
+            // Remove old block
             self.blocks.remove(&old_hash);
             if self.chain_tip_hash == old_hash {
                 self.chain_tip_hash = new_block.hash.clone();
             }
+
+            // Insert new block
             self.blocks_by_height.insert(height, new_block.hash.clone());
             self.blocks
                 .insert(new_block.hash.clone(), new_block.clone());
             self.db.save_block(&new_block)?;
+
+            // Validate all subsequent blocks - if any block's previous_hash doesn't match,
+            // we need to remove it (cascade invalidation)
+            let current_height = self.chain_tip_height;
+            let mut invalid_from = None;
+
+            for h in (height + 1)..=current_height {
+                if let Some(block) = self.get_block_by_height(h) {
+                    let expected_prev_hash = if h == height + 1 {
+                        &new_block.hash
+                    } else if let Some(prev_block) = self.get_block_by_height(h - 1) {
+                        &prev_block.hash
+                    } else {
+                        invalid_from = Some(h);
+                        break;
+                    };
+
+                    if &block.header.previous_hash != expected_prev_hash {
+                        println!(
+                            "      ⚠️  Block {} invalid after replacement - previous hash mismatch",
+                            h
+                        );
+                        println!("         Expected: {}...", &expected_prev_hash[..16]);
+                        println!("         Got: {}...", &block.header.previous_hash[..16]);
+                        invalid_from = Some(h);
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // If we found invalid blocks, rollback to just before them
+            if let Some(invalid_height) = invalid_from {
+                println!(
+                    "      🔄 Cascade rollback: removing blocks {} onwards",
+                    invalid_height
+                );
+                self.rollback_to_height(invalid_height - 1)?;
+            }
+
             Ok(())
         } else {
             Err(StateError::BlockNotFound)
