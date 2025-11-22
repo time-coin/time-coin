@@ -109,14 +109,41 @@ impl BlockProducer {
 
         println!("Block producer started (24-hour interval)");
 
+        // Spawn a periodic catch-up check task (runs every 5 minutes)
+        if self.allow_block_recreation {
+            let blockchain_clone = self.blockchain.clone();
+            let self_clone = Self {
+                node_id: self.node_id.clone(),
+                peer_manager: self.peer_manager.clone(),
+                consensus: self.consensus.clone(),
+                blockchain: self.blockchain.clone(),
+                mempool: self.mempool.clone(),
+                block_consensus: self.block_consensus.clone(),
+                tx_consensus: self.tx_consensus.clone(),
+                is_active: self.is_active.clone(),
+                allow_block_recreation: self.allow_block_recreation,
+            };
+
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+                interval.tick().await; // Skip first immediate tick
+
+                loop {
+                    interval.tick().await;
+
+                    // Only check if not currently producing a block
+                    let is_active = *self_clone.is_active.read().await;
+                    if !is_active {
+                        println!("🔍 Periodic catch-up check...");
+                        self_clone.catch_up_missed_blocks().await;
+                    }
+                }
+            });
+        }
+
         // Main loop: sleep until midnight, then produce block
         loop {
             let now = Utc::now();
-
-            // Check for missed blocks periodically
-            if self.allow_block_recreation {
-                self.catch_up_missed_blocks().await;
-            }
 
             // Calculate next midnight UTC
             let tomorrow = now.date_naive() + chrono::Duration::days(1);
