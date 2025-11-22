@@ -670,6 +670,16 @@ pub enum NetworkMessage {
     },
     BlocksData(Vec<BlockData>),
 
+    // Catch-up coordination messages
+    CatchUpRequest {
+        requester: String,
+        current_height: u64,
+        expected_height: u64,
+    },
+    CatchUpAcknowledge {
+        responder: String,
+    },
+
     // New message types for unified TCP communication
     TransactionBroadcast(time_core::Transaction),
     InstantFinalityRequest(time_core::Transaction),

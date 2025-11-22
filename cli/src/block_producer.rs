@@ -191,6 +191,14 @@ impl BlockProducer {
         println!("⚠️  MISSED BLOCKS DETECTED");
         println!("   Missing {} block(s)", missing_blocks);
 
+        // Broadcast catch-up request to coordinate with other nodes
+        println!("   📢 Broadcasting catch-up request to network...");
+        self.broadcast_catch_up_request(actual_height, expected_height)
+            .await;
+
+        // Wait a moment for other nodes to acknowledge and prepare
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
         // CRITICAL: Check consensus mode FIRST - NEVER create blocks in BOOTSTRAP mode
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
@@ -2144,6 +2152,40 @@ impl BlockProducer {
                 println!("      ✗ Failed to finalize block: {:?}", e);
                 false
             }
+        }
+    }
+
+    /// Broadcast catch-up request to all connected peers
+    async fn broadcast_catch_up_request(&self, current_height: u64, expected_height: u64) {
+        let node_id = self.node_id.clone();
+        let peers = self.peer_manager.get_peer_ips().await;
+
+        if peers.is_empty() {
+            return;
+        }
+
+        println!(
+            "   📡 Notifying {} peer(s) of catch-up need...",
+            peers.len()
+        );
+
+        for peer_ip in peers {
+            let url = format!("http://{}:24101/network/catch-up-request", peer_ip);
+            let request = serde_json::json!({
+                "requester": node_id,
+                "current_height": current_height,
+                "expected_height": expected_height,
+            });
+
+            // Fire and forget - don't wait for responses
+            tokio::spawn(async move {
+                let _ = reqwest::Client::new()
+                    .post(&url)
+                    .json(&request)
+                    .timeout(std::time::Duration::from_secs(3))
+                    .send()
+                    .await;
+            });
         }
     }
 }

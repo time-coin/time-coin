@@ -46,6 +46,8 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/network/quarantine", get(get_quarantined_peers))
         .route("/network/quarantine/release", post(release_peer))
         .route("/network/quarantine/stats", get(get_quarantine_stats))
+        // Catch-up coordination endpoint
+        .route("/network/catch-up-request", post(handle_catch_up_request))
         // Core blockchain endpoints
         .route("/", get(root))
         .route("/health", get(health_check))
@@ -1739,5 +1741,51 @@ async fn receive_instant_finality_vote(
 
     Ok(Json(serde_json::json!({
         "success": true
+    })))
+}
+
+/// Handle catch-up request from another node
+async fn handle_catch_up_request(
+    State(state): State<ApiState>,
+    Json(request): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let requester = request["requester"]
+        .as_str()
+        .ok_or_else(|| ApiError::BadRequest("Missing requester".to_string()))?;
+    let current_height = request["current_height"]
+        .as_u64()
+        .ok_or_else(|| ApiError::BadRequest("Missing current_height".to_string()))?;
+    let expected_height = request["expected_height"]
+        .as_u64()
+        .ok_or_else(|| ApiError::BadRequest("Missing expected_height".to_string()))?;
+
+    println!("📢 Catch-up request received:");
+    println!("   From: {}", requester);
+    println!(
+        "   Their height: {} (need: {})",
+        current_height, expected_height
+    );
+
+    // Check our own height
+    let our_height = {
+        let blockchain = state.blockchain.read().await;
+        blockchain.chain_tip_height()
+    };
+
+    if our_height < expected_height {
+        println!("   ℹ️  We're also behind - acknowledging to coordinate catch-up");
+    } else if our_height == expected_height {
+        println!("   ℹ️  We're caught up - will help with block creation");
+    } else {
+        println!(
+            "   ℹ️  We're ahead at {} - requester should sync from us",
+            our_height
+        );
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "responder": our_height.to_string(),
+        "our_height": our_height,
     })))
 }
