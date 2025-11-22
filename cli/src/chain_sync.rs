@@ -770,8 +770,22 @@ impl ChainSync {
                     // CRITICAL: Verify the next block chains correctly BEFORE adopting
                     if *_peer_height > our_height {
                         println!("   🔍 Pre-validating next block chains correctly...");
+                        println!("      Peer: {} (height {})", peer_ip, _peer_height);
+                        println!("      Our height: {}", our_height);
+                        println!(
+                            "      Their block {} hash: {}...",
+                            our_height,
+                            &their_block_at_our_height.hash[..16]
+                        );
+
                         if let Some(next_block) = self.download_block(peer_ip, our_height + 1).await
                         {
+                            println!(
+                                "      Next block {} prev_hash: {}...",
+                                our_height + 1,
+                                &next_block.header.previous_hash[..16]
+                            );
+
                             if next_block.header.previous_hash != their_block_at_our_height.hash {
                                 println!("   ⚠️  Next block doesn't chain correctly - this peer's chain is corrupted");
                                 println!(
