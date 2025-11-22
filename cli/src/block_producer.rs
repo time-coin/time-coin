@@ -591,8 +591,42 @@ impl BlockProducer {
                 tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
             } else {
                 println!("   ❌ Failed to create block {}", block_num);
-                println!("   ⏸️  Pausing catch-up - will retry on next cycle");
-                break;
+                println!("   👂 Listening for block from other masternodes...");
+
+                // Wait for block from network - either via proposal or blockchain sync
+                let wait_duration = Duration::from_secs(45);
+                let start = tokio::time::Instant::now();
+                let mut block_received = false;
+
+                while start.elapsed() < wait_duration {
+                    // Check if the block appeared in the blockchain
+                    let current_height = self.load_block_height().await;
+                    if current_height >= block_num {
+                        println!("   ✅ Block {} received from network!", block_num);
+                        block_received = true;
+                        break;
+                    }
+
+                    // Also check for consensus proposal
+                    if let Some(_proposal) = self.block_consensus.wait_for_proposal(block_num).await
+                    {
+                        println!("   📋 Block {} proposal received from network!", block_num);
+                        // Give it a moment to be processed
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        let current_height = self.load_block_height().await;
+                        if current_height >= block_num {
+                            block_received = true;
+                            break;
+                        }
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+
+                if !block_received {
+                    println!("   ⏸️  No block received - will retry on next cycle");
+                    break;
+                }
             }
         }
 

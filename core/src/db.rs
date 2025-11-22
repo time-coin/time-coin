@@ -316,6 +316,18 @@ impl BlockchainDB {
                 .map_err(|e| StateError::IoError(format!("Failed to clear database: {}", e)))?;
         }
 
+        // Clear wallet balance cache (stale after blockchain reset)
+        let wallet_keys: Vec<_> = self
+            .db
+            .scan_prefix(b"wallet_balance:")
+            .keys()
+            .filter_map(|k| k.ok())
+            .collect();
+
+        for key in wallet_keys {
+            let _ = self.db.remove(key);
+        }
+
         // Also clear snapshots
         let _ = self.db.remove(b"snapshot:hot_state");
 
