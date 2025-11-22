@@ -1115,8 +1115,13 @@ async fn receive_block_vote(
                 println!("   ✓ Vote registered successfully");
             }
             Err(e) => {
-                println!("   ⚠️  Vote registration failed: {}", e);
-                return Err(ApiError::Internal(e));
+                // Don't fail the request for duplicate votes - this is normal when receiving own vote back
+                if e.contains("Duplicate vote") {
+                    println!("   ℹ️  Vote already registered ({})", e);
+                } else {
+                    println!("   ⚠️  Vote registration failed: {}", e);
+                    return Err(ApiError::Internal(e));
+                }
             }
         }
 

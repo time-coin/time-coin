@@ -1107,7 +1107,7 @@ impl PeerManager {
             tokio::spawn(async move {
                 // Send via TCP
                 if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
-                    debug!(peer = %peer_ip, error = %e, "Failed to send block vote via TCP");
+                    warn!(peer = %peer_ip, error = %e, "Failed to send block vote via TCP");
                 } else {
                     debug!(peer = %peer_ip, "Sent block vote via TCP");
                 }

@@ -623,6 +623,58 @@ impl BlockProducer {
                     tokio::time::sleep(Duration::from_secs(5)).await;
                 }
 
+                // If consensus didn't finalize the block, try downloading directly from peers
+                if !block_received {
+                    println!(
+                        "   ⚠️  Consensus didn't finalize - trying direct download from peers..."
+                    );
+                    let current_height = self.load_block_height().await;
+                    if current_height < block_num {
+                        // Try to download from each peer
+                        let peers = self.peer_manager.get_peer_ips().await;
+                        for peer_ip in &peers {
+                            let url =
+                                format!("http://{}:24101/blockchain/block/{}", peer_ip, block_num);
+                            if let Ok(response) = reqwest::Client::new()
+                                .get(&url)
+                                .timeout(std::time::Duration::from_secs(10))
+                                .send()
+                                .await
+                            {
+                                if let Ok(json) = response.json::<serde_json::Value>().await {
+                                    if let Some(block_data) = json.get("block") {
+                                        if let Ok(block) =
+                                            serde_json::from_value::<time_core::block::Block>(
+                                                block_data.clone(),
+                                            )
+                                        {
+                                            println!(
+                                                "   📥 Downloaded block {} from {}",
+                                                block_num, peer_ip
+                                            );
+                                            let mut blockchain = self.blockchain.write().await;
+                                            match blockchain.add_block(block) {
+                                                Ok(_) => {
+                                                    println!(
+                                                        "   ✅ Block {} added successfully!",
+                                                        block_num
+                                                    );
+                                                    block_received = true;
+                                                    drop(blockchain);
+                                                    break;
+                                                }
+                                                Err(e) => {
+                                                    println!("   ⚠️  Failed to add block: {:?}", e);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if !block_received {
                     println!("   ⏸️  No block received - will retry on next cycle");
                     break;
