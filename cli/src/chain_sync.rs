@@ -109,6 +109,15 @@ impl ChainSync {
 
     /// Check if periodic sync should be skipped
     async fn should_skip_sync(&self) -> bool {
+        // Never skip sync if we don't have genesis - critical for bootstrapping
+        let blockchain = self.blockchain.read().await;
+        let has_genesis = !blockchain.genesis_hash().is_empty();
+        drop(blockchain);
+
+        if !has_genesis {
+            return false; // Always sync when we don't have genesis
+        }
+
         if !self.is_in_midnight_window() {
             return false;
         }
