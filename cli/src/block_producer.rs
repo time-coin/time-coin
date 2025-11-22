@@ -111,7 +111,6 @@ impl BlockProducer {
 
         // Spawn a periodic catch-up check task (runs every 5 minutes)
         if self.allow_block_recreation {
-            let blockchain_clone = self.blockchain.clone();
             let self_clone = Self {
                 node_id: self.node_id.clone(),
                 peer_manager: self.peer_manager.clone(),
