@@ -266,7 +266,7 @@ impl PeerManager {
     }
 
     /// Try to get peer list from multiple peers until one succeeds
-    async fn try_get_peer_list(&self) -> Option<Vec<(String, u16)>> {
+    pub async fn try_get_peer_list(&self) -> Option<Vec<(String, u16)>> {
         let healthy_peers = self.get_healthy_peers().await;
 
         if healthy_peers.is_empty() {

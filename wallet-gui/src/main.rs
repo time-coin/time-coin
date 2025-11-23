@@ -317,6 +317,12 @@ impl WalletApp {
                             }
                         }
 
+                        // Bootstrap PeerManager to discover peers from network
+                        log::info!("🔍 Bootstrapping PeerManager...");
+                        if let Err(e) = peer_mgr.bootstrap().await {
+                            log::warn!("⚠️ PeerManager bootstrap failed: {}", e);
+                        }
+
                         // ✅ CRITICAL FIX: Actually connect NetworkManager to peers!
                         log::info!("🔗 Connecting NetworkManager to discovered peers...");
                         let peer_list = peer_mgr.get_healthy_peers().await;
@@ -363,6 +369,25 @@ impl WalletApp {
                                     }
                                 }
                             });
+                        });
+
+                        // Start periodic peer discovery from PeerManager
+                        let peer_mgr_periodic = peer_mgr.clone();
+                        tokio::spawn(async move {
+                            // Wait a bit before starting periodic discovery
+                            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+                            loop {
+                                log::info!("🔄 Running periodic peer discovery...");
+                                if let Some(new_peers) = peer_mgr_periodic.try_get_peer_list().await
+                                {
+                                    peer_mgr_periodic.add_peers(new_peers).await;
+                                    log::info!("✅ Discovered and added new peers");
+                                }
+
+                                // Check again every 5 minutes
+                                tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+                            }
                         });
                     });
                 }
