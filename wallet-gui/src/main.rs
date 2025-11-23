@@ -373,20 +373,67 @@ impl WalletApp {
 
                         // Start periodic peer discovery from PeerManager
                         let peer_mgr_periodic = peer_mgr.clone();
+                        let network_mgr_periodic = network_mgr_clone.clone();
                         tokio::spawn(async move {
                             // Wait a bit before starting periodic discovery
                             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
 
                             loop {
                                 log::info!("🔄 Running periodic peer discovery...");
+
+                                // Get new peers from network via PeerManager
                                 if let Some(new_peers) = peer_mgr_periodic.try_get_peer_list().await
                                 {
                                     peer_mgr_periodic.add_peers(new_peers).await;
-                                    log::info!("✅ Discovered and added new peers");
+                                    log::info!("✅ Discovered and added new peers to database");
+
+                                    // Connect NetworkManager to newly discovered peers
+                                    let peer_list = peer_mgr_periodic.get_healthy_peers().await;
+                                    if !peer_list.is_empty() {
+                                        log::info!(
+                                            "🔗 Connecting to {} total peers",
+                                            peer_list.len()
+                                        );
+
+                                        let peer_infos: Vec<network::PeerInfo> = peer_list
+                                            .into_iter()
+                                            .map(|p| network::PeerInfo {
+                                                address: p.address,
+                                                port: p.port,
+                                                version: None,
+                                                last_seen: Some(
+                                                    std::time::SystemTime::now()
+                                                        .duration_since(std::time::UNIX_EPOCH)
+                                                        .unwrap()
+                                                        .as_secs(),
+                                                ),
+                                                latency_ms: 0,
+                                            })
+                                            .collect();
+
+                                        // Connect in blocking task
+                                        let network_clone = network_mgr_periodic.clone();
+                                        tokio::task::spawn_blocking(move || {
+                                            let rt = tokio::runtime::Runtime::new().unwrap();
+                                            rt.block_on(async move {
+                                                let mut net = network_clone.lock().unwrap();
+                                                if let Err(e) =
+                                                    net.connect_to_peers(peer_infos).await
+                                                {
+                                                    log::warn!(
+                                                        "⚠️ Failed to connect to some peers: {}",
+                                                        e
+                                                    );
+                                                }
+                                            });
+                                        })
+                                        .await
+                                        .ok();
+                                    }
                                 }
 
-                                // Check again every 5 minutes
-                                tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+                                // Check again every 60 seconds (1 minute)
+                                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
                             }
                         });
                     });
