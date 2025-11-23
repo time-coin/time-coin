@@ -28,11 +28,11 @@ impl Wallet {
             tier: MasternodeTier::Free,
         }
     }
-    
+
     pub fn add_reward(&mut self, amount: u64) {
         self.balance += amount;
     }
-    
+
     pub fn get_balance(&self) -> u64 {
         self.balance
     }
@@ -50,15 +50,16 @@ impl WalletManager {
             _db_path: db_path,
         }
     }
-    
+
     pub fn create_wallet(&mut self, address: String, pubkey: String) -> Result<(), String> {
         if self.wallets.contains_key(&address) {
             return Err("Wallet already exists".to_string());
         }
-        self.wallets.insert(address.clone(), Wallet::new(address, pubkey));
+        self.wallets
+            .insert(address.clone(), Wallet::new(address, pubkey));
         Ok(())
     }
-    
+
     pub fn get_wallet(&self, address: &str) -> Option<&Wallet> {
         self.wallets.get(address)
     }

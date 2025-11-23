@@ -1414,7 +1414,7 @@ async fn receive_finalized_block(
         serde_json::from_value(payload)
             .map_err(|e| ApiError::Internal(format!("Invalid block format: {}", e)))?
     };
-    
+
     println!(
         "📥 Received finalized block push for height {}",
         block.header.block_number

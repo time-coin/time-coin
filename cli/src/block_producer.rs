@@ -1,3 +1,4 @@
+use crate::bft_consensus::BftConsensus;
 use crate::chain_sync::BlockchainInfo;
 use chrono::{TimeZone, Utc};
 use crossterm::style::Stylize;
@@ -27,6 +28,7 @@ pub struct BlockProducer {
     #[allow(dead_code)]
     allow_block_recreation: bool,
     quarantine: Arc<time_network::PeerQuarantine>,
+    bft: Arc<BftConsensus>,
 }
 
 impl BlockProducer {
@@ -43,6 +45,13 @@ impl BlockProducer {
         allow_block_recreation: bool,
         quarantine: Arc<time_network::PeerQuarantine>,
     ) -> Self {
+        let bft = Arc::new(BftConsensus::new(
+            node_id.clone(),
+            peer_manager.clone(),
+            block_consensus.clone(),
+            blockchain.clone(),
+        ));
+
         BlockProducer {
             node_id,
             peer_manager,
@@ -54,6 +63,7 @@ impl BlockProducer {
             is_active: Arc::new(RwLock::new(false)),
             allow_block_recreation,
             quarantine,
+            bft,
         }
     }
 
@@ -70,6 +80,13 @@ impl BlockProducer {
         allow_block_recreation: bool,
         quarantine: Arc<time_network::PeerQuarantine>,
     ) -> Self {
+        let bft = Arc::new(BftConsensus::new(
+            node_id.clone(),
+            peer_manager.clone(),
+            block_consensus.clone(),
+            blockchain.clone(),
+        ));
+
         BlockProducer {
             node_id,
             peer_manager,
@@ -81,6 +98,7 @@ impl BlockProducer {
             is_active,
             allow_block_recreation,
             quarantine,
+            bft,
         }
     }
 
@@ -170,6 +188,7 @@ impl BlockProducer {
             is_active: self.is_active.clone(),
             allow_block_recreation: self.allow_block_recreation,
             quarantine: self.quarantine.clone(),
+            bft: self.bft.clone(),
         };
 
         tokio::spawn(async move {

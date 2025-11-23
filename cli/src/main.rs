@@ -10,6 +10,7 @@ use owo_colors::OwoColorize;
 
 use serde::Deserialize;
 
+mod bft_consensus;
 mod block_producer;
 mod chain_sync;
 use block_producer::BlockProducer;
