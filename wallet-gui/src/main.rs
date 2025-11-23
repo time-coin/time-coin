@@ -266,6 +266,7 @@ impl WalletApp {
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                     let addnodes = main_config.addnode.clone();
                     let api_endpoint_str = main_config.api_endpoint.clone();
+                    let network_mgr_clone = network_mgr.clone();
 
                     tokio::spawn(async move {
                         let db_peer_count = peer_mgr.peer_count().await;
@@ -311,6 +312,46 @@ impl WalletApp {
                                 }
                             }
                         }
+
+                        // ✅ CRITICAL FIX: Actually connect NetworkManager to peers!
+                        log::info!("🔗 Connecting NetworkManager to discovered peers...");
+                        let peer_list = peer_mgr.get_healthy_peers().await;
+                        log::info!("📋 Attempting to connect to {} peers", peer_list.len());
+
+                        let peer_infos: Vec<network::PeerInfo> = peer_list
+                            .into_iter()
+                            .map(|p| network::PeerInfo {
+                                address: p.address,
+                                port: p.port,
+                                version: None,
+                                last_seen: Some(
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs(),
+                                ),
+                                latency_ms: 0,
+                            })
+                            .collect();
+
+                        // Connect in a separate thread to avoid Send issues
+                        let network_mgr_for_connect = network_mgr_clone.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async move {
+                                let mut net = network_mgr_for_connect.lock().unwrap();
+                                match net.connect_to_peers(peer_infos).await {
+                                    Ok(_) => {
+                                        log::info!(
+                                            "✅ NetworkManager connected to peers successfully"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::error!("❌ Failed to connect NetworkManager: {}", e);
+                                    }
+                                }
+                            });
+                        });
                     });
                 }
 
