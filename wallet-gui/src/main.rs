@@ -349,7 +349,7 @@ impl WalletApp {
                                         log::info!(
                                             "✅ NetworkManager connected to peers successfully"
                                         );
-                                        
+
                                         // Now discover more peers from the connected ones
                                         log::info!("🔍 Starting peer discovery...");
                                         if let Err(e) = net.discover_and_connect_peers().await {
@@ -644,56 +644,29 @@ impl WalletApp {
                                                 tokio::spawn(async move {
                                                     loop {
                                                         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                                                        log::info!("Running scheduled latency refresh and blockchain height update...");
+                                                        log::info!("Running scheduled blockchain height update...");
 
-                                                        // Clone peer list to avoid holding lock during async operations
-                                                        let mut peers = {
-                                                            let manager = network_refresh.lock().unwrap();
-                                                            manager.get_connected_peers()
+                                                        // Update blockchain height via NetworkManager
+                                                        // Clone to avoid holding lock across await
+                                                        let result = {
+                                                            let mut manager = network_refresh.lock().unwrap();
+                                                            std::mem::drop(manager); // Just check lock works
+                                                            true
                                                         };
 
-                                                        log::info!("Pinging {} peers to measure latency", peers.len());
-
-                                                        let mut max_height = {
-                                                            let manager = network_refresh.lock().unwrap();
-                                                            manager.network_block_height()
-                                                        };
-
-                                                        // Measure latencies and get blockchain height without holding the lock
-                                                        for peer in &mut peers {
-                                                            let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
-                                                            let url = format!("http://{}:24101/blockchain/info", peer_ip);
-                                                            let start = std::time::Instant::now();
-
-                                                            let client = reqwest::Client::builder()
-                                                                .timeout(std::time::Duration::from_secs(5))
-                                                                .build()
-                                                                .unwrap();
-
-                                                            match client.get(&url).send().await {
-                                                                Ok(response) => {
-                                                                    peer.latency_ms = start.elapsed().as_millis() as u64;
-                                                                    log::info!("  Peer {} responded in {}ms", peer.address, peer.latency_ms);
-
-                                                                    // Try to get blockchain height
-                                                                    if let Ok(info) = response.json::<network::BlockchainInfo>().await {
-                                                                        if info.height > max_height {
-                                                                            max_height = info.height;
-                                                                            log::info!("  📊 Peer {} reports height: {}", peer.address, info.height);
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(_) => {
-                                                                    peer.latency_ms = 9999;
-                                                                }
-                                                            }
+                                                        if result {
+                                                            // Actually call the update in a blocking task
+                                                            let network_clone = network_refresh.clone();
+                                                            tokio::task::spawn_blocking(move || {
+                                                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                                                rt.block_on(async move {
+                                                                    let mut manager = network_clone.lock().unwrap();
+                                                                    manager.update_blockchain_height().await;
+                                                                });
+                                                            }).await.ok();
                                                         }
 
-                                                        // Update the network manager with new latencies and height
-                                                        if let Ok(mut manager) = network_refresh.lock() {
-                                                            manager.set_connected_peers(peers);
-                                                            manager.set_blockchain_height(max_height);
-                                                        }
+                                                        log::info!("Scheduled update complete");
                                                     }
                                                 });
                                             }

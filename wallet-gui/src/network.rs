@@ -1003,20 +1003,33 @@ impl NetworkManager {
 
         // ADD discovered peers to existing connected peers (don't replace!)
         if !top_peers.is_empty() {
-            log::info!("Adding {} discovered peers to existing {} peers", 
-                top_peers.len(), self.connected_peers.len());
-            
+            log::info!(
+                "Adding {} discovered peers to existing {} peers",
+                top_peers.len(),
+                self.connected_peers.len()
+            );
+
             // Merge discovered peers with existing ones (avoid duplicates)
             for new_peer in top_peers {
                 let peer_key = format!("{}:{}", new_peer.address, new_peer.port);
-                if !self.connected_peers.iter().any(|p| format!("{}:{}", p.address, p.port) == peer_key) {
+                if !self
+                    .connected_peers
+                    .iter()
+                    .any(|p| format!("{}:{}", p.address, p.port) == peer_key)
+                {
                     self.connected_peers.push(new_peer);
                 }
             }
-            
-            log::info!("Total connected peers after discovery: {}", self.connected_peers.len());
+
+            log::info!(
+                "Total connected peers after discovery: {}",
+                self.connected_peers.len()
+            );
         } else {
-            log::info!("No new peers discovered, keeping existing {} peers", self.connected_peers.len());
+            log::info!(
+                "No new peers discovered, keeping existing {} peers",
+                self.connected_peers.len()
+            );
         }
 
         Ok(())
