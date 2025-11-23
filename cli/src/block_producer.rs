@@ -1298,6 +1298,13 @@ impl BlockProducer {
                         match blockchain.add_block(reward_block) {
                             Ok(_) => {
                                 println!("   ✅ Reward-only block {} applied locally", block_num);
+
+                                // Save UTXO snapshot to persist state
+                                if let Err(e) = blockchain.save_utxo_snapshot() {
+                                    println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                                } else {
+                                    println!("   💾 UTXO snapshot saved");
+                                }
                             }
                             Err(e) => {
                                 println!("   ⚠️  Failed to apply reward-only block: {:?}", e);
@@ -1321,6 +1328,13 @@ impl BlockProducer {
                                 match blockchain.add_block(block) {
                                     Ok(_) => {
                                         println!("   ✅ Block {} applied from producer", block_num);
+
+                                        // Save UTXO snapshot to persist state
+                                        if let Err(e) = blockchain.save_utxo_snapshot() {
+                                            println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                                        } else {
+                                            println!("   💾 UTXO snapshot saved");
+                                        }
                                     }
                                     Err(e) => {
                                         println!("   ⚠️  Failed to apply fetched block: {:?}", e);
@@ -1518,6 +1532,14 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("   ✔ Block {} finalized", block_num);
+
+                // Save UTXO snapshot to persist state
+                if let Err(e) = blockchain.save_utxo_snapshot() {
+                    println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                } else {
+                    println!("   💾 UTXO snapshot saved");
+                }
+
                 let block_hash = block.hash.clone();
                 drop(blockchain);
 
@@ -1820,6 +1842,14 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} created and stored", block_num);
+
+                // Save UTXO snapshot to persist state
+                if let Err(e) = blockchain.save_utxo_snapshot() {
+                    println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
+                } else {
+                    println!("      💾 UTXO snapshot saved");
+                }
+
                 true
             }
             Err(e) => {
@@ -2282,6 +2312,14 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} finalized and stored", block_num);
+
+                // Save UTXO snapshot to persist state
+                if let Err(e) = blockchain.save_utxo_snapshot() {
+                    println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
+                } else {
+                    println!("      💾 UTXO snapshot saved");
+                }
+
                 drop(blockchain);
 
                 println!("      📡 Broadcasting finalized block to peers...");
@@ -2366,6 +2404,14 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} finalized and stored", block_num);
+
+                // Save UTXO snapshot to persist state
+                if let Err(e) = blockchain.save_utxo_snapshot() {
+                    println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
+                } else {
+                    println!("      💾 UTXO snapshot saved");
+                }
+
                 drop(blockchain);
 
                 println!("      📡 Broadcasting finalized block to peers...");

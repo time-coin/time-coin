@@ -1426,6 +1426,13 @@ async fn receive_finalized_block(
     let mut blockchain = state.blockchain.write().await;
     match blockchain.add_block(block.clone()) {
         Ok(_) => {
+            // Save UTXO snapshot to persist state
+            if let Err(e) = blockchain.save_utxo_snapshot() {
+                println!("⚠️  Failed to save UTXO snapshot: {}", e);
+            } else {
+                println!("💾 UTXO snapshot saved");
+            }
+
             drop(blockchain);
 
             // Clean up mempool - remove transactions that were included in the block
