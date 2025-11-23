@@ -266,7 +266,13 @@ async fn sync_mempool_from_peers(
 
     println!("📥 Syncing mempool from network...");
 
+    // Get list of transactions we already have
+    let existing_txs = mempool.get_all_transactions().await;
+    let existing_txids: std::collections::HashSet<String> =
+        existing_txs.iter().map(|tx| tx.txid.clone()).collect();
+
     let mut total_transactions = 0;
+    let mut new_transactions = 0;
     let mut successful_peers = 0;
     let mut failed_peers = Vec::new();
 
@@ -303,17 +309,33 @@ async fn sync_mempool_from_peers(
                             let tx_count = transactions.len();
                             println!("   ✓ Received {} transactions", tx_count);
 
+                            // Track new transactions we didn't already have
+                            let mut newly_added = 0;
+
                             // Iterate over references to avoid moving the vector
                             for tx in &transactions {
-                                let _ = mempool.add_transaction(tx.clone()).await;
+                                // Skip if we already have this transaction
+                                if existing_txids.contains(&tx.txid) {
+                                    continue;
+                                }
 
-                                // Broadcast to other peers to ensure proper propagation
-                                if let Some(broadcaster) = tx_broadcaster {
-                                    broadcaster.broadcast_transaction(tx.clone()).await;
+                                // Try to add to mempool
+                                if mempool.add_transaction(tx.clone()).await.is_ok() {
+                                    newly_added += 1;
+
+                                    // Only broadcast NEW transactions (not ones we had from disk)
+                                    if let Some(broadcaster) = tx_broadcaster {
+                                        broadcaster.broadcast_transaction(tx.clone()).await;
+                                    }
                                 }
                             }
 
+                            if newly_added > 0 {
+                                println!("      {} new transactions", newly_added);
+                            }
+
                             total_transactions += tx_count as u32;
+                            new_transactions += newly_added;
                             successful_peers += 1;
                             success = true;
                         }
@@ -357,11 +379,13 @@ async fn sync_mempool_from_peers(
     }
 
     println!(
-        "   📊 Synced with {}/{} peers",
+        "   📊 Synced with {}/{} peers ({} total tx, {} new)",
         successful_peers,
-        peers.len()
+        peers.len(),
+        total_transactions,
+        new_transactions
     );
-    Ok(total_transactions)
+    Ok(new_transactions)
 }
 
 use tokio::time::timeout;
@@ -1168,17 +1192,51 @@ async fn main() {
     ));
     println!("{}", "✓ Transaction broadcaster initialized".green());
 
-    // Sync mempool from network peers
-    if !peer_manager.get_peer_ips().await.is_empty() {
-        match sync_mempool_from_peers(&peer_manager, &mempool, Some(&tx_broadcaster)).await {
-            Ok(_) => {}
-            Err(e) => {
-                println!(
-                    "{}",
-                    format!("⚠ Could not sync mempool from peers: {}", e).yellow()
-                );
+    // Check if blockchain is synced before syncing mempool
+    let local_height = get_local_height(&blockchain).await;
+    let network_height = get_network_height(&peer_manager).await;
+    let is_synced = if let Some(net_height) = network_height {
+        // Consider synced if within 2 blocks of network height
+        local_height >= net_height.saturating_sub(2)
+    } else {
+        // No peers available or can't determine - assume synced
+        true
+    };
+
+    // Only sync mempool from network if blockchain is synced
+    if is_synced {
+        if !peer_manager.get_peer_ips().await.is_empty() {
+            println!(
+                "{}",
+                "📥 Blockchain is synced - syncing mempool from network...".cyan()
+            );
+            match sync_mempool_from_peers(&peer_manager, &mempool, None).await {
+                Ok(synced_count) => {
+                    if synced_count > 0 {
+                        println!(
+                            "   {} Added {} new transactions from network",
+                            "✓".green(),
+                            synced_count
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "{}",
+                        format!("⚠ Could not sync mempool from peers: {}", e).yellow()
+                    );
+                }
             }
         }
+    } else {
+        println!(
+            "{}",
+            "⏳ Blockchain still syncing - skipping mempool sync".bright_black()
+        );
+        println!(
+            "   {} Mempool will sync after blockchain catches up",
+            "ℹ️".bright_blue()
+        );
     }
 
     // Initialize transaction consensus manager

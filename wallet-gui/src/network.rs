@@ -178,7 +178,7 @@ impl NetworkManager {
 
         // Test connectivity and measure latency for each peer
         let mut connected_peers = Vec::new();
-        
+
         for mut peer in initial_peers {
             let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
             let url = format!("http://{}:24101/blockchain/info", peer_ip);
@@ -194,11 +194,19 @@ impl NetworkManager {
             match client.get(&url).send().await {
                 Ok(response) if response.status().is_success() => {
                     peer.latency_ms = start.elapsed().as_millis() as u64;
-                    log::info!("  ✓ Peer {} responsive ({}ms)", peer.address, peer.latency_ms);
+                    log::info!(
+                        "  ✓ Peer {} responsive ({}ms)",
+                        peer.address,
+                        peer.latency_ms
+                    );
                     connected_peers.push(peer);
                 }
                 Ok(response) => {
-                    log::warn!("  ✗ Peer {} returned error: {}", peer.address, response.status());
+                    log::warn!(
+                        "  ✗ Peer {} returned error: {}",
+                        peer.address,
+                        response.status()
+                    );
                 }
                 Err(e) => {
                     log::warn!("  ✗ Peer {} unreachable: {}", peer.address, e);
@@ -211,7 +219,7 @@ impl NetworkManager {
         }
 
         log::info!("Successfully connected to {} peers", connected_peers.len());
-        
+
         // Store connected peers
         self.connected_peers = connected_peers;
 
