@@ -148,6 +148,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         peer_ip
                                     );
 
+                                    // Handle Ping directly with Pong
+                                    if matches!(
+                                        message,
+                                        time_network::protocol::NetworkMessage::Ping
+                                    ) {
+                                        log::debug!("📥 Received Ping from {}", peer_ip);
+                                        let response = time_network::protocol::NetworkMessage::Pong;
+                                        match connection.send_message(response).await {
+                                            Ok(_) => log::debug!("✅ Pong sent to {}", peer_ip),
+                                            Err(e) => {
+                                                log::error!(
+                                                    "❌ Failed to send Pong to {}: {}",
+                                                    peer_ip,
+                                                    e
+                                                )
+                                            }
+                                        }
+                                        continue;
+                                    }
+
                                     // Handle GetPeerList directly via PeerManager
                                     if matches!(
                                         message,
