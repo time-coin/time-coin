@@ -1582,6 +1582,7 @@ async fn main() {
         tx_consensus.clone(),
         block_producer_active_state,
         allow_block_recreation,
+        quarantine.clone(),
     );
 
     tokio::spawn(async move {

@@ -26,6 +26,7 @@ pub struct BlockProducer {
     is_active: Arc<RwLock<bool>>,
     #[allow(dead_code)]
     allow_block_recreation: bool,
+    quarantine: Arc<time_network::PeerQuarantine>,
 }
 
 impl BlockProducer {
@@ -40,6 +41,7 @@ impl BlockProducer {
         block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
         #[allow(dead_code)] tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
         allow_block_recreation: bool,
+        quarantine: Arc<time_network::PeerQuarantine>,
     ) -> Self {
         BlockProducer {
             node_id,
@@ -51,6 +53,7 @@ impl BlockProducer {
             tx_consensus,
             is_active: Arc::new(RwLock::new(false)),
             allow_block_recreation,
+            quarantine,
         }
     }
 
@@ -66,6 +69,7 @@ impl BlockProducer {
         tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
         is_active: Arc<RwLock<bool>>,
         allow_block_recreation: bool,
+        quarantine: Arc<time_network::PeerQuarantine>,
     ) -> Self {
         BlockProducer {
             node_id,
@@ -77,6 +81,7 @@ impl BlockProducer {
             tx_consensus,
             is_active,
             allow_block_recreation,
+            quarantine,
         }
     }
 
@@ -122,6 +127,7 @@ impl BlockProducer {
                 tx_consensus: self.tx_consensus.clone(),
                 is_active: self.is_active.clone(),
                 allow_block_recreation: self.allow_block_recreation,
+                quarantine: self.quarantine.clone(),
             };
 
             tokio::spawn(async move {
@@ -764,10 +770,34 @@ impl BlockProducer {
         }
 
         // Get only active masternodes for consensus
-        let masternodes = self
+        let mut masternodes = self
             .block_consensus
             .get_active_masternodes(&all_masternodes)
             .await;
+
+        // Filter out quarantined masternodes
+        let mut quarantined_count = 0;
+        masternodes.retain(|mn| {
+            if let Ok(ip_addr) = mn.parse::<std::net::IpAddr>() {
+                let is_quarantined = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(self.quarantine.is_quarantined(&ip_addr))
+                });
+                if is_quarantined {
+                    quarantined_count += 1;
+                    return false;
+                }
+            }
+            true
+        });
+
+        if quarantined_count > 0 {
+            println!(
+                "   🚨 {} masternode(s) quarantined and excluded from consensus",
+                quarantined_count
+            );
+        }
+
         let required_votes = ((masternodes.len() * 2) / 3) + 1;
 
         if masternodes.len() < all_masternodes.len() {
