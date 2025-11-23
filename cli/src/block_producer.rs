@@ -1954,6 +1954,16 @@ impl BlockProducer {
                 if !non_voters.is_empty() {
                     println!("         ❌ Missing votes from: {:?}", non_voters);
                 }
+
+                // FALLBACK: If on final attempt and we have at least 1 vote (ourselves),
+                // unilaterally finalize to keep chain moving during version upgrades
+                if attempt == 2 && approvals >= 1 {
+                    println!("         ⚠️  EMERGENCY FALLBACK: Finalizing with single vote");
+                    println!("         ℹ️  This allows progress during version upgrades");
+                    return self
+                        .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
+                        .await;
+                }
             } else {
                 println!("         ⚠️  No proposal was received");
             }
