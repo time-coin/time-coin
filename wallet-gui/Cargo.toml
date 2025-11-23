@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 # GUI framework
 eframe = "0.31"
 egui = "0.31"
-egui_extras = { version = "0.31", features = ["image"] }
+egui_extras = { version = "0.33", features = ["image"] }
 
 # Async runtime
 tokio = { workspace = true }
