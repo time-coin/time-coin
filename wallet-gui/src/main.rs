@@ -138,6 +138,9 @@ struct WalletApp {
     address_search: String,
     show_qr_for_address: Option<String>,
     is_creating_new_address: bool,
+
+    // Channel for receiving UTXO updates from TCP listener
+    utxo_rx: Option<tokio::sync::mpsc::UnboundedReceiver<time_network::protocol::UtxoInfo>>,
 }
 
 impl Default for WalletApp {
@@ -200,6 +203,7 @@ impl Default for WalletApp {
             address_search: String::new(),
             show_qr_for_address: None,
             is_creating_new_address: false,
+            utxo_rx: None,
         };
 
         // If wallet exists, auto-load it
@@ -472,12 +476,16 @@ impl WalletApp {
                                     self.network_manager = Some(network_mgr.clone());
                                     self.network_status = "Connecting...".to_string();
 
+                                    // 🔔 Initialize TCP listener immediately for instant notifications
+                                    self.initialize_tcp_listener(xpub.clone());
+
                                     // Trigger network bootstrap in background
                                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                                     let addnodes = main_config.addnode.clone();
                                     let ctx_clone = ctx.clone();
                                     let wallet_db = self.wallet_db.clone();
                                     let api_endpoint_str = main_config.api_endpoint.clone();
+                                    let xpub_for_tcp = xpub.clone(); // Clone for TCP listener
 
                                     tokio::spawn(async move {
                                         // PRIORITY 1: Load peers from database first
@@ -672,6 +680,7 @@ impl WalletApp {
                                                 log::error!("Network bootstrap failed: {}", e);
                                             }
                                         }
+
                                         ctx_clone.request_repaint();
                                     });
                                 }
@@ -2565,8 +2574,8 @@ impl WalletApp {
                                                 }
                                             }
 
-                                            log::info!("✅ Sync complete: Found {} UTXOs totaling {} TIME", 
-                                                total_utxos, 
+                                            log::info!("✅ Sync complete: Found {} UTXOs totaling {} TIME",
+                                                total_utxos,
                                                 total_amount as f64 / 1_000_000.0
                                             );
                                             log::info!("⚠️  RESTART THE WALLET to see updated balance");
@@ -2804,6 +2813,98 @@ impl WalletApp {
     }
 
     /// Initialize TIME Coin Protocol client for real-time transaction notifications
+    fn initialize_tcp_listener(&mut self, xpub: String) {
+        log::info!("🔌 Initializing TCP listener for xpub monitoring");
+
+        let (utxo_tx, utxo_rx) = tokio::sync::mpsc::unbounded_channel();
+        self.utxo_rx = Some(utxo_rx);
+
+        // Get peer address
+        if let Some(network_mgr) = &self.network_manager {
+            let peers = {
+                let net = network_mgr.lock().unwrap();
+                net.get_connected_peers()
+            };
+
+            if let Some(peer) = peers.first() {
+                let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                let peer_addr = format!("{}:24100", peer_ip); // TCP port
+
+                log::info!("🔗 Connecting TCP listener to {}", peer_addr);
+
+                tokio::spawn(async move {
+                    let listener =
+                        tcp_protocol_client::TcpProtocolListener::new(peer_addr, xpub, utxo_tx);
+
+                    listener.start().await;
+                });
+            } else {
+                log::warn!("No peers available for TCP listener");
+            }
+        }
+    }
+
+    fn check_utxo_updates(&mut self) {
+        // Collect all pending UTXOs first (don't hold borrow while processing)
+        let mut pending_utxos = Vec::new();
+        if let Some(rx) = &mut self.utxo_rx {
+            while let Ok(utxo) = rx.try_recv() {
+                pending_utxos.push(utxo);
+            }
+        }
+
+        // Now process them
+        for utxo in pending_utxos {
+            log::info!(
+                "💰 Processing new UTXO: {} TIME to {}",
+                utxo.amount as f64 / 1_000_000.0,
+                &utxo.address[..std::cmp::min(20, utxo.address.len())]
+            );
+
+            if let Some(wallet_mgr) = &mut self.wallet_manager {
+                // Convert txid string to bytes
+                let tx_hash_bytes = if let Ok(bytes) = hex::decode(&utxo.txid) {
+                    if bytes.len() == 32 {
+                        let mut arr = [0u8; 32];
+                        arr.copy_from_slice(&bytes);
+                        arr
+                    } else {
+                        log::error!("Invalid tx_hash length: {}", bytes.len());
+                        continue;
+                    }
+                } else {
+                    log::error!("Failed to decode tx_hash: {}", utxo.txid);
+                    continue;
+                };
+
+                // Convert to wallet UTXO format
+                let wallet_utxo = wallet::UTXO {
+                    tx_hash: tx_hash_bytes,
+                    output_index: utxo.vout,
+                    amount: utxo.amount,
+                    address: utxo.address.clone(),
+                };
+
+                wallet_mgr.add_utxo(wallet_utxo);
+
+                log::info!("✅ Added UTXO: {} TIME", utxo.amount as f64 / 1_000_000.0);
+
+                // Balance is now updated automatically!
+                let new_balance = wallet_mgr.get_balance();
+                log::info!(
+                    "💼 Updated balance: {} TIME",
+                    new_balance as f64 / 1_000_000.0
+                );
+
+                // Show success notification
+                self.set_success(format!(
+                    "Received {} TIME!",
+                    utxo.amount as f64 / 1_000_000.0
+                ));
+            }
+        }
+    }
+
     fn initialize_protocol_client(&mut self) {
         if self.protocol_client.is_some() {
             return; // Already initialized
@@ -2880,6 +2981,9 @@ impl eframe::App for WalletApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check and clear messages after timeout
         self.check_message_timeout();
+
+        // Check for UTXO updates from TCP listener
+        self.check_utxo_updates();
 
         // Initialize protocol client if we have a wallet and network but no client yet
         if self.wallet_manager.is_some()

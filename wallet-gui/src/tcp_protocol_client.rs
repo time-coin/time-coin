@@ -199,3 +199,177 @@ impl TcpProtocolClient {
         *self.active.write().await = false;
     }
 }
+
+/// TCP Protocol Listener - maintains persistent connection and listens for push notifications
+pub struct TcpProtocolListener {
+    peer_addr: String,
+    xpub: String,
+    utxo_tx: mpsc::UnboundedSender<time_network::protocol::UtxoInfo>,
+}
+
+impl TcpProtocolListener {
+    pub fn new(
+        peer_addr: String,
+        xpub: String,
+        utxo_tx: mpsc::UnboundedSender<time_network::protocol::UtxoInfo>,
+    ) -> Self {
+        Self {
+            peer_addr,
+            xpub,
+            utxo_tx,
+        }
+    }
+
+    /// Start listening for incoming messages (persistent connection)
+    pub async fn start(self) {
+        log::info!("🔌 Starting TCP listener for {}", self.peer_addr);
+
+        loop {
+            match self.connect_and_listen().await {
+                Ok(_) => {
+                    log::info!("TCP connection closed normally");
+                }
+                Err(e) => {
+                    log::error!("TCP listener error: {}", e);
+                }
+            }
+
+            // Reconnect after 5 seconds
+            log::info!("⏳ Reconnecting in 5 seconds...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+    }
+
+    async fn connect_and_listen(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Connect to masternode
+        let mut stream = TcpStream::connect(&self.peer_addr).await?;
+
+        log::info!("✅ Connected to {}", self.peer_addr);
+
+        // Register xpub
+        self.send_message(
+            &mut stream,
+            NetworkMessage::RegisterXpub {
+                xpub: self.xpub.clone(),
+            },
+        )
+        .await?;
+
+        log::info!("📝 Sent RegisterXpub request");
+
+        // Wait for XpubRegistered response or UtxoUpdate
+        match self.read_message(&mut stream).await? {
+            NetworkMessage::XpubRegistered { success, message } => {
+                if success {
+                    log::info!("✅ Xpub registered: {}", message);
+                } else {
+                    log::error!("❌ Xpub registration failed: {}", message);
+                    return Err(message.into());
+                }
+            }
+            NetworkMessage::UtxoUpdate { xpub, utxos } => {
+                log::info!(
+                    "📦 Initial UTXO update: {} UTXOs for xpub {}",
+                    utxos.len(),
+                    &xpub[..std::cmp::min(20, xpub.len())]
+                );
+
+                // Send each UTXO to channel
+                for utxo in utxos {
+                    let _ = self.utxo_tx.send(utxo);
+                }
+            }
+            msg => {
+                log::warn!("Unexpected response to RegisterXpub: {:?}", msg);
+            }
+        }
+
+        // Now listen for push notifications
+        log::info!("👂 Listening for push notifications...");
+
+        loop {
+            match self.read_message(&mut stream).await {
+                Ok(msg) => {
+                    if let Err(e) = self.handle_message(msg) {
+                        log::error!("Failed to handle message: {}", e);
+                    }
+                }
+                Err(e) => {
+                    log::info!("Connection closed: {}", e);
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn send_message(
+        &self,
+        stream: &mut TcpStream,
+        message: NetworkMessage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let data = bincode::serialize(&message)?;
+        let len = data.len() as u32;
+        stream.write_all(&len.to_be_bytes()).await?;
+        stream.write_all(&data).await?;
+        Ok(())
+    }
+
+    async fn read_message(
+        &self,
+        stream: &mut TcpStream,
+    ) -> Result<NetworkMessage, Box<dyn std::error::Error>> {
+        // Read message length (4 bytes)
+        let mut len_bytes = [0u8; 4];
+        stream.read_exact(&mut len_bytes).await?;
+        let len = u32::from_be_bytes(len_bytes) as usize;
+
+        // Read message data
+        let mut data = vec![0u8; len];
+        stream.read_exact(&mut data).await?;
+
+        // Deserialize
+        let message: NetworkMessage = bincode::deserialize(&data)?;
+        Ok(message)
+    }
+
+    fn handle_message(&self, msg: NetworkMessage) -> Result<(), Box<dyn std::error::Error>> {
+        match msg {
+            NetworkMessage::UtxoUpdate { xpub, utxos } => {
+                log::info!(
+                    "🔔 Received UTXO update: {} UTXOs for xpub {}",
+                    utxos.len(),
+                    &xpub[..std::cmp::min(20, xpub.len())]
+                );
+
+                // Send each UTXO to channel
+                for utxo in utxos {
+                    let _ = self.utxo_tx.send(utxo);
+                }
+                Ok(())
+            }
+            NetworkMessage::NewTransactionNotification { transaction } => {
+                log::info!(
+                    "🔔 New transaction notification: {} TIME to {}",
+                    transaction.amount as f64 / 1_000_000.0,
+                    &transaction.to_address[..std::cmp::min(20, transaction.to_address.len())]
+                );
+
+                // Convert to UTXO format and send
+                let utxo = time_network::protocol::UtxoInfo {
+                    txid: transaction.tx_hash,
+                    vout: 0,
+                    address: transaction.to_address,
+                    amount: transaction.amount,
+                    block_height: Some(transaction.block_height),
+                    confirmations: transaction.confirmations as u64,
+                };
+
+                let _ = self.utxo_tx.send(utxo);
+                Ok(())
+            }
+            _ => Ok(()), // Ignore other messages
+        }
+    }
+}

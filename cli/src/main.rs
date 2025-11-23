@@ -255,6 +255,7 @@ fn load_genesis_from_json(
 async fn sync_mempool_from_peers(
     peer_manager: &Arc<time_network::PeerManager>,
     mempool: &Arc<time_mempool::Mempool>,
+    tx_broadcaster: Option<&Arc<time_network::tx_broadcast::TransactionBroadcaster>>,
 ) -> Result<u32, Box<dyn std::error::Error>> {
     let peers = peer_manager.get_peer_ips().await;
 
@@ -305,6 +306,11 @@ async fn sync_mempool_from_peers(
                             // Iterate over references to avoid moving the vector
                             for tx in &transactions {
                                 let _ = mempool.add_transaction(tx.clone()).await;
+
+                                // Broadcast to other peers to ensure proper propagation
+                                if let Some(broadcaster) = tx_broadcaster {
+                                    broadcaster.broadcast_transaction(tx.clone()).await;
+                                }
                             }
 
                             total_transactions += tx_count as u32;
@@ -1155,9 +1161,16 @@ async fn main() {
 
     println!("{}", "✓ Mempool initialized".to_string().green());
 
+    // Initialize transaction broadcaster before mempool sync
+    let tx_broadcaster = Arc::new(time_network::tx_broadcast::TransactionBroadcaster::new(
+        mempool.clone(),
+        peer_manager.clone(),
+    ));
+    println!("{}", "✓ Transaction broadcaster initialized".green());
+
     // Sync mempool from network peers
     if !peer_manager.get_peer_ips().await.is_empty() {
-        match sync_mempool_from_peers(&peer_manager, &mempool).await {
+        match sync_mempool_from_peers(&peer_manager, &mempool, Some(&tx_broadcaster)).await {
             Ok(_) => {}
             Err(e) => {
                 println!(
@@ -1177,13 +1190,6 @@ async fn main() {
     let block_consensus = Arc::new(time_consensus::block_consensus::BlockConsensusManager::new());
     block_consensus.set_masternodes(masternodes.clone()).await;
     println!("{}", "✓ Block consensus manager initialized".green());
-
-    // Initialize transaction broadcaster
-    let tx_broadcaster = Arc::new(time_network::tx_broadcast::TransactionBroadcaster::new(
-        mempool.clone(),
-        peer_manager.clone(),
-    ));
-    println!("{}", "✓ Transaction broadcaster initialized".green());
 
     println!();
     // Start API Server
