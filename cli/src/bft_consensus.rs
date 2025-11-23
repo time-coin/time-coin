@@ -9,6 +9,8 @@
 //!
 //! All block creation paths (regular, catch-up, reward-only) use this unified flow.
 
+#![allow(dead_code)]
+
 use std::sync::Arc;
 use std::time::Duration;
 use time_consensus::block_consensus::{BlockConsensusManager, BlockProposal, BlockVote};
