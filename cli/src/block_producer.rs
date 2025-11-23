@@ -100,7 +100,7 @@ impl BlockProducer {
     async fn load_block_height(&self) -> u64 {
         self.blockchain.read().await.chain_tip_height()
     }
-    
+
     fn get_node_id(&self) -> String {
         std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
             local_ip_address::local_ip()
@@ -806,7 +806,10 @@ impl BlockProducer {
 
         let selected_producer = self.consensus.get_leader(block_num).await;
         let my_id = self.get_node_id();
-        let am_i_leader = selected_producer.as_ref().map(|p| p == &my_id).unwrap_or(false);
+        let am_i_leader = selected_producer
+            .as_ref()
+            .map(|p| p == &my_id)
+            .unwrap_or(false);
 
         // Log leader selection for debugging
         println!(
@@ -1075,11 +1078,18 @@ impl BlockProducer {
             let mut all_transactions = vec![coinbase_tx];
             let mempool_count = transactions.len();
             all_transactions.extend(transactions);
-            
+
             self.log_coinbase_info(&all_transactions, mempool_count);
 
             let merkle_root = self.calc_merkle(&all_transactions);
-            let block_hash = self.calculate_block_hash(block_num, &now, &previous_hash, &merkle_root, &my_id, &masternode_counts);
+            let block_hash = self.calculate_block_hash(
+                block_num,
+                &now,
+                &previous_hash,
+                &merkle_root,
+                &my_id,
+                &masternode_counts,
+            );
 
             let proposal = time_consensus::block_consensus::BlockProposal {
                 block_height: block_num,
@@ -1133,7 +1143,16 @@ impl BlockProducer {
                 masternodes.len()
             );
 
-            self.collect_and_finalize_votes(&all_transactions, &previous_hash, &merkle_root, block_num, required_votes, &masternodes, &proposal).await;
+            self.collect_and_finalize_votes(
+                &all_transactions,
+                &previous_hash,
+                &merkle_root,
+                block_num,
+                required_votes,
+                &masternodes,
+                &proposal,
+            )
+            .await;
         } else {
             println!(
                 "   ℹ️  Producer: {}",
@@ -1455,15 +1474,21 @@ impl BlockProducer {
                 let block_hash = block.hash.clone();
                 drop(blockchain);
 
-                self.peer_manager.broadcast_tip_update(block_num, block_hash).await;
+                self.peer_manager
+                    .broadcast_tip_update(block_num, block_hash)
+                    .await;
 
                 for tx in transactions.iter().skip(1) {
                     self.mempool.remove_transaction(&tx.txid).await;
                 }
 
                 let all_masternodes = self.consensus.get_masternodes().await;
-                let active_masternodes = self.block_consensus.get_active_masternodes(&all_masternodes).await;
-                self.broadcast_finalized_block(&block, &active_masternodes).await;
+                let active_masternodes = self
+                    .block_consensus
+                    .get_active_masternodes(&all_masternodes)
+                    .await;
+                self.broadcast_finalized_block(&block, &active_masternodes)
+                    .await;
             }
             Err(e) => {
                 println!("   ✗ Failed: {:?}", e);
@@ -1483,7 +1508,11 @@ impl BlockProducer {
                     println!("      📊 TX {} fee: {} satoshis", &tx.txid[..8], fee);
                 }
                 Err(e) => {
-                    println!("      ⚠️  Could not calculate fee for {}: {:?}", &tx.txid[..8], e);
+                    println!(
+                        "      ⚠️  Could not calculate fee for {}: {:?}",
+                        &tx.txid[..8],
+                        e
+                    );
                 }
             }
         }
@@ -1496,12 +1525,20 @@ impl BlockProducer {
             println!("   ℹ️  This is NORMAL and EXPECTED for TIME Coin");
             println!("   ℹ️  Coinbase includes treasury + masternode rewards");
         }
-        println!("   📋 {} total transactions (1 coinbase + {} mempool)", all_transactions.len(), mempool_count);
-        
+        println!(
+            "   📋 {} total transactions (1 coinbase + {} mempool)",
+            all_transactions.len(),
+            mempool_count
+        );
+
         let coinbase_outputs = all_transactions[0].outputs.len();
         let coinbase_amount: u64 = all_transactions[0].outputs.iter().map(|o| o.amount).sum();
-        println!("   💰 Coinbase: {} outputs, {} satoshis total ({} TIME)", 
-            coinbase_outputs, coinbase_amount, coinbase_amount / 100_000_000);
+        println!(
+            "   💰 Coinbase: {} outputs, {} satoshis total ({} TIME)",
+            coinbase_outputs,
+            coinbase_amount,
+            coinbase_amount / 100_000_000
+        );
     }
 
     fn calculate_block_hash(
@@ -1538,6 +1575,7 @@ impl BlockProducer {
         format!("{:x}", hasher.finalize())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn collect_and_finalize_votes(
         &self,
         all_transactions: &[Transaction],
@@ -1552,12 +1590,21 @@ impl BlockProducer {
 
         for attempt in 1..=MAX_VOTE_ATTEMPTS {
             let timeout_secs = if attempt == 1 { 60 } else { 30 };
-            println!("   🗳️  Vote collection attempt {}/{} ({}s timeout)", attempt, MAX_VOTE_ATTEMPTS, timeout_secs);
+            println!(
+                "   🗳️  Vote collection attempt {}/{} ({}s timeout)",
+                attempt, MAX_VOTE_ATTEMPTS, timeout_secs
+            );
 
-            let (approved, total) = self.block_consensus.collect_votes_with_timeout(block_num, required_votes, timeout_secs).await;
+            let (approved, total) = self
+                .block_consensus
+                .collect_votes_with_timeout(block_num, required_votes, timeout_secs)
+                .await;
 
             for mn in masternodes {
-                let voters = self.block_consensus.get_voters(block_num, &proposal.block_hash).await;
+                let voters = self
+                    .block_consensus
+                    .get_voters(block_num, &proposal.block_hash)
+                    .await;
                 if !voters.contains(mn) {
                     self.block_consensus.record_missed_vote(mn).await;
                 }
@@ -1567,19 +1614,35 @@ impl BlockProducer {
 
             if approved >= required_votes {
                 println!("   ✔ Quorum reached! Finalizing...");
-                self.finalize_block_bft(all_transactions, previous_hash, merkle_root, block_num).await;
+                self.finalize_block_bft(all_transactions, previous_hash, merkle_root, block_num)
+                    .await;
                 return;
             }
 
-            println!("   ⚠️  Attempt {}: Quorum not reached ({} < {})", attempt, approved, required_votes);
+            println!(
+                "   ⚠️  Attempt {}: Quorum not reached ({} < {})",
+                attempt, approved, required_votes
+            );
 
             if attempt == MAX_VOTE_ATTEMPTS {
                 if approved > total / 2 {
-                    println!("   🚨 EMERGENCY: Simple majority reached ({}/{}), finalizing block", approved, total);
-                    self.finalize_block_bft(all_transactions, previous_hash, merkle_root, block_num).await;
+                    println!(
+                        "   🚨 EMERGENCY: Simple majority reached ({}/{}), finalizing block",
+                        approved, total
+                    );
+                    self.finalize_block_bft(
+                        all_transactions,
+                        previous_hash,
+                        merkle_root,
+                        block_num,
+                    )
+                    .await;
                     return;
                 } else {
-                    println!("   ❌ FAILED: Insufficient votes ({}/{}), block not created", approved, total);
+                    println!(
+                        "   ❌ FAILED: Insufficient votes ({}/{}), block not created",
+                        approved, total
+                    );
                     println!("   ℹ️  Block will be created during next catch-up cycle");
                 }
             } else {
@@ -1965,7 +2028,10 @@ impl BlockProducer {
 
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
-        println!("      💰 Minimal block: {} transaction(s)", block.transactions.len());
+        println!(
+            "      💰 Minimal block: {} transaction(s)",
+            block.transactions.len()
+        );
         block
     }
 
@@ -2019,7 +2085,10 @@ impl BlockProducer {
 
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
-        println!("      💰 Proposal includes rewards for {} masternodes", active_masternodes.len());
+        println!(
+            "      💰 Proposal includes rewards for {} masternodes",
+            active_masternodes.len()
+        );
         block
     }
 
@@ -2120,10 +2189,14 @@ impl BlockProducer {
         let all_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_all_masternodes()
             .iter()
-            .filter_map(|mn| mn.is_active.then(|| (mn.wallet_address.clone(), mn.tier)))
+            .filter(|&mn| mn.is_active)
+            .map(|mn| (mn.wallet_address.clone(), mn.tier))
             .collect();
 
-        println!("      💰 Distributing rewards to {} registered masternodes", all_masternodes.len());
+        println!(
+            "      💰 Distributing rewards to {} registered masternodes",
+            all_masternodes.len()
+        );
 
         let coinbase_tx = time_core::block::create_coinbase_transaction(
             block_num,
@@ -2133,7 +2206,10 @@ impl BlockProducer {
             timestamp.timestamp(),
         );
 
-        println!("      ✓ Created coinbase with {} outputs (incl. treasury)", coinbase_tx.outputs.len());
+        println!(
+            "      ✓ Created coinbase with {} outputs (incl. treasury)",
+            coinbase_tx.outputs.len()
+        );
 
         let mut block = Block {
             hash: String::new(),

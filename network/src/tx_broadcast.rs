@@ -19,7 +19,7 @@ impl TransactionBroadcaster {
         }
     }
 
-    /// Generic broadcast helper for any message
+    #[allow(dead_code)]
     async fn broadcast_to_peers<F>(&self, message: NetworkMessage, log_msg: &str, send_fn: F)
     where
         F: Fn(Arc<PeerManager>, std::net::IpAddr, NetworkMessage) -> tokio::task::JoinHandle<()>
@@ -150,27 +150,21 @@ impl TransactionBroadcaster {
             let txid = tx.txid.clone();
 
             let task = tokio::spawn(async move {
-                match manager
+                if let Ok(Some(NetworkMessage::InstantFinalityVote {
+                    txid: vote_txid,
+                    voter,
+                    approve,
+                    timestamp: _,
+                })) = manager
                     .send_message_to_peer_with_response(peer_addr, msg_clone, 3)
                     .await
                 {
-                    Ok(Some(response)) => {
-                        if let NetworkMessage::InstantFinalityVote {
-                            txid: vote_txid,
-                            voter,
-                            approve,
-                            timestamp: _,
-                        } = response
-                        {
-                            if vote_txid == txid {
-                                let _ = consensus_clone
-                                    .vote_on_transaction(&txid, voter.clone(), approve)
-                                    .await;
-                                return Some(approve);
-                            }
-                        }
+                    if vote_txid == txid {
+                        let _ = consensus_clone
+                            .vote_on_transaction(&txid, voter.clone(), approve)
+                            .await;
+                        return Some(approve);
                     }
-                    Ok(None) | Err(_) => {}
                 }
                 None
             });

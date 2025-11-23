@@ -15,7 +15,7 @@ pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, Pee
 pub use manager::PeerManager;
 pub use message_auth::{AuthError, AuthenticatedMessage, NonceTracker};
 pub use protocol::{HandshakeMessage, NetworkMessage, ProtocolVersion, TransactionMessage};
-pub use protocol::{TransactionValidation, VERSION, PROTOCOL_VERSION};
+pub use protocol::{TransactionValidation, PROTOCOL_VERSION, VERSION};
 pub use quarantine::{
     PeerQuarantine, QuarantineConfig, QuarantineReason, QuarantineSeverity, QuarantineStats,
 };
