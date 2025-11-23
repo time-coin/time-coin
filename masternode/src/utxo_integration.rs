@@ -1060,6 +1060,11 @@ impl MasternodeUTXOIntegration {
 
         info!(node = %self.node_id, "✅ Finality retry task started");
     }
+
+    /// Get all pending transactions from mempool
+    pub async fn get_mempool_transactions(&self) -> Vec<time_core::Transaction> {
+        self.mempool.get_all_transactions().await
+    }
 }
 
 /// Scan blockchain for existing transactions for addresses

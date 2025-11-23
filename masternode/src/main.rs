@@ -240,6 +240,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         continue;
                                     }
 
+                                    // Handle GetMempool directly
+                                    if matches!(
+                                        message,
+                                        time_network::protocol::NetworkMessage::GetMempool
+                                    ) {
+                                        log::info!(
+                                            "📥 Received GetMempool request from {}",
+                                            peer_ip
+                                        );
+                                        let transactions =
+                                            integration.get_mempool_transactions().await;
+                                        let response =
+                                            time_network::protocol::NetworkMessage::MempoolResponse(
+                                                transactions.clone(),
+                                            );
+                                        log::info!(
+                                            "📤 Sending mempool response with {} transactions",
+                                            transactions.len()
+                                        );
+                                        match connection.send_message(response).await {
+                                            Ok(_) => log::info!(
+                                                "✅ Mempool sent successfully to {}",
+                                                peer_ip
+                                            ),
+                                            Err(e) => {
+                                                log::error!(
+                                                    "❌ Failed to send mempool to {}: {}",
+                                                    peer_ip,
+                                                    e
+                                                )
+                                            }
+                                        }
+                                        continue;
+                                    }
+
                                     // Handle message via UTXO integration
                                     match integration
                                         .handle_network_message(&message, peer_ip)

@@ -209,10 +209,78 @@ impl PeerManager {
         &self,
         stream: &mut tokio::net::TcpStream,
     ) -> Result<Vec<(String, u16)>, String> {
-        use time_network::protocol::NetworkMessage;
+        use time_network::protocol::{HandshakeMessage, NetworkMessage};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        // Send GetPeerList request (using JSON like masternode)
+        // Perform handshake first (required by masternode protocol)
+        let network_type = match self.network {
+            wallet::NetworkType::Mainnet => time_network::discovery::NetworkType::Mainnet,
+            wallet::NetworkType::Testnet => time_network::discovery::NetworkType::Testnet,
+        };
+
+        // Create a dummy listen address since we're a client
+        let our_addr = "0.0.0.0:0".parse().unwrap();
+        let handshake = HandshakeMessage::new(network_type, our_addr);
+
+        // Send our handshake with magic bytes
+        let magic = network_type.magic_bytes();
+        let handshake_json = serde_json::to_vec(&handshake).map_err(|e| e.to_string())?;
+        let handshake_len = handshake_json.len() as u32;
+
+        stream
+            .write_all(&magic)
+            .await
+            .map_err(|e| format!("Failed to send magic bytes: {}", e))?;
+        stream
+            .write_all(&handshake_len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to send handshake length: {}", e))?;
+        stream
+            .write_all(&handshake_json)
+            .await
+            .map_err(|e| format!("Failed to send handshake: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush handshake: {}", e))?;
+
+        // Receive their handshake (with magic bytes)
+        let mut their_magic = [0u8; 4];
+        stream
+            .read_exact(&mut their_magic)
+            .await
+            .map_err(|e| format!("Failed to read handshake magic bytes: {}", e))?;
+
+        if their_magic != magic {
+            return Err(format!(
+                "Invalid magic bytes in handshake response: expected {:?}, got {:?}",
+                magic, their_magic
+            ));
+        }
+
+        let mut their_len_bytes = [0u8; 4];
+        stream
+            .read_exact(&mut their_len_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake response length: {}", e))?;
+        let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+
+        if their_len > 10 * 1024 {
+            return Err(format!("Handshake response too large: {} bytes", their_len));
+        }
+
+        let mut their_handshake_bytes = vec![0u8; their_len];
+        stream
+            .read_exact(&mut their_handshake_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake response: {}", e))?;
+
+        let _their_handshake: HandshakeMessage = serde_json::from_slice(&their_handshake_bytes)
+            .map_err(|e| format!("Failed to parse handshake response: {}", e))?;
+
+        log::info!("🤝 Handshake completed successfully");
+
+        // Now send GetPeerList request
         let request = NetworkMessage::GetPeerList;
         let request_bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
         let len = request_bytes.len() as u32;

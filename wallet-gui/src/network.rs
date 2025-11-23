@@ -446,7 +446,7 @@ impl NetworkManager {
     }
 
     pub async fn fetch_blockchain_info(&self) -> Result<BlockchainInfo, String> {
-        use time_network::protocol::NetworkMessage;
+        use time_network::protocol::{HandshakeMessage, NetworkMessage};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
 
@@ -461,45 +461,106 @@ impl NetworkManager {
             match tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr)).await
             {
                 Ok(Ok(mut stream)) => {
-                    // Send GetBlockchainInfo message
-                    let message = NetworkMessage::GetBlockchainInfo;
+                    // Perform handshake first
+                    // Determine network from peer port (24100=testnet, 24101=mainnet)
+                    let network_type = if peer.port == 24100 {
+                        time_network::discovery::NetworkType::Testnet
+                    } else {
+                        time_network::discovery::NetworkType::Mainnet
+                    };
 
-                    if let Ok(data) = serde_json::to_vec(&message) {
-                        let len = data.len() as u32;
+                    let our_addr = "0.0.0.0:0".parse().unwrap();
+                    let handshake = HandshakeMessage::new(network_type, our_addr);
 
-                        if stream.write_all(&len.to_be_bytes()).await.is_ok()
-                            && stream.write_all(&data).await.is_ok()
+                    // Send handshake with magic bytes
+                    let magic = network_type.magic_bytes();
+                    if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                        let handshake_len = handshake_json.len() as u32;
+
+                        if stream.write_all(&magic).await.is_ok()
+                            && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                            && stream.write_all(&handshake_json).await.is_ok()
                             && stream.flush().await.is_ok()
                         {
-                            // Read response
-                            let mut len_bytes = [0u8; 4];
-                            if stream.read_exact(&mut len_bytes).await.is_ok() {
-                                let response_len = u32::from_be_bytes(len_bytes) as usize;
-
-                                if response_len < 1024 * 1024 {
-                                    // 1MB limit
-                                    let mut response_data = vec![0u8; response_len];
-                                    if stream.read_exact(&mut response_data).await.is_ok() {
-                                        if let Ok(response) =
-                                            serde_json::from_slice::<NetworkMessage>(&response_data)
+                            // Receive their handshake
+                            let mut their_magic = [0u8; 4];
+                            let mut their_len_bytes = [0u8; 4];
+                            if stream.read_exact(&mut their_magic).await.is_ok()
+                                && their_magic == magic
+                                && stream.read_exact(&mut their_len_bytes).await.is_ok()
+                            {
+                                let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                                if their_len < 10 * 1024 {
+                                    let mut their_handshake_bytes = vec![0u8; their_len];
+                                    if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
+                                        if serde_json::from_slice::<HandshakeMessage>(
+                                            &their_handshake_bytes,
+                                        )
+                                        .is_ok()
                                         {
-                                            if let NetworkMessage::BlockchainInfo {
-                                                height,
-                                                best_block_hash,
-                                            } = response
-                                            {
-                                                log::info!(
-                                                    "Got blockchain height {} from peer {}",
-                                                    height,
-                                                    tcp_addr
-                                                );
-                                                return Ok(BlockchainInfo {
-                                                    network: "mainnet".to_string(),
-                                                    height,
-                                                    best_block_hash,
-                                                    total_supply: 0,
-                                                    timestamp: 0,
-                                                });
+                                            log::debug!("🤝 Handshake completed with {}", tcp_addr);
+
+                                            // Now send GetBlockchainInfo message
+                                            let message = NetworkMessage::GetBlockchainInfo;
+                                            if let Ok(data) = serde_json::to_vec(&message) {
+                                                let len = data.len() as u32;
+
+                                                if stream
+                                                    .write_all(&len.to_be_bytes())
+                                                    .await
+                                                    .is_ok()
+                                                    && stream.write_all(&data).await.is_ok()
+                                                    && stream.flush().await.is_ok()
+                                                {
+                                                    // Read response
+                                                    let mut len_bytes = [0u8; 4];
+                                                    if stream
+                                                        .read_exact(&mut len_bytes)
+                                                        .await
+                                                        .is_ok()
+                                                    {
+                                                        let response_len =
+                                                            u32::from_be_bytes(len_bytes) as usize;
+
+                                                        if response_len < 1024 * 1024 {
+                                                            // 1MB limit
+                                                            let mut response_data =
+                                                                vec![0u8; response_len];
+                                                            if stream
+                                                                .read_exact(&mut response_data)
+                                                                .await
+                                                                .is_ok()
+                                                            {
+                                                                if let Ok(response) =
+                                                                    serde_json::from_slice::<
+                                                                        NetworkMessage,
+                                                                    >(
+                                                                        &response_data
+                                                                    )
+                                                                {
+                                                                    if let NetworkMessage::BlockchainInfo {
+                                                                        height,
+                                                                        best_block_hash,
+                                                                    } = response
+                                                                    {
+                                                                        log::info!(
+                                                                            "Got blockchain height {} from peer {}",
+                                                                            height,
+                                                                            tcp_addr
+                                                                        );
+                                                                        return Ok(BlockchainInfo {
+                                                                            network: "mainnet".to_string(),
+                                                                            height,
+                                                                            best_block_hash,
+                                                                            total_supply: 0,
+                                                                            timestamp: 0,
+                                                                        });
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -787,17 +848,27 @@ impl NetworkManager {
                                             // Convert to PeerInfo
                                             let peer_infos: Vec<PeerInfo> = peer_addresses
                                                 .into_iter()
-                                                .map(|pa| PeerInfo {
-                                                    address: pa.ip.clone(),
-                                                    port: pa.port,
-                                                    version: None,
-                                                    last_seen: Some(
-                                                        std::time::SystemTime::now()
-                                                            .duration_since(std::time::UNIX_EPOCH)
-                                                            .unwrap()
-                                                            .as_secs(),
-                                                    ),
-                                                    latency_ms: 0,
+                                                .map(|pa| {
+                                                    log::debug!(
+                                                        "Peer: {}:{} version: {}",
+                                                        pa.ip,
+                                                        pa.port,
+                                                        pa.version
+                                                    );
+                                                    PeerInfo {
+                                                        address: pa.ip.clone(),
+                                                        port: pa.port,
+                                                        version: Some(pa.version.clone()),
+                                                        last_seen: Some(
+                                                            std::time::SystemTime::now()
+                                                                .duration_since(
+                                                                    std::time::UNIX_EPOCH,
+                                                                )
+                                                                .unwrap()
+                                                                .as_secs(),
+                                                        ),
+                                                        latency_ms: 0,
+                                                    }
                                                 })
                                                 .collect();
 
@@ -830,7 +901,9 @@ impl NetworkManager {
                 peer.latency_ms
             );
         }
-        self.connected_peers.clone()
+        let mut sorted_peers = self.connected_peers.clone();
+        sorted_peers.sort_by_key(|p| p.latency_ms);
+        sorted_peers
     }
 
     /// Save a peer to database

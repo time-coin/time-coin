@@ -1492,28 +1492,26 @@ impl PeerManager {
     pub async fn handle_get_peer_list(&self) -> crate::protocol::NetworkMessage {
         info!("📨 Received GetPeerList request");
 
-        // Get all peers from peer manager
-        let peer_ips = self.get_peer_ips().await;
-        info!(raw_peer_count = peer_ips.len(), "Got peer IPs from manager");
+        // Get all peers with full info from peer manager
+        let peers = self.get_peers().await;
+        info!(
+            peer_count = peers.len(),
+            "Got {} peers from manager",
+            peers.len()
+        );
 
-        let port = match self.network {
-            NetworkType::Mainnet => 24101,
-            NetworkType::Testnet => 24100,
-        };
-
-        let peer_addresses: Vec<crate::protocol::PeerAddress> = peer_ips
+        let peer_addresses: Vec<crate::protocol::PeerAddress> = peers
             .into_iter()
-            .map(|ip| crate::protocol::PeerAddress {
-                ip: ip.to_string(),
-                port,
-                version: "1.0.0".to_string(),
+            .map(|peer| crate::protocol::PeerAddress {
+                ip: peer.address.ip().to_string(),
+                port: peer.address.port(),
+                version: peer.version.clone(),
             })
             .collect();
 
         info!(
             peer_count = peer_addresses.len(),
             network = ?self.network,
-            port = port,
             "📤 Returning PeerList with {} peers",
             peer_addresses.len()
         );

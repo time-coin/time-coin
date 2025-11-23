@@ -965,8 +965,9 @@ impl WalletApp {
         };
 
         if should_sync {
-            log::info!("Auto-triggering transaction sync");
+            log::info!("Auto-triggering transaction sync and mempool check");
             self.trigger_transaction_sync();
+            self.trigger_mempool_check();
             self.last_sync_time = Some(std::time::Instant::now());
         }
 
@@ -2664,6 +2665,175 @@ impl WalletApp {
                 }
 
                 log::warn!("❌ Failed to sync from any peer");
+            });
+        });
+    }
+
+    fn trigger_mempool_check(&mut self) {
+        log::info!("🔄 Checking mempool for pending transactions...");
+
+        if self.wallet_manager.is_none() || self.network_manager.is_none() {
+            log::warn!("Cannot check mempool: wallet or network not initialized");
+            return;
+        }
+
+        // Get all wallet addresses to check
+        let addresses: Vec<String> = if let Some(db) = &self.wallet_db {
+            match db.get_all_contacts() {
+                Ok(contacts) => contacts
+                    .into_iter()
+                    .filter(|c| c.is_owned)
+                    .map(|c| c.address)
+                    .collect(),
+                Err(e) => {
+                    log::error!("Failed to get addresses from DB: {}", e);
+                    return;
+                }
+            }
+        } else {
+            log::warn!("No wallet database available");
+            return;
+        };
+
+        if addresses.is_empty() {
+            log::warn!("No addresses to check in mempool");
+            return;
+        }
+
+        let network_mgr = self.network_manager.clone().unwrap();
+        let wallet_db = self.wallet_db.clone();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let peers = {
+                    let net = network_mgr.lock().unwrap();
+                    net.get_connected_peers()
+                };
+
+                if peers.is_empty() {
+                    log::warn!("No connected peers to check mempool from");
+                    return;
+                }
+
+                // Try each peer until success
+                for peer in peers.iter().take(1) {
+                    use time_network::protocol::{NetworkMessage, HandshakeMessage};
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    use tokio::net::TcpStream;
+
+                    let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                    let tcp_addr = format!("{}:{}", peer_ip, peer.port);
+
+                    log::info!("📡 Checking mempool from peer: {}", peer_ip);
+
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        TcpStream::connect(&tcp_addr)
+                    ).await {
+                        Ok(Ok(mut stream)) => {
+                            // Perform handshake
+                            let network_type = if peer.port == 24100 {
+                                time_network::discovery::NetworkType::Testnet
+                            } else {
+                                time_network::discovery::NetworkType::Mainnet
+                            };
+
+                            let our_addr = "0.0.0.0:0".parse().unwrap();
+                            let handshake = HandshakeMessage::new(network_type, our_addr);
+                            let magic = network_type.magic_bytes();
+
+                            if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                                let handshake_len = handshake_json.len() as u32;
+
+                                if stream.write_all(&magic).await.is_ok()
+                                    && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                                    && stream.write_all(&handshake_json).await.is_ok()
+                                    && stream.flush().await.is_ok()
+                                {
+                                    // Receive their handshake
+                                    let mut their_magic = [0u8; 4];
+                                    let mut their_len_bytes = [0u8; 4];
+                                    if stream.read_exact(&mut their_magic).await.is_ok()
+                                        && their_magic == magic
+                                        && stream.read_exact(&mut their_len_bytes).await.is_ok()
+                                    {
+                                        let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                                        if their_len < 10 * 1024 {
+                                            let mut their_handshake_bytes = vec![0u8; their_len];
+                                            if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
+                                                // Send GetMempool message
+                                                let message = NetworkMessage::GetMempool;
+                                                if let Ok(data) = serde_json::to_vec(&message) {
+                                                    let len = data.len() as u32;
+
+                                                    if stream.write_all(&len.to_be_bytes()).await.is_ok()
+                                                        && stream.write_all(&data).await.is_ok()
+                                                        && stream.flush().await.is_ok()
+                                                    {
+                                                        // Read response
+                                                        let mut len_bytes = [0u8; 4];
+                                                        if stream.read_exact(&mut len_bytes).await.is_ok() {
+                                                            let response_len = u32::from_be_bytes(len_bytes) as usize;
+
+                                                            if response_len < 10 * 1024 * 1024 {
+                                                                let mut response_data = vec![0u8; response_len];
+                                                                if stream.read_exact(&mut response_data).await.is_ok() {
+                                                                    if let Ok(response) = serde_json::from_slice::<NetworkMessage>(&response_data) {
+                                                                        if let NetworkMessage::MempoolResponse(transactions) = response {
+                                                                            log::info!("📥 Received {} transactions from mempool", transactions.len());
+
+                                                                            // Check each transaction for our addresses
+                                                                            for tx in transactions {
+                                                                                for output in &tx.outputs {
+                                                                                    if addresses.contains(&output.address) {
+                                                                                        log::info!("💰 Found pending transaction for address: {}", &output.address[..20]);
+
+                                                                                        // Save to database as pending
+                                                                                        if let Some(db) = &wallet_db {
+                                                                                            use crate::wallet_db::{TransactionRecord, TransactionStatus};
+
+                                                                                            let tx_record = TransactionRecord {
+                                                                                                tx_hash: tx.txid.clone(),
+                                                                                                timestamp: tx.timestamp,
+                                                                                                from_address: None,
+                                                                                                to_address: output.address.clone(),
+                                                                                                amount: output.amount,
+                                                                                                status: TransactionStatus::Pending,
+                                                                                                block_height: None,
+                                                                                                notes: Some("From mempool".to_string()),
+                                                                                            };
+
+                                                                                            if let Err(e) = db.save_transaction(&tx_record) {
+                                                                                                log::error!("Failed to save pending transaction: {}", e);
+                                                                                            } else {
+                                                                                                log::info!("✅ Saved pending transaction: {}", &tx.txid);
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            return; // Success
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            log::warn!("Failed to connect to peer for mempool check: {}", tcp_addr);
+                        }
+                    }
+                }
+
+                log::warn!("❌ Failed to check mempool from any peer");
             });
         });
     }
