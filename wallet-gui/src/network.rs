@@ -107,6 +107,14 @@ impl NetworkManager {
     pub fn network_block_height(&self) -> u64 {
         self.network_block_height
     }
+    
+    /// Set blockchain heights (for internal updates)
+    pub fn set_blockchain_height(&mut self, height: u64) {
+        if height > self.network_block_height {
+            self.network_block_height = height;
+            self.current_block_height = height;
+        }
+    }
 
     /// Fetch peer list from API - queries registered masternodes
     pub async fn fetch_peers(&self) -> Result<Vec<PeerInfo>, String> {
@@ -176,10 +184,14 @@ impl NetworkManager {
             initial_peers.len()
         );
 
-        // Test connectivity and measure latency for each peer
-        let mut connected_peers = Vec::new();
+        // Store ALL peers, not just the responsive ones
+        // We'll track which ones are actually working separately
+        self.connected_peers = initial_peers.clone();
 
-        for mut peer in initial_peers {
+        // Test connectivity and measure latency for each peer
+        let mut responsive_count = 0;
+
+        for peer in &mut self.connected_peers {
             let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
             let url = format!("http://{}:24101/blockchain/info", peer_ip);
             let start = std::time::Instant::now();
@@ -199,7 +211,16 @@ impl NetworkManager {
                         peer.address,
                         peer.latency_ms
                     );
-                    connected_peers.push(peer);
+                    responsive_count += 1;
+
+                    // Update blockchain height from this peer
+                    if let Ok(info) = response.json::<BlockchainInfo>().await {
+                        if info.height > self.network_block_height {
+                            self.network_block_height = info.height;
+                            self.current_block_height = info.height;
+                            log::info!("  📊 Updated blockchain height to {}", info.height);
+                        }
+                    }
                 }
                 Ok(response) => {
                     log::warn!(
@@ -214,14 +235,15 @@ impl NetworkManager {
             }
         }
 
-        if connected_peers.is_empty() {
+        if responsive_count == 0 {
             return Err("No peers responded".to_string());
         }
 
-        log::info!("Successfully connected to {} peers", connected_peers.len());
-
-        // Store connected peers
-        self.connected_peers = connected_peers;
+        log::info!(
+            "Successfully tested {} peers ({} responsive)",
+            self.connected_peers.len(),
+            responsive_count
+        );
 
         Ok(())
     }
@@ -833,12 +855,14 @@ impl NetworkManager {
         Ok(())
     }
 
-    /// Refresh latency measurements for all connected peers by directly pinging them
+    /// Refresh latency measurements and blockchain height for all connected peers
     pub async fn refresh_peer_latencies(&mut self) {
         log::info!(
-            "Pinging {} peers to measure latency",
+            "Pinging {} peers to measure latency and update blockchain height",
             self.connected_peers.len()
         );
+
+        let mut max_height = self.network_block_height;
 
         for peer in &mut self.connected_peers {
             let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
@@ -852,10 +876,22 @@ impl NetworkManager {
                 .unwrap();
 
             match client.get(&url).send().await {
-                Ok(_) => {
+                Ok(response) => {
                     let latency = start.elapsed().as_millis() as u64;
                     peer.latency_ms = latency;
                     log::info!("  Peer {} responded in {}ms", peer.address, latency);
+
+                    // Try to get blockchain height from response
+                    if let Ok(info) = response.json::<BlockchainInfo>().await {
+                        if info.height > max_height {
+                            max_height = info.height;
+                            log::info!(
+                                "  📊 Peer {} reports height: {}",
+                                peer.address,
+                                info.height
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     log::warn!("  Failed to ping {}: {}", peer.address, e);
@@ -864,6 +900,35 @@ impl NetworkManager {
             }
         }
 
-        log::info!("Latency refresh complete");
+        // Update blockchain height if we found a higher one
+        if max_height > self.network_block_height {
+            log::info!(
+                "📊 Updated blockchain height: {} -> {}",
+                self.network_block_height,
+                max_height
+            );
+            self.network_block_height = max_height;
+            self.current_block_height = max_height;
+        }
+
+        log::info!(
+            "Latency refresh complete, current height: {}",
+            self.current_block_height
+        );
+    }
+
+    /// Update blockchain height from connected peers
+    pub async fn update_blockchain_height(&mut self) {
+        if let Ok(info) = self.fetch_blockchain_info().await {
+            if info.height > self.network_block_height {
+                log::info!(
+                    "📊 Updated blockchain height: {} -> {}",
+                    self.network_block_height,
+                    info.height
+                );
+                self.network_block_height = info.height;
+                self.current_block_height = info.height;
+            }
+        }
     }
 }

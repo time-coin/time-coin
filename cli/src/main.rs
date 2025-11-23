@@ -877,6 +877,75 @@ async fn main() {
             .expect("Failed to initialize blockchain state"),
     ));
 
+    // Load finalized transactions from database and apply to UTXO set
+    {
+        let mut blockchain_write = blockchain.write().await;
+        match blockchain_write.load_finalized_txs() {
+            Ok(finalized_txs) if !finalized_txs.is_empty() => {
+                println!(
+                    "{}",
+                    format!(
+                        "📥 Loading {} finalized transactions from database...",
+                        finalized_txs.len()
+                    )
+                    .cyan()
+                );
+
+                let mut applied_count = 0;
+                let mut failed_count = 0;
+
+                for tx in &finalized_txs {
+                    // Try to apply to UTXO set
+                    match blockchain_write.utxo_set_mut().apply_transaction(tx) {
+                        Ok(_) => {
+                            applied_count += 1;
+                            if applied_count % 10 == 0 {
+                                println!("   ✓ Applied {} transactions...", applied_count);
+                            }
+                        }
+                        Err(e) => {
+                            // Transaction may have already been included in a block or invalid
+                            failed_count += 1;
+                            println!("   ⚠️  Skipped tx {} ({})", &tx.txid[..16], e);
+                        }
+                    }
+                }
+
+                println!(
+                    "{}",
+                    format!(
+                        "✓ Loaded {} finalized transactions ({} applied, {} skipped)",
+                        finalized_txs.len(),
+                        applied_count,
+                        failed_count
+                    )
+                    .green()
+                );
+
+                // Save UTXO snapshot after applying finalized transactions
+                if applied_count > 0 {
+                    if let Err(e) = blockchain_write.save_utxo_snapshot() {
+                        println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                    } else {
+                        println!("   💾 UTXO snapshot updated with finalized transactions");
+                    }
+                }
+            }
+            Ok(_) => {
+                println!(
+                    "{}",
+                    "✓ No finalized transactions in database".bright_black()
+                );
+            }
+            Err(e) => {
+                println!(
+                    "{}",
+                    format!("⚠ Could not load finalized transactions: {}", e).yellow()
+                );
+            }
+        }
+    }
+
     let local_height = get_local_height(&blockchain).await;
     println!(
         "{}",

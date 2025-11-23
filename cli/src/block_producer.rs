@@ -1540,6 +1540,18 @@ impl BlockProducer {
                     println!("   💾 UTXO snapshot saved");
                 }
 
+                // Remove finalized transactions that were included in this block
+                for tx in block.transactions.iter().skip(1) {
+                    // Skip coinbase (first transaction)
+                    if let Err(e) = blockchain.remove_finalized_tx(&tx.txid) {
+                        println!(
+                            "   ⚠️  Failed to remove finalized tx {}: {}",
+                            &tx.txid[..16],
+                            e
+                        );
+                    }
+                }
+
                 let block_hash = block.hash.clone();
                 drop(blockchain);
 
