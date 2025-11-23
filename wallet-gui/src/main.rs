@@ -349,6 +349,14 @@ impl WalletApp {
                                         log::info!(
                                             "✅ NetworkManager connected to peers successfully"
                                         );
+                                        
+                                        // Now discover more peers from the connected ones
+                                        log::info!("🔍 Starting peer discovery...");
+                                        if let Err(e) = net.discover_and_connect_peers().await {
+                                            log::warn!("⚠️ Peer discovery had issues: {}", e);
+                                        } else {
+                                            log::info!("✅ Peer discovery completed");
+                                        }
                                     }
                                     Err(e) => {
                                         log::error!("❌ Failed to connect NetworkManager: {}", e);
