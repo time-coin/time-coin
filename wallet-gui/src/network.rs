@@ -108,11 +108,11 @@ impl NetworkManager {
         self.network_block_height
     }
 
-    /// Fetch peer list from API
+    /// Fetch peer list from API - queries registered masternodes
     pub async fn fetch_peers(&self) -> Result<Vec<PeerInfo>, String> {
-        let url = format!("{}/peers", self.api_endpoint);
+        let url = format!("{}/masternodes/list", self.api_endpoint);
 
-        log::info!("Fetching peers from: {}", url);
+        log::info!("Fetching masternodes from: {}", url);
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -123,30 +123,37 @@ impl NetworkManager {
             .get(&url)
             .send()
             .await
-            .map_err(|e| format!("Failed to fetch peers: {}", e))?;
+            .map_err(|e| format!("Failed to fetch masternodes: {}", e))?;
 
         if !response.status().is_success() {
             return Err(format!("API returned error: {}", response.status()));
         }
 
-        // API returns a simple array of "ip:port" strings
-        let peer_addresses: Vec<String> = response
+        // Parse the masternodes response
+        let json: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse peer response: {}", e))?;
+            .map_err(|e| format!("Failed to parse masternode response: {}", e))?;
 
-        log::info!("Fetched {} peers from API", peer_addresses.len());
+        log::info!("Masternodes response: {:?}", json);
 
-        // Convert address strings to PeerInfo
-        let peer_infos: Vec<PeerInfo> = peer_addresses
+        // Extract masternodes array
+        let masternodes = json
+            .get("masternodes")
+            .and_then(|v| v.as_array())
+            .ok_or("Response missing 'masternodes' array")?;
+
+        log::info!("Found {} registered masternodes", masternodes.len());
+
+        // Convert to PeerInfo format
+        let peer_infos: Vec<PeerInfo> = masternodes
             .iter()
-            .filter_map(|addr| {
-                let parts: Vec<&str> = addr.split(':').collect();
-                let ip = parts.get(0)?.to_string();
-                let port = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(24100);
+            .filter_map(|mn| {
+                let address = mn.get("address")?.as_str()?.to_string();
+                // Masternodes use port 24100 for P2P
                 Some(PeerInfo {
-                    address: ip,
-                    port,
+                    address,
+                    port: 24100,
                     version: None,
                     last_seen: Some(
                         std::time::SystemTime::now()
@@ -158,6 +165,7 @@ impl NetworkManager {
                 })
             })
             .collect();
+
         Ok(peer_infos)
     }
 
@@ -168,20 +176,44 @@ impl NetworkManager {
             initial_peers.len()
         );
 
-        // Store connected peers
-        self.connected_peers = initial_peers.clone();
+        // Test connectivity and measure latency for each peer
+        let mut connected_peers = Vec::new();
+        
+        for mut peer in initial_peers {
+            let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+            let url = format!("http://{}:24101/blockchain/info", peer_ip);
+            let start = std::time::Instant::now();
 
-        // For each peer, attempt to discover additional peers
-        // This creates a peer discovery chain
-        for peer in &initial_peers {
-            let peer_addr = format!("{}:{}", peer.address, peer.port);
-            log::info!("Requesting peer list from {}", peer_addr);
+            log::info!("Testing connection to {}...", peer_ip);
 
-            // Try to get additional peers from this masternode
-            // The actual peer exchange would happen via P2P protocol
-            // For now, we'll just log that we would request it
-            // TODO: Implement actual P2P peer exchange protocol
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .map_err(|e| e.to_string())?;
+
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    peer.latency_ms = start.elapsed().as_millis() as u64;
+                    log::info!("  ✓ Peer {} responsive ({}ms)", peer.address, peer.latency_ms);
+                    connected_peers.push(peer);
+                }
+                Ok(response) => {
+                    log::warn!("  ✗ Peer {} returned error: {}", peer.address, response.status());
+                }
+                Err(e) => {
+                    log::warn!("  ✗ Peer {} unreachable: {}", peer.address, e);
+                }
+            }
         }
+
+        if connected_peers.is_empty() {
+            return Err("No peers responded".to_string());
+        }
+
+        log::info!("Successfully connected to {} peers", connected_peers.len());
+        
+        // Store connected peers
+        self.connected_peers = connected_peers;
 
         Ok(())
     }
