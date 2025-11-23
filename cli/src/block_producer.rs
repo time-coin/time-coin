@@ -1832,20 +1832,26 @@ impl BlockProducer {
                     strategy: None,
                 };
 
-                self.block_consensus.propose_block(proposal.clone()).await;
-                self.broadcast_block_proposal(proposal.clone(), masternodes)
-                    .await;
+                // Try to propose (first-proposal-wins)
+                let accepted = self.block_consensus.propose_block(proposal.clone()).await;
 
-                // Leader auto-votes
-                let vote = BlockVote {
-                    block_height: block_num,
-                    block_hash: block.hash.clone(),
-                    voter: my_id.clone(),
-                    approve: true,
-                    timestamp: chrono::Utc::now().timestamp(),
-                };
-                let _ = self.block_consensus.vote_on_block(vote.clone()).await;
-                self.broadcast_block_vote(vote, masternodes).await;
+                if accepted {
+                    self.broadcast_block_proposal(proposal.clone(), masternodes)
+                        .await;
+
+                    // Leader auto-votes
+                    let vote = BlockVote {
+                        block_height: block_num,
+                        block_hash: block.hash.clone(),
+                        voter: my_id.clone(),
+                        approve: true,
+                        timestamp: chrono::Utc::now().timestamp(),
+                    };
+                    let _ = self.block_consensus.vote_on_block(vote.clone()).await;
+                    self.broadcast_block_vote(vote, masternodes).await;
+                } else {
+                    println!("      ℹ️  Another proposal already accepted, following that one");
+                }
             } else {
                 // Notify leader to create proposal
                 println!("      Notifying leader {}...", selected_producer);

@@ -1355,7 +1355,12 @@ async fn create_and_broadcast_catchup_proposal(
         strategy: None,
     };
 
-    block_consensus.propose_block(proposal.clone()).await;
+    // Try to store proposal (first-proposal-wins)
+    let accepted = block_consensus.propose_block(proposal.clone()).await;
+
+    if !accepted {
+        return Err("Another proposal already exists for this block height".to_string());
+    }
 
     // Leader auto-votes
     let vote = BlockVote {
@@ -1399,8 +1404,17 @@ async fn create_and_broadcast_catchup_proposal(
 
 async fn receive_finalized_block(
     State(state): State<ApiState>,
-    Json(block): Json<time_core::block::Block>,
+    Json(payload): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Handle both wrapped {"block": ...} and direct block formats
+    let block: time_core::block::Block = if let Some(block_value) = payload.get("block") {
+        serde_json::from_value(block_value.clone())
+            .map_err(|e| ApiError::Internal(format!("Invalid block format in wrapper: {}", e)))?
+    } else {
+        serde_json::from_value(payload)
+            .map_err(|e| ApiError::Internal(format!("Invalid block format: {}", e)))?
+    };
+    
     println!(
         "📥 Received finalized block push for height {}",
         block.header.block_number

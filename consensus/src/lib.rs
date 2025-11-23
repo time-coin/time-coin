@@ -998,9 +998,16 @@ pub mod block_consensus {
             }
         }
 
-        pub async fn propose_block(&self, proposal: BlockProposal) {
+        pub async fn propose_block(&self, proposal: BlockProposal) -> bool {
             let mut proposals = self.proposals.write().await;
+
+            // First-proposal-wins: only accept if no proposal exists yet
+            if proposals.contains_key(&proposal.block_height) {
+                return false; // Proposal already exists, reject this one
+            }
+
             proposals.insert(proposal.block_height, proposal);
+            true // Proposal accepted
         }
 
         /// Vote on a proposed block
@@ -1070,6 +1077,15 @@ pub mod block_consensus {
                 }
             }
             false
+        }
+
+        /// Clear finalized block consensus data to free memory
+        pub async fn clear_block_consensus(&self, block_height: u64) {
+            let mut proposals = self.proposals.write().await;
+            let mut votes = self.votes.write().await;
+
+            proposals.remove(&block_height);
+            votes.remove(&block_height);
         }
 
         /// Register peer version WITH build info when they connect
