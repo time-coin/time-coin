@@ -2467,10 +2467,130 @@ impl WalletApp {
     }
 
     fn trigger_transaction_sync(&mut self) {
-        // Transaction sync via TCP protocol
-        log::info!("✅ Wallet sync via TCP protocol");
+        log::info!("🔄 Starting wallet transaction sync...");
 
-        // TODO: Implement periodic blockchain scan request from masternode
+        if self.wallet_manager.is_none() || self.network_manager.is_none() {
+            log::warn!("Cannot sync: wallet or network not initialized");
+            return;
+        }
+
+        // Get all wallet addresses to scan
+        let addresses: Vec<String> = if let Some(db) = &self.wallet_db {
+            match db.get_all_contacts() {
+                Ok(contacts) => contacts
+                    .into_iter()
+                    .filter(|c| c.is_owned)
+                    .map(|c| c.address)
+                    .collect(),
+                Err(e) => {
+                    log::error!("Failed to get addresses from DB: {}", e);
+                    return;
+                }
+            }
+        } else {
+            log::warn!("No wallet database available");
+            return;
+        };
+
+        if addresses.is_empty() {
+            log::warn!("No addresses to sync");
+            return;
+        }
+
+        log::info!("🔍 Syncing {} addresses", addresses.len());
+
+        // Spawn async task to fetch UTXOs for all addresses
+        let network_mgr = self.network_manager.clone().unwrap();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let peers = {
+                    let net = network_mgr.lock().unwrap();
+                    net.get_connected_peers()
+                };
+
+                if peers.is_empty() {
+                    log::warn!("No connected peers to sync from");
+                    return;
+                }
+
+                // Try each peer until success
+                for peer in peers {
+                    let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                    let url = format!("http://{}:24101/wallet/sync", peer_ip);
+
+                    log::info!("📡 Syncing from peer: {}", peer_ip);
+
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(10))
+                        .build()
+                        .unwrap();
+
+                    let request = serde_json::json!({
+                        "addresses": addresses
+                    });
+
+                    match client.post(&url).json(&request).send().await {
+                        Ok(response) if response.status().is_success() => {
+                            match response.json::<serde_json::Value>().await {
+                                Ok(result) => {
+                                    log::info!("✅ Sync response received");
+
+                                    // Parse UTXOs from response
+                                    if let Some(utxos_obj) = result.get("utxos") {
+                                        if let Some(utxos_map) = utxos_obj.as_object() {
+                                            let mut total_amount = 0u64;
+                                            let mut total_utxos = 0;
+
+                                            for (address, utxo_array) in utxos_map {
+                                                if let Some(utxos) = utxo_array.as_array() {
+                                                    for utxo_json in utxos {
+                                                        if let (Some(tx_hash), Some(output_index), Some(amount)) = (
+                                                            utxo_json.get("tx_hash").and_then(|v| v.as_str()),
+                                                            utxo_json.get("output_index").and_then(|v| v.as_u64()),
+                                                            utxo_json.get("amount").and_then(|v| v.as_u64()),
+                                                        ) {
+                                                            log::info!(
+                                                                "   📍 Address {}: {} TIME in {}:{}",
+                                                                &address[..20],
+                                                                amount as f64 / 1_000_000.0,
+                                                                &tx_hash[..16],
+                                                                output_index
+                                                            );
+                                                            total_amount += amount;
+                                                            total_utxos += 1;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            log::info!("✅ Sync complete: Found {} UTXOs totaling {} TIME", 
+                                                total_utxos, 
+                                                total_amount as f64 / 1_000_000.0
+                                            );
+                                            log::info!("⚠️  RESTART THE WALLET to see updated balance");
+                                            return; // Success
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to parse sync response from {}: {}", peer_ip, e);
+                                }
+                            }
+                        }
+                        Ok(response) => {
+                            log::warn!("Sync failed from {} with status: {}", peer_ip, response.status());
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to connect to {}: {}", peer_ip, e);
+                        }
+                    }
+                }
+
+                log::warn!("❌ Failed to sync from any peer");
+            });
+        });
     }
 
     fn show_settings_screen(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
