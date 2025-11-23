@@ -217,7 +217,9 @@ impl PeerManager {
         let request_bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
         let len = request_bytes.len() as u32;
 
-        log::debug!("📤 Sending GetPeerList request ({}  bytes)", len);
+        log::info!("📤 Sending GetPeerList request ({} bytes)", len);
+        log::debug!("Request JSON: {}", String::from_utf8_lossy(&request_bytes));
+
         stream
             .write_all(&len.to_be_bytes())
             .await
@@ -230,38 +232,55 @@ impl PeerManager {
             .flush()
             .await
             .map_err(|e| format!("Failed to flush: {}", e))?;
-        log::debug!("✅ Request sent, waiting for response...");
+        log::info!("✅ Request sent, waiting for response...");
 
-        // Read response
-        log::debug!("📥 Reading response length...");
+        // Read response with timeout
+        log::info!("📥 Reading response length...");
         let mut len_bytes = [0u8; 4];
-        stream
-            .read_exact(&mut len_bytes)
-            .await
-            .map_err(|e| format!("Failed to read response length: {}", e))?;
-        let response_len = u32::from_be_bytes(len_bytes) as usize;
-        log::debug!("📥 Response length: {} bytes", response_len);
 
-        let mut response_bytes = vec![0u8; response_len];
-        stream
-            .read_exact(&mut response_bytes)
-            .await
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
-        log::debug!("📥 Response received, parsing...");
+        // Add timeout for reading response
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stream.read_exact(&mut len_bytes)
+        ).await {
+            Ok(Ok(_)) => {
+                let response_len = u32::from_be_bytes(len_bytes) as usize;
+                log::info!("📥 Response length: {} bytes", response_len);
 
-        let response: NetworkMessage = serde_json::from_slice(&response_bytes)
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
-        log::debug!("✅ Response parsed successfully");
+                if response_len > 10 * 1024 * 1024 {
+                    return Err(format!("Response too large: {} bytes", response_len));
+                }
 
-        match response {
-            NetworkMessage::PeerList(peer_addresses) => {
-                let peers: Vec<_> = peer_addresses
-                    .into_iter()
-                    .map(|pa| (pa.ip, pa.port))
-                    .collect();
-                Ok(peers)
+                let mut response_bytes = vec![0u8; response_len];
+                stream
+                    .read_exact(&mut response_bytes)
+                    .await
+                    .map_err(|e| format!("Failed to read response body: {}", e))?;
+                log::info!("📥 Response received, parsing...");
+                log::debug!("Response JSON: {}", String::from_utf8_lossy(&response_bytes));
+
+                let response: NetworkMessage = serde_json::from_slice(&response_bytes)
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+                log::info!("✅ Response parsed successfully");
+
+                match response {
+                    NetworkMessage::PeerList(peer_addresses) => {
+                        let peers: Vec<_> = peer_addresses
+                            .into_iter()
+                            .map(|pa| (pa.ip, pa.port))
+                            .collect();
+                        log::info!("Got {} peers from response", peers.len());
+                        Ok(peers)
+                    }
+                    _ => Err("Unexpected response to GetPeerList".into()),
+                }
             }
-            _ => Err("Unexpected response to GetPeerList".into()),
+            Ok(Err(e)) => {
+                Err(format!("Failed to read response length: {}", e))
+            }
+            Err(_) => {
+                Err("Timeout waiting for response from masternode - masternode may not be responding to GetPeerList".to_string())
+            }
         }
     }
 
