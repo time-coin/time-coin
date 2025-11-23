@@ -78,6 +78,13 @@ impl MasternodeUTXOIntegration {
         &self.utxo_tracker
     }
 
+    /// Get current blockchain height
+    pub async fn get_blockchain_height(&self) -> u64 {
+        // TODO: Properly track blockchain height in MasternodeUTXOIntegration
+        // For now, return 0 which will be visible in wallet to indicate we need to implement this
+        0
+    }
+
     /// Initialize the integration - sets up notification handlers
     pub async fn initialize(&self) -> Result<(), String> {
         info!(node = %self.node_id, "Initializing UTXO protocol integration");

@@ -168,6 +168,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         continue;
                                     }
 
+                                    // Handle GetBlockchainInfo - return current blockchain height
+                                    if matches!(
+                                        message,
+                                        time_network::protocol::NetworkMessage::GetBlockchainInfo
+                                    ) {
+                                        log::debug!(
+                                            "📥 Received GetBlockchainInfo from {}",
+                                            peer_ip
+                                        );
+
+                                        // Get blockchain height from UTXO manager
+                                        let height = integration.get_blockchain_height().await;
+                                        let best_block_hash = format!("{:064x}", height); // Placeholder hash
+
+                                        let response = time_network::protocol::NetworkMessage::BlockchainInfo {
+                                            height,
+                                            best_block_hash,
+                                        };
+
+                                        match connection.send_message(response).await {
+                                            Ok(_) => log::debug!(
+                                                "✅ BlockchainInfo sent to {} (height: {})",
+                                                peer_ip,
+                                                height
+                                            ),
+                                            Err(e) => {
+                                                log::error!(
+                                                    "❌ Failed to send BlockchainInfo to {}: {}",
+                                                    peer_ip,
+                                                    e
+                                                )
+                                            }
+                                        }
+                                        continue;
+                                    }
+
                                     // Handle GetPeerList directly via PeerManager
                                     if matches!(
                                         message,

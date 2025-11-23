@@ -649,7 +649,7 @@ impl WalletApp {
                                                         // Update blockchain height via NetworkManager
                                                         // Clone to avoid holding lock across await
                                                         let result = {
-                                                            let mut manager = network_refresh.lock().unwrap();
+                                                            let manager = network_refresh.lock().unwrap();
                                                             std::mem::drop(manager); // Just check lock works
                                                             true
                                                         };
