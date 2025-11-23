@@ -488,36 +488,41 @@ impl BlockchainState {
         let existing_blocks = db.load_all_blocks()?;
 
         if existing_blocks.is_empty() {
-            // No blockchain on disk - create empty state that will be populated by sync
             eprintln!("📥 No blockchain found on disk - will download from peers");
-
-            let state = Self {
-                utxo_set: UTXOSet::new(),
-                blocks: HashMap::new(),
-                blocks_by_height: HashMap::new(),
-                chain_tip_height: 0,
-                chain_tip_hash: String::new(), // Will be set when genesis is downloaded
-                masternodes: HashMap::new(),
-                masternode_counts: MasternodeCounts {
-                    free: 0,
-                    bronze: 0,
-                    silver: 0,
-                    gold: 0,
-                },
-                genesis_hash: String::new(), // Will be set when genesis is downloaded
-                db,
-                invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
-                treasury: Treasury::new(),
-            };
-
-            return Ok(state);
+            return Ok(Self::create_empty_state(db));
         }
 
-        // Load existing blockchain from disk
+        Self::load_and_validate_chain(db, existing_blocks)
+    }
+
+    fn create_empty_state(db: crate::db::BlockchainDB) -> Self {
+        Self {
+            utxo_set: UTXOSet::new(),
+            blocks: HashMap::new(),
+            blocks_by_height: HashMap::new(),
+            chain_tip_height: 0,
+            chain_tip_hash: String::new(),
+            masternodes: HashMap::new(),
+            masternode_counts: MasternodeCounts {
+                free: 0,
+                bronze: 0,
+                silver: 0,
+                gold: 0,
+            },
+            genesis_hash: String::new(),
+            db,
+            invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
+            treasury: Treasury::new(),
+        }
+    }
+
+    fn load_and_validate_chain(
+        db: crate::db::BlockchainDB,
+        existing_blocks: Vec<Block>,
+    ) -> Result<Self, StateError> {
         eprintln!("🔍 Loading blockchain from disk...");
         let validation_start = std::time::Instant::now();
 
-        // Validate the entire chain
         match Self::validate_blockchain_integrity(&existing_blocks) {
             Ok(()) => {
                 eprintln!(
@@ -525,86 +530,75 @@ impl BlockchainState {
                     existing_blocks.len(),
                     validation_start.elapsed()
                 );
-
-                let genesis = &existing_blocks[0];
-                let mut state = Self {
-                    utxo_set: UTXOSet::new(),
-                    blocks: HashMap::new(),
-                    blocks_by_height: HashMap::new(),
-                    chain_tip_height: 0,
-                    chain_tip_hash: genesis.hash.clone(),
-                    masternodes: HashMap::new(),
-                    masternode_counts: MasternodeCounts {
-                        free: 0,
-                        bronze: 0,
-                        silver: 0,
-                        gold: 0,
-                    },
-                    genesis_hash: genesis.hash.clone(),
-                    db,
-                    invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
-                    treasury: Treasury::new(),
-                };
-
-                // Apply validated blocks to state
-                for block in existing_blocks {
-                    for tx in &block.transactions {
-                        state.utxo_set.apply_transaction(tx)?;
-                    }
-                    state.chain_tip_height = block.header.block_number;
-                    state.chain_tip_hash = block.hash.clone();
-                    state.blocks.insert(block.hash.clone(), block.clone());
-                    state
-                        .blocks_by_height
-                        .insert(block.header.block_number, block.hash.clone());
-                }
-
-                eprintln!(
-                    "✅ Blockchain ready: {} blocks (genesis: {}...)",
-                    state.blocks.len(),
-                    &state.genesis_hash[..16]
-                );
-
-                Ok(state)
+                Self::create_state_from_blocks(db, existing_blocks)
             }
             Err(e) => {
                 eprintln!("❌ Blockchain validation failed: {}", e);
                 eprintln!("   Clearing corrupted blockchain - will re-download from peers");
-
-                // Clear corrupted data
                 db.clear_all()?;
-
-                // Return empty state that will be populated by sync
-                let state = Self {
-                    utxo_set: UTXOSet::new(),
-                    blocks: HashMap::new(),
-                    blocks_by_height: HashMap::new(),
-                    chain_tip_height: 0,
-                    chain_tip_hash: String::new(),
-                    masternodes: HashMap::new(),
-                    masternode_counts: MasternodeCounts {
-                        free: 0,
-                        bronze: 0,
-                        silver: 0,
-                        gold: 0,
-                    },
-                    genesis_hash: String::new(),
-                    db,
-                    invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
-                    treasury: Treasury::new(),
-                };
-
-                Ok(state)
+                Ok(Self::create_empty_state(db))
             }
         }
+    }
+
+    fn create_state_from_blocks(
+        db: crate::db::BlockchainDB,
+        blocks: Vec<Block>,
+    ) -> Result<Self, StateError> {
+        let genesis = &blocks[0];
+        let mut state = Self {
+            utxo_set: UTXOSet::new(),
+            blocks: HashMap::new(),
+            blocks_by_height: HashMap::new(),
+            chain_tip_height: 0,
+            chain_tip_hash: genesis.hash.clone(),
+            masternodes: HashMap::new(),
+            masternode_counts: MasternodeCounts {
+                free: 0,
+                bronze: 0,
+                silver: 0,
+                gold: 0,
+            },
+            genesis_hash: genesis.hash.clone(),
+            db,
+            invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
+            treasury: Treasury::new(),
+        };
+
+        state.apply_validated_blocks(blocks)?;
+
+        eprintln!(
+            "✅ Blockchain ready: {} blocks (genesis: {}...)",
+            state.blocks.len(),
+            &state.genesis_hash[..16]
+        );
+
+        Ok(state)
     }
 
     /// Create a new blockchain state with genesis block
     pub fn new(genesis_block: Block, db_path: &str) -> Result<Self, StateError> {
         let db = crate::db::BlockchainDB::open(db_path)?;
-        let existing_blocks = db.load_all_blocks()?;
+        Self::validate_or_reset_genesis(&db, &genesis_block)?;
 
-        // Validate genesis block matches if we have existing blocks
+        let mut state = Self::create_initial_state(genesis_block.clone(), db);
+        let existing_blocks = state.db.load_all_blocks()?;
+
+        if existing_blocks.is_empty() {
+            state.initialize_genesis(genesis_block)?;
+        } else {
+            state.load_existing_blocks(existing_blocks, genesis_block)?;
+        }
+
+        state.merge_utxo_snapshot()?;
+        Ok(state)
+    }
+
+    fn validate_or_reset_genesis(
+        db: &crate::db::BlockchainDB,
+        genesis_block: &Block,
+    ) -> Result<(), StateError> {
+        let existing_blocks = db.load_all_blocks()?;
         if !existing_blocks.is_empty() {
             let first_block = &existing_blocks[0];
             if first_block.hash != genesis_block.hash {
@@ -614,13 +608,14 @@ impl BlockchainState {
                     &first_block.hash[..16]
                 );
                 eprintln!("   Rebuilding blockchain from new genesis block...");
-
-                // Clear the database
                 db.clear_all()?;
             }
         }
+        Ok(())
+    }
 
-        let mut state = Self {
+    fn create_initial_state(genesis_block: Block, db: crate::db::BlockchainDB) -> Self {
+        Self {
             utxo_set: UTXOSet::new(),
             blocks: HashMap::new(),
             blocks_by_height: HashMap::new(),
@@ -637,102 +632,100 @@ impl BlockchainState {
             db,
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
             treasury: Treasury::new(),
-        };
+        }
+    }
 
-        // Load blocks from disk if they match the genesis
-        let existing_blocks = state.db.load_all_blocks()?;
+    fn initialize_genesis(&mut self, genesis_block: Block) -> Result<(), StateError> {
+        genesis_block.validate_structure()?;
+        for tx in &genesis_block.transactions {
+            self.utxo_set.apply_transaction(tx)?;
+        }
+        self.blocks
+            .insert(genesis_block.hash.clone(), genesis_block.clone());
+        self.blocks_by_height.insert(0, genesis_block.hash.clone());
+        self.db.save_block(&genesis_block)?;
+        eprintln!(
+            "✅ Genesis block initialized: {}...",
+            &genesis_block.hash[..16]
+        );
+        Ok(())
+    }
 
-        if existing_blocks.is_empty() {
-            genesis_block.validate_structure()?;
-            for tx in &genesis_block.transactions {
-                state.utxo_set.apply_transaction(tx)?;
+    fn load_existing_blocks(
+        &mut self,
+        existing_blocks: Vec<Block>,
+        genesis_block: Block,
+    ) -> Result<(), StateError> {
+        eprintln!("🔍 Validating blockchain on startup...");
+        let validation_start = std::time::Instant::now();
+
+        match Self::validate_blockchain_integrity(&existing_blocks) {
+            Ok(()) => {
+                eprintln!(
+                    "✅ Blockchain validation passed ({} blocks verified in {:?})",
+                    existing_blocks.len(),
+                    validation_start.elapsed()
+                );
+                self.apply_validated_blocks(existing_blocks)?;
             }
-            state
-                .blocks
-                .insert(genesis_block.hash.clone(), genesis_block.clone());
-            state.blocks_by_height.insert(0, genesis_block.hash.clone());
-            state.db.save_block(&genesis_block)?;
-            eprintln!(
-                "✅ Genesis block initialized: {}...",
-                &genesis_block.hash[..16]
-            );
-        } else {
-            eprintln!("🔍 Validating blockchain on startup...");
-            let validation_start = std::time::Instant::now();
-
-            // Perform comprehensive validation
-            let mut validated_blocks = Vec::new();
-            for block in existing_blocks {
-                validated_blocks.push(block);
+            Err(e) => {
+                eprintln!("❌ Blockchain validation failed: {}", e);
+                self.rebuild_from_genesis(genesis_block)?;
             }
-
-            // Validate the entire chain
-            match Self::validate_blockchain_integrity(&validated_blocks) {
-                Ok(()) => {
-                    eprintln!(
-                        "✅ Blockchain validation passed ({} blocks verified in {:?})",
-                        validated_blocks.len(),
-                        validation_start.elapsed()
-                    );
-
-                    // Apply validated blocks to state
-                    for block in validated_blocks {
-                        for tx in &block.transactions {
-                            state.utxo_set.apply_transaction(tx)?;
-                        }
-                        state.chain_tip_height = block.header.block_number;
-                        state.chain_tip_hash = block.hash.clone();
-                        state.blocks.insert(block.hash.clone(), block.clone());
-                        state
-                            .blocks_by_height
-                            .insert(block.header.block_number, block.hash.clone());
-                    }
-                }
-                Err(e) => {
-                    eprintln!("❌ Blockchain validation failed: {}", e);
-                    eprintln!("   Rebuilding blockchain from genesis...");
-
-                    // Clear corrupted data
-                    state.db.clear_all()?;
-
-                    // Initialize with genesis
-                    genesis_block.validate_structure()?;
-                    for tx in &genesis_block.transactions {
-                        state.utxo_set.apply_transaction(tx)?;
-                    }
-                    state
-                        .blocks
-                        .insert(genesis_block.hash.clone(), genesis_block.clone());
-                    state.blocks_by_height.insert(0, genesis_block.hash.clone());
-                    state.db.save_block(&genesis_block)?;
-                    eprintln!(
-                        "✅ Genesis block re-initialized: {}...",
-                        &genesis_block.hash[..16]
-                    );
-                }
-            }
-
-            eprintln!(
-                "✅ Blockchain ready: {} blocks (genesis: {}...)",
-                state.blocks.len(),
-                &state.genesis_hash[..16]
-            );
         }
 
-        // Load and merge UTXO snapshot if it exists
-        // This preserves finalized transactions that haven't been included in blocks yet
-        if let Some(snapshot) = state.db.load_utxo_snapshot()? {
+        eprintln!(
+            "✅ Blockchain ready: {} blocks (genesis: {}...)",
+            self.blocks.len(),
+            &self.genesis_hash[..16]
+        );
+        Ok(())
+    }
+
+    fn apply_validated_blocks(&mut self, blocks: Vec<Block>) -> Result<(), StateError> {
+        for block in blocks {
+            for tx in &block.transactions {
+                self.utxo_set.apply_transaction(tx)?;
+            }
+            self.chain_tip_height = block.header.block_number;
+            self.chain_tip_hash = block.hash.clone();
+            self.blocks.insert(block.hash.clone(), block.clone());
+            self.blocks_by_height
+                .insert(block.header.block_number, block.hash.clone());
+        }
+        Ok(())
+    }
+
+    fn rebuild_from_genesis(&mut self, genesis_block: Block) -> Result<(), StateError> {
+        eprintln!("   Rebuilding blockchain from genesis...");
+        self.db.clear_all()?;
+        genesis_block.validate_structure()?;
+        for tx in &genesis_block.transactions {
+            self.utxo_set.apply_transaction(tx)?;
+        }
+        self.blocks
+            .insert(genesis_block.hash.clone(), genesis_block.clone());
+        self.blocks_by_height.insert(0, genesis_block.hash.clone());
+        self.db.save_block(&genesis_block)?;
+        eprintln!(
+            "✅ Genesis block re-initialized: {}...",
+            &genesis_block.hash[..16]
+        );
+        Ok(())
+    }
+
+    fn merge_utxo_snapshot(&mut self) -> Result<(), StateError> {
+        if let Some(snapshot) = self.db.load_utxo_snapshot()? {
             eprintln!("🔄 Merging UTXO snapshot with blockchain state...");
-            let before_count = state.utxo_set.len();
-            state.utxo_set.merge_snapshot(snapshot);
-            let after_count = state.utxo_set.len();
+            let before_count = self.utxo_set.len();
+            self.utxo_set.merge_snapshot(snapshot);
+            let after_count = self.utxo_set.len();
             eprintln!(
                 "✅ UTXO snapshot merged ({} → {} UTXOs)",
                 before_count, after_count
             );
         }
-
-        Ok(state)
+        Ok(())
     }
 
     /// Validate the integrity of an entire blockchain
@@ -929,31 +922,52 @@ impl BlockchainState {
         }
         block.validate_structure()?;
 
-        // Special handling for genesis block when starting from empty chain
         if block.header.block_number == 0 {
-            if !self.blocks.is_empty() {
-                return Err(StateError::InvalidBlockHeight);
-            }
-
-            // This is genesis block for an empty chain - initialize it
-            for tx in &block.transactions {
-                self.utxo_set.apply_transaction(tx)?;
-            }
-
-            self.genesis_hash = block.hash.clone();
-            self.chain_tip_hash = block.hash.clone();
-            self.chain_tip_height = 0;
-            self.blocks.insert(block.hash.clone(), block.clone());
-            self.blocks_by_height.insert(0, block.hash.clone());
-            self.db.save_block(&block)?;
-
-            eprintln!(
-                "✅ Genesis block downloaded and initialized: {}...",
-                &block.hash[..16]
-            );
-            return Ok(());
+            return self.add_genesis_block(block);
         }
 
+        self.validate_block_chain_position(&block)?;
+        let utxo_snapshot = self.utxo_set.snapshot();
+
+        match block.validate_and_apply(&mut self.utxo_set) {
+            Ok(_) => {
+                self.process_block_treasury(&block)?;
+                self.db.save_block(&block)?;
+                self.update_wallet_balances(&block);
+                self.finalize_block_addition(block);
+                Ok(())
+            }
+            Err(e) => {
+                self.utxo_set.restore(utxo_snapshot);
+                Err(e.into())
+            }
+        }
+    }
+
+    fn add_genesis_block(&mut self, block: Block) -> Result<(), StateError> {
+        if !self.blocks.is_empty() {
+            return Err(StateError::InvalidBlockHeight);
+        }
+
+        for tx in &block.transactions {
+            self.utxo_set.apply_transaction(tx)?;
+        }
+
+        self.genesis_hash = block.hash.clone();
+        self.chain_tip_hash = block.hash.clone();
+        self.chain_tip_height = 0;
+        self.blocks.insert(block.hash.clone(), block.clone());
+        self.blocks_by_height.insert(0, block.hash.clone());
+        self.db.save_block(&block)?;
+
+        eprintln!(
+            "✅ Genesis block downloaded and initialized: {}...",
+            &block.hash[..16]
+        );
+        Ok(())
+    }
+
+    fn validate_block_chain_position(&self, block: &Block) -> Result<(), StateError> {
         if !self.has_block(&block.header.previous_hash) {
             return Err(StateError::OrphanBlock);
         }
@@ -963,123 +977,129 @@ impl BlockchainState {
         if block.header.previous_hash != self.chain_tip_hash {
             return Err(StateError::InvalidPreviousHash);
         }
+        Ok(())
+    }
 
-        let utxo_snapshot = self.utxo_set.snapshot();
+    fn process_block_treasury(&mut self, block: &Block) -> Result<(), StateError> {
+        let timestamp = block.header.timestamp.timestamp();
+        let block_number = block.header.block_number;
 
-        match block.validate_and_apply(&mut self.utxo_set) {
-            Ok(_) => {
-                // Extract and allocate treasury funds from coinbase transaction
-                let timestamp = block.header.timestamp.timestamp();
-                let block_number = block.header.block_number;
+        self.process_treasury_allocation(block, block_number, timestamp)?;
+        self.process_treasury_grants(block, block_number, timestamp)?;
+        Ok(())
+    }
 
-                // Find treasury allocation in coinbase transaction (marked with "TREASURY" address)
-                if let Some(coinbase) = block.coinbase() {
-                    if let Some(treasury_output) =
-                        coinbase.outputs.iter().find(|o| o.address == "TREASURY")
-                    {
-                        // Allocate treasury funds from the coinbase output
-                        // This represents 10% of total block rewards (base rewards + fees)
-                        self.treasury.allocate_direct(
-                            block_number,
-                            treasury_output.amount,
-                            TreasurySource::BlockReward,
-                            timestamp,
-                        )?;
-                    }
-                }
-
-                // Process treasury grant transactions
-                for tx in &block.transactions {
-                    if tx.is_treasury_grant() {
-                        // Extract proposal ID from the transaction
-                        let proposal_id = tx.treasury_grant_proposal_id().ok_or_else(|| {
-                            StateError::IoError(
-                                "Invalid treasury grant transaction format".to_string(),
-                            )
-                        })?;
-
-                        // Validate transaction structure for treasury grants
-                        if tx.outputs.len() != 1 {
-                            return Err(StateError::IoError(
-                                "Treasury grant must have exactly one output".to_string(),
-                            ));
-                        }
-
-                        let output = &tx.outputs[0];
-                        let recipient = &output.address;
-                        let amount = output.amount;
-
-                        // Check if proposal has already been executed (double execution prevention)
-                        if self.treasury.is_proposal_executed(&proposal_id) {
-                            return Err(StateError::IoError(format!(
-                                "Treasury grant for proposal {} has already been executed",
-                                proposal_id
-                            )));
-                        }
-
-                        // Validate against approved proposal
-                        let approved_amount = self
-                            .treasury
-                            .get_approved_amount(&proposal_id)
-                            .ok_or_else(|| {
-                                StateError::IoError(format!(
-                                    "Treasury grant for proposal {} is not approved",
-                                    proposal_id
-                                ))
-                            })?;
-
-                        // Validate amount matches approved amount
-                        if amount != approved_amount {
-                            return Err(StateError::IoError(format!(
-                                "Treasury grant amount {} does not match approved amount {}",
-                                amount, approved_amount
-                            )));
-                        }
-
-                        // Execute the distribution through the treasury
-                        self.treasury.distribute(
-                            proposal_id,
-                            recipient.clone(),
-                            amount,
-                            block_number,
-                            timestamp,
-                        )?;
-                    }
-                }
-
-                self.db.save_block(&block)?;
-
-                // Save wallet balances for all addresses that received outputs in this block
-                let mut addresses_to_update = std::collections::HashSet::new();
-                for tx in &block.transactions {
-                    for output in &tx.outputs {
-                        // Skip special addresses
-                        if output.address != "TREASURY" && output.address != "BURNED" {
-                            addresses_to_update.insert(output.address.clone());
-                        }
-                    }
-                }
-
-                // Update balances for all affected addresses
-                for address in addresses_to_update {
-                    let balance = self.utxo_set.get_balance(&address);
-                    if let Err(e) = self.db.save_wallet_balance(&address, balance) {
-                        eprintln!("⚠️  Failed to save wallet balance for {}: {}", address, e);
-                    }
-                }
-
-                self.blocks_by_height
-                    .insert(block.header.block_number, block.hash.clone());
-                self.chain_tip_height = block.header.block_number;
-                self.chain_tip_hash = block.hash.clone();
-                self.blocks.insert(block.hash.clone(), block);
-                Ok(())
-            }
-            Err(e) => {
-                self.utxo_set.restore(utxo_snapshot);
-                Err(e.into())
+    fn process_treasury_allocation(
+        &mut self,
+        block: &Block,
+        block_number: u64,
+        timestamp: i64,
+    ) -> Result<(), StateError> {
+        if let Some(coinbase) = block.coinbase() {
+            if let Some(treasury_output) = coinbase.outputs.iter().find(|o| o.address == "TREASURY")
+            {
+                self.treasury.allocate_direct(
+                    block_number,
+                    treasury_output.amount,
+                    TreasurySource::BlockReward,
+                    timestamp,
+                )?;
             }
         }
+        Ok(())
+    }
+
+    fn process_treasury_grants(
+        &mut self,
+        block: &Block,
+        block_number: u64,
+        timestamp: i64,
+    ) -> Result<(), StateError> {
+        for tx in &block.transactions {
+            if tx.is_treasury_grant() {
+                self.process_single_treasury_grant(tx, block_number, timestamp)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn process_single_treasury_grant(
+        &mut self,
+        tx: &Transaction,
+        block_number: u64,
+        timestamp: i64,
+    ) -> Result<(), StateError> {
+        let proposal_id = tx.treasury_grant_proposal_id().ok_or_else(|| {
+            StateError::IoError("Invalid treasury grant transaction format".to_string())
+        })?;
+
+        if tx.outputs.len() != 1 {
+            return Err(StateError::IoError(
+                "Treasury grant must have exactly one output".to_string(),
+            ));
+        }
+
+        let output = &tx.outputs[0];
+        let recipient = &output.address;
+        let amount = output.amount;
+
+        if self.treasury.is_proposal_executed(&proposal_id) {
+            return Err(StateError::IoError(format!(
+                "Treasury grant for proposal {} has already been executed",
+                proposal_id
+            )));
+        }
+
+        let approved_amount = self
+            .treasury
+            .get_approved_amount(&proposal_id)
+            .ok_or_else(|| {
+                StateError::IoError(format!(
+                    "Treasury grant for proposal {} is not approved",
+                    proposal_id
+                ))
+            })?;
+
+        if amount != approved_amount {
+            return Err(StateError::IoError(format!(
+                "Treasury grant amount {} does not match approved amount {}",
+                amount, approved_amount
+            )));
+        }
+
+        self.treasury.distribute(
+            proposal_id,
+            recipient.clone(),
+            amount,
+            block_number,
+            timestamp,
+        )
+    }
+
+    fn update_wallet_balances(&mut self, block: &Block) {
+        let mut addresses_to_update = std::collections::HashSet::new();
+        for tx in &block.transactions {
+            for output in &tx.outputs {
+                if output.address != "TREASURY" && output.address != "BURNED" {
+                    addresses_to_update.insert(output.address.clone());
+                }
+            }
+        }
+
+        for address in addresses_to_update {
+            let balance = self.utxo_set.get_balance(&address);
+            if let Err(e) = self.db.save_wallet_balance(&address, balance) {
+                eprintln!("⚠️  Failed to save wallet balance for {}: {}", address, e);
+            }
+        }
+    }
+
+    fn finalize_block_addition(&mut self, block: Block) {
+        self.blocks_by_height
+            .insert(block.header.block_number, block.hash.clone());
+        self.chain_tip_height = block.header.block_number;
+        self.chain_tip_hash = block.hash.clone();
+        self.blocks.insert(block.hash.clone(), block);
     }
 
     /// Register a new masternode
