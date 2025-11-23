@@ -4,6 +4,7 @@ use crossterm::style::Stylize;
 use owo_colors::OwoColorize;
 use std::sync::Arc;
 use std::time::Duration;
+use time_consensus::block_consensus::BlockVote;
 use time_consensus::ConsensusEngine;
 use time_core::block::{Block, BlockHeader};
 use time_core::state::BlockchainState;
@@ -677,9 +678,37 @@ impl BlockProducer {
                     }
 
                     // Also check for consensus proposal
-                    if let Some(_proposal) = self.block_consensus.wait_for_proposal(block_num).await
+                    if let Some(proposal) = self.block_consensus.wait_for_proposal(block_num).await
                     {
                         println!("   📋 Block {} proposal received from network!", block_num);
+
+                        // Check if block was already finalized while we were waiting
+                        let current_height = self.load_block_height().await;
+                        if current_height >= block_num {
+                            println!("   ✅ Block {} already finalized!", block_num);
+                            block_received = true;
+                            break;
+                        }
+
+                        // Auto-vote on the proposal to help reach consensus
+                        println!("   🗳️  Auto-voting APPROVE to help consensus...");
+
+                        // Create and send the vote
+                        let vote = BlockVote {
+                            block_height: block_num,
+                            voter: self.node_id.clone(),
+                            block_hash: proposal.block_hash.clone(),
+                            approve: true,
+                            timestamp: Utc::now().timestamp(),
+                        };
+
+                        // Send vote to consensus manager
+                        if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
+                            eprintln!("   ⚠️  Auto-vote failed: {}", e);
+                        } else {
+                            println!("   ✅ Auto-vote successful!");
+                        }
+
                         // Give it a moment to be processed
                         tokio::time::sleep(Duration::from_secs(2)).await;
                         let current_height = self.load_block_height().await;
@@ -692,66 +721,11 @@ impl BlockProducer {
                     tokio::time::sleep(Duration::from_secs(5)).await;
                 }
 
-                // If consensus didn't finalize the block, try downloading directly from peers
                 if !block_received {
-                    println!(
-                        "   ⚠️  Consensus didn't finalize - trying direct download from peers..."
-                    );
-                    let current_height = self.load_block_height().await;
-                    if current_height < block_num {
-                        // Try to download from each peer
-                        let peers = self.peer_manager.get_peer_ips().await;
-                        for peer_ip in &peers {
-                            let url =
-                                format!("http://{}:24101/blockchain/block/{}", peer_ip, block_num);
-                            if let Ok(response) = reqwest::Client::new()
-                                .get(&url)
-                                .timeout(std::time::Duration::from_secs(10))
-                                .send()
-                                .await
-                            {
-                                if let Ok(json) = response.json::<serde_json::Value>().await {
-                                    if let Some(block_data) = json.get("block") {
-                                        if let Ok(block) =
-                                            serde_json::from_value::<time_core::block::Block>(
-                                                block_data.clone(),
-                                            )
-                                        {
-                                            println!(
-                                                "   📥 Downloaded block {} from {}",
-                                                block_num, peer_ip
-                                            );
-                                            let mut blockchain = self.blockchain.write().await;
-                                            match blockchain.add_block(block) {
-                                                Ok(_) => {
-                                                    println!(
-                                                        "   ✅ Block {} added successfully!",
-                                                        block_num
-                                                    );
-                                                    block_received = true;
-                                                    drop(blockchain);
-                                                    break;
-                                                }
-                                                Err(e) => {
-                                                    println!("   ⚠️  Failed to add block: {:?}", e);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if !block_received {
-                    println!("   ⏸️  No block received - will retry on next cycle");
                     break;
                 }
             }
         }
-
-        println!("   ✔ Catch-up complete!");
     }
 
     async fn create_and_propose_block(&self) {
