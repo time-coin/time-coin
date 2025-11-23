@@ -296,20 +296,26 @@ impl PeerManager {
         // Try up to 3 peers
         for peer in healthy_peers.iter().take(3) {
             let endpoint = format!("{}:{}", peer.address, peer.port);
-            log::debug!("🔍 Requesting peer list from {}", endpoint);
+            log::info!("🔍 Requesting peer list from {}", endpoint);
 
             match tokio::net::TcpStream::connect(&endpoint).await {
-                Ok(mut stream) => match self.request_peer_list(&mut stream).await {
-                    Ok(new_peers) => {
-                        log::info!("📥 Received {} peers from {}", new_peers.len(), endpoint);
-                        self.record_success(&peer.address, peer.port).await;
-                        return Some(new_peers);
+                Ok(mut stream) => {
+                    log::info!("✅ TCP connection established to {}", endpoint);
+
+                    match self.request_peer_list(&mut stream).await {
+                        Ok(new_peers) => {
+                            log::info!("📥 Received {} peers from {}", new_peers.len(), endpoint);
+                            self.record_success(&peer.address, peer.port).await;
+                            return Some(new_peers);
+                        }
+                        Err(e) => {
+                            log::error!("❌ Failed to get peer list from {}: {}", endpoint, e);
+                            log::error!("   This means the masternode at {} is NOT running the latest code with GetPeerList handler", endpoint);
+                            log::error!("   The masternode needs to be rebuilt and restarted!");
+                            self.record_failure(&peer.address, peer.port).await;
+                        }
                     }
-                    Err(e) => {
-                        log::error!("❌ Failed to get peer list from {}: {}", endpoint, e);
-                        self.record_failure(&peer.address, peer.port).await;
-                    }
-                },
+                }
                 Err(e) => {
                     log::warn!("⚠️ Failed to connect to peer {}: {}", endpoint, e);
                     self.record_failure(&peer.address, peer.port).await;
