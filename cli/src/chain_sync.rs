@@ -695,7 +695,77 @@ impl ChainSync {
         }
 
         if competing_blocks.is_empty() {
-            return Ok(false); // No fork detected
+            // No fork at current height, but check if nodes ahead have valid chains
+            let nodes_ahead: Vec<_> = peer_heights
+                .iter()
+                .filter(|(_, h, _)| *h > our_height)
+                .collect();
+
+            if nodes_ahead.len() >= peer_heights.len() / 2 {
+                println!("\n   ℹ️  No fork at current height, but majority of network is ahead");
+                println!("   🔍 Validating chains of ahead nodes...");
+
+                let mut invalid_peers = Vec::new();
+
+                for (peer_ip, _peer_height, _) in nodes_ahead {
+                    // Download their block at our height and the next block
+                    if let Some(their_block_at_our_height) =
+                        self.download_block(peer_ip, our_height).await
+                    {
+                        if their_block_at_our_height.hash == our_hash {
+                            // They have the same block as us at this height
+                            // Now check if their next block chains correctly
+                            if let Some(next_block) =
+                                self.download_block(peer_ip, our_height + 1).await
+                            {
+                                if next_block.header.previous_hash != their_block_at_our_height.hash
+                                {
+                                    println!("   ⚠️  Peer {} has invalid chain - block {} doesn't chain correctly", peer_ip, our_height + 1);
+                                    println!(
+                                        "      Expected prev_hash: {}",
+                                        their_block_at_our_height.hash
+                                    );
+                                    println!(
+                                        "      Got prev_hash: {}",
+                                        next_block.header.previous_hash
+                                    );
+                                    invalid_peers.push(peer_ip.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Quarantine invalid peers
+                if !invalid_peers.is_empty() {
+                    println!(
+                        "   🚨 Quarantining {} peer(s) with invalid chains:",
+                        invalid_peers.len()
+                    );
+                    for peer_ip in &invalid_peers {
+                        if let Ok(peer_addr) = peer_ip.parse::<std::net::IpAddr>() {
+                            self.quarantine
+                                .quarantine_peer(
+                                    peer_addr,
+                                    time_network::QuarantineReason::InvalidBlock {
+                                        height: our_height + 1,
+                                        reason: format!(
+                                            "Block doesn't chain correctly at height {}",
+                                            our_height + 1
+                                        ),
+                                    },
+                                )
+                                .await;
+                            println!("      ⛔ Quarantined: {}", peer_ip);
+                        }
+                    }
+                    println!(
+                        "   ℹ️  Invalid chains detected - blocks will be recreated via consensus"
+                    );
+                }
+            }
+
+            return Ok(false); // No fork detected at current height
         }
 
         println!("\n⚠️  FORK DETECTED at height {}!", our_height);
