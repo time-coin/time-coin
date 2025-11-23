@@ -212,89 +212,168 @@ impl NetworkManager {
                 let timeout_duration = std::time::Duration::from_secs(3);
                 match tokio::time::timeout(timeout_duration, TcpStream::connect(&tcp_addr)).await {
                     Ok(Ok(mut stream)) => {
-                        log::info!("  Connected to {}, sending Ping...", tcp_addr);
+                        log::info!("  Connected to {}, performing handshake...", tcp_addr);
 
-                        // Send Ping
-                        let ping = NetworkMessage::Ping;
-                        if let Ok(data) = serde_json::to_vec(&ping) {
-                            let len = data.len() as u32;
-                            log::debug!("  Sending Ping message ({} bytes)...", len);
+                        // Perform handshake first (required by masternode protocol)
+                        let network_type = if port == 24100 {
+                            time_network::discovery::NetworkType::Testnet
+                        } else {
+                            time_network::discovery::NetworkType::Mainnet
+                        };
 
-                            if stream.write_all(&len.to_be_bytes()).await.is_ok()
-                                && stream.write_all(&data).await.is_ok()
+                        let our_addr = "0.0.0.0:0".parse().unwrap();
+                        let handshake =
+                            time_network::protocol::HandshakeMessage::new(network_type, our_addr);
+                        let magic = network_type.magic_bytes();
+
+                        if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                            let handshake_len = handshake_json.len() as u32;
+
+                            if stream.write_all(&magic).await.is_ok()
+                                && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                                && stream.write_all(&handshake_json).await.is_ok()
                                 && stream.flush().await.is_ok()
                             {
-                                log::debug!("  Ping sent, waiting for Pong...");
-
-                                // Wait for Pong response (read length + message) with timeout
-                                let pong_timeout = std::time::Duration::from_secs(2);
-                                match tokio::time::timeout(pong_timeout, async {
-                                    let mut len_bytes = [0u8; 4];
-                                    stream.read_exact(&mut len_bytes).await?;
-                                    let response_len = u32::from_be_bytes(len_bytes) as usize;
-
-                                    if response_len < 1024 {
-                                        let mut response_data = vec![0u8; response_len];
-                                        stream.read_exact(&mut response_data).await?;
-                                        Ok::<_, std::io::Error>((response_len, response_data))
-                                    } else {
-                                        Err(std::io::Error::new(
-                                            std::io::ErrorKind::InvalidData,
-                                            "Response too large",
-                                        ))
-                                    }
-                                })
-                                .await
+                                // Receive their handshake
+                                let mut their_magic = [0u8; 4];
+                                let mut their_len_bytes = [0u8; 4];
+                                if stream.read_exact(&mut their_magic).await.is_ok()
+                                    && their_magic == magic
+                                    && stream.read_exact(&mut their_len_bytes).await.is_ok()
                                 {
-                                    Ok(Ok((response_len, response_data))) => {
-                                        log::debug!(
-                                            "  Received response ({} bytes), parsing...",
-                                            response_len
-                                        );
+                                    let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                                    if their_len < 10 * 1024 {
+                                        let mut their_handshake_bytes = vec![0u8; their_len];
+                                        if stream
+                                            .read_exact(&mut their_handshake_bytes)
+                                            .await
+                                            .is_ok()
+                                        {
+                                            log::info!(
+                                                "  Handshake complete with {}, sending Ping...",
+                                                tcp_addr
+                                            );
 
-                                        match serde_json::from_slice::<NetworkMessage>(
-                                            &response_data,
-                                        ) {
-                                            Ok(NetworkMessage::Pong) => {
-                                                let latency_ms = start.elapsed().as_millis() as u64;
-                                                log::info!(
+                                            // Now send Ping
+                                            let ping = NetworkMessage::Ping;
+                                            if let Ok(data) = serde_json::to_vec(&ping) {
+                                                let len = data.len() as u32;
+                                                log::debug!(
+                                                    "  Sending Ping message ({} bytes)...",
+                                                    len
+                                                );
+
+                                                if stream
+                                                    .write_all(&len.to_be_bytes())
+                                                    .await
+                                                    .is_ok()
+                                                    && stream.write_all(&data).await.is_ok()
+                                                    && stream.flush().await.is_ok()
+                                                {
+                                                    log::debug!("  Ping sent, waiting for Pong...");
+
+                                                    // Wait for Pong response (read length + message) with timeout
+                                                    let pong_timeout =
+                                                        std::time::Duration::from_secs(2);
+                                                    match tokio::time::timeout(
+                                                        pong_timeout,
+                                                        async {
+                                                            let mut len_bytes = [0u8; 4];
+                                                            stream
+                                                                .read_exact(&mut len_bytes)
+                                                                .await?;
+                                                            let response_len =
+                                                                u32::from_be_bytes(len_bytes)
+                                                                    as usize;
+
+                                                            if response_len < 1024 {
+                                                                let mut response_data =
+                                                                    vec![0u8; response_len];
+                                                                stream
+                                                                    .read_exact(&mut response_data)
+                                                                    .await?;
+                                                                Ok::<_, std::io::Error>((
+                                                                    response_len,
+                                                                    response_data,
+                                                                ))
+                                                            } else {
+                                                                Err(std::io::Error::new(
+                                                                    std::io::ErrorKind::InvalidData,
+                                                                    "Response too large",
+                                                                ))
+                                                            }
+                                                        },
+                                                    )
+                                                    .await
+                                                    {
+                                                        Ok(Ok((response_len, response_data))) => {
+                                                            log::debug!(
+                                                                "  Received response ({} bytes), parsing...",
+                                                                response_len
+                                                            );
+
+                                                            match serde_json::from_slice::<
+                                                                NetworkMessage,
+                                                            >(
+                                                                &response_data
+                                                            ) {
+                                                                Ok(NetworkMessage::Pong) => {
+                                                                    let latency_ms =
+                                                                        start.elapsed().as_millis()
+                                                                            as u64;
+                                                                    log::info!(
                                                     "  ✓ Received Pong from {} ({}ms)",
                                                     tcp_addr,
                                                     latency_ms
                                                 );
-                                                return Some((peer_address, latency_ms));
-                                            }
-                                            Ok(other) => {
-                                                log::warn!(
+                                                                    return Some((
+                                                                        peer_address,
+                                                                        latency_ms,
+                                                                    ));
+                                                                }
+                                                                Ok(other) => {
+                                                                    log::warn!(
                                                     "  Unexpected response: {:?}",
                                                     std::mem::discriminant(&other)
                                                 );
-                                            }
-                                            Err(e) => {
-                                                log::warn!("  Failed to parse response: {}", e);
+                                                                }
+                                                                Err(e) => {
+                                                                    log::warn!("  Failed to parse response: {}", e);
+                                                                }
+                                                            }
+                                                        }
+                                                        Ok(Err(e)) => {
+                                                            log::warn!(
+                                                                "  IO error reading Pong: {}",
+                                                                e
+                                                            );
+                                                        }
+                                                        Err(_) => {
+                                                            log::warn!(
+                                                                "  Timeout waiting for Pong, but connection successful"
+                                                            );
+                                                            // FALLBACK: Connection works, just no Pong - treat as responsive with high latency
+                                                            let latency_ms =
+                                                                start.elapsed().as_millis() as u64;
+                                                            return Some((
+                                                                peer_address,
+                                                                latency_ms,
+                                                            ));
+                                                        }
+                                                    }
+                                                } else {
+                                                    log::warn!("  Failed to send Ping");
+                                                }
+                                            } else {
+                                                log::warn!("  Failed to serialize Ping");
                                             }
                                         }
                                     }
-                                    Ok(Err(e)) => {
-                                        log::warn!("  IO error reading Pong: {}", e);
-                                    }
-                                    Err(_) => {
-                                        log::warn!(
-                                            "  Timeout waiting for Pong, but connection successful"
-                                        );
-                                        // FALLBACK: Connection works, just no Pong - treat as responsive with high latency
-                                        let latency_ms = start.elapsed().as_millis() as u64;
-                                        return Some((peer_address, latency_ms));
-                                    }
                                 }
-                            } else {
-                                log::warn!("  Failed to send Ping");
                             }
-                        } else {
-                            log::warn!("  Failed to serialize Ping");
                         }
 
-                        // FALLBACK: Even if Ping/Pong failed, connection was successful
+                        // FALLBACK: Even if handshake or Ping/Pong failed, connection was successful
                         log::info!(
                             "  Connection to {} works, treating as responsive (no Pong)",
                             tcp_addr
