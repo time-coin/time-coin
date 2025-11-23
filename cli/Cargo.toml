@@ -42,3 +42,4 @@ wallet = { version = "0.1.0", path = "../wallet" }
 sysinfo = "0.37"
 crossterm = "0.29"
 sha3.workspace = true
+futures = "0.3"

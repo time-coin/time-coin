@@ -126,7 +126,7 @@ impl TransactionBroadcaster {
         }
     }
 
-    /// Request instant finality votes from peers and collect responses
+    /// Request instant finality votes from peers - ULTRA-FAST PARALLEL
     pub async fn request_instant_finality_votes(
         &self,
         tx: Transaction,
@@ -135,7 +135,7 @@ impl TransactionBroadcaster {
         let peers = self.peer_manager.get_connected_peers().await;
 
         println!(
-            "📡 Requesting instant finality votes from {} peers",
+            "📡 ⚡ ULTRA-FAST parallel vote requests to {} peers",
             peers.len()
         );
 
@@ -150,13 +150,14 @@ impl TransactionBroadcaster {
             let txid = tx.txid.clone();
 
             let task = tokio::spawn(async move {
+                // OPTIMIZED: 1 second timeout (reduced from 3s) for instant finality
                 if let Ok(Some(NetworkMessage::InstantFinalityVote {
                     txid: vote_txid,
                     voter,
                     approve,
                     timestamp: _,
                 })) = manager
-                    .send_message_to_peer_with_response(peer_addr, msg_clone, 3)
+                    .send_message_to_peer_with_response(peer_addr, msg_clone, 1) // 1s timeout!
                     .await
                 {
                     if vote_txid == txid {
@@ -172,14 +173,11 @@ impl TransactionBroadcaster {
             vote_tasks.push(task);
         }
 
-        let mut votes_received = 0;
-        for task in vote_tasks {
-            if let Ok(Some(_)) = task.await {
-                votes_received += 1;
-            }
-        }
+        // Wait for ALL votes in parallel
+        let results = futures::future::join_all(vote_tasks).await;
+        let votes_received = results.into_iter().filter_map(|r| r.ok().flatten()).count();
 
-        println!("   📊 Collected {} votes from peers", votes_received);
+        println!("   ⚡ Collected {} votes in <1s", votes_received);
         votes_received
     }
 

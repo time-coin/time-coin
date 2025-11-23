@@ -1820,11 +1820,11 @@ impl BlockProducer {
             masternodes.len()
         );
 
-        // Try up to 3 times
+        // Try up to 3 times with FAST retries (no artificial delays)
         for attempt in 0..3 {
             if attempt > 0 {
-                println!("      ⚠️  Attempt {} - retrying...", attempt + 1);
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                println!("      ⚠️  Attempt {} - instant retry", attempt + 1);
+                // NO DELAY - instant retry for speed
             }
 
             // ALL nodes create the same deterministic block
@@ -1854,7 +1854,7 @@ impl BlockProducer {
                 println!("      ℹ️  Another proposal already stored");
             }
 
-            // Broadcast proposal to all peers
+            // Broadcast proposal to all peers IN PARALLEL
             self.broadcast_block_proposal(proposal.clone(), masternodes)
                 .await;
 
@@ -1873,19 +1873,19 @@ impl BlockProducer {
                 println!("      ✓ Voted APPROVE on block {}", &block.hash[..16]);
             }
 
+            // Broadcast vote IN PARALLEL
             self.broadcast_block_vote(vote, masternodes).await;
 
-            // Wait for consensus
-            println!("      Waiting for consensus...");
-            let start_time = chrono::Utc::now();
-            let timeout_secs = 20;
+            // ULTRA-FAST consensus check - 3 second timeout, 50ms polling
+            println!("      ⚡ Ultra-fast consensus check...");
+            let start_time = std::time::Instant::now();
+            let timeout = Duration::from_secs(3); // REDUCED from 20s to 3s
             let mut last_log_time = start_time;
 
-            // Give network time to propagate
-            tokio::time::sleep(Duration::from_secs(2)).await;
-
-            while (chrono::Utc::now() - start_time).num_seconds() < timeout_secs {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+            // NO artificial delay - check immediately
+            while start_time.elapsed() < timeout {
+                // FAST polling - check every 50ms instead of 1 second
+                tokio::time::sleep(Duration::from_millis(50)).await;
 
                 if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
                     // Check consensus (need 2/3+ votes)
@@ -1895,20 +1895,23 @@ impl BlockProducer {
                         .has_block_consensus(block_num, &proposal.block_hash)
                         .await;
 
-                    // Log progress every 5 seconds
-                    if (chrono::Utc::now() - last_log_time).num_seconds() >= 5 {
+                    // Log progress every 500ms for real-time feedback
+                    if last_log_time.elapsed() >= Duration::from_millis(500) {
                         println!(
-                            "         ⏳ Progress: {}/{} votes (need {})",
+                            "         ⚡ {}/{} votes (need {}) - {}ms elapsed",
                             approvals,
                             masternodes.len(),
-                            required_votes
+                            required_votes,
+                            start_time.elapsed().as_millis()
                         );
-                        last_log_time = chrono::Utc::now();
+                        last_log_time = start_time;
                     }
 
                     if has_consensus && approvals >= required_votes {
+                        let elapsed_ms = start_time.elapsed().as_millis();
                         println!(
-                            "      ✅ Consensus reached ({}/{})!",
+                            "      ✅ ULTRA-FAST CONSENSUS in {}ms ({}/{})!",
+                            elapsed_ms,
                             approvals,
                             masternodes.len()
                         );
@@ -1922,7 +1925,12 @@ impl BlockProducer {
             }
 
             // Timeout - provide diagnostics
-            println!("      ❌ Attempt {} timeout", attempt + 1);
+            let elapsed_ms = start_time.elapsed().as_millis();
+            println!(
+                "      ⚠️  Attempt {} timeout after {}ms",
+                attempt + 1,
+                elapsed_ms
+            );
 
             if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
                 let required_votes = ((masternodes.len() * 2) / 3) + 1;
@@ -2109,14 +2117,27 @@ impl BlockProducer {
         proposal: time_consensus::block_consensus::BlockProposal,
         masternodes: &[String],
     ) {
+        // ULTRA-FAST PARALLEL BROADCAST - all requests fire simultaneously
+        let mut handles = Vec::new();
+
         for node in masternodes {
             let url = format!("http://{}:24101/consensus/block-proposal", node);
-            let _ = reqwest::Client::new()
-                .post(&url)
-                .json(&proposal)
-                .send()
-                .await;
+            let proposal_clone = proposal.clone();
+
+            let handle = tokio::spawn(async move {
+                // OPTIMIZED: 100ms timeout for LAN, fire-and-forget
+                let _ = reqwest::Client::new()
+                    .post(&url)
+                    .json(&proposal_clone)
+                    .timeout(Duration::from_millis(100)) // REDUCED from 2s to 100ms
+                    .send()
+                    .await;
+            });
+            handles.push(handle);
         }
+
+        // Wait for all broadcasts to complete (or timeout)
+        let _ = futures::future::join_all(handles).await;
     }
 
     #[allow(dead_code)]
@@ -2125,10 +2146,27 @@ impl BlockProducer {
         vote: time_consensus::block_consensus::BlockVote,
         masternodes: &[String],
     ) {
+        // ULTRA-FAST PARALLEL BROADCAST - all votes sent simultaneously
+        let mut handles = Vec::new();
+
         for node in masternodes {
             let url = format!("http://{}:24101/consensus/block-vote", node);
-            let _ = reqwest::Client::new().post(&url).json(&vote).send().await;
+            let vote_clone = vote.clone();
+
+            let handle = tokio::spawn(async move {
+                // OPTIMIZED: 100ms timeout for LAN speed
+                let _ = reqwest::Client::new()
+                    .post(&url)
+                    .json(&vote_clone)
+                    .timeout(Duration::from_millis(100)) // REDUCED from 2s to 100ms
+                    .send()
+                    .await;
+            });
+            handles.push(handle);
         }
+
+        // Wait for all broadcasts (or timeout)
+        let _ = futures::future::join_all(handles).await;
     }
 
     #[allow(dead_code)]

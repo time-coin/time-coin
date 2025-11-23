@@ -4950,6 +4950,7 @@ dependencies = [
  "clap",
  "crossterm",
  "ed25519-dalek",
+ "futures",
  "hex",
  "local-ip-address",
  "md5 0.8.0",
