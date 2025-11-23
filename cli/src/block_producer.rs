@@ -1879,8 +1879,11 @@ impl BlockProducer {
             // ULTRA-FAST consensus check - 3 second timeout, 50ms polling
             println!("      ⚡ Ultra-fast consensus check...");
             let start_time = std::time::Instant::now();
-            let timeout = Duration::from_secs(3); // REDUCED from 20s to 3s
+            let timeout = Duration::from_secs(3);
             let mut last_log_time = start_time;
+            let mut last_vote_count = 0;
+            let mut stall_count = 0;
+            const MAX_STALLS: u32 = 6; // Exit after 300ms of no progress (6 * 50ms)
 
             // NO artificial delay - check immediately
             while start_time.elapsed() < timeout {
@@ -1895,8 +1898,25 @@ impl BlockProducer {
                         .has_block_consensus(block_num, &proposal.block_hash)
                         .await;
 
-                    // Log progress every 500ms for real-time feedback
-                    if last_log_time.elapsed() >= Duration::from_millis(500) {
+                    // Early exit if votes have stalled
+                    if approvals == last_vote_count {
+                        stall_count += 1;
+                        if stall_count >= MAX_STALLS {
+                            println!(
+                                "      ⚠️  Vote stalled at {}/{} after {}ms - ending attempt",
+                                approvals,
+                                masternodes.len(),
+                                start_time.elapsed().as_millis()
+                            );
+                            break;
+                        }
+                    } else {
+                        last_vote_count = approvals;
+                        stall_count = 0; // Reset stall counter on progress
+                    }
+
+                    // Log progress every 1 second for real-time feedback (reduced spam)
+                    if last_log_time.elapsed() >= Duration::from_secs(1) {
                         println!(
                             "         ⚡ {}/{} votes (need {}) - {}ms elapsed",
                             approvals,
@@ -1904,7 +1924,7 @@ impl BlockProducer {
                             required_votes,
                             start_time.elapsed().as_millis()
                         );
-                        last_log_time = start_time;
+                        last_log_time = std::time::Instant::now();
                     }
 
                     if has_consensus && approvals >= required_votes {

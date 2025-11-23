@@ -114,7 +114,7 @@ struct WalletApp {
 
     // UI state
     // Network manager (wrapped for thread safety)
-    network_manager: Option<Arc<tokio::sync::Mutex<NetworkManager>>>,
+    network_manager: Option<Arc<std::sync::Mutex<NetworkManager>>>,
     network_status: String,
 
     // Peer manager for discovering and managing masternode peers
@@ -427,7 +427,7 @@ impl WalletApp {
 
                                     self.peer_manager = Some(peer_mgr.clone());
 
-                                    let network_mgr = Arc::new(tokio::sync::Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
+                                    let network_mgr = Arc::new(std::sync::Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
                                     self.network_manager = Some(network_mgr.clone());
                                     self.network_status = "Connecting...".to_string();
 
@@ -1633,7 +1633,7 @@ impl WalletApp {
                                                 let network_mgr_clone = network_mgr.clone();
                                                 let txid_clone = txid.clone();
                                                 let db_opt = self.wallet_db.clone();
-                                                
+
                                                 // Convert wallet Transaction to JSON for HTTP API
                                                 let tx_json = serde_json::json!({
                                                     "txid": txid,
@@ -1654,12 +1654,12 @@ impl WalletApp {
                                                         })
                                                     }).collect::<Vec<_>>(),
                                                 });
-                                                
+
                                                 // Submit in background thread with its own runtime
                                                 std::thread::spawn(move || {
                                                     let rt = tokio::runtime::Runtime::new().unwrap();
                                                     rt.block_on(async move {
-                                                        let network_mgr = network_mgr_clone.lock().await;
+                                                        let network_mgr = network_mgr_clone.lock().unwrap();
                                                         match network_mgr.submit_transaction(tx_json).await {
                                                             Ok(txid) => {
                                                                 log::info!("✅ Transaction sent successfully: {}", txid);
@@ -1678,7 +1678,7 @@ impl WalletApp {
                                                         }
                                                     });
                                                 });
-                                                
+
                                                 self.set_success(format!("⚡ Submitting transaction: {} (Instant finality!)", txid));
                                                 self.send_address.clear();
                                                 self.send_amount.clear();
@@ -2658,13 +2658,7 @@ impl WalletApp {
 
         // Get connected masternodes
         let masternodes = {
-            let net = match network_mgr.lock() {
-                Ok(n) => n,
-                Err(e) => {
-                    log::error!("Failed to lock network manager: {}", e);
-                    return;
-                }
-            };
+            let net = network_mgr.lock().unwrap();
             net.get_connected_peers()
                 .into_iter()
                 .map(|p| format!("http://{}:24101", p.address))
