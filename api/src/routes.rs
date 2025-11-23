@@ -1424,9 +1424,14 @@ async fn receive_finalized_block(
     let block_hash = block.hash.clone();
 
     let mut blockchain = state.blockchain.write().await;
-    match blockchain.add_block(block) {
+    match blockchain.add_block(block.clone()) {
         Ok(_) => {
             drop(blockchain);
+
+            // Clean up mempool - remove transactions that were included in the block
+            if let Some(mempool) = state.mempool.as_ref() {
+                mempool.remove_transactions_in_block(&block).await;
+            }
 
             // Broadcast tip update to connected peers
             state

@@ -1160,6 +1160,19 @@ async fn main() {
                 "{}",
                 format!("✓ Loaded {} transactions from mempool", count).green()
             );
+
+            // Revalidate loaded transactions against current blockchain
+            println!(
+                "{}",
+                "   🔍 Validating loaded transactions...".bright_black()
+            );
+            let invalid_count = mempool.revalidate_against_blockchain().await;
+            if invalid_count > 0 {
+                println!(
+                    "{}",
+                    format!("   Removed {} invalid transactions", invalid_count).yellow()
+                );
+            }
         }
 
         Ok(_) => {
@@ -1665,13 +1678,30 @@ async fn main() {
         loop {
             interval.tick().await;
 
-            // Clean up stale transactions
-            let removed = mempool_persist.cleanup_stale().await;
-            if removed > 0 {
+            // Clean up stale transactions (older than 24 hours)
+            let removed_stale = mempool_persist.cleanup_stale().await;
+            if removed_stale > 0 {
                 println!(
                     "{}",
-                    format!("🗑️  Removed {} stale transactions from mempool", removed)
-                        .bright_black()
+                    format!(
+                        "🗑️  Removed {} stale transactions from mempool",
+                        removed_stale
+                    )
+                    .bright_black()
+                );
+            }
+
+            // Revalidate all transactions against current blockchain state
+            // This catches transactions with spent UTXOs
+            let removed_invalid = mempool_persist.revalidate_against_blockchain().await;
+            if removed_invalid > 0 {
+                println!(
+                    "{}",
+                    format!(
+                        "🗑️  Removed {} invalid transactions from mempool",
+                        removed_invalid
+                    )
+                    .bright_black()
                 );
             }
 

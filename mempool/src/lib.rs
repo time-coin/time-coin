@@ -594,6 +594,90 @@ impl Mempool {
             .map(|entry| entry.transaction.clone())
             .collect()
     }
+
+    /// Remove transactions that are included in a block
+    /// Returns the number of transactions removed
+    pub async fn remove_transactions_in_block(&self, block: &time_core::block::Block) -> usize {
+        let mut removed_count = 0;
+
+        for tx in &block.transactions {
+            if self.remove_transaction(&tx.txid).await.is_some() {
+                removed_count += 1;
+            }
+        }
+
+        if removed_count > 0 {
+            println!(
+                "🗑️  Removed {} transactions from mempool (included in block #{})",
+                removed_count, block.header.block_number
+            );
+        }
+
+        removed_count
+    }
+
+    /// Re-validate all transactions against current blockchain state
+    /// Removes any that have become invalid (e.g., spent UTXOs)
+    /// Returns count of removed transactions
+    pub async fn revalidate_against_blockchain(&self) -> usize {
+        if self.blockchain.is_none() {
+            return 0;
+        }
+
+        let blockchain = self.blockchain.as_ref().unwrap();
+        let transactions: Vec<Transaction> = {
+            let pool = self.transactions.read().await;
+            pool.values()
+                .map(|entry| entry.transaction.clone())
+                .collect()
+        };
+
+        let mut invalid_txids = Vec::new();
+
+        for tx in transactions {
+            // Skip coinbase and treasury transactions
+            if tx.is_coinbase() || tx.is_treasury_grant() {
+                continue;
+            }
+
+            // Check if transaction is still valid
+            let blockchain_guard = blockchain.read().await;
+            let utxo_map = blockchain_guard.utxo_set().utxos();
+
+            // Check if any inputs have been spent
+            let mut is_invalid = false;
+            for input in &tx.inputs {
+                let outpoint = time_core::OutPoint {
+                    txid: input.previous_output.txid.clone(),
+                    vout: input.previous_output.vout,
+                };
+
+                if !utxo_map.contains_key(&outpoint) {
+                    // UTXO no longer exists (was spent in a block)
+                    is_invalid = true;
+                    break;
+                }
+            }
+
+            if is_invalid {
+                invalid_txids.push(tx.txid.clone());
+            }
+        }
+
+        if !invalid_txids.is_empty() {
+            let removed = self.remove_invalid_transactions(invalid_txids).await;
+            let count = removed.len();
+            if count > 0 {
+                println!(
+                    "🗑️  Removed {} invalid transactions from mempool (spent UTXOs)",
+                    count
+                );
+            }
+            count
+        } else {
+            0
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
