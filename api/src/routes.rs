@@ -135,6 +135,7 @@ pub fn create_routes() -> Router<ApiState> {
             "/consensus/instant-finality-vote",
             post(receive_instant_finality_vote),
         )
+        .route("/finality/sync", post(sync_finalized_transactions))
         // ============================================================
         // Bitcoin-compatible RPC endpoints (maintained for compatibility)
         // ============================================================
@@ -1770,6 +1771,45 @@ async fn receive_instant_finality_vote(
     Ok(Json(serde_json::json!({
         "success": true
     })))
+}
+
+/// Sync finalized transactions - provide finalized txs to peers who request them
+async fn sync_finalized_transactions(
+    State(state): State<ApiState>,
+    Json(request): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let since_timestamp = request["since_timestamp"].as_i64().unwrap_or(0);
+
+    println!(
+        "📥 Finalized transaction sync request (since timestamp: {})",
+        since_timestamp
+    );
+
+    // Load all finalized transactions from database
+    let blockchain = state.blockchain.read().await;
+    match blockchain.load_finalized_txs() {
+        Ok(finalized_txs) => {
+            // Filter transactions finalized after the requested timestamp
+            // Note: We'd need to store finalized_at timestamps with each transaction
+            // For now, return all finalized transactions
+            let count = finalized_txs.len();
+
+            println!("   ✓ Providing {} finalized transactions", count);
+
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "transactions": finalized_txs,
+                "count": count
+            })))
+        }
+        Err(e) => {
+            println!("   ✗ Failed to load finalized transactions: {}", e);
+            Err(ApiError::Internal(format!(
+                "Failed to load finalized transactions: {}",
+                e
+            )))
+        }
+    }
 }
 
 /// Handle catch-up request from another node

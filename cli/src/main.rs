@@ -251,6 +251,106 @@ fn load_genesis_from_json(
     Ok(calculated_hash)
 }
 
+/// Sync finalized transactions from connected peers
+async fn sync_finalized_transactions_from_peers(
+    peer_manager: &Arc<time_network::PeerManager>,
+    blockchain: &Arc<RwLock<time_core::state::BlockchainState>>,
+    since_timestamp: i64,
+) -> Result<u32, Box<dyn std::error::Error>> {
+    let peers = peer_manager.get_peer_ips().await;
+
+    if peers.is_empty() {
+        println!("   ℹ️  No peers available for finalized transaction sync");
+        return Ok(0);
+    }
+
+    println!("📥 Syncing finalized transactions from network...");
+    println!(
+        "   Requesting transactions since timestamp: {}",
+        since_timestamp
+    );
+
+    let mut total_synced = 0;
+
+    for peer_ip in &peers {
+        let ip_only = if peer_ip.contains(':') {
+            peer_ip.split(':').next().unwrap_or(peer_ip)
+        } else {
+            peer_ip.as_str()
+        };
+
+        let url = format!("http://{}:24101/finality/sync", ip_only);
+
+        match tokio::time::timeout(
+            tokio::time::Duration::from_secs(10),
+            reqwest::Client::new()
+                .post(&url)
+                .json(&serde_json::json!({
+                    "since_timestamp": since_timestamp
+                }))
+                .send(),
+        )
+        .await
+        {
+            Ok(Ok(response)) => {
+                if let Ok(data) = response.json::<serde_json::Value>().await {
+                    if let Some(txs_array) = data["transactions"].as_array() {
+                        println!(
+                            "   ✓ Received {} finalized transactions from {}",
+                            txs_array.len(),
+                            ip_only
+                        );
+
+                        let mut blockchain_write = blockchain.write().await;
+
+                        for tx_value in txs_array {
+                            if let Ok(tx) =
+                                serde_json::from_value::<time_core::Transaction>(tx_value.clone())
+                            {
+                                // Apply to UTXO set
+                                match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
+                                    Ok(_) => {
+                                        total_synced += 1;
+                                        println!("      ✓ Applied tx {}", &tx.txid[..16]);
+                                    }
+                                    Err(e) => {
+                                        println!("      ⚠️  Skipped tx {} ({})", &tx.txid[..16], e);
+                                    }
+                                }
+                            }
+                        }
+
+                        if total_synced > 0 {
+                            // Save UTXO snapshot after applying synced transactions
+                            if let Err(e) = blockchain_write.save_utxo_snapshot() {
+                                println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                            }
+                        }
+
+                        drop(blockchain_write);
+                        break; // Successfully synced from one peer
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                println!("   ✗ Failed to contact {}: {}", ip_only, e);
+            }
+            Err(_) => {
+                println!("   ✗ Request timeout for {}", ip_only);
+            }
+        }
+    }
+
+    if total_synced > 0 {
+        println!(
+            "✓ Synced {} finalized transactions from network",
+            total_synced
+        );
+    }
+
+    Ok(total_synced)
+}
+
 /// Sync mempool from connected peers
 async fn sync_mempool_from_peers(
     peer_manager: &Arc<time_network::PeerManager>,
@@ -1288,6 +1388,43 @@ async fn main() {
     // Only sync mempool from network if blockchain is synced
     if is_synced {
         if !peer_manager.get_peer_ips().await.is_empty() {
+            // First sync finalized transactions from peers
+            println!(
+                "{}",
+                "📥 Syncing finalized transactions from network...".cyan()
+            );
+            // Request transactions from the last 24 hours
+            let since_timestamp = chrono::Utc::now().timestamp() - 86400;
+            match sync_finalized_transactions_from_peers(
+                &peer_manager,
+                &blockchain,
+                since_timestamp,
+            )
+            .await
+            {
+                Ok(synced_count) => {
+                    if synced_count > 0 {
+                        println!(
+                            "   {} Synced {} finalized transactions from network",
+                            "✓".green(),
+                            synced_count
+                        );
+                    } else {
+                        println!(
+                            "   {} No new finalized transactions from network",
+                            "✓".green()
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "{}",
+                        format!("⚠ Could not sync finalized transactions: {}", e).yellow()
+                    );
+                }
+            }
+
+            // Then sync mempool
             println!(
                 "{}",
                 "📥 Blockchain is synced - syncing mempool from network...".cyan()
@@ -1777,6 +1914,48 @@ async fn main() {
             // Save to disk
             if let Err(e) = mempool_persist.save_to_disk(&mempool_path_persist).await {
                 eprintln!("Failed to save mempool: {}", e);
+            }
+        }
+    });
+
+    // Finalized transaction cleanup task - runs every hour
+    let blockchain_cleanup = blockchain.clone();
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(3600)); // 1 hour
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+
+            // Clean up finalized transactions older than 25 hours
+            // (25 hours to ensure they've had time to be included in daily block)
+            let blockchain_read = blockchain_cleanup.read().await;
+            if let Ok(finalized_txs) = blockchain_read.load_finalized_txs() {
+                drop(blockchain_read);
+
+                let cutoff_time = chrono::Utc::now().timestamp() - (25 * 3600);
+                let mut removed_count = 0;
+
+                for tx in &finalized_txs {
+                    // Check if transaction is older than cutoff
+                    if tx.timestamp < cutoff_time {
+                        let blockchain_write = blockchain_cleanup.read().await;
+                        if let Ok(()) = blockchain_write.remove_finalized_tx(&tx.txid) {
+                            removed_count += 1;
+                        }
+                    }
+                }
+
+                if removed_count > 0 {
+                    println!(
+                        "{}",
+                        format!(
+                            "🗑️  Cleaned up {} old finalized transactions (>25 hours)",
+                            removed_count
+                        )
+                        .bright_black()
+                    );
+                }
             }
         }
     });

@@ -356,18 +356,6 @@ impl WalletApp {
                                 }
                             });
                         });
-                        
-                        // Start periodic blockchain height update task
-                        let network_mgr_for_updates = network_mgr_clone.clone();
-                        tokio::spawn(async move {
-                            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-                            loop {
-                                interval.tick().await;
-                                if let Ok(mut net) = network_mgr_for_updates.lock() {
-                                    net.update_blockchain_height().await;
-                                }
-                            }
-                        });
                     });
                 }
 
@@ -649,7 +637,7 @@ impl WalletApp {
                                                     loop {
                                                         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                                                         log::info!("Running scheduled latency refresh and blockchain height update...");
-                                                        
+
                                                         // Clone peer list to avoid holding lock during async operations
                                                         let mut peers = {
                                                             let manager = network_refresh.lock().unwrap();
@@ -678,7 +666,7 @@ impl WalletApp {
                                                                 Ok(response) => {
                                                                     peer.latency_ms = start.elapsed().as_millis() as u64;
                                                                     log::info!("  Peer {} responded in {}ms", peer.address, peer.latency_ms);
-                                                                    
+
                                                                     // Try to get blockchain height
                                                                     if let Ok(info) = response.json::<network::BlockchainInfo>().await {
                                                                         if info.height > max_height {

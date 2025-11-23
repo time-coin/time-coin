@@ -748,7 +748,16 @@ pub enum NetworkMessage {
 
     // Transaction consensus messages
     ConsensusTxProposal(String), // JSON serialized tx proposal
-    ConsensusTxVote(String),     // JSON serialized tx vote
+
+    // Instant finality sync protocol
+    RequestFinalizedTransactions {
+        since_timestamp: i64, // Request finalized txs after this timestamp
+    },
+    FinalizedTransactionsResponse {
+        transactions: Vec<time_core::Transaction>,
+        finalized_at: Vec<i64>, // Timestamp when each tx was finalized
+    },
+    ConsensusTxVote(String), // JSON serialized tx vote
 
     // UTXO State Protocol messages
     UTXOStateQuery {

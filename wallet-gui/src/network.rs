@@ -107,7 +107,7 @@ impl NetworkManager {
     pub fn network_block_height(&self) -> u64 {
         self.network_block_height
     }
-    
+
     /// Set blockchain heights (for internal updates)
     pub fn set_blockchain_height(&mut self, height: u64) {
         if height > self.network_block_height {

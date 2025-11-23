@@ -174,9 +174,13 @@ impl MasternodeUTXOIntegration {
                                     error = %e,
                                     "Failed to track transaction in UTXO tracker"
                                 );
+                            } else {
+                                info!(
+                                    node = %self.node_id,
+                                    txid = %tx.txid,
+                                    "✅ Transaction tracked and wallet notifications sent"
+                                );
                             }
-
-                            // Notify connected wallets about the new transaction
                         }
                         Err(e) => {
                             warn!(
@@ -826,7 +830,95 @@ impl MasternodeUTXOIntegration {
 
     /// Process mempool transaction in UTXO tracker
     async fn track_mempool_transaction(&self, tx: &time_core::Transaction) -> Result<(), String> {
-        self.utxo_tracker.process_mempool_tx(tx).await
+        self.utxo_tracker.process_mempool_tx(tx).await?;
+
+        // Push notifications to wallets monitoring these addresses
+        self.notify_wallets_of_transaction(tx, None).await;
+
+        Ok(())
+    }
+
+    /// Notify wallets about a new transaction affecting their addresses
+    async fn notify_wallets_of_transaction(
+        &self,
+        tx: &time_core::Transaction,
+        block_height: Option<u64>,
+    ) {
+        if let Some(monitor) = &self.address_monitor {
+            // Check all outputs to see if any match monitored addresses
+            for (vout, output) in tx.outputs.iter().enumerate() {
+                let address = &output.address;
+
+                // Check if this address is being monitored by any xpub
+                let xpubs = monitor.get_xpubs_for_address(address).await;
+
+                for xpub in xpubs {
+                    info!(
+                        node = %self.node_id,
+                        address = %address,
+                        amount = %output.amount,
+                        xpub = %&xpub[..std::cmp::min(20, xpub.len())],
+                        "🔔 Address matches monitored xpub, sending notification"
+                    );
+
+                    // Update address usage to potentially generate more addresses
+                    let _ = monitor.update_address_usage(address).await;
+
+                    // Create UTXO info
+                    let utxo = time_network::protocol::UtxoInfo {
+                        txid: tx.txid.clone(),
+                        vout: vout as u32,
+                        address: address.clone(),
+                        amount: output.amount,
+                        block_height,
+                        confirmations: 0,
+                    };
+
+                    // Send UtxoUpdate to wallet
+                    let message = time_network::protocol::NetworkMessage::UtxoUpdate {
+                        xpub: xpub.clone(),
+                        utxos: vec![utxo],
+                    };
+
+                    // Broadcast to all peers (wallets will filter by their xpub)
+                    self.peer_manager.broadcast_message(message).await;
+
+                    info!(
+                        node = %self.node_id,
+                        xpub = %&xpub[..std::cmp::min(20, xpub.len())],
+                        amount = output.amount,
+                        "✅ Sent UTXO update notification to wallet"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Process a confirmed block and notify wallets of transactions
+    pub async fn process_confirmed_block(&self, block: &time_core::Block) {
+        info!(
+            node = %self.node_id,
+            block_height = block.header.block_number,
+            tx_count = block.transactions.len(),
+            "Processing confirmed block for wallet notifications"
+        );
+
+        // Process all transactions in the block
+        for transaction in &block.transactions {
+            // Notify wallets about confirmed transaction
+            self.notify_wallets_of_transaction(transaction, Some(block.header.block_number))
+                .await;
+        }
+
+        // Update UTXO tracker with confirmed block
+        if let Err(e) = self.utxo_tracker.process_block(block).await {
+            warn!(
+                node = %self.node_id,
+                block_height = block.header.block_number,
+                error = %e,
+                "Failed to process block in UTXO tracker"
+            );
+        }
     }
 
     /// Start periodic mempool synchronization task
