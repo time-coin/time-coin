@@ -346,8 +346,6 @@ impl NetworkManager {
 
     /// Submit transaction via TCP protocol (TransactionBroadcast)
     pub async fn submit_transaction(&self, tx_json: serde_json::Value) -> Result<String, String> {
-        use time_network::protocol::NetworkMessage;
-        use tokio::io::AsyncWriteExt;
         use tokio::net::TcpStream;
 
         // Extract txid from JSON
@@ -366,7 +364,7 @@ impl NetworkManager {
 
             // Connect via TCP
             match TcpStream::connect(&tcp_addr).await {
-                Ok(mut stream) => {
+                Ok(stream) => {
                     // For now, just send the txid acknowledgment
                     // The actual transaction broadcast happens through the TCP listener
                     log::info!(
