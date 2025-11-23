@@ -114,7 +114,7 @@ struct WalletApp {
 
     // UI state
     // Network manager (wrapped for thread safety)
-    network_manager: Option<Arc<Mutex<NetworkManager>>>,
+    network_manager: Option<Arc<tokio::sync::Mutex<NetworkManager>>>,
     network_status: String,
 
     // Peer manager for discovering and managing masternode peers
@@ -427,7 +427,7 @@ impl WalletApp {
 
                                     self.peer_manager = Some(peer_mgr.clone());
 
-                                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
+                                    let network_mgr = Arc::new(tokio::sync::Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
                                     self.network_manager = Some(network_mgr.clone());
                                     self.network_status = "Connecting...".to_string();
 
@@ -1627,32 +1627,59 @@ impl WalletApp {
                                                 }
                                             }
 
-                                            // Send transaction via protocol client
-                                            if let Some(ref protocol_client) = self.protocol_client {
-                                                let client = protocol_client.clone();
-                                                let tx = transaction.clone();
-                                                let txid = tx.txid();
+                                            // Send transaction via HTTP API (instant finality)
+                                            if let Some(ref network_mgr) = self.network_manager {
+                                                let txid = transaction.txid();
+                                                let network_mgr_clone = network_mgr.clone();
                                                 let txid_clone = txid.clone();
                                                 let db_opt = self.wallet_db.clone();
-
-                                                tokio::spawn(async move {
-                                                    match client.submit_transaction(tx) {
-                                                        Ok(txid) => {
-                                                            log::info!("✓ Transaction sent successfully: {}", txid);
-                                                        }
-                                                        Err(e) => {
-                                                            log::error!("✗ Failed to send transaction: {}", e);
-                                                            // Mark as failed in database
-                                                            if let Some(db) = db_opt {
-                                                                if let Ok(Some(mut tx_record)) = db.get_transaction(&txid_clone) {
-                                                                    tx_record.status = wallet_db::TransactionStatus::Failed;
-                                                                    let _ = db.save_transaction(&tx_record);
+                                                
+                                                // Convert wallet Transaction to JSON for HTTP API
+                                                let tx_json = serde_json::json!({
+                                                    "txid": txid,
+                                                    "inputs": transaction.inputs.iter().map(|input| {
+                                                        serde_json::json!({
+                                                            "previous_output": {
+                                                                "txid": hex::encode(input.prev_tx),
+                                                                "vout": input.prev_index
+                                                            },
+                                                            "signature": hex::encode(&input.signature),
+                                                            "public_key": hex::encode(&input.public_key)
+                                                        })
+                                                    }).collect::<Vec<_>>(),
+                                                    "outputs": transaction.outputs.iter().map(|output| {
+                                                        serde_json::json!({
+                                                            "amount": output.amount,
+                                                            "address": output.address
+                                                        })
+                                                    }).collect::<Vec<_>>(),
+                                                });
+                                                
+                                                // Submit in background thread with its own runtime
+                                                std::thread::spawn(move || {
+                                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                                    rt.block_on(async move {
+                                                        let network_mgr = network_mgr_clone.lock().await;
+                                                        match network_mgr.submit_transaction(tx_json).await {
+                                                            Ok(txid) => {
+                                                                log::info!("✅ Transaction sent successfully: {}", txid);
+                                                                log::info!("⚡ Instant finality - transaction confirmed in <1 second!");
+                                                            }
+                                                            Err(e) => {
+                                                                log::error!("❌ Failed to send transaction: {}", e);
+                                                                // Mark as failed in database
+                                                                if let Some(db) = db_opt {
+                                                                    if let Ok(Some(mut tx_record)) = db.get_transaction(&txid_clone) {
+                                                                        tx_record.status = wallet_db::TransactionStatus::Failed;
+                                                                        let _ = db.save_transaction(&tx_record);
+                                                                    }
                                                                 }
                                                             }
                                                         }
-                                                    }
+                                                    });
                                                 });
-                                                self.set_success(format!("Transaction submitted: {}", txid));
+                                                
+                                                self.set_success(format!("⚡ Submitting transaction: {} (Instant finality!)", txid));
                                                 self.send_address.clear();
                                                 self.send_amount.clear();
                                             } else {

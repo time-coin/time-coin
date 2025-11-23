@@ -232,6 +232,63 @@ impl NetworkManager {
         };
     }
 
+    /// Submit transaction via HTTP API with instant finality
+    pub async fn submit_transaction(&self, tx: serde_json::Value) -> Result<String, String> {
+        // Try each connected peer until successful
+        for peer in &self.connected_peers {
+            let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+            let url = format!("http://{}:24101/api/v1/transactions", peer_ip);
+
+            log::info!("⚡ Submitting transaction to: {}", url);
+
+            match self
+                .client
+                .post(&url)
+                .json(&tx)
+                .timeout(Duration::from_secs(10))
+                .send()
+                .await
+            {
+                Ok(response) if response.status().is_success() => {
+                    match response.json::<serde_json::Value>().await {
+                        Ok(result) => {
+                            if let Some(txid) = result.get("txid").and_then(|v| v.as_str()) {
+                                log::info!("✅ Transaction submitted successfully: {}", txid);
+                                return Ok(txid.to_string());
+                            } else if result["success"].as_bool().unwrap_or(false) {
+                                return Ok("Transaction submitted".to_string());
+                            } else {
+                                let error = result["error"].as_str().unwrap_or("Unknown error");
+                                return Err(format!("Transaction rejected: {}", error));
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to parse response from {}: {}", peer_ip, e);
+                            continue;
+                        }
+                    }
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    let error_text = response.text().await.unwrap_or_default();
+                    log::warn!(
+                        "Transaction rejected by {} ({}): {}",
+                        peer_ip,
+                        status,
+                        error_text
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    log::warn!("Failed to connect to {}: {}", peer_ip, e);
+                    continue;
+                }
+            }
+        }
+
+        Err("Failed to submit transaction to any peer".to_string())
+    }
+
     pub async fn fetch_blockchain_info(&self) -> Result<BlockchainInfo, String> {
         // Try each connected peer until we get a successful response
         for peer in &self.connected_peers {
@@ -240,12 +297,13 @@ impl NetworkManager {
 
             log::info!("Fetching blockchain info from peer: {}", url);
 
-            let client = reqwest::Client::builder()
+            match self
+                .client
+                .get(&url)
                 .timeout(Duration::from_secs(5))
-                .build()
-                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-            match client.get(&url).send().await {
+                .send()
+                .await
+            {
                 Ok(response) if response.status().is_success() => {
                     match response.json::<BlockchainInfo>().await {
                         Ok(info) => {
