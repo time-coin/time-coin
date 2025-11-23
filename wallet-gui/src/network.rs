@@ -840,7 +840,7 @@ impl NetworkManager {
 
     /// Measure latency to a peer via TCP Ping
     async fn measure_latency(&self, peer_address: &str) -> Result<u64, String> {
-        use time_network::protocol::NetworkMessage;
+        use time_network::protocol::{HandshakeMessage, NetworkMessage};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
 
@@ -856,19 +856,54 @@ impl NetworkManager {
 
         match tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr)).await {
             Ok(Ok(mut stream)) => {
-                // Send Ping
-                let ping = NetworkMessage::Ping;
-                if let Ok(data) = serde_json::to_vec(&ping) {
-                    let len = data.len() as u32;
+                // Perform handshake first
+                let network_type = if port == 24100 {
+                    time_network::discovery::NetworkType::Testnet
+                } else {
+                    time_network::discovery::NetworkType::Mainnet
+                };
 
-                    if stream.write_all(&len.to_be_bytes()).await.is_ok()
-                        && stream.write_all(&data).await.is_ok()
+                let our_addr = "0.0.0.0:0".parse().unwrap();
+                let handshake = HandshakeMessage::new(network_type, our_addr);
+                let magic = network_type.magic_bytes();
+
+                if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                    let handshake_len = handshake_json.len() as u32;
+
+                    if stream.write_all(&magic).await.is_ok()
+                        && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                        && stream.write_all(&handshake_json).await.is_ok()
+                        && stream.flush().await.is_ok()
                     {
-                        // Wait for Pong
-                        let mut len_bytes = [0u8; 4];
-                        if stream.read_exact(&mut len_bytes).await.is_ok() {
-                            let latency = start.elapsed().as_millis() as u64;
-                            return Ok(latency);
+                        // Receive their handshake
+                        let mut their_magic = [0u8; 4];
+                        let mut their_len_bytes = [0u8; 4];
+                        if stream.read_exact(&mut their_magic).await.is_ok()
+                            && their_magic == magic
+                            && stream.read_exact(&mut their_len_bytes).await.is_ok()
+                        {
+                            let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                            if their_len < 10 * 1024 {
+                                let mut their_handshake_bytes = vec![0u8; their_len];
+                                if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
+                                    // Now send Ping
+                                    let ping = NetworkMessage::Ping;
+                                    if let Ok(data) = serde_json::to_vec(&ping) {
+                                        let len = data.len() as u32;
+
+                                        if stream.write_all(&len.to_be_bytes()).await.is_ok()
+                                            && stream.write_all(&data).await.is_ok()
+                                        {
+                                            // Wait for Pong
+                                            let mut len_bytes = [0u8; 4];
+                                            if stream.read_exact(&mut len_bytes).await.is_ok() {
+                                                let latency = start.elapsed().as_millis() as u64;
+                                                return Ok(latency);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
