@@ -748,6 +748,8 @@ impl ChainSync {
             let mut sorted_nodes_ahead: Vec<_> = nodes_ahead.iter().collect();
             sorted_nodes_ahead.sort_by_key(|(_, h, _)| std::cmp::Reverse(*h));
 
+            let mut invalid_peers = Vec::new();
+
             for (peer_ip, _peer_height, _) in sorted_nodes_ahead {
                 if let Some(their_block_at_our_height) =
                     self.download_block(peer_ip, our_height).await
@@ -796,7 +798,11 @@ impl ChainSync {
                                     "      Got prev_hash: {}",
                                     next_block.header.previous_hash
                                 );
-                                println!("   ⚠️  Skipping this peer - trying next...");
+                                println!(
+                                    "   ⚠️  Peer {} has invalid chain - will quarantine",
+                                    peer_ip
+                                );
+                                invalid_peers.push(peer_ip.clone());
                                 continue;
                             }
                             println!("   ✅ Next block validated - chain is consistent");
@@ -812,6 +818,31 @@ impl ChainSync {
 
                     println!("   ✓ Fork resolved - now on longest chain");
                     return Ok(false); // Fork resolved, continue with sync
+                }
+            }
+
+            // Quarantine all peers with invalid chains
+            if !invalid_peers.is_empty() {
+                println!(
+                    "   🚨 Quarantining {} peer(s) with invalid chains:",
+                    invalid_peers.len()
+                );
+                for peer_ip in &invalid_peers {
+                    if let Ok(peer_addr) = peer_ip.parse::<std::net::IpAddr>() {
+                        self.quarantine
+                            .quarantine_peer(
+                                peer_addr,
+                                time_network::QuarantineReason::InvalidBlock {
+                                    height: our_height,
+                                    reason: format!(
+                                        "Blocks don't chain correctly at height {}",
+                                        our_height
+                                    ),
+                                },
+                            )
+                            .await;
+                        println!("      ⛔ Quarantined: {}", peer_ip);
+                    }
                 }
             }
 
