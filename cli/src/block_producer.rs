@@ -1453,16 +1453,14 @@ impl BlockProducer {
             },
         };
 
-        let header_json = serde_json::to_string(&header).unwrap();
-        let mut hasher = Sha256::new();
-        hasher.update(header_json.as_bytes());
-        let hash = format!("{:x}", hasher.finalize());
-
-        let block = Block {
+        let mut block = Block {
             header,
             transactions: transactions.to_vec(),
-            hash,
+            hash: String::new(), // Temporary, will be calculated
         };
+
+        // Calculate hash using the proper method
+        block.hash = block.calculate_hash();
 
         let masternodes = self.consensus.get_masternodes().await;
         self.broadcast_finalized_block(&block, &masternodes).await;
@@ -1569,10 +1567,15 @@ impl BlockProducer {
             masternode_counts: masternode_counts.clone(),
         };
 
-        let header_json = serde_json::to_string(&temp_header).unwrap();
-        let mut hasher = Sha256::new();
-        hasher.update(header_json.as_bytes());
-        format!("{:x}", hasher.finalize())
+        // Create a temporary block to calculate hash properly
+        let temp_block = time_core::Block {
+            header: temp_header,
+            hash: String::new(),
+            transactions: vec![],
+        };
+
+        // Calculate hash using the proper method
+        temp_block.calculate_hash()
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -1186,7 +1186,6 @@ async fn create_and_broadcast_catchup_proposal(
     block_height: u64,
     leader_ip: String,
 ) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
     use time_consensus::block_consensus::{BlockProposal, BlockVote};
     use time_core::block::{Block, BlockHeader};
 
@@ -1320,6 +1319,7 @@ async fn create_and_broadcast_catchup_proposal(
         previous_hash: previous_hash.clone(),
         merkle_root: merkle_root.clone(),
         validator_signature: {
+            use sha2::{Digest, Sha256};
             let sig_data = format!("{}{}{}", block_height, previous_hash, merkle_root);
             let mut hasher = Sha256::new();
             hasher.update(sig_data.as_bytes());
@@ -1330,19 +1330,16 @@ async fn create_and_broadcast_catchup_proposal(
         masternode_counts: masternode_counts.clone(),
     };
 
-    // Calculate block hash
-    let header_json =
-        serde_json::to_string(&header).map_err(|e| format!("Serialization error: {}", e))?;
-    let mut hasher = Sha256::new();
-    hasher.update(header_json.as_bytes());
-    let block_hash = format!("{:x}", hasher.finalize());
-
-    // Create block
-    let block = Block {
+    // Create block with proper hash calculation
+    let mut block = Block {
         header: header.clone(),
-        hash: block_hash.clone(),
+        hash: String::new(), // Temporary, will be calculated
         transactions: all_transactions.clone(),
     };
+
+    // Calculate block hash using the proper method
+    let block_hash = block.calculate_hash();
+    block.hash = block_hash.clone();
 
     println!("      🔧 Finalizing block #{}...", block_height);
 
