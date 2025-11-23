@@ -69,8 +69,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Initialize UTXO integration and connect address monitor
-    let mut utxo_integration =
-        MasternodeUTXOIntegration::new(node_id.clone(), utxo_manager.clone(), peer_manager.clone());
+    let mut utxo_integration = MasternodeUTXOIntegration::new(
+        node_id.clone(),
+        utxo_manager.clone(),
+        peer_manager.clone(),
+        blockchain_db.clone(),
+    );
     utxo_integration.set_address_monitor(address_monitor.clone());
     let utxo_integration = Arc::new(utxo_integration);
 

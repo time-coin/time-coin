@@ -38,6 +38,8 @@ pub struct MasternodeUTXOIntegration {
     utxo_tracker: Arc<UtxoTracker>,
     /// Address monitor for xpub tracking
     address_monitor: Option<Arc<crate::address_monitor::AddressMonitor>>,
+    /// Blockchain database for block height tracking
+    blockchain_db: Arc<time_core::db::BlockchainDB>,
 }
 
 impl MasternodeUTXOIntegration {
@@ -46,6 +48,7 @@ impl MasternodeUTXOIntegration {
         node_id: String,
         utxo_manager: Arc<UTXOStateManager>,
         peer_manager: Arc<PeerManager>,
+        blockchain_db: Arc<time_core::db::BlockchainDB>,
     ) -> Self {
         let utxo_handler = Arc::new(UTXOProtocolHandler::new(utxo_manager.clone()));
         let vote_tracker = Arc::new(VoteTracker::new(2)); // Require 2 votes for consensus
@@ -61,6 +64,7 @@ impl MasternodeUTXOIntegration {
             mempool,
             utxo_tracker,
             address_monitor: None,
+            blockchain_db,
         }
     }
 
@@ -80,9 +84,25 @@ impl MasternodeUTXOIntegration {
 
     /// Get current blockchain height
     pub async fn get_blockchain_height(&self) -> u64 {
-        // TODO: Properly track blockchain height in MasternodeUTXOIntegration
-        // For now, return 0 which will be visible in wallet to indicate we need to implement this
-        0
+        // Get the highest block number from the blockchain database
+        match self.blockchain_db.load_all_blocks() {
+            Ok(blocks) => {
+                if blocks.is_empty() {
+                    0
+                } else {
+                    // Return the highest block number
+                    blocks
+                        .iter()
+                        .map(|b| b.header.block_number)
+                        .max()
+                        .unwrap_or(0)
+                }
+            }
+            Err(e) => {
+                warn!(node = %self.node_id, error = %e, "Failed to load blocks for height check");
+                0
+            }
+        }
     }
 
     /// Initialize the integration - sets up notification handlers
