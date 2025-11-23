@@ -590,8 +590,38 @@ impl BlockProducer {
         }
 
         // Determine which node should create catch-up blocks
-        let masternodes = self.consensus.get_masternodes().await;
-        println!("   🔍 Masternode list: {:?}", masternodes);
+        let all_masternodes = self.consensus.get_masternodes().await;
+
+        // Filter out quarantined peers from consensus
+        let mut masternodes = Vec::new();
+        let mut quarantined_count = 0;
+
+        for node_ip in all_masternodes {
+            let peer_addr: std::net::IpAddr = node_ip
+                .parse()
+                .unwrap_or_else(|_| "0.0.0.0".parse().unwrap());
+
+            if self.quarantine.is_quarantined(&peer_addr).await {
+                quarantined_count += 1;
+                if let Some(reason) = self.quarantine.get_reason(&peer_addr).await {
+                    println!(
+                        "   🚫 Excluding quarantined peer {} from consensus (reason: {})",
+                        node_ip, reason
+                    );
+                }
+            } else {
+                masternodes.push(node_ip);
+            }
+        }
+
+        if quarantined_count > 0 {
+            println!(
+                "   ✅ Filtered {} quarantined peer(s) from consensus",
+                quarantined_count
+            );
+        }
+
+        println!("   🔍 Active masternode list: {:?}", masternodes);
 
         // CRITICAL: Check if all masternodes have the required base blocks
         // Before creating block N, all nodes must have block N-1
