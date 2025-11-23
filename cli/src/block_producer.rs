@@ -1936,10 +1936,8 @@ impl BlockProducer {
                             masternodes.len()
                         );
 
-                        // ALL nodes finalize the same block
-                        return self
-                            .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
-                            .await;
+                        // ALL nodes finalize the exact same block they voted on
+                        return self.finalize_agreed_block(block, masternodes).await;
                     }
                 }
             }
@@ -1988,9 +1986,8 @@ impl BlockProducer {
                 if attempt == 2 && approvals >= 1 {
                     println!("         ⚠️  EMERGENCY FALLBACK: Finalizing with single vote");
                     println!("         ℹ️  This allows progress during version upgrades");
-                    return self
-                        .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
-                        .await;
+                    // Use the block we already created and voted on
+                    return self.finalize_agreed_block(block.clone(), masternodes).await;
                 }
             } else {
                 println!("         ⚠️  No proposal was received");
@@ -2226,6 +2223,44 @@ impl BlockProducer {
             }
             Err(e) => {
                 println!("      ✗ Failed to notify leader {}: {}", leader_ip, e);
+            }
+        }
+    }
+
+    /// Finalize the agreed-upon block that all nodes voted on
+    async fn finalize_agreed_block(
+        &self,
+        block: time_core::block::Block,
+        _masternodes: &[String],
+    ) -> bool {
+        let block_num = block.header.block_number;
+        let mut blockchain = self.blockchain.write().await;
+
+        // Check if block already exists at this height
+        if let Some(existing_block) = blockchain.get_block_by_height(block_num) {
+            println!(
+                "      ℹ️  Block #{} already exists (hash: {}...), skipping",
+                block_num,
+                &existing_block.hash[..16]
+            );
+            return true;
+        }
+
+        println!("      🔧 Finalizing agreed block #{}...", block_num);
+        println!("      📋 Block hash: {}...", &block.hash[..16]);
+
+        match blockchain.add_block(block.clone()) {
+            Ok(_) => {
+                println!("      ✔ Block #{} finalized and stored", block_num);
+                drop(blockchain);
+
+                println!("      📡 Broadcasting finalized block to peers...");
+                self.broadcast_block_to_peers(&block).await;
+                true
+            }
+            Err(e) => {
+                println!("      ✗ Failed to finalize block: {:?}", e);
+                false
             }
         }
     }
