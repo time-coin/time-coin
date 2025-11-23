@@ -5,29 +5,53 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+# GUI framework
 eframe = "0.31"
 egui = "0.31"
 egui_extras = { version = "0.31", features = ["image"] }
+
+# Async runtime
 tokio = { workspace = true }
+
+# Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+bincode = { workspace = true }
+
+# Cryptography
 sha2 = { workspace = true }
 hex = { workspace = true }
 ed25519-dalek = { workspace = true }
 rand = { workspace = true }
+
+# Networking
 reqwest = { workspace = true }
+
+# Logging
 log = "0.4"
 env_logger = "0.11"
+
+# Date/Time
 chrono = { workspace = true }
+
+# Database
 sled = { workspace = true }
-bincode = { workspace = true }
+
+# Error handling
 thiserror = { workspace = true }
+
+# File system utilities
 dirs = "5.0"
+
+# Encoding
 base64 = "0.22"
+
+# QR code rendering (SVG to image)
 resvg = "0.44"
 tiny-skia = "0.11"
+
+# PDF generation (for mnemonic backup)
 printpdf = "0.7"
-poll-promise = "0.3"  # For async operations in egui
 
 # Local wallet dependency from parent project
 wallet = { path = "../wallet", version = "0.1.0" }
