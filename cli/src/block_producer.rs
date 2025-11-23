@@ -1815,105 +1815,79 @@ impl BlockProducer {
 
         let my_id = self.get_node_id();
         println!("   🔨 Creating catchup block #{}", block_num);
+        println!(
+            "      ℹ️  All {} nodes create identical deterministic blocks",
+            masternodes.len()
+        );
 
-        // Try up to 3 times with rotating leaders
+        // Try up to 3 times
         for attempt in 0..3 {
             if attempt > 0 {
-                println!("      ⚠️  Attempt {} - rotating leader...", attempt + 1);
+                println!("      ⚠️  Attempt {} - retrying...", attempt + 1);
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
 
-            // Rotate leader: use round-robin on sorted masternode list
-            let mut sorted_masternodes = masternodes.to_vec();
-            sorted_masternodes.sort();
-            let leader_index = (block_num as usize + attempt) % sorted_masternodes.len();
-            let selected_producer = sorted_masternodes[leader_index].clone();
-            let am_i_leader = selected_producer == my_id;
+            // ALL nodes create the same deterministic block
+            let block = self
+                .create_catchup_block_structure(block_num, timestamp)
+                .await;
 
-            println!("      Leader: {}", selected_producer);
+            println!("      ✓ Block created: {}...", &block.hash[..16]);
 
-            // Leader creates and broadcasts proposal
-            if am_i_leader {
-                println!("      I'm the leader - creating proposal...");
+            let proposal = BlockProposal {
+                block_height: block_num,
+                proposer: my_id.clone(),
+                block_hash: block.hash.clone(),
+                merkle_root: block.header.merkle_root.clone(),
+                previous_hash: block.header.previous_hash.clone(),
+                timestamp: timestamp.timestamp(),
+                is_reward_only: false,
+                strategy: None,
+            };
 
-                let block = self
-                    .create_catchup_block_structure(block_num, timestamp)
-                    .await;
+            // Store proposal locally (first-proposal-wins)
+            let accepted = self.block_consensus.propose_block(proposal.clone()).await;
 
-                let proposal = BlockProposal {
-                    block_height: block_num,
-                    proposer: my_id.clone(),
-                    block_hash: block.hash.clone(),
-                    merkle_root: block.header.merkle_root.clone(),
-                    previous_hash: block.header.previous_hash.clone(),
-                    timestamp: timestamp.timestamp(),
-                    is_reward_only: false,
-                    strategy: None,
-                };
-
-                // Try to propose (first-proposal-wins)
-                let accepted = self.block_consensus.propose_block(proposal.clone()).await;
-
-                if accepted {
-                    self.broadcast_block_proposal(proposal.clone(), masternodes)
-                        .await;
-
-                    // Leader auto-votes
-                    let vote = BlockVote {
-                        block_height: block_num,
-                        block_hash: block.hash.clone(),
-                        voter: my_id.clone(),
-                        approve: true,
-                        timestamp: chrono::Utc::now().timestamp(),
-                    };
-                    let _ = self.block_consensus.vote_on_block(vote.clone()).await;
-                    self.broadcast_block_vote(vote, masternodes).await;
-                } else {
-                    println!("      ℹ️  Another proposal already accepted, following that one");
-                }
+            if accepted {
+                println!("      ✓ Proposal stored locally");
             } else {
-                // Notify leader to create proposal
-                println!("      Notifying leader {}...", selected_producer);
-                self.notify_leader_to_produce_block(&selected_producer, block_num, &my_id)
-                    .await;
+                println!("      ℹ️  Another proposal already stored");
             }
 
-            // Wait for consensus (20 second timeout per attempt)
+            // Broadcast proposal to all peers
+            self.broadcast_block_proposal(proposal.clone(), masternodes)
+                .await;
+
+            // ALL nodes vote on their own calculated block hash
+            let vote = BlockVote {
+                block_height: block_num,
+                block_hash: block.hash.clone(),
+                voter: my_id.clone(),
+                approve: true,
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+
+            if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
+                println!("      ⚠️  Failed to record vote: {}", e);
+            } else {
+                println!("      ✓ Voted APPROVE on block {}", &block.hash[..16]);
+            }
+
+            self.broadcast_block_vote(vote, masternodes).await;
+
+            // Wait for consensus
             println!("      Waiting for consensus...");
             let start_time = chrono::Utc::now();
             let timeout_secs = 20;
             let mut last_log_time = start_time;
-            let mut proposal_seen = false;
+
+            // Give network time to propagate
+            tokio::time::sleep(Duration::from_secs(2)).await;
 
             while (chrono::Utc::now() - start_time).num_seconds() < timeout_secs {
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
                 if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
-                    if !proposal_seen {
-                        println!("         📋 Proposal received from {}", proposal.proposer);
-                        proposal_seen = true;
-                    }
-
-                    // Non-leaders vote
-                    if !am_i_leader {
-                        let vote = BlockVote {
-                            block_height: block_num,
-                            block_hash: proposal.block_hash.clone(),
-                            voter: my_id.clone(),
-                            approve: true,
-                            timestamp: chrono::Utc::now().timestamp(),
-                        };
-
-                        if self
-                            .block_consensus
-                            .vote_on_block(vote.clone())
-                            .await
-                            .is_ok()
-                        {
-                            self.broadcast_block_vote(vote, masternodes).await;
-                        }
-                    }
-
                     // Check consensus (need 2/3+ votes)
                     let required_votes = ((masternodes.len() * 2) / 3) + 1;
                     let (has_consensus, approvals, _total) = self
@@ -1939,16 +1913,10 @@ impl BlockProducer {
                             masternodes.len()
                         );
 
-                        // Finalize the block
+                        // ALL nodes finalize the same block
                         return self
                             .finalize_catchup_block_with_rewards(block_num, timestamp, masternodes)
                             .await;
-                    }
-                } else {
-                    // No proposal yet
-                    if (chrono::Utc::now() - last_log_time).num_seconds() >= 5 {
-                        println!("         ⏳ Waiting for proposal from leader...");
-                        last_log_time = chrono::Utc::now();
                     }
                 }
             }
@@ -1987,11 +1955,7 @@ impl BlockProducer {
                     println!("         ❌ Missing votes from: {:?}", non_voters);
                 }
             } else {
-                println!("         ⚠️  No proposal was ever received from leader");
-                println!(
-                    "         💡 Leader {} may be offline or unreachable",
-                    selected_producer
-                );
+                println!("         ⚠️  No proposal was received");
             }
         }
 
@@ -2075,6 +2039,9 @@ impl BlockProducer {
         let previous_hash = blockchain.chain_tip_hash().to_string();
         let masternode_counts = blockchain.masternode_counts().clone();
 
+        // Get ALL registered masternodes (not just active ones)
+        let all_masternodes = self.consensus.get_masternodes().await;
+
         let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_active_masternodes()
             .iter()
@@ -2083,10 +2050,13 @@ impl BlockProducer {
 
         drop(blockchain);
 
-        let my_id = self.get_node_id();
         println!(
             "      💰 Catch-up block will reward {} masternodes",
             active_masternodes.len()
+        );
+        println!(
+            "      🔍 Using {} registered masternodes for consensus",
+            all_masternodes.len()
         );
 
         let coinbase_tx = create_coinbase_transaction(
@@ -2097,6 +2067,9 @@ impl BlockProducer {
             timestamp.timestamp(), // Use block timestamp for determinism
         );
 
+        // CRITICAL: Use deterministic validator info so all nodes create identical blocks
+        let deterministic_validator = format!("consensus_block_{}", block_num);
+
         let mut block = Block {
             hash: String::new(),
             header: BlockHeader {
@@ -2104,8 +2077,8 @@ impl BlockProducer {
                 timestamp,
                 previous_hash,
                 merkle_root: String::new(),
-                validator_signature: my_id.clone(),
-                validator_address: my_id.clone(),
+                validator_signature: deterministic_validator.clone(),
+                validator_address: deterministic_validator,
                 masternode_counts: masternode_counts.clone(),
             },
             transactions: vec![coinbase_tx],
@@ -2114,8 +2087,8 @@ impl BlockProducer {
         block.header.merkle_root = block.calculate_merkle_root();
         block.hash = block.calculate_hash();
         println!(
-            "      💰 Proposal includes rewards for {} masternodes",
-            active_masternodes.len()
+            "      ✓ Deterministic block created: {}...",
+            &block.hash[..16]
         );
         block
     }
