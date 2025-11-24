@@ -1515,7 +1515,6 @@ async fn main() {
                 let block_consensus_clone = block_consensus.clone();
                 let quarantine_clone = quarantine.clone();
                 let blockchain_clone = blockchain.clone();
-                let mempool_clone = mempool.clone();
 
                 tokio::spawn(async move {
                     loop {
@@ -1626,7 +1625,6 @@ async fn main() {
                             let peer_ip_listen = peer_ip_for_logging; // Use real IP for logging
                             let blockchain_listen = Arc::clone(&blockchain_clone);
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
-                            let mempool_listen = Arc::clone(&mempool_clone);
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -1767,24 +1765,6 @@ async fn main() {
                                                         println!("✅ Sent BlockchainInfo to {} (height: {})", peer_ip_listen, height);
                                                     } else {
                                                         println!("❌ Failed to send BlockchainInfo to {}", peer_ip_listen);
-                                                    }
-                                                }
-                                                time_network::protocol::NetworkMessage::GetMempool => {
-                                                    println!("📊 Received GetMempool from {}", peer_ip_listen);
-
-                                                    // Get all transactions from mempool
-                                                    let transactions = mempool_listen.get_all_transactions().await;
-
-                                                    println!("📤 Sending {} transactions from mempool to {}", transactions.len(), peer_ip_listen);
-
-                                                    // Send mempool response
-                                                    let response = time_network::protocol::NetworkMessage::MempoolResponse(transactions);
-
-                                                    let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent MempoolResponse to {}", peer_ip_listen);
-                                                    } else {
-                                                        println!("❌ Failed to send MempoolResponse to {}", peer_ip_listen);
                                                     }
                                                 }
                                                 _ => {
