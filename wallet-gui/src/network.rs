@@ -11,12 +11,20 @@ pub struct ApiPeer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerInfo {
+    #[serde(default)]
     pub address: String,
+    #[serde(default)]
     pub port: u16,
     pub version: Option<String>,
     pub last_seen: Option<u64>,
     #[serde(default)]
     pub latency_ms: u64,
+    #[serde(default = "default_is_masternode")]
+    pub is_masternode: bool,
+}
+
+fn default_is_masternode() -> bool {
+    true // Default to masternode for backwards compatibility
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +176,7 @@ impl NetworkManager {
                             .as_secs(),
                     ),
                     latency_ms: 0,
+                    is_masternode: true,
                 })
             })
             .collect();
@@ -339,7 +348,11 @@ impl NetworkManager {
 
     /// Get peer count
     pub fn peer_count(&self) -> u32 {
-        self.connected_peers.len() as u32
+        // Only count masternodes
+        self.connected_peers
+            .iter()
+            .filter(|p| p.is_masternode)
+            .count() as u32
     }
 
     /// Check if synced
@@ -603,6 +616,7 @@ impl NetworkManager {
                         version: p.version.clone(),
                         last_seen: Some(p.last_seen),
                         latency_ms: p.latency_ms,
+                        is_masternode: true, // From database, assume masternode
                     })
                     .collect();
 
@@ -657,6 +671,7 @@ impl NetworkManager {
                                         version: None,
                                         last_seen: None,
                                         latency_ms: 0,
+                                        is_masternode: true, // Fallback bootstrappers are masternodes
                                     });
                                 }
                             }
@@ -726,6 +741,7 @@ impl NetworkManager {
                                     version: None,
                                     last_seen: None,
                                     latency_ms: 0,
+                                    is_masternode: true, // Config bootstrap nodes are masternodes
                                 });
                             }
                         }
@@ -904,6 +920,7 @@ impl NetworkManager {
                                                                 .as_secs(),
                                                         ),
                                                         latency_ms: 0,
+                                                        is_masternode: true, // From peer discovery, assume masternode
                                                     }
                                                 })
                                                 .collect();
@@ -924,11 +941,20 @@ impl NetworkManager {
 
     /// Discover and connect to peers recursively
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
+        // Filter to only return masternodes
+        let masternode_peers: Vec<PeerInfo> = self
+            .connected_peers
+            .iter()
+            .filter(|p| p.is_masternode)
+            .cloned()
+            .collect();
+
         log::info!(
-            "get_connected_peers called, returning {} peers",
+            "get_connected_peers called, returning {} masternodes (filtered from {} total peers)",
+            masternode_peers.len(),
             self.connected_peers.len()
         );
-        for (i, peer) in self.connected_peers.iter().enumerate() {
+        for (i, peer) in masternode_peers.iter().enumerate() {
             log::info!(
                 "  Peer {}: {}:{} - {}ms",
                 i + 1,
@@ -937,7 +963,7 @@ impl NetworkManager {
                 peer.latency_ms
             );
         }
-        let mut sorted_peers = self.connected_peers.clone();
+        let mut sorted_peers = masternode_peers;
         sorted_peers.sort_by_key(|p| p.latency_ms);
         sorted_peers
     }
@@ -1256,9 +1282,9 @@ impl NetworkManager {
                         let latency_ms = start.elapsed().as_millis() as u64;
 
                         // Try to get version via handshake
-                        let peer_version =
+                        let peer_info =
                             tokio::time::timeout(std::time::Duration::from_millis(500), async {
-                                use time_network::protocol::HandshakeMessage;
+                                use time_network::protocol::{HandshakeMessage, NodeType};
                                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
                                 let network_type = if port == 24100 {
@@ -1302,7 +1328,11 @@ impl NetworkManager {
                                                             &their_handshake_bytes,
                                                         )
                                                     {
-                                                        return Some(hs.version);
+                                                        let is_masternode = matches!(
+                                                            hs.node_type,
+                                                            Some(NodeType::Masternode)
+                                                        );
+                                                        return Some((hs.version, is_masternode));
                                                     }
                                                 }
                                             }
@@ -1315,7 +1345,7 @@ impl NetworkManager {
                             .ok()
                             .flatten();
 
-                        Some((peer_address, latency_ms, peer_version))
+                        Some((peer_address, latency_ms, peer_info))
                     }
                     _ => None,
                 }
@@ -1332,11 +1362,12 @@ impl NetworkManager {
 
         // Update peer info
         for (i, result) in results.into_iter().enumerate() {
-            if let Ok(Some((peer_address, latency_ms, peer_version))) = result {
+            if let Ok(Some((peer_address, latency_ms, peer_info))) = result {
                 if let Some(peer) = self.connected_peers.get_mut(i) {
                     peer.latency_ms = latency_ms;
-                    if peer_version.is_some() {
-                        peer.version = peer_version;
+                    if let Some((version, is_masternode)) = peer_info {
+                        peer.version = Some(version);
+                        peer.is_masternode = is_masternode;
                     }
                 }
             }
