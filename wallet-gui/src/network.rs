@@ -199,187 +199,69 @@ impl NetworkManager {
             let port = peer.port;
 
             let task = tokio::spawn(async move {
-                use time_network::protocol::NetworkMessage;
-                use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                use tokio::net::TcpStream;
-
                 let tcp_addr = format!("{}:{}", peer_ip, port);
                 let start = std::time::Instant::now();
 
                 log::info!("Testing TCP connection to {}...", tcp_addr);
 
-                // Try TCP connection with 3 second timeout (increased from 2s)
-                let timeout_duration = std::time::Duration::from_secs(3);
-                match tokio::time::timeout(timeout_duration, TcpStream::connect(&tcp_addr)).await {
+                // Just measure TCP connection time - simple and fast
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    tokio::net::TcpStream::connect(&tcp_addr),
+                )
+                .await
+                {
                     Ok(Ok(mut stream)) => {
-                        log::info!("  Connected to {}, performing handshake...", tcp_addr);
-
-                        // Perform handshake first (required by masternode protocol)
-                        let network_type = if port == 24100 {
-                            time_network::discovery::NetworkType::Testnet
-                        } else {
-                            time_network::discovery::NetworkType::Mainnet
-                        };
-
-                        let our_addr = "0.0.0.0:0".parse().unwrap();
-                        let handshake =
-                            time_network::protocol::HandshakeMessage::new(network_type, our_addr);
-                        let magic = network_type.magic_bytes();
-
-                        if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
-                            let handshake_len = handshake_json.len() as u32;
-
-                            if stream.write_all(&magic).await.is_ok()
-                                && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
-                                && stream.write_all(&handshake_json).await.is_ok()
-                                && stream.flush().await.is_ok()
-                            {
-                                // Receive their handshake
-                                let mut their_magic = [0u8; 4];
-                                let mut their_len_bytes = [0u8; 4];
-                                if stream.read_exact(&mut their_magic).await.is_ok()
-                                    && their_magic == magic
-                                    && stream.read_exact(&mut their_len_bytes).await.is_ok()
-                                {
-                                    let their_len = u32::from_be_bytes(their_len_bytes) as usize;
-                                    if their_len < 10 * 1024 {
-                                        let mut their_handshake_bytes = vec![0u8; their_len];
-                                        if stream
-                                            .read_exact(&mut their_handshake_bytes)
-                                            .await
-                                            .is_ok()
+                        let latency_ms = start.elapsed().as_millis() as u64;
+                        log::info!("  ✓ Connected to {} ({}ms)", tcp_addr, latency_ms);
+                        
+                        // Quickly grab version via handshake (non-blocking)
+                        let peer_version = tokio::time::timeout(
+                            std::time::Duration::from_millis(500),
+                            async {
+                                use time_network::protocol::HandshakeMessage;
+                                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                                
+                                let network_type = if port == 24100 {
+                                    time_network::discovery::NetworkType::Testnet
+                                } else {
+                                    time_network::discovery::NetworkType::Mainnet
+                                };
+                                
+                                let our_addr = "0.0.0.0:0".parse().unwrap();
+                                let handshake = HandshakeMessage::new(network_type, our_addr);
+                                let magic = network_type.magic_bytes();
+                                
+                                if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                                    let handshake_len = handshake_json.len() as u32;
+                                    
+                                    if stream.write_all(&magic).await.is_ok()
+                                        && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                                        && stream.write_all(&handshake_json).await.is_ok()
+                                        && stream.flush().await.is_ok()
+                                    {
+                                        let mut their_magic = [0u8; 4];
+                                        let mut their_len_bytes = [0u8; 4];
+                                        if stream.read_exact(&mut their_magic).await.is_ok()
+                                            && stream.read_exact(&mut their_len_bytes).await.is_ok()
                                         {
-                                            log::info!(
-                                                "  Handshake complete with {}, sending Ping...",
-                                                tcp_addr
-                                            );
-
-                                            // Now send Ping
-                                            let ping = NetworkMessage::Ping;
-                                            if let Ok(data) = serde_json::to_vec(&ping) {
-                                                let len = data.len() as u32;
-                                                log::debug!(
-                                                    "  Sending Ping message ({} bytes)...",
-                                                    len
-                                                );
-
-                                                if stream
-                                                    .write_all(&len.to_be_bytes())
-                                                    .await
-                                                    .is_ok()
-                                                    && stream.write_all(&data).await.is_ok()
-                                                    && stream.flush().await.is_ok()
-                                                {
-                                                    log::debug!("  Ping sent, waiting for Pong...");
-
-                                                    // Wait for Pong response (read length + message) with timeout
-                                                    let pong_timeout =
-                                                        std::time::Duration::from_secs(2);
-                                                    match tokio::time::timeout(
-                                                        pong_timeout,
-                                                        async {
-                                                            let mut len_bytes = [0u8; 4];
-                                                            stream
-                                                                .read_exact(&mut len_bytes)
-                                                                .await?;
-                                                            let response_len =
-                                                                u32::from_be_bytes(len_bytes)
-                                                                    as usize;
-
-                                                            if response_len < 1024 {
-                                                                let mut response_data =
-                                                                    vec![0u8; response_len];
-                                                                stream
-                                                                    .read_exact(&mut response_data)
-                                                                    .await?;
-                                                                Ok::<_, std::io::Error>((
-                                                                    response_len,
-                                                                    response_data,
-                                                                ))
-                                                            } else {
-                                                                Err(std::io::Error::new(
-                                                                    std::io::ErrorKind::InvalidData,
-                                                                    "Response too large",
-                                                                ))
-                                                            }
-                                                        },
-                                                    )
-                                                    .await
-                                                    {
-                                                        Ok(Ok((response_len, response_data))) => {
-                                                            log::debug!(
-                                                                "  Received response ({} bytes), parsing...",
-                                                                response_len
-                                                            );
-
-                                                            match serde_json::from_slice::<
-                                                                NetworkMessage,
-                                                            >(
-                                                                &response_data
-                                                            ) {
-                                                                Ok(NetworkMessage::Pong) => {
-                                                                    let latency_ms =
-                                                                        start.elapsed().as_millis()
-                                                                            as u64;
-                                                                    log::info!(
-                                                    "  ✓ Received Pong from {} ({}ms)",
-                                                    tcp_addr,
-                                                    latency_ms
-                                                );
-                                                                    return Some((
-                                                                        peer_address,
-                                                                        latency_ms,
-                                                                    ));
-                                                                }
-                                                                Ok(other) => {
-                                                                    log::warn!(
-                                                    "  Unexpected response: {:?}",
-                                                    std::mem::discriminant(&other)
-                                                );
-                                                                }
-                                                                Err(e) => {
-                                                                    log::warn!("  Failed to parse response: {}", e);
-                                                                }
-                                                            }
-                                                        }
-                                                        Ok(Err(e)) => {
-                                                            log::warn!(
-                                                                "  IO error reading Pong: {}",
-                                                                e
-                                                            );
-                                                        }
-                                                        Err(_) => {
-                                                            log::warn!(
-                                                                "  Timeout waiting for Pong, but connection successful"
-                                                            );
-                                                            // FALLBACK: Connection works, just no Pong - treat as responsive with high latency
-                                                            let latency_ms =
-                                                                start.elapsed().as_millis() as u64;
-                                                            return Some((
-                                                                peer_address,
-                                                                latency_ms,
-                                                            ));
-                                                        }
+                                            let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                                            if their_len < 10 * 1024 {
+                                                let mut their_handshake_bytes = vec![0u8; their_len];
+                                                if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
+                                                    if let Ok(hs) = serde_json::from_slice::<HandshakeMessage>(&their_handshake_bytes) {
+                                                        return Some(hs.version);
                                                     }
-                                                } else {
-                                                    log::warn!("  Failed to send Ping");
                                                 }
-                                            } else {
-                                                log::warn!("  Failed to serialize Ping");
                                             }
                                         }
                                     }
                                 }
+                                None
                             }
-                        }
-
-                        // FALLBACK: Even if handshake or Ping/Pong failed, connection was successful
-                        log::info!(
-                            "  Connection to {} works, treating as responsive (no Pong)",
-                            tcp_addr
-                        );
-                        let latency_ms = start.elapsed().as_millis() as u64;
-                        Some((peer_address, latency_ms))
+                        ).await.ok().flatten();
+                        
+                        Some((peer_address, latency_ms, peer_version))
                     }
                     Ok(Err(e)) => {
                         log::warn!("Failed to connect to {}: {}", tcp_addr, e);
@@ -405,15 +287,17 @@ impl NetworkManager {
         let mut responsive_count = 0;
 
         for (i, result) in results.into_iter().enumerate() {
-            if let Ok(Some((peer_address, latency_ms))) = result {
+            if let Ok(Some((peer_address, latency_ms, peer_version))) = result {
                 if let Some(peer) = self.connected_peers.get_mut(i) {
                     peer.latency_ms = latency_ms;
+                    peer.version = peer_version;
                     responsive_count += 1;
 
                     log::info!(
-                        "  ✓ Peer {} responsive via TCP ({}ms)",
+                        "  ✓ Peer {} responsive via TCP ({}ms, version: {})",
                         peer_address,
-                        latency_ms
+                        latency_ms,
+                        peer.version.as_deref().unwrap_or("unknown")
                     );
                 }
             } else if let Some(peer) = self.connected_peers.get(i) {
@@ -529,12 +413,14 @@ impl NetworkManager {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
 
+        log::info!("📊 Fetching blockchain info from {} connected peers...", self.connected_peers.len());
+
         // Try each connected peer until we get a successful response
         for peer in &self.connected_peers {
             let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
             let tcp_addr = format!("{}:{}", peer_ip, peer.port);
 
-            log::info!("Fetching blockchain info via TCP from: {}", tcp_addr);
+            log::info!("  Trying peer: {}", tcp_addr);
 
             // Connect via TCP
             match tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr)).await
@@ -617,13 +503,14 @@ impl NetworkManager {
                                                                         &response_data
                                                                     )
                                                                 {
+                                                                    log::debug!("  Parsing response from {}", tcp_addr);
                                                                     if let NetworkMessage::BlockchainInfo {
                                                                         height,
                                                                         best_block_hash,
                                                                     } = response
                                                                     {
                                                                         log::info!(
-                                                                            "Got blockchain height {} from peer {}",
+                                                                            "✅ Got blockchain height {} from peer {}",
                                                                             height,
                                                                             tcp_addr
                                                                         );
@@ -634,7 +521,11 @@ impl NetworkManager {
                                                                             total_supply: 0,
                                                                             timestamp: 0,
                                                                         });
+                                                                    } else {
+                                                                        log::warn!("  ⚠️ Unexpected response type from {}", tcp_addr);
                                                                     }
+                                                                } else {
+                                                                    log::warn!("  ⚠️ Failed to parse response from {}", tcp_addr);
                                                                 }
                                                             }
                                                         }
@@ -652,12 +543,13 @@ impl NetworkManager {
                     continue;
                 }
                 _ => {
-                    log::warn!("Failed to connect to peer {}", tcp_addr);
+                    log::warn!("Failed to get blockchain info from {}", tcp_addr);
                     continue;
                 }
             }
         }
 
+        log::error!("❌ No peers responded with blockchain info via TCP");
         Err("No peers responded with blockchain info via TCP".to_string())
     }
 
@@ -1297,6 +1189,111 @@ impl NetworkManager {
                 self.network_block_height = info.height;
                 self.current_block_height = info.height;
             }
+        } else {
+            log::warn!("⚠️ Failed to fetch blockchain height from any peer");
         }
+    }
+
+    /// Periodic refresh - updates latency, versions, and blockchain height
+    pub async fn periodic_refresh(&mut self) {
+        log::info!("🔄 Running periodic refresh (latency, version, blockchain height)...");
+        
+        // Refresh peer latency and version info
+        let mut tasks = Vec::new();
+        
+        for peer in &self.connected_peers {
+            let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address).to_string();
+            let peer_address = peer.address.clone();
+            let port = peer.port;
+
+            let task = tokio::spawn(async move {
+                let tcp_addr = format!("{}:{}", peer_ip, port);
+                let start = std::time::Instant::now();
+
+                // Quick connect and handshake to get version
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    tokio::net::TcpStream::connect(&tcp_addr),
+                )
+                .await
+                {
+                    Ok(Ok(mut stream)) => {
+                        let latency_ms = start.elapsed().as_millis() as u64;
+                        
+                        // Try to get version via handshake
+                        let peer_version = tokio::time::timeout(
+                            std::time::Duration::from_millis(500),
+                            async {
+                                use time_network::protocol::HandshakeMessage;
+                                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                                
+                                let network_type = if port == 24100 {
+                                    time_network::discovery::NetworkType::Testnet
+                                } else {
+                                    time_network::discovery::NetworkType::Mainnet
+                                };
+                                
+                                let our_addr = "0.0.0.0:0".parse().unwrap();
+                                let handshake = HandshakeMessage::new(network_type, our_addr);
+                                let magic = network_type.magic_bytes();
+                                
+                                if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                                    let handshake_len = handshake_json.len() as u32;
+                                    
+                                    if stream.write_all(&magic).await.is_ok()
+                                        && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                                        && stream.write_all(&handshake_json).await.is_ok()
+                                        && stream.flush().await.is_ok()
+                                    {
+                                        let mut their_magic = [0u8; 4];
+                                        let mut their_len_bytes = [0u8; 4];
+                                        if stream.read_exact(&mut their_magic).await.is_ok()
+                                            && stream.read_exact(&mut their_len_bytes).await.is_ok()
+                                        {
+                                            let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                                            if their_len < 10 * 1024 {
+                                                let mut their_handshake_bytes = vec![0u8; their_len];
+                                                if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
+                                                    if let Ok(hs) = serde_json::from_slice::<HandshakeMessage>(&their_handshake_bytes) {
+                                                        return Some(hs.version);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                None
+                            }
+                        ).await.ok().flatten();
+                        
+                        Some((peer_address, latency_ms, peer_version))
+                    }
+                    _ => None,
+                }
+            });
+
+            tasks.push(task);
+        }
+
+        // Wait for all tests to complete
+        let mut results = Vec::new();
+        for task in tasks {
+            results.push(task.await);
+        }
+
+        // Update peer info
+        for (i, result) in results.into_iter().enumerate() {
+            if let Ok(Some((peer_address, latency_ms, peer_version))) = result {
+                if let Some(peer) = self.connected_peers.get_mut(i) {
+                    peer.latency_ms = latency_ms;
+                    if peer_version.is_some() {
+                        peer.version = peer_version;
+                    }
+                }
+            }
+        }
+
+        // Also update blockchain height
+        self.update_blockchain_height().await;
     }
 }

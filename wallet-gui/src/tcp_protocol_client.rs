@@ -309,7 +309,7 @@ impl TcpProtocolListener {
         stream: &mut TcpStream,
         message: NetworkMessage,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let data = bincode::serialize(&message)?;
+        let data = serde_json::to_vec(&message)?;
         let len = data.len() as u32;
         stream.write_all(&len.to_be_bytes()).await?;
         stream.write_all(&data).await?;
@@ -329,8 +329,8 @@ impl TcpProtocolListener {
         let mut data = vec![0u8; len];
         stream.read_exact(&mut data).await?;
 
-        // Deserialize
-        let message: NetworkMessage = bincode::deserialize(&data)?;
+        // Deserialize from JSON
+        let message: NetworkMessage = serde_json::from_slice(&data)?;
         Ok(message)
     }
 

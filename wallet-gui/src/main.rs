@@ -688,8 +688,8 @@ impl WalletApp {
                                                                         xpub: xpub_clone
                                                                     };
 
-                                                                    // Serialize and send
-                                                                    match bincode::serialize(&msg) {
+                                                                    // Serialize with JSON (not bincode!)
+                                                                    match serde_json::to_vec(&msg) {
                                                                         Ok(bytes) => {
                                                                             let len = bytes.len() as u32;
                                                                             if stream.write_all(&len.to_be_bytes()).await.is_ok() &&
@@ -716,29 +716,19 @@ impl WalletApp {
                                                 tokio::spawn(async move {
                                                     loop {
                                                         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                                                        log::info!("Running scheduled blockchain height update...");
+                                                        log::info!("🔄 Running scheduled refresh...");
 
-                                                        // Update blockchain height via NetworkManager
-                                                        // Clone to avoid holding lock across await
-                                                        let result = {
-                                                            let manager = network_refresh.lock().unwrap();
-                                                            std::mem::drop(manager); // Just check lock works
-                                                            true
-                                                        };
+                                                        // Run periodic refresh (latency, version, blockchain height)
+                                                        let network_clone = network_refresh.clone();
+                                                        tokio::task::spawn_blocking(move || {
+                                                            let rt = tokio::runtime::Runtime::new().unwrap();
+                                                            rt.block_on(async move {
+                                                                let mut manager = network_clone.lock().unwrap();
+                                                                manager.periodic_refresh().await;
+                                                            });
+                                                        }).await.ok();
 
-                                                        if result {
-                                                            // Actually call the update in a blocking task
-                                                            let network_clone = network_refresh.clone();
-                                                            tokio::task::spawn_blocking(move || {
-                                                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                                                rt.block_on(async move {
-                                                                    let mut manager = network_clone.lock().unwrap();
-                                                                    manager.update_blockchain_height().await;
-                                                                });
-                                                            }).await.ok();
-                                                        }
-
-                                                        log::info!("Scheduled update complete");
+                                                        log::info!("✅ Scheduled refresh complete");
                                                     }
                                                 });
                                             }

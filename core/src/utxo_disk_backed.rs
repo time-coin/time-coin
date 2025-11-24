@@ -127,16 +127,14 @@ impl DiskBackedUTXOSet {
         let mut result = Vec::new();
 
         // Scan all UTXOs (this is expensive!)
-        for item in self.db.iter() {
-            if let Ok((key, value)) = item {
-                if let Ok(key_str) = String::from_utf8(key.to_vec()) {
-                    if key_str.starts_with("utxo:") {
-                        if let Ok(output) = bincode::deserialize::<TxOutput>(&value) {
-                            if output.address == address {
-                                // Parse outpoint from key
-                                if let Some(outpoint) = Self::parse_key(&key_str) {
-                                    result.push((outpoint, output));
-                                }
+        for (key, value) in self.db.iter().flatten() {
+            if let Ok(key_str) = String::from_utf8(key.to_vec()) {
+                if key_str.starts_with("utxo:") {
+                    if let Ok(output) = bincode::deserialize::<TxOutput>(&value) {
+                        if output.address == address {
+                            // Parse outpoint from key
+                            if let Some(outpoint) = Self::parse_key(&key_str) {
+                                result.push((outpoint, output));
                             }
                         }
                     }

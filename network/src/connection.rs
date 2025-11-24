@@ -80,19 +80,22 @@ impl PeerConnection {
             }
         }
 
-        // Check version and warn ONLY if peer is running a NEWER version
-        let peer_date = their_handshake.commit_date.as_deref();
-        if crate::protocol::should_warn_version_update(
-            peer_date,
-            their_handshake.commit_count.as_deref(),
-        ) {
-            let warning = crate::protocol::version_update_warning(
-                &format!("{}", peer_addr),
-                &their_handshake.version,
-                peer_date.unwrap_or("unknown"),
-                their_handshake.commit_count.as_deref().unwrap_or("0"),
-            );
-            eprintln!("{}", warning);
+        // Check version and warn ONLY if peer is a masternode with a newer version
+        // Skip version check for wallets (they don't have wallet_address in handshake)
+        if their_handshake.wallet_address.is_some() {
+            let peer_date = their_handshake.commit_date.as_deref();
+            if crate::protocol::should_warn_version_update(
+                peer_date,
+                their_handshake.commit_count.as_deref(),
+            ) {
+                let warning = crate::protocol::version_update_warning(
+                    &format!("{}", peer_addr),
+                    &their_handshake.version,
+                    peer_date.unwrap_or("unknown"),
+                    their_handshake.commit_count.as_deref().unwrap_or("0"),
+                );
+                eprintln!("{}", warning);
+            }
         }
 
         Ok(PeerConnection {
