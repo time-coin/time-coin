@@ -79,9 +79,18 @@ echo "Network: $NETWORK"
 echo "API URL: $API_URL"
 echo ""
 
+# Detect if we're in scripts directory and cd to repo root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$SCRIPT_DIR" == */scripts ]]; then
+    REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+    echo "Changing to repository root: $REPO_ROOT"
+    cd "$REPO_ROOT"
+fi
+
 # Check if in time-coin repo
 if [ ! -f "Cargo.toml" ]; then
-    echo -e "${RED}Error: Must run from time-coin repository root${NC}"
+    echo -e "${RED}Error: Could not find time-coin repository${NC}"
+    echo "Please run from: ~/time-coin/ or ~/time-coin/scripts/"
     exit 1
 fi
 
