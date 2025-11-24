@@ -1539,6 +1539,10 @@ impl BlockProducer {
                 // Save UTXO snapshot to persist state
                 if let Err(e) = blockchain.save_utxo_snapshot() {
                     println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                    println!("   ⚠️  NOT removing transactions from mempool due to save failure");
+                    println!("   ⚠️  This prevents UTXO loss - transactions will be retried");
+                    drop(blockchain);
+                    return; // Critical failure - don't continue
                 } else {
                     println!("   💾 UTXO snapshot saved");
                 }
@@ -1562,6 +1566,7 @@ impl BlockProducer {
                     .broadcast_tip_update(block_num, block_hash)
                     .await;
 
+                // Remove transactions from mempool ONLY after successful UTXO snapshot save
                 for tx in transactions.iter().skip(1) {
                     self.mempool.remove_transaction(&tx.txid).await;
                 }
@@ -2365,6 +2370,12 @@ impl BlockProducer {
                 // Save UTXO snapshot to persist state
                 if let Err(e) = blockchain.save_utxo_snapshot() {
                     println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
+                    println!(
+                        "      ⚠️  NOT removing transactions from mempool due to save failure"
+                    );
+                    println!("      ⚠️  This prevents UTXO loss - transactions will be retried");
+                    drop(blockchain);
+                    return false; // Critical failure - don't continue
                 } else {
                     println!("      💾 UTXO snapshot saved");
                 }
@@ -2372,6 +2383,7 @@ impl BlockProducer {
                 drop(blockchain);
 
                 // Remove transactions from mempool (skip coinbase at index 0)
+                // This is ONLY done after successful UTXO snapshot save to prevent UTXO loss
                 for tx in block.transactions.iter().skip(1) {
                     self.mempool.remove_transaction(&tx.txid).await;
                 }
