@@ -918,22 +918,30 @@ impl PeerManager {
         // Try TCP first
         let connections = self.connections.read().await;
         if let Some(conn_arc) = connections.get(&peer_ip) {
-            let mut conn = conn_arc.lock().await;
+            // Add timeout to lock acquisition to prevent deadlock
+            let conn_result = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                conn_arc.lock()
+            ).await;
+            
+            if let Ok(mut conn) = conn_result {
+                // Send request
+                conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
+                    .await?;
 
-            // Send request
-            conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
-                .await?;
+                // Wait for response with timeout
+                let response =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
+                        .await??;
 
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
-                    .await??;
-
-            match response {
-                crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => {
-                    return Ok(height);
+                match response {
+                    crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => {
+                        return Ok(height);
+                    }
+                    _ => return Err("Unexpected response type".into()),
                 }
-                _ => return Err("Unexpected response type".into()),
+            } else {
+                return Err("Timeout acquiring connection lock".into());
             }
         }
 

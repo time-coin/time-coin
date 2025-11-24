@@ -1056,7 +1056,14 @@ async fn main() {
     // STEP 4: Check if we need to sync
     // ═══════════════════════════════════════════════════════════════
 
-    let network_height = get_network_height(&peer_manager).await;
+    // Query network height with a global timeout to prevent hanging
+    let network_height = tokio::time::timeout(
+        tokio::time::Duration::from_secs(15),
+        get_network_height(&peer_manager)
+    ).await.unwrap_or_else(|_| {
+        println!("{}", "   ⚠️  Timeout querying network height - continuing anyway".yellow());
+        None
+    });
     let needs_sync = if let Some(net_height) = network_height {
         println!(
             "{}",
@@ -1376,7 +1383,13 @@ async fn main() {
 
     // Check if blockchain is synced before syncing mempool
     let local_height = get_local_height(&blockchain).await;
-    let network_height = get_network_height(&peer_manager).await;
+    let network_height = tokio::time::timeout(
+        tokio::time::Duration::from_secs(15),
+        get_network_height(&peer_manager)
+    ).await.unwrap_or_else(|_| {
+        println!("{}", "   ⚠️  Timeout querying network height for mempool sync - assuming synced".yellow());
+        None
+    });
     let is_synced = if let Some(net_height) = network_height {
         // Consider synced if within 2 blocks of network height
         local_height >= net_height.saturating_sub(2)
