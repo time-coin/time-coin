@@ -1056,14 +1056,7 @@ async fn main() {
     // STEP 4: Check if we need to sync
     // ═══════════════════════════════════════════════════════════════
 
-    // Query network height with a global timeout to prevent hanging
-    let network_height = tokio::time::timeout(
-        tokio::time::Duration::from_secs(15),
-        get_network_height(&peer_manager)
-    ).await.unwrap_or_else(|_| {
-        println!("{}", "   ⚠️  Timeout querying network height - continuing anyway".yellow());
-        None
-    });
+    let network_height = get_network_height(&peer_manager).await;
     let needs_sync = if let Some(net_height) = network_height {
         println!(
             "{}",
@@ -1383,13 +1376,7 @@ async fn main() {
 
     // Check if blockchain is synced before syncing mempool
     let local_height = get_local_height(&blockchain).await;
-    let network_height = tokio::time::timeout(
-        tokio::time::Duration::from_secs(15),
-        get_network_height(&peer_manager)
-    ).await.unwrap_or_else(|_| {
-        println!("{}", "   ⚠️  Timeout querying network height for mempool sync - assuming synced".yellow());
-        None
-    });
+    let network_height = get_network_height(&peer_manager).await;
     let is_synced = if let Some(net_height) = network_height {
         // Consider synced if within 2 blocks of network height
         local_height >= net_height.saturating_sub(2)
@@ -1528,7 +1515,6 @@ async fn main() {
                 let block_consensus_clone = block_consensus.clone();
                 let quarantine_clone = quarantine.clone();
                 let blockchain_clone = blockchain.clone();
-                let mempool_clone = mempool.clone();
 
                 tokio::spawn(async move {
                     loop {
@@ -1577,15 +1563,8 @@ async fn main() {
                             // Wrap connection in Arc before storing
                             let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
 
-                            // Get the REAL peer IP from the TCP socket (not from handshake listen_addr)
-                            let real_peer_ip = {
-                                let conn_guard = conn_arc.lock().await;
-                                conn_guard.peer_addr().ok().map(|addr| addr.ip())
-                            };
-                            let peer_ip_for_logging =
-                                real_peer_ip.unwrap_or_else(|| peer_addr.ip());
-
                             // IMPORTANT: Store both peer info AND connection to prevent ephemeral connections
+                            let peer_ip = peer_addr.ip(); // Extract IP before moving variables
                             peer_manager_clone
                                 .add_connected_peer_with_connection_arc(
                                     info.clone(),
@@ -1636,10 +1615,9 @@ async fn main() {
                             // Spawn message handler for incoming Ping/Pong with timeout
                             let peer_manager_listen = Arc::clone(&peer_manager_clone);
                             let conn_arc_clone = conn_arc.clone();
-                            let peer_ip_listen = peer_ip_for_logging; // Use real IP for logging
+                            let peer_ip_listen = peer_ip;
                             let blockchain_listen = Arc::clone(&blockchain_clone);
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
-                            let mempool_listen = Arc::clone(&mempool_clone);
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -1735,71 +1713,6 @@ async fn main() {
                                                     if let Ok(vote) = serde_json::from_str::<time_consensus::block_consensus::BlockVote>(&vote_json) {
                                                         println!("🗳️  Received block vote from {} for block #{}", peer_ip_listen, vote.block_height);
                                                         let _ = block_consensus_listen.vote_on_block(vote).await;
-                                                    }
-                                                }
-                                                time_network::protocol::NetworkMessage::RegisterXpub { xpub } => {
-                                                    println!("📥 Received RegisterXpub from {} for xpub: {}...", peer_ip_listen, &xpub[..20]);
-
-                                                    // Subscribe this peer to transaction notifications
-                                                    peer_manager_listen.subscribe_wallet(&xpub, peer_ip_listen).await;
-
-                                                    // Send success response directly on this connection
-                                                    let response = time_network::protocol::NetworkMessage::XpubRegistered {
-                                                        success: true,
-                                                        message: "Xpub registered successfully".to_string(),
-                                                    };
-
-                                                    let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent XpubRegistered response to {}", peer_ip_listen);
-                                                    } else {
-                                                        println!("❌ Failed to send XpubRegistered response to {}", peer_ip_listen);
-                                                    }
-                                                }
-                                                time_network::protocol::NetworkMessage::GetBlockchainInfo => {
-                                                    println!("📊 Received GetBlockchainInfo from {}", peer_ip_listen);
-
-                                                    // Get current blockchain height
-                                                    let (height, best_block_hash) = {
-                                                        let bc = blockchain_listen.read().await;
-                                                        let h = bc.chain_tip_height();
-                                                        let hash = bc.get_block_by_height(h)
-                                                            .map(|b| b.hash.clone())
-                                                            .unwrap_or_else(|| "unknown".to_string());
-                                                        (h, hash)
-                                                    };
-
-                                                    // Send blockchain info response
-                                                    let response = time_network::protocol::NetworkMessage::BlockchainInfo {
-                                                        height,
-                                                        best_block_hash,
-                                                    };
-
-                                                    let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent BlockchainInfo to {} (height: {})", peer_ip_listen, height);
-                                                    } else {
-                                                        println!("❌ Failed to send BlockchainInfo to {}", peer_ip_listen);
-                                                    }
-                                                }
-                                                time_network::protocol::NetworkMessage::GetMempool => {
-                                                    println!("📨 Received GetMempool from {}", peer_ip_listen);
-
-                                                    // Get all transactions from mempool
-                                                    let transactions = mempool_listen.get_all_transactions().await;
-
-                                                    println!("📤 Sending {} transactions from mempool to {}", 
-                                                        transactions.len(), peer_ip_listen);
-
-                                                    // Send mempool response
-                                                    let response = 
-                                                        time_network::protocol::NetworkMessage::MempoolResponse(transactions);
-
-                                                    let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent MempoolResponse to {}", peer_ip_listen);
-                                                    } else {
-                                                        println!("❌ Failed to send MempoolResponse to {}", peer_ip_listen);
                                                     }
                                                 }
                                                 _ => {
