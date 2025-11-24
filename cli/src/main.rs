@@ -851,7 +851,7 @@ async fn main() {
                     })
                     .await;
 
-                if let Ok((currently_connected, new_peers_to_connect)) = second_wave_result {
+                if let Ok((_currently_connected, new_peers_to_connect)) = second_wave_result {
                     // Convert and connect to newly discovered peers
                     let mut connected_count = 0;
                     for pex_peer in new_peers_to_connect.iter() {
