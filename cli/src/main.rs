@@ -1059,9 +1059,14 @@ async fn main() {
     // Query network height with a global timeout to prevent hanging
     let network_height = tokio::time::timeout(
         tokio::time::Duration::from_secs(15),
-        get_network_height(&peer_manager)
-    ).await.unwrap_or_else(|_| {
-        println!("{}", "   ⚠️  Timeout querying network height - continuing anyway".yellow());
+        get_network_height(&peer_manager),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        println!(
+            "{}",
+            "   ⚠️  Timeout querying network height - continuing anyway".yellow()
+        );
         None
     });
     let needs_sync = if let Some(net_height) = network_height {
@@ -1385,9 +1390,14 @@ async fn main() {
     let local_height = get_local_height(&blockchain).await;
     let network_height = tokio::time::timeout(
         tokio::time::Duration::from_secs(15),
-        get_network_height(&peer_manager)
-    ).await.unwrap_or_else(|_| {
-        println!("{}", "   ⚠️  Timeout querying network height for mempool sync - assuming synced".yellow());
+        get_network_height(&peer_manager),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        println!(
+            "{}",
+            "   ⚠️  Timeout querying network height for mempool sync - assuming synced".yellow()
+        );
         None
     });
     let is_synced = if let Some(net_height) = network_height {
@@ -1672,12 +1682,12 @@ async fn main() {
                                                 time_network::protocol::NetworkMessage::GetPeerList => {
                                                     // Respond with our known peers directly on this connection
                                                     let all_peers = peer_manager_listen.get_peers().await;
-                                                    
-                                                    // Filter to only include masternodes (peers with wallet_address)
-                                                    // This prevents wallets from being advertised in peer lists
+
+                                                    // Filter to only include masternodes (peers listening on port 24100)
+                                                    // Wallets use 0.0.0.0:0 as their listen_addr, masternodes use real IP:24100
                                                     let peer_list: Vec<time_network::protocol::PeerAddress> = all_peers
                                                         .iter()
-                                                        .filter(|p| p.wallet_address.is_some())
+                                                        .filter(|p| p.address.port() == 24100)
                                                         .map(|p| time_network::protocol::PeerAddress {
                                                             ip: p.address.ip().to_string(),
                                                             port: p.address.port(),
@@ -1792,11 +1802,11 @@ async fn main() {
                                                     // Get all transactions from mempool
                                                     let transactions = mempool_listen.get_all_transactions().await;
 
-                                                    println!("📤 Sending {} transactions from mempool to {}", 
+                                                    println!("📤 Sending {} transactions from mempool to {}",
                                                         transactions.len(), peer_ip_listen);
 
                                                     // Send mempool response
-                                                    let response = 
+                                                    let response =
                                                         time_network::protocol::NetworkMessage::MempoolResponse(transactions);
 
                                                     let mut conn = conn_arc_clone.lock().await;
