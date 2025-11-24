@@ -5,10 +5,6 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
-[[bin]]
-name = "time-masternode"
-path = "src/main.rs"
-
 [lib]
 name = "time_masternode"
 path = "src/lib.rs"
