@@ -113,8 +113,18 @@ echo ""
 echo ""
 echo -e "${GREEN}✅ Mint transaction submitted!${NC}"
 echo ""
-echo "Check your balance with:"
-echo "  time-cli balance"
+echo "Current wallet balance:"
+python3 -c "
+import json
+with open('$NODE_JSON', 'r') as f:
+    data = json.load(f)
+    balance = data.get('balance', 0)
+    balance_time = balance / 1_000_000
+    print(f'  {balance_time:.6f} TIME ({balance} units)')
+"
+echo ""
+echo "Check blockchain status with:"
+echo "  time-cli info"
 echo ""
 echo "Or view transaction in logs:"
 echo "  journalctl -u timed -f"
