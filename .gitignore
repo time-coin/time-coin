@@ -97,4 +97,4 @@ time-coin/
 # ==========================================
 # (auto) removed Cargo.lock ignore to allow lockfile commits
 
-release/
+release/wallet_logs.txt
