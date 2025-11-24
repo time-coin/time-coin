@@ -831,20 +831,27 @@ async fn main() {
                 }
 
                 // Second wave: Connect to newly discovered peers from peer exchange
-                let currently_connected: std::collections::HashSet<String> = peer_manager
-                    .get_connected_peers()
-                    .await
-                    .iter()
-                    .map(|p| p.address.to_string())
-                    .collect();
+                // Wrap in timeout to prevent hanging
+                let second_wave_result =
+                    tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
+                        let currently_connected: std::collections::HashSet<String> = peer_manager
+                            .get_connected_peers()
+                            .await
+                            .iter()
+                            .map(|p| p.address.to_string())
+                            .collect();
 
-                let best_peers = peer_manager.get_best_peers(10).await;
-                let new_peers_to_connect: Vec<_> = best_peers
-                    .into_iter()
-                    .filter(|p| !currently_connected.contains(&p.full_address()))
-                    .collect();
+                        let best_peers = peer_manager.get_best_peers(10).await;
+                        let new_peers_to_connect: Vec<_> = best_peers
+                            .into_iter()
+                            .filter(|p| !currently_connected.contains(&p.full_address()))
+                            .collect();
 
-                if !new_peers_to_connect.is_empty() {
+                        (currently_connected, new_peers_to_connect)
+                    })
+                    .await;
+
+                if let Ok((currently_connected, new_peers_to_connect)) = second_wave_result {
                     // Convert and connect to newly discovered peers
                     let mut connected_count = 0;
                     for pex_peer in new_peers_to_connect.iter() {
