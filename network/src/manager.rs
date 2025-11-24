@@ -919,9 +919,11 @@ impl PeerManager {
         let connections = self.connections.read().await;
         if let Some(conn_arc) = connections.get(&peer_ip) {
             // Add timeout to lock acquisition to prevent deadlock
-            let conn_result =
-                tokio::time::timeout(std::time::Duration::from_secs(2), conn_arc.lock()).await;
-
+            let conn_result = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                conn_arc.lock()
+            ).await;
+            
             if let Ok(mut conn) = conn_result {
                 // Send request
                 conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)

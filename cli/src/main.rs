@@ -816,39 +816,18 @@ async fn main() {
                     }
                 }
 
-                // Add a delay to give peers time to start their listeners
-                // This helps when multiple nodes restart simultaneously
-                // Peer discovery happens early (~line 780) but listeners don't start until much later (~line 1536)
-                if !discovery_quiet {
-                    println!("  ⏳ Waiting 10 seconds for peers to start listeners...");
-                }
-                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-
                 // Connect to the chosen set (filtered if strict_discovery, otherwise all discovered peers)
                 peer_manager.connect_to_peers(peers_to_connect).await;
 
                 // connect_to_peers now waits internally, just check results
-                let connected_peers = peer_manager.get_connected_peers().await;
-                let connected = connected_peers.len();
+                let connected = peer_manager.get_connected_peers().await.len();
                 if connected > 0 && !discovery_quiet {
                     println!(
                         "{}",
                         format!("  ✓ Connected to {} peer(s)", connected).green()
                     );
-                    for peer in &connected_peers {
-                        println!("    - {}", peer.address);
-                    }
                 } else if !discovery_quiet {
                     println!("{}", "  ⚠️  No peers connected".yellow());
-                }
-
-                // Show which peers failed to connect
-                if connected < peers.len() && !discovery_quiet {
-                    println!(
-                        "  {} Failed to connect to {} peer(s)",
-                        "⚠️".yellow(),
-                        peers.len() - connected
-                    );
                 }
 
                 // Second wave: Connect to newly discovered peers from peer exchange
@@ -1080,14 +1059,9 @@ async fn main() {
     // Query network height with a global timeout to prevent hanging
     let network_height = tokio::time::timeout(
         tokio::time::Duration::from_secs(15),
-        get_network_height(&peer_manager),
-    )
-    .await
-    .unwrap_or_else(|_| {
-        println!(
-            "{}",
-            "   ⚠️  Timeout querying network height - continuing anyway".yellow()
-        );
+        get_network_height(&peer_manager)
+    ).await.unwrap_or_else(|_| {
+        println!("{}", "   ⚠️  Timeout querying network height - continuing anyway".yellow());
         None
     });
     let needs_sync = if let Some(net_height) = network_height {
@@ -1411,14 +1385,9 @@ async fn main() {
     let local_height = get_local_height(&blockchain).await;
     let network_height = tokio::time::timeout(
         tokio::time::Duration::from_secs(15),
-        get_network_height(&peer_manager),
-    )
-    .await
-    .unwrap_or_else(|_| {
-        println!(
-            "{}",
-            "   ⚠️  Timeout querying network height for mempool sync - assuming synced".yellow()
-        );
+        get_network_height(&peer_manager)
+    ).await.unwrap_or_else(|_| {
+        println!("{}", "   ⚠️  Timeout querying network height for mempool sync - assuming synced".yellow());
         None
     });
     let is_synced = if let Some(net_height) = network_height {
@@ -1702,10 +1671,8 @@ async fn main() {
                                                 }
                                                 time_network::protocol::NetworkMessage::GetPeerList => {
                                                     // Respond with our known peers directly on this connection
-                                                    let all_peers = peer_manager_listen.get_peers().await;
-
-                                                    // Return ALL peers without filtering
-                                                    let peer_list: Vec<time_network::protocol::PeerAddress> = all_peers
+                                                    let peers = peer_manager_listen.get_peers().await;
+                                                    let peer_list: Vec<time_network::protocol::PeerAddress> = peers
                                                         .iter()
                                                         .map(|p| time_network::protocol::PeerAddress {
                                                             ip: p.address.ip().to_string(),
@@ -1821,11 +1788,11 @@ async fn main() {
                                                     // Get all transactions from mempool
                                                     let transactions = mempool_listen.get_all_transactions().await;
 
-                                                    println!("📤 Sending {} transactions from mempool to {}",
+                                                    println!("📤 Sending {} transactions from mempool to {}", 
                                                         transactions.len(), peer_ip_listen);
 
                                                     // Send mempool response
-                                                    let response =
+                                                    let response = 
                                                         time_network::protocol::NetworkMessage::MempoolResponse(transactions);
 
                                                     let mut conn = conn_arc_clone.lock().await;
@@ -1859,9 +1826,6 @@ async fn main() {
             }
             Err(e) => eprintln!("Failed to start peer listener: {}", e),
         }
-
-        // Give the peer listener a moment to fully start accepting connections
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         println!(
             "{}",
