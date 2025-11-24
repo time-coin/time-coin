@@ -17,6 +17,7 @@ sha3.workspace = true
 hex = "0.4"
 uuid = { workspace = true, features = ["v4"] }
 time-crypto = { version = "0.1.0", path = "../crypto" }
+lru = "0.12"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

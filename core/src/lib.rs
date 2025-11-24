@@ -12,6 +12,7 @@ pub mod snapshot_service;
 pub mod state;
 pub mod transaction;
 pub mod treasury_manager;
+pub mod utxo_disk_backed;
 pub mod utxo_set;
 
 // Re-export commonly used types
