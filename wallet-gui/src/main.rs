@@ -414,24 +414,37 @@ impl WalletApp {
                                             })
                                             .collect();
 
-                                        // Connect in blocking task
+                                        // TODO: Fix peer connection to not block GUI thread
+                                        // For now, skip to prevent hanging
+                                        log::info!("⏭️  Skipping peer connection refresh to prevent GUI hang");
+                                        /*
+                                        // Connect in background without blocking GUI
                                         let network_clone = network_mgr_periodic.clone();
-                                        tokio::task::spawn_blocking(move || {
-                                            let rt = tokio::runtime::Runtime::new().unwrap();
-                                            rt.block_on(async move {
-                                                let mut net = network_clone.lock().unwrap();
-                                                if let Err(e) =
+                                        tokio::spawn(async move {
+                                            // Add timeout to prevent hanging
+                                            let connect_result = tokio::time::timeout(
+                                                std::time::Duration::from_secs(30),
+                                                async move {
+                                                    let mut net = network_clone.lock().unwrap();
                                                     net.connect_to_peers(peer_infos).await
-                                                {
-                                                    log::warn!(
-                                                        "⚠️ Failed to connect to some peers: {}",
-                                                        e
-                                                    );
+                                                },
+                                            )
+                                            .await;
+
+                                            match connect_result {
+                                                Ok(Ok(_)) => {
+                                                    log::info!("✅ Connected to peers successfully")
                                                 }
-                                            });
-                                        })
-                                        .await
-                                        .ok();
+                                                Ok(Err(e)) => log::warn!(
+                                                    "⚠️ Error connecting to peers: {}",
+                                                    e
+                                                ),
+                                                Err(_) => {
+                                                    log::warn!("⚠️ Timeout connecting to peers")
+                                                }
+                                            }
+                                        });
+                                        */
                                     }
                                 }
 

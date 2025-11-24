@@ -494,58 +494,71 @@ impl NetworkManager {
                                                     && stream.write_all(&data).await.is_ok()
                                                     && stream.flush().await.is_ok()
                                                 {
-                                                    // Read response
-                                                    let mut len_bytes = [0u8; 4];
-                                                    if stream
-                                                        .read_exact(&mut len_bytes)
-                                                        .await
-                                                        .is_ok()
-                                                    {
-                                                        let response_len =
-                                                            u32::from_be_bytes(len_bytes) as usize;
+                                                    // Read response with timeout
+                                                    let read_result = tokio::time::timeout(
+                                                        Duration::from_secs(5),
+                                                        async {
+                                                            let mut len_bytes = [0u8; 4];
+                                                            stream
+                                                                .read_exact(&mut len_bytes)
+                                                                .await?;
+                                                            let response_len =
+                                                                u32::from_be_bytes(len_bytes)
+                                                                    as usize;
 
-                                                        if response_len < 1024 * 1024 {
-                                                            // 1MB limit
-                                                            let mut response_data =
-                                                                vec![0u8; response_len];
-                                                            if stream
-                                                                .read_exact(&mut response_data)
-                                                                .await
-                                                                .is_ok()
-                                                            {
-                                                                if let Ok(response) =
-                                                                    serde_json::from_slice::<
-                                                                        NetworkMessage,
-                                                                    >(
-                                                                        &response_data
-                                                                    )
-                                                                {
-                                                                    log::debug!("  Parsing response from {}", tcp_addr);
-                                                                    if let NetworkMessage::BlockchainInfo {
-                                                                        height,
-                                                                        best_block_hash,
-                                                                    } = response
-                                                                    {
-                                                                        log::info!(
-                                                                            "✅ Got blockchain height {} from peer {}",
-                                                                            height,
-                                                                            tcp_addr
-                                                                        );
-                                                                        return Ok(BlockchainInfo {
-                                                                            network: "mainnet".to_string(),
-                                                                            height,
-                                                                            best_block_hash,
-                                                                            total_supply: 0,
-                                                                            timestamp: 0,
-                                                                        });
-                                                                    } else {
-                                                                        log::warn!("  ⚠️ Unexpected response type from {}", tcp_addr);
-                                                                    }
-                                                                } else {
-                                                                    log::warn!("  ⚠️ Failed to parse response from {}", tcp_addr);
-                                                                }
+                                                            if response_len < 1024 * 1024 {
+                                                                let mut response_data =
+                                                                    vec![0u8; response_len];
+                                                                stream
+                                                                    .read_exact(&mut response_data)
+                                                                    .await?;
+                                                                Ok((response_len, response_data))
+                                                            } else {
+                                                                Err(std::io::Error::new(
+                                                                    std::io::ErrorKind::InvalidData,
+                                                                    "Response too large",
+                                                                ))
                                                             }
+                                                        },
+                                                    )
+                                                    .await;
+
+                                                    if let Ok(Ok((_, response_data))) = read_result
+                                                    {
+                                                        if let Ok(response) = serde_json::from_slice::<
+                                                            NetworkMessage,
+                                                        >(
+                                                            &response_data
+                                                        ) {
+                                                            log::debug!(
+                                                                "  Parsing response from {}",
+                                                                tcp_addr
+                                                            );
+                                                            if let NetworkMessage::BlockchainInfo {
+                                                                height,
+                                                                best_block_hash,
+                                                            } = response
+                                                            {
+                                                                log::info!(
+                                                                    "✅ Got blockchain height {} from peer {}",
+                                                                    height,
+                                                                    tcp_addr
+                                                                );
+                                                                return Ok(BlockchainInfo {
+                                                                    network: "mainnet".to_string(),
+                                                                    height,
+                                                                    best_block_hash,
+                                                                    total_supply: 0,
+                                                                    timestamp: 0,
+                                                                });
+                                                            } else {
+                                                                log::warn!("  ⚠️ Unexpected response type from {}", tcp_addr);
+                                                            }
+                                                        } else {
+                                                            log::warn!("  ⚠️ Failed to parse response from {}", tcp_addr);
                                                         }
+                                                    } else {
+                                                        log::warn!("  ⚠️ Timeout or error reading response from {}", tcp_addr);
                                                     }
                                                 }
                                             }
