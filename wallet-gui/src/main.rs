@@ -266,6 +266,9 @@ impl WalletApp {
                     self.network_manager = Some(network_mgr.clone());
                     self.network_status = "Connecting...".to_string();
 
+                    // Get xpub BEFORE manager is moved into spawn
+                    let wallet_xpub = manager.get_xpub().to_string();
+
                     // Spawn network bootstrap task
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                     let addnodes = main_config.addnode.clone();
@@ -434,6 +437,63 @@ impl WalletApp {
 
                                 // Check again every 60 seconds (1 minute)
                                 tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                            }
+                        });
+
+                        // Initialize TCP listener for transaction notifications
+                        log::info!("🔌 Initializing TCP listener for auto-loaded wallet");
+                        let tcp_network_mgr = network_mgr_clone.clone();
+                        tokio::spawn(async move {
+                            // Wait a bit for peers to connect
+                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+                            let peer_addr = {
+                                let net = tcp_network_mgr.lock().unwrap();
+                                let peers = net.get_connected_peers();
+                                if let Some(peer) = peers.first() {
+                                    let peer_ip =
+                                        peer.address.split(':').next().unwrap_or(&peer.address);
+                                    Some(format!("{}:24100", peer_ip))
+                                } else {
+                                    None
+                                }
+                            };
+
+                            if let Some(addr) = peer_addr {
+                                log::info!("🔗 Starting TCP listener for {}", addr);
+                                let (utxo_tx, _utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
+                                    time_network::protocol::UtxoInfo,
+                                >();
+                                let listener = tcp_protocol_client::TcpProtocolListener::new(
+                                    addr,
+                                    wallet_xpub,
+                                    utxo_tx,
+                                );
+                                listener.start().await;
+                            } else {
+                                log::warn!("❌ No peers available for TCP listener");
+                            }
+                        });
+
+                        // Start periodic refresh for blockchain height, latency, versions
+                        let network_refresh = network_mgr_clone.clone();
+                        tokio::spawn(async move {
+                            loop {
+                                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                                log::info!("🔄 Running scheduled refresh...");
+
+                                let network_clone = network_refresh.clone();
+                                tokio::task::spawn_blocking(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async move {
+                                        let mut manager = network_clone.lock().unwrap();
+                                        manager.periodic_refresh().await;
+                                    });
+                                })
+                                .await
+                                .ok();
+
+                                log::info!("✅ Scheduled refresh complete");
                             }
                         });
                     });
@@ -955,7 +1015,9 @@ impl WalletApp {
                                 }
 
                                 // Initialize TCP listener NOW that peers are connected
-                                log::info!("🔌 Initializing TCP listener for real-time notifications...");
+                                log::info!(
+                                    "🔌 Initializing TCP listener for real-time notifications..."
+                                );
                                 let network_mgr_clone = network_mgr.clone();
                                 tokio::spawn(async move {
                                     // Get first available peer
@@ -963,7 +1025,11 @@ impl WalletApp {
                                         let net = network_mgr_clone.lock().unwrap();
                                         let peers = net.get_connected_peers();
                                         if let Some(peer) = peers.first() {
-                                            let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                                            let peer_ip = peer
+                                                .address
+                                                .split(':')
+                                                .next()
+                                                .unwrap_or(&peer.address);
                                             Some(format!("{}:24100", peer_ip))
                                         } else {
                                             None
@@ -972,7 +1038,10 @@ impl WalletApp {
 
                                     if let Some(addr) = peer_addr {
                                         log::info!("🔗 Starting TCP listener for {}", addr);
-                                        let (utxo_tx, _utxo_rx) = tokio::sync::mpsc::unbounded_channel::<time_network::protocol::UtxoInfo>();
+                                        let (utxo_tx, _utxo_rx) =
+                                            tokio::sync::mpsc::unbounded_channel::<
+                                                time_network::protocol::UtxoInfo,
+                                            >();
                                         // Note: Need xpub here - but it's not available in this scope
                                         // This path is for new wallet creation before xpub is set
                                         log::warn!("⚠️ TCP listener not started - xpub not available yet in new wallet flow");
@@ -985,7 +1054,8 @@ impl WalletApp {
                                 let network_refresh = network_mgr.clone();
                                 tokio::spawn(async move {
                                     loop {
-                                        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(10))
+                                            .await;
                                         log::info!("🔄 Running scheduled refresh...");
 
                                         // Run periodic refresh (latency, version, blockchain height)
@@ -996,7 +1066,9 @@ impl WalletApp {
                                                 let mut manager = network_clone.lock().unwrap();
                                                 manager.periodic_refresh().await;
                                             });
-                                        }).await.ok();
+                                        })
+                                        .await
+                                        .ok();
 
                                         log::info!("✅ Scheduled refresh complete");
                                     }
@@ -3039,7 +3111,9 @@ impl WalletApp {
                 log::warn!("❌ No peers available for TCP listener - wallet will not receive notifications!");
             }
         } else {
-            log::warn!("❌ Network manager not initialized - wallet will not receive notifications!");
+            log::warn!(
+                "❌ Network manager not initialized - wallet will not receive notifications!"
+            );
         }
     }
 

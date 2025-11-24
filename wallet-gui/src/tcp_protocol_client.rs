@@ -241,14 +241,67 @@ impl TcpProtocolListener {
     }
 
     async fn connect_and_listen(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use time_network::protocol::HandshakeMessage;
+
         // Connect to masternode
         log::info!("🔌 Attempting to connect to {}", self.peer_addr);
         let mut stream = TcpStream::connect(&self.peer_addr).await?;
 
         log::info!("✅ Connected to {}", self.peer_addr);
 
-        // Register xpub
-        log::info!("📤 Registering xpub: {}...", &self.xpub[..std::cmp::min(20, self.xpub.len())]);
+        // Perform handshake first (required by masternode protocol)
+        let network_type = if self.peer_addr.contains("24100") {
+            time_network::discovery::NetworkType::Testnet
+        } else {
+            time_network::discovery::NetworkType::Mainnet
+        };
+
+        let our_addr = "0.0.0.0:0".parse().unwrap();
+        let handshake = HandshakeMessage::new(network_type, our_addr);
+        let magic = network_type.magic_bytes();
+
+        // Send magic bytes + handshake
+        if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+            let handshake_len = handshake_json.len() as u32;
+
+            stream.write_all(&magic).await?;
+            stream.write_all(&handshake_len.to_be_bytes()).await?;
+            stream.write_all(&handshake_json).await?;
+            stream.flush().await?;
+
+            // Read their handshake response
+            let mut their_magic = [0u8; 4];
+            let mut their_len_bytes = [0u8; 4];
+            stream.read_exact(&mut their_magic).await?;
+
+            if their_magic != magic {
+                return Err("Invalid magic bytes in handshake response".into());
+            }
+
+            stream.read_exact(&mut their_len_bytes).await?;
+            let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+
+            if their_len < 10 * 1024 {
+                let mut their_handshake_bytes = vec![0u8; their_len];
+                stream.read_exact(&mut their_handshake_bytes).await?;
+
+                if let Ok(_their_handshake) =
+                    serde_json::from_slice::<HandshakeMessage>(&their_handshake_bytes)
+                {
+                    log::info!("🤝 Handshake completed with {}", self.peer_addr);
+                } else {
+                    return Err("Failed to parse handshake response".into());
+                }
+            } else {
+                return Err("Handshake response too large".into());
+            }
+        }
+
+        // Now register xpub
+        log::info!(
+            "📤 Registering xpub: {}...",
+            &self.xpub[..std::cmp::min(20, self.xpub.len())]
+        );
         self.send_message(
             &mut stream,
             NetworkMessage::RegisterXpub {
@@ -259,9 +312,10 @@ impl TcpProtocolListener {
 
         log::info!("📝 Sent RegisterXpub request, waiting for response...");
 
-        // Wait for XpubRegistered response or UtxoUpdate
-        match self.read_message(&mut stream).await? {
-            NetworkMessage::XpubRegistered { success, message } => {
+        // Wait for XpubRegistered response or UtxoUpdate with 10 second timeout
+        let response_timeout = tokio::time::Duration::from_secs(10);
+        match tokio::time::timeout(response_timeout, self.read_message(&mut stream)).await {
+            Ok(Ok(NetworkMessage::XpubRegistered { success, message })) => {
                 if success {
                     log::info!("✅ Xpub registered: {}", message);
                 } else {
@@ -269,7 +323,7 @@ impl TcpProtocolListener {
                     return Err(message.into());
                 }
             }
-            NetworkMessage::UtxoUpdate { xpub, utxos } => {
+            Ok(Ok(NetworkMessage::UtxoUpdate { xpub, utxos })) => {
                 log::info!(
                     "📦 Initial UTXO update: {} UTXOs for xpub {}",
                     utxos.len(),
@@ -278,17 +332,32 @@ impl TcpProtocolListener {
 
                 // Send each UTXO to channel
                 for utxo in utxos {
-                    log::info!("  📍 UTXO: {} - {} TIME", utxo.txid, utxo.amount as f64 / 1_000_000.0);
+                    log::info!(
+                        "  📍 UTXO: {} - {} TIME",
+                        utxo.txid,
+                        utxo.amount as f64 / 1_000_000.0
+                    );
                     let _ = self.utxo_tx.send(utxo);
                 }
             }
-            msg => {
+            Ok(Ok(msg)) => {
                 log::warn!("⚠️ Unexpected response to RegisterXpub: {:?}", msg);
+            }
+            Ok(Err(e)) => {
+                log::error!("❌ Error reading RegisterXpub response: {}", e);
+                return Err(e);
+            }
+            Err(_) => {
+                log::error!("❌ Timeout waiting for RegisterXpub response - masternode may not be responding");
+                return Err("Timeout waiting for xpub registration response".into());
             }
         }
 
         // Now listen for push notifications
-        log::info!("👂 Listening for push notifications from {}...", self.peer_addr);
+        log::info!(
+            "👂 Listening for push notifications from {}...",
+            self.peer_addr
+        );
 
         loop {
             match self.read_message(&mut stream).await {

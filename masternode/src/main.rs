@@ -240,6 +240,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         continue;
                                     }
 
+                                    // Handle RegisterXpub for wallet connections
+                                    if matches!(
+                                        message,
+                                        time_network::protocol::NetworkMessage::RegisterXpub { .. }
+                                    ) {
+                                        log::info!("📥 Received RegisterXpub from {}", peer_ip);
+
+                                        // Handle via integration
+                                        match integration
+                                            .handle_network_message(&message, peer_ip)
+                                            .await
+                                        {
+                                            Ok(Some(response)) => {
+                                                log::info!(
+                                                    "📤 Sending RegisterXpub response to {}",
+                                                    peer_ip
+                                                );
+                                                match connection.send_message(response).await {
+                                                    Ok(_) => log::info!("✅ RegisterXpub response sent to {}", peer_ip),
+                                                    Err(e) => log::error!("❌ Failed to send RegisterXpub response: {}", e),
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                log::debug!("No response needed for RegisterXpub");
+                                            }
+                                            Err(e) => {
+                                                log::error!(
+                                                    "❌ Failed to handle RegisterXpub: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                        continue;
+                                    }
+
                                     // Handle GetMempool directly
                                     if matches!(
                                         message,

@@ -214,29 +214,31 @@ impl NetworkManager {
                     Ok(Ok(mut stream)) => {
                         let latency_ms = start.elapsed().as_millis() as u64;
                         log::info!("  ✓ Connected to {} ({}ms)", tcp_addr, latency_ms);
-                        
+
                         // Quickly grab version via handshake (non-blocking)
-                        let peer_version = tokio::time::timeout(
-                            std::time::Duration::from_millis(500),
-                            async {
+                        let peer_version =
+                            tokio::time::timeout(std::time::Duration::from_millis(500), async {
                                 use time_network::protocol::HandshakeMessage;
                                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                                
+
                                 let network_type = if port == 24100 {
                                     time_network::discovery::NetworkType::Testnet
                                 } else {
                                     time_network::discovery::NetworkType::Mainnet
                                 };
-                                
+
                                 let our_addr = "0.0.0.0:0".parse().unwrap();
                                 let handshake = HandshakeMessage::new(network_type, our_addr);
                                 let magic = network_type.magic_bytes();
-                                
+
                                 if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
                                     let handshake_len = handshake_json.len() as u32;
-                                    
+
                                     if stream.write_all(&magic).await.is_ok()
-                                        && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                                        && stream
+                                            .write_all(&handshake_len.to_be_bytes())
+                                            .await
+                                            .is_ok()
                                         && stream.write_all(&handshake_json).await.is_ok()
                                         && stream.flush().await.is_ok()
                                     {
@@ -245,11 +247,21 @@ impl NetworkManager {
                                         if stream.read_exact(&mut their_magic).await.is_ok()
                                             && stream.read_exact(&mut their_len_bytes).await.is_ok()
                                         {
-                                            let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                                            let their_len =
+                                                u32::from_be_bytes(their_len_bytes) as usize;
                                             if their_len < 10 * 1024 {
-                                                let mut their_handshake_bytes = vec![0u8; their_len];
-                                                if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
-                                                    if let Ok(hs) = serde_json::from_slice::<HandshakeMessage>(&their_handshake_bytes) {
+                                                let mut their_handshake_bytes =
+                                                    vec![0u8; their_len];
+                                                if stream
+                                                    .read_exact(&mut their_handshake_bytes)
+                                                    .await
+                                                    .is_ok()
+                                                {
+                                                    if let Ok(hs) =
+                                                        serde_json::from_slice::<HandshakeMessage>(
+                                                            &their_handshake_bytes,
+                                                        )
+                                                    {
                                                         return Some(hs.version);
                                                     }
                                                 }
@@ -258,9 +270,11 @@ impl NetworkManager {
                                     }
                                 }
                                 None
-                            }
-                        ).await.ok().flatten();
-                        
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+
                         Some((peer_address, latency_ms, peer_version))
                     }
                     Ok(Err(e)) => {
@@ -413,7 +427,10 @@ impl NetworkManager {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
 
-        log::info!("📊 Fetching blockchain info from {} connected peers...", self.connected_peers.len());
+        log::info!(
+            "📊 Fetching blockchain info from {} connected peers...",
+            self.connected_peers.len()
+        );
 
         // Try each connected peer until we get a successful response
         for peer in &self.connected_peers {
@@ -1197,12 +1214,17 @@ impl NetworkManager {
     /// Periodic refresh - updates latency, versions, and blockchain height
     pub async fn periodic_refresh(&mut self) {
         log::info!("🔄 Running periodic refresh (latency, version, blockchain height)...");
-        
+
         // Refresh peer latency and version info
         let mut tasks = Vec::new();
-        
+
         for peer in &self.connected_peers {
-            let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address).to_string();
+            let peer_ip = peer
+                .address
+                .split(':')
+                .next()
+                .unwrap_or(&peer.address)
+                .to_string();
             let peer_address = peer.address.clone();
             let port = peer.port;
 
@@ -1219,29 +1241,31 @@ impl NetworkManager {
                 {
                     Ok(Ok(mut stream)) => {
                         let latency_ms = start.elapsed().as_millis() as u64;
-                        
+
                         // Try to get version via handshake
-                        let peer_version = tokio::time::timeout(
-                            std::time::Duration::from_millis(500),
-                            async {
+                        let peer_version =
+                            tokio::time::timeout(std::time::Duration::from_millis(500), async {
                                 use time_network::protocol::HandshakeMessage;
                                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                                
+
                                 let network_type = if port == 24100 {
                                     time_network::discovery::NetworkType::Testnet
                                 } else {
                                     time_network::discovery::NetworkType::Mainnet
                                 };
-                                
+
                                 let our_addr = "0.0.0.0:0".parse().unwrap();
                                 let handshake = HandshakeMessage::new(network_type, our_addr);
                                 let magic = network_type.magic_bytes();
-                                
+
                                 if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
                                     let handshake_len = handshake_json.len() as u32;
-                                    
+
                                     if stream.write_all(&magic).await.is_ok()
-                                        && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                                        && stream
+                                            .write_all(&handshake_len.to_be_bytes())
+                                            .await
+                                            .is_ok()
                                         && stream.write_all(&handshake_json).await.is_ok()
                                         && stream.flush().await.is_ok()
                                     {
@@ -1250,11 +1274,21 @@ impl NetworkManager {
                                         if stream.read_exact(&mut their_magic).await.is_ok()
                                             && stream.read_exact(&mut their_len_bytes).await.is_ok()
                                         {
-                                            let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+                                            let their_len =
+                                                u32::from_be_bytes(their_len_bytes) as usize;
                                             if their_len < 10 * 1024 {
-                                                let mut their_handshake_bytes = vec![0u8; their_len];
-                                                if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
-                                                    if let Ok(hs) = serde_json::from_slice::<HandshakeMessage>(&their_handshake_bytes) {
+                                                let mut their_handshake_bytes =
+                                                    vec![0u8; their_len];
+                                                if stream
+                                                    .read_exact(&mut their_handshake_bytes)
+                                                    .await
+                                                    .is_ok()
+                                                {
+                                                    if let Ok(hs) =
+                                                        serde_json::from_slice::<HandshakeMessage>(
+                                                            &their_handshake_bytes,
+                                                        )
+                                                    {
                                                         return Some(hs.version);
                                                     }
                                                 }
@@ -1263,9 +1297,11 @@ impl NetworkManager {
                                     }
                                 }
                                 None
-                            }
-                        ).await.ok().flatten();
-                        
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+
                         Some((peer_address, latency_ms, peer_version))
                     }
                     _ => None,
