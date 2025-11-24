@@ -136,10 +136,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             match listener.accept().await {
                 Ok(mut connection) => {
+                    log::info!("✅ accept() returned Ok - got connection object");
+
                     let integration = utxo_integration_clone.clone();
                     let pm = peer_manager_clone.clone();
 
+                    log::info!("✅ Cloned integration and peer_manager");
+
                     let peer_info = connection.peer_info().await;
+                    log::info!("✅ Got peer_info");
+
                     let peer_addr = peer_info.address;
                     log::info!("🔗 New connection accepted from {}", peer_addr);
 
