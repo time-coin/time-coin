@@ -1,0 +1,78 @@
+[2025-11-24T18:04:37Z INFO  wallet_gui] Wallet database initialized
+[2025-11-24T18:04:37Z INFO  wallet_gui] Wallet auto-loaded successfully
+[2025-11-24T18:04:37Z INFO  wallet_gui::peer_manager] 📂 Wallet database connected to PeerManager
+[2025-11-24T18:04:37Z INFO  wallet_gui] 📂 Found 8 peers in database
+[2025-11-24T18:04:37Z INFO  wallet_gui] 📝 Adding 2 nodes from config
+[2025-11-24T18:04:37Z INFO  wallet_gui::peer_manager] ➕ Added new peer: 161.35.129.70:24100
+[2025-11-24T18:04:37Z INFO  wallet_gui::peer_manager] ➕ Added new peer: 69.167.168.176:24100
+[2025-11-24T18:04:37Z INFO  wallet_gui] 🔍 Bootstrapping PeerManager...
+[2025-11-24T18:04:37Z INFO  wallet_gui::peer_manager] ✓ Using 8 configured peers
+[2025-11-24T18:04:37Z INFO  wallet_gui::peer_manager] 🔍 Discovering peers from network...
+[2025-11-24T18:04:37Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 161.35.129.70:24100
+[2025-11-24T18:04:37Z INFO  wallet_gui::network] get_connected_peers called, returning 0 masternodes (filtered from 0 total peers)
+[2025-11-24T18:04:37Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-24T18:04:37Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-24T18:04:37Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-24T18:04:37Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-24T18:04:37Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-24T18:04:37Z INFO  wallet_gui::network] get_connected_peers called, returning 0 masternodes (filtered from 0 total peers)
+[2025-11-24T18:04:37Z WARN  wallet_gui] No connected peers to check mempool from
+[2025-11-24T18:04:37Z INFO  wallet_gui::network] get_connected_peers called, returning 0 masternodes (filtered from 0 total peers)
+[2025-11-24T18:04:37Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-24T18:04:37Z INFO  wallet_gui::network] get_connected_peers called, returning 0 masternodes (filtered from 0 total peers)
+[2025-11-24T18:04:37Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-24T18:04:37Z INFO  wallet_gui::network] get_connected_peers called, returning 0 masternodes (filtered from 0 total peers)
+[2025-11-24T18:04:37Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-24T18:04:39Z WARN  wallet_gui::peer_manager] ⚠️ Failed to connect to peer 161.35.129.70:24100: No connection could be made because the target machine actively refused it. (os error 10061)
+[2025-11-24T18:04:39Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 69.167.168.176:24100
+[2025-11-24T18:04:39Z INFO  wallet_gui::peer_manager] ✅ TCP connection established to 69.167.168.176:24100
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] 🤝 Handshake completed successfully
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] 📤 Sending GetPeerList request (13 bytes)
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] ✅ Request sent, waiting for response...
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] 📥 Reading response length...
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] 📥 Response length: 203 bytes
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] 📥 Response received, parsing...
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] ✅ Response parsed successfully
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] Got 3 peers from response
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] 📥 Received 3 peers from 69.167.168.176:24100
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] ➕ Added 3 new peers (total: 8)
+[2025-11-24T18:04:40Z INFO  wallet_gui::peer_manager] ✓ Peer discovery successful
+[2025-11-24T18:04:40Z INFO  wallet_gui] 🔗 Connecting NetworkManager to discovered peers...
+[2025-11-24T18:04:40Z INFO  wallet_gui] 📋 Attempting to connect to 8 peers
+[2025-11-24T18:04:40Z INFO  wallet_gui] 🔌 Initializing TCP listener for auto-loaded wallet
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Attempting to connect to 8 peers via TCP
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 69.167.168.176:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 165.232.154.150:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 178.128.199.144:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 50.28.104.50:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 64.29.17.65:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 161.35.129.70:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 216.198.79.65:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network] Testing TCP connection to 134.199.175.106:24100...
+[2025-11-24T18:04:40Z INFO  wallet_gui::network]   ✓ Connected to 50.28.104.50:24100 (30ms)
+[2025-11-24T18:04:40Z INFO  wallet_gui::network]   ✓ Connected to 165.232.154.150:24100 (161ms)
+[2025-11-24T18:04:40Z INFO  wallet_gui::network]   ✓ Connected to 69.167.168.176:24100 (161ms)
+[2025-11-24T18:04:40Z INFO  wallet_gui::network]   ✓ Connected to 178.128.199.144:24100 (173ms)
+[2025-11-24T18:04:42Z WARN  wallet_gui::network] Timeout connecting to 161.35.129.70:24100
+[2025-11-24T18:04:42Z WARN  wallet_gui::network] Timeout connecting to 216.198.79.65:24100
+[2025-11-24T18:04:42Z WARN  wallet_gui::network] Timeout connecting to 64.29.17.65:24100
+[2025-11-24T18:04:42Z WARN  wallet_gui::network] Timeout connecting to 134.199.175.106:24100
+[2025-11-24T18:04:42Z INFO  wallet_gui::network]   ✓ Peer 69.167.168.176 responsive via TCP (161ms, version: 0.1.0-1d97c3d)
+[2025-11-24T18:04:42Z INFO  wallet_gui::network]   ✓ Peer 165.232.154.150 responsive via TCP (161ms, version: unknown)
+[2025-11-24T18:04:42Z INFO  wallet_gui::network]   ✓ Peer 178.128.199.144 responsive via TCP (173ms, version: unknown)
+[2025-11-24T18:04:42Z INFO  wallet_gui::network]   ✓ Peer 50.28.104.50 responsive via TCP (30ms, version: 0.1.0-1d97c3d)
+[2025-11-24T18:04:42Z WARN  wallet_gui::network]   ✗ Peer 216.198.79.65 unreachable via TCP
+[2025-11-24T18:04:42Z WARN  wallet_gui::network]   ✗ Peer 64.29.17.65 unreachable via TCP
+[2025-11-24T18:04:42Z WARN  wallet_gui::network]   ✗ Peer 161.35.129.70 unreachable via TCP
+[2025-11-24T18:04:42Z WARN  wallet_gui::network]   ✗ Peer 134.199.175.106 unreachable via TCP
+[2025-11-24T18:04:42Z INFO  wallet_gui::network] ✅ TCP connection test complete: 4 responsive out of 8
+[2025-11-24T18:04:42Z INFO  wallet_gui] ✅ NetworkManager connected to peers successfully
+[2025-11-24T18:04:42Z INFO  wallet_gui] 🔍 Starting peer discovery...
+[2025-11-24T18:04:42Z INFO  wallet_gui::network] Starting peer discovery...
+[2025-11-24T18:04:42Z INFO  wallet_gui::network] Discovering peers via TCP from: 134.199.175.106:24100
+[2025-11-24T18:04:46Z INFO  wallet_gui::network] Discovering peers via TCP from: 161.35.129.70:24100
+[2025-11-24T18:04:49Z INFO  wallet_gui::network] Discovering peers via TCP from: 64.29.17.65:24100
+[2025-11-24T18:04:54Z INFO  wallet_gui::network] Discovering peers via TCP from: 216.198.79.65:24100
+[2025-11-24T18:04:59Z INFO  wallet_gui::network] Discovering peers via TCP from: 50.28.104.50:24100
+[2025-11-24T18:04:59Z INFO  wallet_gui::network] Discovering peers via TCP from: 178.128.199.144:24100
+[2025-11-24T18:04:59Z INFO  wallet_gui::network] Discovering peers via TCP from: 165.232.154.150:24100

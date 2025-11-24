@@ -487,8 +487,8 @@ impl NetworkManager {
                                 let their_len = u32::from_be_bytes(their_len_bytes) as usize;
                                 if their_len < 10 * 1024 {
                                     let mut their_handshake_bytes = vec![0u8; their_len];
-                                    if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
-                                        if serde_json::from_slice::<HandshakeMessage>(
+                                    if stream.read_exact(&mut their_handshake_bytes).await.is_ok()
+                                        && serde_json::from_slice::<HandshakeMessage>(
                                             &their_handshake_bytes,
                                         )
                                         .is_ok()
@@ -576,7 +576,6 @@ impl NetworkManager {
                                                 }
                                             }
                                         }
-                                    }
                                 }
                             }
                         }
@@ -867,75 +866,87 @@ impl NetworkManager {
 
         log::info!("Discovering peers via TCP from: {}", tcp_addr);
 
-        match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&tcp_addr)).await {
-            Ok(Ok(mut stream)) => {
-                // Send GetPeerList
-                let message = NetworkMessage::GetPeerList;
-                if let Ok(data) = serde_json::to_vec(&message) {
-                    let len = data.len() as u32;
+        // Wrap the entire peer discovery in a timeout to prevent hangs
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut stream = TcpStream::connect(&tcp_addr)
+                .await
+                .map_err(|e| e.to_string())?;
 
-                    if stream.write_all(&len.to_be_bytes()).await.is_ok()
-                        && stream.write_all(&data).await.is_ok()
-                        && stream.flush().await.is_ok()
-                    {
-                        // Read response
-                        let mut len_bytes = [0u8; 4];
-                        if stream.read_exact(&mut len_bytes).await.is_ok() {
-                            let response_len = u32::from_be_bytes(len_bytes) as usize;
+            // Send GetPeerList
+            let message = NetworkMessage::GetPeerList;
+            let data = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
+            let len = data.len() as u32;
 
-                            if response_len < 10 * 1024 * 1024 {
-                                // 10MB limit
-                                let mut response_data = vec![0u8; response_len];
-                                if stream.read_exact(&mut response_data).await.is_ok() {
-                                    if let Ok(response) =
-                                        serde_json::from_slice::<NetworkMessage>(&response_data)
-                                    {
-                                        if let NetworkMessage::PeerList(peer_addresses) = response {
-                                            log::info!(
-                                                "Discovered {} peers from {}",
-                                                peer_addresses.len(),
-                                                tcp_addr
-                                            );
+            stream
+                .write_all(&len.to_be_bytes())
+                .await
+                .map_err(|e| e.to_string())?;
+            stream.write_all(&data).await.map_err(|e| e.to_string())?;
+            stream.flush().await.map_err(|e| e.to_string())?;
 
-                                            // Convert to PeerInfo
-                                            let peer_infos: Vec<PeerInfo> = peer_addresses
-                                                .into_iter()
-                                                .map(|pa| {
-                                                    log::debug!(
-                                                        "Peer: {}:{} version: {}",
-                                                        pa.ip,
-                                                        pa.port,
-                                                        pa.version
-                                                    );
-                                                    PeerInfo {
-                                                        address: pa.ip.clone(),
-                                                        port: pa.port,
-                                                        version: Some(pa.version.clone()),
-                                                        last_seen: Some(
-                                                            std::time::SystemTime::now()
-                                                                .duration_since(
-                                                                    std::time::UNIX_EPOCH,
-                                                                )
-                                                                .unwrap()
-                                                                .as_secs(),
-                                                        ),
-                                                        latency_ms: 0,
-                                                        is_masternode: true, // From peer discovery, assume masternode
-                                                    }
-                                                })
-                                                .collect();
+            // Read response
+            let mut len_bytes = [0u8; 4];
+            stream
+                .read_exact(&mut len_bytes)
+                .await
+                .map_err(|e| e.to_string())?;
+            let response_len = u32::from_be_bytes(len_bytes) as usize;
 
-                                            return Ok(peer_infos);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err("Failed to discover peers via TCP".to_string())
+            if response_len >= 10 * 1024 * 1024 {
+                return Err("Response too large".to_string());
             }
-            _ => Err("Failed to connect via TCP".to_string()),
+
+            let mut response_data = vec![0u8; response_len];
+            stream
+                .read_exact(&mut response_data)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let response = serde_json::from_slice::<NetworkMessage>(&response_data)
+                .map_err(|e| e.to_string())?;
+
+            if let NetworkMessage::PeerList(peer_addresses) = response {
+                log::info!(
+                    "Discovered {} peers from {}",
+                    peer_addresses.len(),
+                    tcp_addr
+                );
+
+                // Convert to PeerInfo
+                let peer_infos: Vec<PeerInfo> = peer_addresses
+                    .into_iter()
+                    .map(|pa| PeerInfo {
+                        address: pa.ip.clone(),
+                        port: pa.port,
+                        version: Some(pa.version.clone()),
+                        last_seen: Some(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                        ),
+                        latency_ms: 0,
+                        is_masternode: true,
+                    })
+                    .collect();
+
+                return Ok(peer_infos);
+            }
+
+            Err("Invalid response".to_string())
+        })
+        .await;
+
+        match result {
+            Ok(Ok(peers)) => Ok(peers),
+            Ok(Err(e)) => {
+                log::warn!("Error discovering peers from {}: {}", tcp_addr, e);
+                Err(format!("Failed to discover peers: {}", e))
+            }
+            Err(_) => {
+                log::warn!("Timeout discovering peers from {}", tcp_addr);
+                Err("Timeout discovering peers".to_string())
+            }
         }
     }
 
