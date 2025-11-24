@@ -1617,6 +1617,7 @@ async fn main() {
                             let conn_arc_clone = conn_arc.clone();
                             let peer_ip_listen = peer_ip;
                             let blockchain_listen = Arc::clone(&blockchain_clone);
+                            let block_consensus_listen = Arc::clone(&block_consensus_clone);
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -1698,6 +1699,20 @@ async fn main() {
                                                         .is_err()
                                                     {
                                                         eprintln!("Failed to send wallet transactions response to {}", peer_ip_listen);
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json) => {
+                                                    // Parse and store block proposal
+                                                    if let Ok(proposal) = serde_json::from_str::<time_consensus::block_consensus::BlockProposal>(&proposal_json) {
+                                                        println!("📦 Received block proposal for height {} from {}", proposal.block_height, peer_ip_listen);
+                                                        block_consensus_listen.propose_block(proposal).await;
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::ConsensusBlockVote(vote_json) => {
+                                                    // Parse and record block vote
+                                                    if let Ok(vote) = serde_json::from_str::<time_consensus::block_consensus::BlockVote>(&vote_json) {
+                                                        println!("🗳️  Received block vote from {} for block #{}", peer_ip_listen, vote.block_height);
+                                                        let _ = block_consensus_listen.vote_on_block(vote).await;
                                                     }
                                                 }
                                                 _ => {
