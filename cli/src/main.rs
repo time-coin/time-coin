@@ -1563,8 +1563,16 @@ async fn main() {
                             // Wrap connection in Arc before storing
                             let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
 
+                            // Get the REAL peer IP from the TCP socket (not from handshake listen_addr)
+                            let real_peer_ip = {
+                                let conn_guard = conn_arc.lock().await;
+                                conn_guard.peer_addr().ok().map(|addr| addr.ip())
+                            };
+                            let peer_ip_for_logging =
+                                real_peer_ip.unwrap_or_else(|| peer_addr.ip());
+
                             // IMPORTANT: Store both peer info AND connection to prevent ephemeral connections
-                            let peer_ip = peer_addr.ip(); // Extract IP before moving variables
+                            let peer_ip = peer_addr.ip(); // Extract IP before moving variables (from handshake)
                             peer_manager_clone
                                 .add_connected_peer_with_connection_arc(
                                     info.clone(),
@@ -1615,7 +1623,7 @@ async fn main() {
                             // Spawn message handler for incoming Ping/Pong with timeout
                             let peer_manager_listen = Arc::clone(&peer_manager_clone);
                             let conn_arc_clone = conn_arc.clone();
-                            let peer_ip_listen = peer_ip;
+                            let peer_ip_listen = peer_ip_for_logging; // Use real IP for logging
                             let blockchain_listen = Arc::clone(&blockchain_clone);
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
                             tokio::spawn(async move {
@@ -1721,21 +1729,17 @@ async fn main() {
                                                     // Subscribe this peer to transaction notifications
                                                     peer_manager_listen.subscribe_wallet(&xpub, peer_ip_listen).await;
 
-                                                    // Send success response
+                                                    // Send success response directly on this connection
                                                     let response = time_network::protocol::NetworkMessage::XpubRegistered {
                                                         success: true,
                                                         message: "Xpub registered successfully".to_string(),
                                                     };
 
-                                                    if peer_manager_listen
-                                                        .send_message_to_peer(
-                                                            SocketAddr::new(peer_ip_listen, 24100),
-                                                            response,
-                                                        )
-                                                        .await
-                                                        .is_ok()
-                                                    {
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(response).await.is_ok() {
                                                         println!("✅ Sent XpubRegistered response to {}", peer_ip_listen);
+                                                    } else {
+                                                        println!("❌ Failed to send XpubRegistered response to {}", peer_ip_listen);
                                                     }
                                                 }
                                                 _ => {

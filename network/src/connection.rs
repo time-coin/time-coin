@@ -217,6 +217,11 @@ impl PeerConnection {
         self.peer_info.lock().await.clone()
     }
 
+    /// Get the real peer address from the TCP socket (not from handshake)
+    pub fn peer_addr(&self) -> std::io::Result<SocketAddr> {
+        self.stream.peer_addr()
+    }
+
     /// Send a network message over the TCP connection
     pub async fn send_message(
         &mut self,
