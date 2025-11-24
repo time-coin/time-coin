@@ -874,7 +874,14 @@ impl BlockProducer {
         if am_i_leader {
             println!("{}", "   🟢 I am the block producer".green().bold());
 
-            let mut transactions = self.mempool.get_all_transactions().await;
+            // Get transactions from mempool that are valid for this block's timestamp
+            let block_timestamp = now.timestamp();
+            let all_transactions = self.mempool.get_all_transactions().await;
+            let mut transactions: Vec<_> = all_transactions
+                .into_iter()
+                .filter(|tx| tx.timestamp <= block_timestamp)
+                .collect();
+
             // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
 
@@ -2157,8 +2164,14 @@ impl BlockProducer {
 
         drop(blockchain);
 
-        // Get pending transactions from mempool
-        let mut mempool_txs = self.mempool.get_all_transactions().await;
+        // Get pending transactions from mempool that belong to this block's timeframe
+        // Only include transactions that were created BEFORE or ON this block's timestamp
+        let block_timestamp = timestamp.timestamp();
+        let all_mempool_txs = self.mempool.get_all_transactions().await;
+        let mut mempool_txs: Vec<_> = all_mempool_txs
+            .into_iter()
+            .filter(|tx| tx.timestamp <= block_timestamp)
+            .collect();
 
         println!(
             "      💰 Catch-up block will reward {} masternodes",
@@ -2169,8 +2182,9 @@ impl BlockProducer {
             all_masternodes.len()
         );
         println!(
-            "      📦 Including {} transactions from mempool",
-            mempool_txs.len()
+            "      📦 Including {} transactions from mempool (filtered by timestamp <= {})",
+            mempool_txs.len(),
+            timestamp.format("%Y-%m-%d %H:%M:%S UTC")
         );
 
         let coinbase_tx = create_coinbase_transaction(
