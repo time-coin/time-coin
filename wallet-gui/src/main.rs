@@ -344,6 +344,7 @@ impl WalletApp {
                                         .as_secs(),
                                 ),
                                 latency_ms: 0,
+                                is_masternode: true,
                             })
                             .collect();
 
@@ -411,6 +412,7 @@ impl WalletApp {
                                                         .as_secs(),
                                                 ),
                                                 latency_ms: 0,
+                                                is_masternode: true,
                                             })
                                             .collect();
 
