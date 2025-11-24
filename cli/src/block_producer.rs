@@ -2157,6 +2157,9 @@ impl BlockProducer {
 
         drop(blockchain);
 
+        // Get pending transactions from mempool
+        let mut mempool_txs = self.mempool.get_all_transactions().await;
+
         println!(
             "      💰 Catch-up block will reward {} masternodes",
             active_masternodes.len()
@@ -2164,6 +2167,10 @@ impl BlockProducer {
         println!(
             "      🔍 Using {} registered masternodes for consensus",
             all_masternodes.len()
+        );
+        println!(
+            "      📦 Including {} transactions from mempool",
+            mempool_txs.len()
         );
 
         let coinbase_tx = create_coinbase_transaction(
@@ -2177,6 +2184,10 @@ impl BlockProducer {
         // CRITICAL: Use deterministic validator info so all nodes create identical blocks
         let deterministic_validator = format!("consensus_block_{}", block_num);
 
+        // Start with coinbase, then add mempool transactions
+        let mut transactions = vec![coinbase_tx];
+        transactions.append(&mut mempool_txs);
+
         let mut block = Block {
             hash: String::new(),
             header: BlockHeader {
@@ -2188,7 +2199,7 @@ impl BlockProducer {
                 validator_address: deterministic_validator,
                 masternode_counts: masternode_counts.clone(),
             },
-            transactions: vec![coinbase_tx],
+            transactions,
         };
 
         block.header.merkle_root = block.calculate_merkle_root();
@@ -2333,6 +2344,18 @@ impl BlockProducer {
                 }
 
                 drop(blockchain);
+
+                // Remove transactions from mempool (skip coinbase at index 0)
+                for tx in block.transactions.iter().skip(1) {
+                    self.mempool.remove_transaction(&tx.txid).await;
+                }
+
+                if block.transactions.len() > 1 {
+                    println!(
+                        "      🧹 Removed {} transactions from mempool",
+                        block.transactions.len() - 1
+                    );
+                }
 
                 println!("      📡 Broadcasting finalized block to peers...");
                 self.broadcast_block_to_peers(&block).await;
