@@ -816,6 +816,13 @@ async fn main() {
                     }
                 }
 
+                // Add a small delay to give peers time to start their listeners
+                // This helps when multiple nodes restart simultaneously
+                if !discovery_quiet {
+                    println!("  ⏳ Waiting for peers to start listeners...");
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
                 // Connect to the chosen set (filtered if strict_discovery, otherwise all discovered peers)
                 peer_manager.connect_to_peers(peers_to_connect).await;
 
@@ -1851,6 +1858,9 @@ async fn main() {
             }
             Err(e) => eprintln!("Failed to start peer listener: {}", e),
         }
+
+        // Give the peer listener a moment to fully start accepting connections
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         println!(
             "{}",
