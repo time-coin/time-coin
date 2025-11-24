@@ -1572,7 +1572,6 @@ async fn main() {
                                 real_peer_ip.unwrap_or_else(|| peer_addr.ip());
 
                             // IMPORTANT: Store both peer info AND connection to prevent ephemeral connections
-                            let peer_ip = peer_addr.ip(); // Extract IP before moving variables (from handshake)
                             peer_manager_clone
                                 .add_connected_peer_with_connection_arc(
                                     info.clone(),
