@@ -176,16 +176,6 @@ pub struct HandshakeMessage {
     /// Genesis block hash for chain validation
     #[serde(default)]
     pub genesis_hash: Option<String>,
-
-    /// Node type (Masternode or Wallet)
-    #[serde(default)]
-    pub node_type: Option<NodeType>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum NodeType {
-    Masternode,
-    Wallet,
 }
 
 impl HandshakeMessage {
@@ -202,13 +192,6 @@ impl HandshakeMessage {
     ) -> Self {
         let wallet_address = std::env::var("MASTERNODE_WALLET").ok();
 
-        // Determine node type based on whether we're a masternode
-        let node_type = if wallet_address.is_some() || listen_addr.ip().to_string() != "0.0.0.0" {
-            Some(NodeType::Masternode)
-        } else {
-            Some(NodeType::Wallet)
-        };
-
         HandshakeMessage {
             version: version_for_handshake(),
             commit_date: Some(GIT_COMMIT_DATE.to_string()),
@@ -220,7 +203,6 @@ impl HandshakeMessage {
             capabilities: vec!["masternode".to_string(), "sync".to_string()],
             wallet_address,
             genesis_hash,
-            node_type,
         }
     }
 
