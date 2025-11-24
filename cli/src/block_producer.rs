@@ -874,13 +874,9 @@ impl BlockProducer {
         if am_i_leader {
             println!("{}", "   🟢 I am the block producer".green().bold());
 
-            // Get transactions from mempool that are valid for this block's timestamp
-            let block_timestamp = now.timestamp();
-            let all_transactions = self.mempool.get_all_transactions().await;
-            let mut transactions: Vec<_> = all_transactions
-                .into_iter()
-                .filter(|tx| tx.timestamp <= block_timestamp)
-                .collect();
+            // Get all pending transactions from mempool
+            // Regular block production includes all pending transactions
+            let mut transactions = self.mempool.get_all_transactions().await;
 
             // Sort transactions deterministically by txid to ensure same merkle root
             transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
@@ -2164,14 +2160,23 @@ impl BlockProducer {
 
         drop(blockchain);
 
-        // Get pending transactions from mempool that belong to this block's timeframe
-        // Only include transactions that were created BEFORE or ON this block's timestamp
+        // Get pending transactions from mempool
+        // For catch-up blocks (past dates), only include transactions from before that block's time
+        // For current/future blocks, include all pending transactions
         let block_timestamp = timestamp.timestamp();
+        let current_time = chrono::Utc::now().timestamp();
         let all_mempool_txs = self.mempool.get_all_transactions().await;
-        let mut mempool_txs: Vec<_> = all_mempool_txs
-            .into_iter()
-            .filter(|tx| tx.timestamp <= block_timestamp)
-            .collect();
+
+        let mut mempool_txs: Vec<_> = if block_timestamp < current_time {
+            // This is a catch-up block for a past date - only include old transactions
+            all_mempool_txs
+                .into_iter()
+                .filter(|tx| tx.timestamp <= block_timestamp)
+                .collect()
+        } else {
+            // This is a current/future block - include all pending transactions
+            all_mempool_txs
+        };
 
         println!(
             "      💰 Catch-up block will reward {} masternodes",
@@ -2181,11 +2186,18 @@ impl BlockProducer {
             "      🔍 Using {} registered masternodes for consensus",
             all_masternodes.len()
         );
-        println!(
-            "      📦 Including {} transactions from mempool (filtered by timestamp <= {})",
-            mempool_txs.len(),
-            timestamp.format("%Y-%m-%d %H:%M:%S UTC")
-        );
+        if block_timestamp < current_time {
+            println!(
+                "      📦 Including {} transactions from mempool (filtered by timestamp <= {})",
+                mempool_txs.len(),
+                timestamp.format("%Y-%m-%d %H:%M:%S UTC")
+            );
+        } else {
+            println!(
+                "      📦 Including {} transactions from mempool (all pending)",
+                mempool_txs.len()
+            );
+        }
 
         let coinbase_tx = create_coinbase_transaction(
             block_num,
