@@ -242,11 +242,13 @@ impl TcpProtocolListener {
 
     async fn connect_and_listen(&self) -> Result<(), Box<dyn std::error::Error>> {
         // Connect to masternode
+        log::info!("🔌 Attempting to connect to {}", self.peer_addr);
         let mut stream = TcpStream::connect(&self.peer_addr).await?;
 
         log::info!("✅ Connected to {}", self.peer_addr);
 
         // Register xpub
+        log::info!("📤 Registering xpub: {}...", &self.xpub[..std::cmp::min(20, self.xpub.len())]);
         self.send_message(
             &mut stream,
             NetworkMessage::RegisterXpub {
@@ -255,7 +257,7 @@ impl TcpProtocolListener {
         )
         .await?;
 
-        log::info!("📝 Sent RegisterXpub request");
+        log::info!("📝 Sent RegisterXpub request, waiting for response...");
 
         // Wait for XpubRegistered response or UtxoUpdate
         match self.read_message(&mut stream).await? {
@@ -276,16 +278,17 @@ impl TcpProtocolListener {
 
                 // Send each UTXO to channel
                 for utxo in utxos {
+                    log::info!("  📍 UTXO: {} - {} TIME", utxo.txid, utxo.amount as f64 / 1_000_000.0);
                     let _ = self.utxo_tx.send(utxo);
                 }
             }
             msg => {
-                log::warn!("Unexpected response to RegisterXpub: {:?}", msg);
+                log::warn!("⚠️ Unexpected response to RegisterXpub: {:?}", msg);
             }
         }
 
         // Now listen for push notifications
-        log::info!("👂 Listening for push notifications...");
+        log::info!("👂 Listening for push notifications from {}...", self.peer_addr);
 
         loop {
             match self.read_message(&mut stream).await {
