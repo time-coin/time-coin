@@ -75,14 +75,37 @@ else
 fi
 echo ""
 
+# Clear blockchain data (except genesis block)
+echo "3️⃣  Clearing blockchain data (preserving genesis)..."
+
+# Backup genesis block if it exists
+GENESIS_BACKUP="/tmp/genesis_block_backup_$(date +%s).json"
+GENESIS_FILE="$DATA_DIR/blockchain/block_0.json"
+
+if [ -f "$GENESIS_FILE" ]; then
+    echo "   📦 Backing up genesis block..."
+    mkdir -p "$(dirname $GENESIS_BACKUP)"
+    sudo cp "$GENESIS_FILE" "$GENESIS_BACKUP"
+    echo "   ✓ Genesis backed up to: $GENESIS_BACKUP"
+fi
+
 # Clear blockchain data
-echo "3️⃣  Clearing blockchain data..."
 sudo rm -rf "$DATA_DIR/blocks" 2>/dev/null || true
 sudo rm -rf "$DATA_DIR/blockchain" 2>/dev/null || true
 sudo rm -rf "$DATA_DIR/chainstate" 2>/dev/null || true
 sudo rm -f "$DATA_DIR/block_height.txt" 2>/dev/null || true
 sudo rm -f "$DATA_DIR/current_height.txt" 2>/dev/null || true
-echo "   ✓ Blockchain data cleared"
+
+# Restore genesis block
+if [ -f "$GENESIS_BACKUP" ]; then
+    echo "   📥 Restoring genesis block..."
+    sudo mkdir -p "$DATA_DIR/blockchain"
+    sudo cp "$GENESIS_BACKUP" "$GENESIS_FILE"
+    sudo chown -R time-coin:time-coin "$DATA_DIR/blockchain" 2>/dev/null || true
+    echo "   ✓ Genesis block restored"
+fi
+
+echo "   ✓ Blockchain data cleared (genesis preserved)"
 echo ""
 
 # Clear UTXO data
@@ -138,7 +161,8 @@ echo "✅  TESTNET RESET COMPLETE!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "📋 Summary of cleared data:"
-echo "   • Blockchain: All blocks removed"
+echo "   • Blockchain: All blocks removed (EXCEPT genesis block)"
+echo "   • Genesis: Preserved and restored"
 echo "   • UTXO Set: Cleared, will rebuild from genesis"
 echo "   • Mempool: Empty"
 echo "   • Consensus: Fresh state"
@@ -155,15 +179,16 @@ echo "   3️⃣  Monitor the first block creation:"
 echo "      sudo journalctl -u timed -f"
 echo ""
 echo "   4️⃣  Verify consensus is working:"
-echo "      - All nodes should create genesis block"
-echo "      - Wait for first midnight UTC block"
+echo "      - Nodes should start from genesis (block 0)"
+echo "      - Wait for next midnight UTC block (block 1)"
 echo "      - Check that votes are being exchanged"
 echo "      - Verify block reaches 5/7 consensus"
 echo ""
 echo "⚠️  IMPORTANT:"
 echo "   • Do NOT start any node until ALL nodes are reset"
 echo "   • All nodes must have the latest code (git pull)"
-echo "   • Genesis block will be recreated automatically"
+echo "   • Genesis block is PRESERVED from backup"
+echo "   • Blockchain will continue from block 1+"
 echo ""
 echo "🔗 Useful commands:"
 echo "   • Check status: systemctl status timed"
