@@ -1715,6 +1715,29 @@ async fn main() {
                                                         let _ = block_consensus_listen.vote_on_block(vote).await;
                                                     }
                                                 }
+                                                time_network::protocol::NetworkMessage::RegisterXpub { xpub } => {
+                                                    println!("📥 Received RegisterXpub from {} for xpub: {}...", peer_ip_listen, &xpub[..20]);
+
+                                                    // Subscribe this peer to transaction notifications
+                                                    peer_manager_listen.subscribe_wallet(&xpub, peer_ip_listen).await;
+
+                                                    // Send success response
+                                                    let response = time_network::protocol::NetworkMessage::XpubRegistered {
+                                                        success: true,
+                                                        message: "Xpub registered successfully".to_string(),
+                                                    };
+
+                                                    if peer_manager_listen
+                                                        .send_message_to_peer(
+                                                            SocketAddr::new(peer_ip_listen, 24100),
+                                                            response,
+                                                        )
+                                                        .await
+                                                        .is_ok()
+                                                    {
+                                                        println!("✅ Sent XpubRegistered response to {}", peer_ip_listen);
+                                                    }
+                                                }
                                                 _ => {
                                                     // Handle other messages if needed
                                                 }
