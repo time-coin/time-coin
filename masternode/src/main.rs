@@ -143,8 +143,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     log::info!("✅ Cloned integration and peer_manager");
 
+                    log::info!("⏳ About to call connection.peer_info().await...");
                     let peer_info = connection.peer_info().await;
-                    log::info!("✅ Got peer_info");
+                    log::info!("✅ Got peer_info: {:?}", peer_info.address);
 
                     let peer_addr = peer_info.address;
                     log::info!("🔗 New connection accepted from {}", peer_addr);
