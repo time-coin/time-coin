@@ -1671,9 +1671,13 @@ async fn main() {
                                                 }
                                                 time_network::protocol::NetworkMessage::GetPeerList => {
                                                     // Respond with our known peers directly on this connection
-                                                    let peers = peer_manager_listen.get_peers().await;
-                                                    let peer_list: Vec<time_network::protocol::PeerAddress> = peers
+                                                    let all_peers = peer_manager_listen.get_peers().await;
+                                                    
+                                                    // Filter to only include masternodes (peers with wallet_address)
+                                                    // This prevents wallets from being advertised in peer lists
+                                                    let peer_list: Vec<time_network::protocol::PeerAddress> = all_peers
                                                         .iter()
+                                                        .filter(|p| p.wallet_address.is_some())
                                                         .map(|p| time_network::protocol::PeerAddress {
                                                             ip: p.address.ip().to_string(),
                                                             port: p.address.port(),
