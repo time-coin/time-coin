@@ -1741,6 +1741,32 @@ async fn main() {
                                                         println!("❌ Failed to send XpubRegistered response to {}", peer_ip_listen);
                                                     }
                                                 }
+                                                time_network::protocol::NetworkMessage::GetBlockchainInfo => {
+                                                    println!("📊 Received GetBlockchainInfo from {}", peer_ip_listen);
+
+                                                    // Get current blockchain height
+                                                    let (height, best_block_hash) = {
+                                                        let bc = blockchain_listen.read().await;
+                                                        let h = bc.chain_tip_height();
+                                                        let hash = bc.get_block_by_height(h)
+                                                            .map(|b| b.hash.clone())
+                                                            .unwrap_or_else(|| "unknown".to_string());
+                                                        (h, hash)
+                                                    };
+
+                                                    // Send blockchain info response
+                                                    let response = time_network::protocol::NetworkMessage::BlockchainInfo {
+                                                        height,
+                                                        best_block_hash,
+                                                    };
+
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(response).await.is_ok() {
+                                                        println!("✅ Sent BlockchainInfo to {} (height: {})", peer_ip_listen, height);
+                                                    } else {
+                                                        println!("❌ Failed to send BlockchainInfo to {}", peer_ip_listen);
+                                                    }
+                                                }
                                                 _ => {
                                                     // Handle other messages if needed
                                                 }
