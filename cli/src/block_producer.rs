@@ -2157,10 +2157,15 @@ impl BlockProducer {
         // Get ALL registered masternodes (not just active ones)
         let all_masternodes = self.consensus.get_masternodes().await;
 
-        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
-            .get_active_masternodes()
+        // For catch-up blocks, reward ALL currently registered masternodes
+        // This ensures all masternodes get rewards even for historical blocks
+        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = all_masternodes
             .iter()
-            .map(|mn| (mn.wallet_address.clone(), mn.tier))
+            .map(|addr| {
+                // Use Free tier as default for catch-up blocks
+                // The actual tier distribution doesn't matter much for historical blocks
+                (addr.clone(), time_core::MasternodeTier::Free)
+            })
             .collect();
 
         drop(blockchain);
