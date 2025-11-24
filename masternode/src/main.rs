@@ -139,17 +139,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let integration = utxo_integration_clone.clone();
                     let pm = peer_manager_clone.clone();
 
+                    let peer_info = connection.peer_info().await;
+                    let peer_addr = peer_info.address;
+                    log::info!("🔗 New connection accepted from {}", peer_addr);
+
                     tokio::spawn(async move {
+                        log::info!("🔄 Starting message loop for {}", peer_addr);
                         loop {
+                            log::debug!("⏳ Waiting for message from {}...", peer_addr);
                             match connection.receive_message().await {
                                 Ok(message) => {
                                     let peer_info = connection.peer_info().await;
                                     let peer_ip = peer_info.address.ip();
 
-                                    log::debug!(
-                                        "📨 Received message: {:?} from {}",
-                                        std::mem::discriminant(&message),
-                                        peer_ip
+                                    log::info!(
+                                        "📨 Received message from {}: {:?}",
+                                        peer_ip,
+                                        std::mem::discriminant(&message)
                                     );
 
                                     // Handle Ping directly with Pong
