@@ -830,70 +830,8 @@ async fn main() {
                     println!("{}", "  ⚠️  No peers connected".yellow());
                 }
 
-                // Second wave: Connect to newly discovered peers from peer exchange
-                // Wrap in timeout to prevent hanging
-                let second_wave_result =
-                    tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
-                        let currently_connected: std::collections::HashSet<String> = peer_manager
-                            .get_connected_peers()
-                            .await
-                            .iter()
-                            .map(|p| p.address.to_string())
-                            .collect();
-
-                        let best_peers = peer_manager.get_best_peers(10).await;
-                        let new_peers_to_connect: Vec<_> = best_peers
-                            .into_iter()
-                            .filter(|p| !currently_connected.contains(&p.full_address()))
-                            .collect();
-
-                        (currently_connected, new_peers_to_connect)
-                    })
-                    .await;
-
-                if let Ok((_currently_connected, new_peers_to_connect)) = second_wave_result {
-                    // Convert and connect to newly discovered peers
-                    let mut connected_count = 0;
-                    for pex_peer in new_peers_to_connect.iter() {
-                        if let Ok(addr) = pex_peer.full_address().parse() {
-                            let peer_info = time_network::PeerInfo::new(addr, network_type);
-                            let mgr = peer_manager.clone();
-                            if mgr.connect_to_peer(peer_info).await.is_ok() {
-                                connected_count += 1;
-                            }
-                        }
-                    }
-
-                    if !discovery_quiet && connected_count > 0 {
-                        println!(
-                            "{}",
-                            format!("  ✓ Connected to {} additional peer(s)", connected_count)
-                                .bright_black()
-                        );
-                    }
-
-                    // Also spawn async connections for any remaining
-                    for pex_peer in new_peers_to_connect {
-                        if let Ok(addr) = pex_peer.full_address().parse() {
-                            let peer_info = time_network::PeerInfo::new(addr, network_type);
-                            let mgr = peer_manager.clone();
-                            tokio::spawn(async move {
-                                let _ = mgr.connect_to_peer(peer_info).await;
-                            });
-                        }
-                    }
-
-                    // Give second wave time to connect
-                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-                    let final_connected = peer_manager.get_connected_peers().await.len();
-                    if final_connected > connected && !discovery_quiet {
-                        println!(
-                            "{}",
-                            format!("  ✓ Total connected: {} peer(s)", final_connected).green()
-                        );
-                    }
-                }
+                // SKIP SECOND WAVE - it causes hangs
+                // Peers will be discovered through incoming connections instead
             } else if !discovery_quiet {
                 println!("{}", "  ⚠ No peers discovered (first node?)".yellow());
             }
