@@ -820,14 +820,27 @@ async fn main() {
                 peer_manager.connect_to_peers(peers_to_connect).await;
 
                 // connect_to_peers now waits internally, just check results
-                let connected = peer_manager.get_connected_peers().await.len();
+                let connected_peers = peer_manager.get_connected_peers().await;
+                let connected = connected_peers.len();
                 if connected > 0 && !discovery_quiet {
                     println!(
                         "{}",
                         format!("  ✓ Connected to {} peer(s)", connected).green()
                     );
+                    for peer in &connected_peers {
+                        println!("    - {}", peer.address);
+                    }
                 } else if !discovery_quiet {
                     println!("{}", "  ⚠️  No peers connected".yellow());
+                }
+
+                // Show which peers failed to connect
+                if connected < peers.len() && !discovery_quiet {
+                    println!(
+                        "  {} Failed to connect to {} peer(s)",
+                        "⚠️".yellow(),
+                        peers.len() - connected
+                    );
                 }
 
                 // Second wave: Connect to newly discovered peers from peer exchange
@@ -1683,11 +1696,9 @@ async fn main() {
                                                     // Respond with our known peers directly on this connection
                                                     let all_peers = peer_manager_listen.get_peers().await;
 
-                                                    // Filter to only include masternodes (peers listening on port 24100)
-                                                    // Wallets use 0.0.0.0:0 as their listen_addr, masternodes use real IP:24100
+                                                    // Return ALL peers without filtering
                                                     let peer_list: Vec<time_network::protocol::PeerAddress> = all_peers
                                                         .iter()
-                                                        .filter(|p| p.address.port() == 24100)
                                                         .map(|p| time_network::protocol::PeerAddress {
                                                             ip: p.address.ip().to_string(),
                                                             port: p.address.port(),
