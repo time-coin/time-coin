@@ -924,19 +924,7 @@ impl NetworkManager {
 
     /// Discover and connect to peers recursively
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
-        log::info!(
-            "get_connected_peers called, returning {} peers",
-            self.connected_peers.len()
-        );
-        for (i, peer) in self.connected_peers.iter().enumerate() {
-            log::info!(
-                "  Peer {}: {}:{} - {}ms",
-                i + 1,
-                peer.address,
-                peer.port,
-                peer.latency_ms
-            );
-        }
+        // Don't log every call - this is called frequently
         let mut sorted_peers = self.connected_peers.clone();
         sorted_peers.sort_by_key(|p| p.latency_ms);
         sorted_peers
