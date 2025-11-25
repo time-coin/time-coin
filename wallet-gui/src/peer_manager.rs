@@ -181,8 +181,66 @@ impl PeerManager {
         0
     }
 
+    /// Clean up peers with ephemeral ports and normalize to port 24100
+    pub async fn cleanup_ephemeral_ports(&self) {
+        let db_guard = self.wallet_db.read().await;
+        if let Some(db) = db_guard.as_ref() {
+            if let Ok(peers) = db.get_all_peers() {
+                let mut cleaned = 0;
+                for peer in peers {
+                    // Skip if already on standard port
+                    if peer.port == 24100 {
+                        continue;
+                    }
+
+                    // Delete peer with ephemeral port
+                    if let Err(e) = db.delete_peer(&peer.address, peer.port) {
+                        log::warn!(
+                            "Failed to delete ephemeral peer {}:{}: {}",
+                            peer.address,
+                            peer.port,
+                            e
+                        );
+                    } else {
+                        cleaned += 1;
+
+                        // Add it back with standard port 24100
+                        let normalized_peer = PeerRecord {
+                            address: peer.address.clone(),
+                            port: 24100,
+                            version: peer.version,
+                            last_seen: peer.last_seen,
+                            first_seen: peer.first_seen,
+                            successful_connections: peer.successful_connections,
+                            failed_connections: peer.failed_connections,
+                            latency_ms: peer.latency_ms,
+                        };
+
+                        if let Err(e) = db.save_peer(&normalized_peer) {
+                            log::warn!(
+                                "Failed to save normalized peer {}:24100: {}",
+                                peer.address,
+                                e
+                            );
+                        }
+                    }
+                }
+
+                if cleaned > 0 {
+                    log::info!(
+                        "🧹 Cleaned {} ephemeral port entries, normalized to port 24100",
+                        cleaned
+                    );
+                }
+            }
+        }
+    }
+
     /// Bootstrap from seed peers
     pub async fn bootstrap(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // First clean up any ephemeral ports from previous sessions
+        self.cleanup_ephemeral_ports().await;
+
         let peer_count = self.peer_count().await;
 
         if peer_count == 0 {

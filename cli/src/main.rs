@@ -1481,7 +1481,7 @@ async fn main() {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
                             let mut info = conn.peer_info().await;
-                            
+
                             // CRITICAL: Get real TCP peer IP (not handshake listen_addr which may be 0.0.0.0)
                             let real_peer_addr = match conn.peer_addr() {
                                 Ok(addr) => addr,
@@ -1489,7 +1489,7 @@ async fn main() {
                                     continue; // Skip if we can't get real address
                                 }
                             };
-                            
+
                             // Use real TCP address for connection keying (not handshake listen_addr)
                             info.address = real_peer_addr;
                             let peer_addr = real_peer_addr;
@@ -1626,7 +1626,7 @@ async fn main() {
                                                         .iter()
                                                         .map(|p| time_network::protocol::PeerAddress {
                                                             ip: p.address.ip().to_string(),
-                                                            port: p.address.port(),
+                                                            port: 24100, // Always use standard port, not ephemeral ports
                                                             version: p.version.clone(),
                                                         })
                                                         .collect();
