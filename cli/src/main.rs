@@ -2116,7 +2116,7 @@ async fn main() {
     let block_consensus_heartbeat = block_consensus.clone();
     let peer_mgr_heartbeat = peer_manager.clone();
     let mempool_heartbeat = mempool.clone();
-    let tx_consensus_heartbeat = tx_consensus.clone();
+    let tx_broadcaster_heartbeat = tx_broadcaster.clone();
 
     loop {
         time::sleep(Duration::from_secs(60)).await;
@@ -2186,17 +2186,9 @@ async fn main() {
                         &txid[..16]
                     );
 
-                    // Convert to TransactionMessage and re-broadcast
-                    let tx_msg = time_network::protocol::TransactionMessage {
-                        transaction: tx,
-                        timestamp: chrono::Utc::now().timestamp(),
-                    };
-
-                    // Re-broadcast to masternodes - will trigger instant finality with updated protocol
-                    match peer_mgr_heartbeat.broadcast_transaction(tx_msg).await {
-                        Ok(count) => println!("         📡 Re-broadcasted to {} peer(s)", count),
-                        Err(e) => println!("         ❌ Re-broadcast failed: {}", e),
-                    }
+                    // Re-broadcast using tx_broadcaster - this will trigger instant finality
+                    tx_broadcaster_heartbeat.broadcast_transaction(tx).await;
+                    println!("         📡 Re-broadcasted to network");
                 }
             }
         }
