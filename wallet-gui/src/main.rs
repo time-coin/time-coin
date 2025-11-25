@@ -726,27 +726,9 @@ impl WalletApp {
                                                     *net = temp_net;
                                                 }
 
-                                                // Sync historical UTXOs from blockchain
-                                                if let Some(db) = &wallet_db {
-                                                    log::info!("🔄 Starting blockchain sync for historical transactions...");
-
-                                                    // Get masternode URL
-                                                    let connected_peers = {
-                                                        let net = network_mgr.lock().unwrap();
-                                                        net.get_connected_peers()
-                                                    };
-
-                                                    if let Some(peer) = connected_peers.first() {
-                                                        let peer_addr = format!("{}:24101", peer.address.split(':').next().unwrap_or(&peer.address));
-                                                        let client = ProtocolClient::new(peer_addr, wallet::NetworkType::Mainnet);
-
-                                                        // Register xpub for monitoring
-                                                        match client.register_xpub(xpub.clone()) {
-                                                            Ok(_) => log::info!("✅ Xpub registered with masternode!"),
-                                                            Err(e) => log::error!("❌ Xpub registration failed: {}", e),
-                                                        }
-                                                    }
-                                                }
+                                                // Blockchain scanning happens automatically when xpub is registered via TCP
+                                                // The masternode will scan and send UTXOs via UtxoUpdate message
+                                                log::info!("🔄 Blockchain scanning initiated via xpub registration");
 
                                                 // Register xpub with all connected peers for ongoing transaction updates
                                                 {
@@ -3306,6 +3288,33 @@ impl WalletApp {
                     "💼 Updated balance: {} TIME",
                     new_balance as f64 / 1_000_000.0
                 );
+
+                // Save transaction to database
+                if let Some(db) = &self.wallet_db {
+                    let tx_record = wallet_db::TransactionRecord {
+                        tx_hash: utxo.txid.clone(),
+                        timestamp: chrono::Utc::now().timestamp(),
+                        from_address: None, // Unknown sender
+                        to_address: utxo.address.clone(),
+                        amount: utxo.amount,
+                        status: if utxo.confirmations > 0 {
+                            wallet_db::TransactionStatus::Confirmed
+                        } else {
+                            wallet_db::TransactionStatus::Pending
+                        },
+                        block_height: utxo.block_height,
+                        notes: Some(format!(
+                            "Scanned from blockchain (height: {})",
+                            utxo.block_height.unwrap_or(0)
+                        )),
+                    };
+
+                    if let Err(e) = db.save_transaction(&tx_record) {
+                        log::error!("Failed to save transaction to database: {}", e);
+                    } else {
+                        log::info!("💾 Saved transaction to database: {}", utxo.txid);
+                    }
+                }
 
                 // Show success notification
                 self.set_success(format!(
