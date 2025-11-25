@@ -377,29 +377,7 @@ pub fn version_update_warning(
     peer_commit_count: &str,
 ) -> String {
     format!(
-        "\n\
-        ╔══════════════════════════════════════════════════════════════╗\n\
-        ║      UPDATE AVAILABLE - NEWER VERSION DETECTED               ║\n\
-        ╚══════════════════════════════════════════════════════════════╝\n\
-        \n\
-        Peer {} is running a NEWER version:\n\
-        \n\
-        Peer Version:   {} (commit #{})\n\
-        Peer Committed: {}\n\
-        \n\
-        Your Version:   {} (commit #{})\n\
-        Your Committed: {}\n\
-        \n\
-        ⚠️  RECOMMENDED ACTION:\n\
-        1. Update your node to the latest version\n\
-        2. Run: git pull && cargo build --release\n\
-        3. Restart your node service\n\
-        \n\
-        Running outdated software may cause:\n\
-        - Consensus incompatibilities\n\
-        - Missing important bug fixes\n\
-        - Reduced network participation\n\
-        ╚══════════════════════════════════════════════════════════════╝\n",
+        "⚠️  Update available: Peer {} running {} (commit #{}, {}). Your version: {} (commit #{}, {}). Run: git pull && cargo build --release",
         peer_addr,
         peer_version,
         peer_commit_count,
