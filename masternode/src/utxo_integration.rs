@@ -54,6 +54,13 @@ impl MasternodeUTXOIntegration {
         let vote_tracker = Arc::new(VoteTracker::new(2)); // Require 2 votes for consensus
         let mempool = Arc::new(Mempool::new("mainnet".to_string()));
         let utxo_tracker = Arc::new(UtxoTracker::new());
+        
+        // Initialize address monitor for xpub tracking
+        let address_monitor = Arc::new(crate::address_monitor::AddressMonitor::new());
+        info!(
+            node = %node_id,
+            "Address monitor initialized for xpub tracking"
+        );
 
         Self {
             utxo_manager,
@@ -63,7 +70,7 @@ impl MasternodeUTXOIntegration {
             node_id,
             mempool,
             utxo_tracker,
-            address_monitor: None,
+            address_monitor: Some(address_monitor),
             blockchain_db,
         }
     }
