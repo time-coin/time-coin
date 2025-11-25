@@ -285,11 +285,19 @@ pub fn xpub_to_address(
     // Get the actual public key bytes from the derived key
     // This must match what the GUI wallet does when deriving from mnemonic
     use bip32::PublicKey;
-    let public_key_bytes = address_key.public_key().to_bytes();
+    let public_key_compressed = address_key.public_key().to_bytes();
+
+    // BIP32 public keys are 33 bytes (compressed format with prefix byte)
+    // but TIME addresses use 32-byte raw keys, so we strip the prefix
+    let public_key_bytes = if public_key_compressed.len() == 33 {
+        &public_key_compressed[1..] // Skip the compression prefix byte (0x02 or 0x03)
+    } else {
+        &public_key_compressed[..]
+    };
 
     // Create a proper TIME address using the actual public key
     // This uses the same SHA256+RIPEMD160+Base58+checksum format as regular addresses
-    let address = crate::address::Address::from_public_key(&public_key_bytes, network)
+    let address = crate::address::Address::from_public_key(public_key_bytes, network)
         .map_err(|e| MnemonicError::DerivationError(format!("Address generation failed: {}", e)))?;
 
     Ok(address.to_string())
