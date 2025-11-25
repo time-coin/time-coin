@@ -54,7 +54,7 @@ impl MasternodeUTXOIntegration {
         let vote_tracker = Arc::new(VoteTracker::new(2)); // Require 2 votes for consensus
         let mempool = Arc::new(Mempool::new("mainnet".to_string()));
         let utxo_tracker = Arc::new(UtxoTracker::new());
-        
+
         // Initialize address monitor for xpub tracking
         let address_monitor = Arc::new(crate::address_monitor::AddressMonitor::new());
         info!(
@@ -743,11 +743,16 @@ impl MasternodeUTXOIntegration {
         );
 
         // Get the transaction from mempool
-        let tx = self.mempool.get_transaction(txid).await
+        let tx = self
+            .mempool
+            .get_transaction(txid)
+            .await
             .ok_or_else(|| format!("Transaction {} not found in mempool", txid))?;
 
         // Mark transaction as finalized in mempool
-        self.mempool.finalize_transaction(txid).await
+        self.mempool
+            .finalize_transaction(txid)
+            .await
             .map_err(|e| format!("Failed to finalize transaction in mempool: {}", e))?;
 
         info!(

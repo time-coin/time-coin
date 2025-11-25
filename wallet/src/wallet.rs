@@ -273,7 +273,7 @@ impl Wallet {
     }
 
     /// Create a transaction with fee support
-    /// 
+    ///
     /// **Instant Finality Behavior**: This method removes spent UTXOs immediately
     /// from the wallet's UTXO list. This ensures that the wallet balance reflects
     /// the transaction as soon as it's created and broadcast, consistent with the
@@ -282,7 +282,7 @@ impl Wallet {
     /// 2. Locked in the instant finality consensus system (<3 seconds)
     /// 3. Marked as spent when consensus achieved (instant finality)
     /// 4. Confirmed when included in a block (~24 hours later)
-    /// 
+    ///
     /// This prevents the "ghost balance" issue where sent coins appear available
     /// for 24 hours until the block is created.
     pub fn create_transaction(
@@ -567,7 +567,7 @@ mod tests {
         // Test that UTXOs are removed immediately when transaction is created
         // This is critical for instant finality - the wallet should show the
         // correct balance immediately, not 24 hours later when block is created
-        
+
         let mut sender = Wallet::new(NetworkType::Mainnet).unwrap();
         let recipient = Wallet::new(NetworkType::Mainnet).unwrap();
 
@@ -593,9 +593,17 @@ mod tests {
         // The spent UTXO (10000) is removed
         // Change output (8950) will be added when transaction is finalized
         // For now, balance reflects only spent UTXOs being removed
-        assert_eq!(sender.balance(), 0, "Balance should reflect spent UTXOs immediately");
-        assert_eq!(sender.utxos().len(), 0, "Spent UTXOs should be removed immediately");
-        
+        assert_eq!(
+            sender.balance(),
+            0,
+            "Balance should reflect spent UTXOs immediately"
+        );
+        assert_eq!(
+            sender.utxos().len(),
+            0,
+            "Spent UTXOs should be removed immediately"
+        );
+
         // In a real scenario, when the transaction is finalized (within 3 seconds),
         // the change output (8950) would be added back to the wallet as a new UTXO
     }

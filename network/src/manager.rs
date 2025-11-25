@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tokio::time;
 use tracing::{debug, info, warn};
@@ -523,14 +522,17 @@ impl PeerManager {
     }
 
     /// Send a network message to a specific peer over the stored TCP connection
+    /// If no stored connection exists, attempts to use raw TCP with proper handshake
     pub async fn send_message_to_peer(
         &self,
         peer_addr: SocketAddr,
         message: crate::protocol::NetworkMessage,
     ) -> Result<(), String> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
         let peer_ip = peer_addr.ip();
 
-        // Try to use stored connection first
+        // Try to use stored connection first (preferred - already has handshake)
         let connections = self.connections.read().await;
         if let Some(conn_arc) = connections.get(&peer_ip) {
             // Use the stored connection
@@ -541,13 +543,72 @@ impl PeerManager {
                 .await
                 .map_err(|e| format!("Failed to send via stored connection: {}", e));
         }
+        drop(connections);
 
-        // If no stored connection, fall back to creating a new one
-        // (This should be rare - mainly for one-off messages)
+        // If no stored connection, fall back to creating a new one WITH HANDSHAKE
+        warn!(
+            peer = %peer_addr,
+            "No stored connection, creating new connection with handshake"
+        );
+
         let mut stream = tokio::net::TcpStream::connect(peer_addr)
             .await
             .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
 
+        // Perform handshake first (CRITICAL: must include magic bytes)
+        let handshake = crate::protocol::HandshakeMessage::new(self.network, self.listen_addr);
+        let handshake_json = serde_json::to_vec(&handshake).map_err(|e| e.to_string())?;
+        let handshake_len = handshake_json.len() as u32;
+
+        // Write magic bytes first
+        let magic = self.network.magic_bytes();
+        stream
+            .write_all(&magic)
+            .await
+            .map_err(|e| format!("Failed to write magic bytes: {}", e))?;
+
+        // Then write handshake
+        stream
+            .write_all(&handshake_len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to write handshake length: {}", e))?;
+        stream
+            .write_all(&handshake_json)
+            .await
+            .map_err(|e| format!("Failed to write handshake: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush handshake: {}", e))?;
+
+        // Read their handshake response (MAGIC + LENGTH + PAYLOAD)
+        let mut magic_bytes = [0u8; 4];
+        stream
+            .read_exact(&mut magic_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake magic: {}", e))?;
+
+        let expected_magic = self.network.magic_bytes();
+        if magic_bytes != expected_magic {
+            return Err(format!(
+                "Invalid handshake magic bytes: expected {:?}, got {:?}",
+                expected_magic, magic_bytes
+            ));
+        }
+
+        let mut len_bytes = [0u8; 4];
+        stream
+            .read_exact(&mut len_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake length: {}", e))?;
+        let handshake_len = u32::from_be_bytes(len_bytes) as usize;
+        let mut handshake_bytes = vec![0u8; handshake_len];
+        stream
+            .read_exact(&mut handshake_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake: {}", e))?;
+
+        // Now send the actual message (LENGTH + PAYLOAD, no magic - protocol after handshake)
         let json = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
 
@@ -816,38 +877,22 @@ impl PeerManager {
     }
 
     pub async fn broadcast_message(&self, message: crate::protocol::NetworkMessage) {
-        let peers = self.peers.read().await;
+        let peers = self.peers.read().await.clone();
 
         for (_peer_ip, peer_info) in peers.iter() {
-            let peer_addr = peer_info.address;
+            let peer_ip = peer_info.address.ip();
             let msg_clone = message.clone();
+            let manager_clone = self.clone();
 
             tokio::spawn(async move {
-                let mut stream = match tokio::net::TcpStream::connect(peer_addr).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        debug!(peer = %peer_addr, error = %e, "Failed to connect for message send");
-                        return;
-                    }
-                };
-
-                let json = match serde_json::to_vec(&msg_clone) {
-                    Ok(j) => j,
-                    Err(e) => {
-                        debug!(error = %e, "Failed to serialize message");
-                        return;
-                    }
-                };
-
-                let len = json.len() as u32;
-
-                if stream.write_all(&len.to_be_bytes()).await.is_err() {
-                    return;
+                // Use stored connection with handshake (preferred method)
+                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                    debug!(
+                        peer = %peer_ip,
+                        error = %e,
+                        "Failed to broadcast message via stored connection"
+                    );
                 }
-                if stream.write_all(&json).await.is_err() {
-                    return;
-                }
-                let _ = stream.flush().await;
             });
         }
     }

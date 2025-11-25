@@ -1615,7 +1615,7 @@ async fn main() {
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::UpdateTip { height, hash } => {
-                                                    println!("📡 Peer {} announced new tip: block {} ({})", 
+                                                    println!("📡 Peer {} announced new tip: block {} ({})",
                                                         peer_ip_listen, height, &hash[..16]);
                                                     // Could trigger sync here if our height is lower
                                                 }
@@ -1688,15 +1688,15 @@ async fn main() {
                                                     let mut conn = conn_arc_clone.lock().await;
                                                     if conn.send_message(response).await.is_ok() {
                                                         println!("✅ Sent XpubRegistered response to {}", peer_ip_listen);
-                                                        
+
                                                         // Drop the lock before scanning blockchain
                                                         drop(conn);
-                                                        
+
                                                         // Scan blockchain for existing UTXOs for this xpub
                                                         println!("🔍 Scanning blockchain for UTXOs for xpub: {}...", &xpub[..20]);
                                                         let blockchain_guard = blockchain_listen.read().await;
                                                         let height = blockchain_guard.chain_tip_height();
-                                                        
+
                                                         // Derive addresses from xpub (first 20 addresses for now)
                                                         let mut all_utxos = Vec::new();
                                                         for i in 0..20 {
@@ -1719,7 +1719,7 @@ async fn main() {
                                                                                 }
                                                                             }
                                                                         }
-                                                                        
+
                                                                         for tx in block.regular_transactions() {
                                                                             for (vout, output) in tx.outputs.iter().enumerate() {
                                                                                 if output.address == address {
@@ -1738,18 +1738,18 @@ async fn main() {
                                                                 }
                                                             }
                                                         }
-                                                        
+
                                                         drop(blockchain_guard);
-                                                        
+
                                                         if !all_utxos.is_empty() {
                                                             println!("✅ Found {} UTXOs for xpub, sending to wallet", all_utxos.len());
-                                                            
+
                                                             // Send UTXO update to wallet
                                                             let utxo_update = time_network::protocol::NetworkMessage::UtxoUpdate {
                                                                 xpub: xpub.clone(),
                                                                 utxos: all_utxos,
                                                             };
-                                                            
+
                                                             let mut conn = conn_arc_clone.lock().await;
                                                             if let Err(e) = conn.send_message(utxo_update).await {
                                                                 println!("❌ Failed to send UtxoUpdate: {}", e);

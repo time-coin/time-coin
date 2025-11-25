@@ -2542,7 +2542,7 @@ impl WalletApp {
                             ui.add_space(10.0);
                             ui.label("Click 'Sync Transactions' to fetch from network");
                             ui.add_space(30.0);
-                            
+
                             // Show example transaction format
                             ui.separator();
                             ui.add_space(10.0);
@@ -2553,13 +2553,15 @@ impl WalletApp {
                             );
                             ui.add_space(10.0);
                         });
-                        
+
                         // Create example transactions to show formatting
                         let example_received = wallet_db::TransactionRecord {
                             tx_hash: "example_received_tx_hash_1234567890abcdef".to_string(),
                             timestamp: chrono::Utc::now().timestamp(),
                             from_address: Some("TIME1example9sender9address9xyz123".to_string()),
-                            to_address: self.wallet_manager.as_ref()
+                            to_address: self
+                                .wallet_manager
+                                .as_ref()
                                 .and_then(|m| m.get_primary_address().ok())
                                 .unwrap_or_else(|| "TIME1your9wallet9address9here".to_string()),
                             amount: 100_000_000, // 1.0 TIME
@@ -2567,11 +2569,13 @@ impl WalletApp {
                             block_height: Some(42),
                             notes: Some("Example: Received payment".to_string()),
                         };
-                        
+
                         let example_sent = wallet_db::TransactionRecord {
                             tx_hash: "example_sent_tx_hash_abcdef1234567890".to_string(),
                             timestamp: chrono::Utc::now().timestamp() - 3600, // 1 hour ago
-                            from_address: self.wallet_manager.as_ref()
+                            from_address: self
+                                .wallet_manager
+                                .as_ref()
                                 .and_then(|m| m.get_primary_address().ok()),
                             to_address: "TIME1example9recipient9address9abc456".to_string(),
                             amount: 50_000_000, // 0.5 TIME
@@ -2579,7 +2583,7 @@ impl WalletApp {
                             block_height: None,
                             notes: Some("Example: Sent payment (instant finality)".to_string()),
                         };
-                        
+
                         // Display example transactions
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             ui.label(
@@ -2590,7 +2594,7 @@ impl WalletApp {
                             );
                             self.show_transaction_item(ui, &example_received);
                             ui.add_space(10.0);
-                            
+
                             ui.label(
                                 egui::RichText::new("↓ Sent Transaction (Instant Finality)")
                                     .size(11.0)
@@ -2598,14 +2602,16 @@ impl WalletApp {
                                     .italics(),
                             );
                             self.show_transaction_item(ui, &example_sent);
-                            
+
                             ui.add_space(10.0);
                             ui.vertical_centered(|ui| {
                                 ui.label(
-                                    egui::RichText::new("These are example transactions showing the UI format")
-                                        .size(10.0)
-                                        .color(egui::Color32::DARK_GRAY)
-                                        .italics(),
+                                    egui::RichText::new(
+                                        "These are example transactions showing the UI format",
+                                    )
+                                    .size(10.0)
+                                    .color(egui::Color32::DARK_GRAY)
+                                    .italics(),
                                 );
                             });
                         });

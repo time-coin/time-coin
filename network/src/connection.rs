@@ -8,8 +8,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
-
-
 pub struct PeerConnection {
     stream: TcpStream,
     peer_info: Arc<Mutex<PeerInfo>>,
