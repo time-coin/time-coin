@@ -1216,7 +1216,7 @@ impl NetworkManager {
 
     /// Periodic refresh - updates latency, versions, and blockchain height
     pub async fn periodic_refresh(&mut self) {
-        log::debug!("Running periodic refresh...");
+        log::info!("🔄 Running periodic refresh (latency, version, blockchain height)...");
 
         // Refresh peer latency and version info
         let mut tasks = Vec::new();

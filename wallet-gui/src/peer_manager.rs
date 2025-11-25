@@ -336,14 +336,11 @@ impl PeerManager {
         let _their_handshake: HandshakeMessage = serde_json::from_slice(&their_handshake_bytes)
             .map_err(|e| format!("Failed to parse handshake response: {}", e))?;
 
-        
-
         // Now send GetPeerList request
         let request = NetworkMessage::GetPeerList;
         let request_bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
         let len = request_bytes.len() as u32;
 
-        
         log::debug!("Request JSON: {}", String::from_utf8_lossy(&request_bytes));
 
         stream
@@ -358,10 +355,9 @@ impl PeerManager {
             .flush()
             .await
             .map_err(|e| format!("Failed to flush: {}", e))?;
-        
 
         // Read response with timeout
-        
+
         let mut len_bytes = [0u8; 4];
 
         // Add timeout for reading response
@@ -371,7 +367,6 @@ impl PeerManager {
         ).await {
             Ok(Ok(_)) => {
                 let response_len = u32::from_be_bytes(len_bytes) as usize;
-                
 
                 if response_len > 10 * 1024 * 1024 {
                     return Err(format!("Response too large: {} bytes", response_len));
@@ -382,12 +377,11 @@ impl PeerManager {
                     .read_exact(&mut response_bytes)
                     .await
                     .map_err(|e| format!("Failed to read response body: {}", e))?;
-                
+
                 log::debug!("Response JSON: {}", String::from_utf8_lossy(&response_bytes));
 
                 let response: NetworkMessage = serde_json::from_slice(&response_bytes)
                     .map_err(|e| format!("Failed to parse response: {}", e))?;
-                
 
                 match response {
                     NetworkMessage::PeerList(peer_addresses) => {
@@ -395,7 +389,7 @@ impl PeerManager {
                             .into_iter()
                             .map(|pa| (pa.ip, pa.port))
                             .collect();
-                        
+
                         Ok(peers)
                     }
                     _ => Err("Unexpected response to GetPeerList".into()),

@@ -467,7 +467,7 @@ impl MasternodeUTXOIntegration {
                                     self.utxo_tracker.clone(),
                                     self.node_id.clone(),
                                 );
-                                
+
                                 match scanner.scan_blockchain().await {
                                     Ok(count) => {
                                         info!(

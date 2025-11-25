@@ -498,8 +498,10 @@ impl WalletApp {
                                 let now = chrono::Utc::now();
                                 let hour = now.hour();
                                 let minute = now.minute();
-                                
-                                let refresh_interval = if (hour == 23 && minute >= 50) || (hour == 0 && minute <= 10) {
+
+                                let refresh_interval = if (hour == 23 && minute >= 50)
+                                    || (hour == 0 && minute <= 10)
+                                {
                                     // Check every 10 seconds around midnight
                                     tokio::time::Duration::from_secs(10)
                                 } else {
@@ -1075,13 +1077,13 @@ impl WalletApp {
                                     }
                                 });
 
-                                // Start periodic refresh task
+                                // Start periodic refresh task (every 5 minutes to reduce GUI freezing)
                                 let network_refresh = network_mgr.clone();
                                 tokio::spawn(async move {
                                     loop {
-                                        tokio::time::sleep(tokio::time::Duration::from_secs(10))
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(300))
                                             .await;
-                                        log::debug!("Running scheduled refresh");
+                                        log::info!("🔄 Running scheduled refresh...");
 
                                         // Run periodic refresh (latency, version, blockchain height)
                                         let network_clone = network_refresh.clone();
@@ -1095,7 +1097,7 @@ impl WalletApp {
                                         .await
                                         .ok();
 
-                                        log::debug!("Scheduled refresh complete");
+                                        log::info!("✅ Scheduled refresh complete");
                                     }
                                 });
                             }

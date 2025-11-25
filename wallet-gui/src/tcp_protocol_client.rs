@@ -269,13 +269,11 @@ impl TcpProtocolListener {
             stream.write_all(&handshake_len.to_be_bytes()).await?;
             stream.write_all(&handshake_json).await?;
             stream.flush().await?;
-            
 
             // Read their handshake response
             let mut their_magic = [0u8; 4];
             let mut their_len_bytes = [0u8; 4];
 
-            
             stream.read_exact(&mut their_magic).await?;
             log::info!("📥 Got magic: {:?}", their_magic);
 
@@ -287,14 +285,12 @@ impl TcpProtocolListener {
                 .into());
             }
 
-            
             stream.read_exact(&mut their_len_bytes).await?;
             let their_len = u32::from_be_bytes(their_len_bytes) as usize;
-            
 
             if their_len < 10 * 1024 {
                 let mut their_handshake_bytes = vec![0u8; their_len];
-                
+
                 stream.read_exact(&mut their_handshake_bytes).await?;
 
                 if let Ok(_their_handshake) =
@@ -318,16 +314,11 @@ impl TcpProtocolListener {
             &self.xpub[..std::cmp::min(20, self.xpub.len())]
         );
 
-        
         let register_msg = NetworkMessage::RegisterXpub {
             xpub: self.xpub.clone(),
         };
 
-        
         self.send_message(&mut stream, register_msg).await?;
-        
-
-        
 
         // Wait for XpubRegistered response or UtxoUpdate with 10 second timeout
         let response_timeout = tokio::time::Duration::from_secs(10);
