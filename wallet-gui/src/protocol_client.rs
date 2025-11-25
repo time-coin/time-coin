@@ -4,7 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
-use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 use time_network::protocol::NetworkMessage;

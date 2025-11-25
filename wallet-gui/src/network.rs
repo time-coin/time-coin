@@ -762,6 +762,10 @@ impl NetworkManager {
 
     /// Measure latency to a peer via TCP Ping
     async fn measure_latency(&self, peer_address: &str) -> Result<u64, String> {
+        Self::measure_latency_static(peer_address).await
+    }
+
+    async fn measure_latency_static(peer_address: &str) -> Result<u64, String> {
         use time_network::protocol::{HandshakeMessage, NetworkMessage};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
@@ -776,7 +780,7 @@ impl NetworkManager {
 
         let start = std::time::Instant::now();
 
-        match tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr)).await {
+        match tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&tcp_addr)).await {
             Ok(Ok(mut stream)) => {
                 // Perform handshake first
                 let network_type = if port == 24100 {
@@ -837,6 +841,10 @@ impl NetworkManager {
 
     /// Discover peers from a connected peer via TCP GetPeerList
     async fn discover_peers_from_peer(&self, peer_address: &str) -> Result<Vec<PeerInfo>, String> {
+        Self::discover_peers_from_peer_static(peer_address).await
+    }
+
+    async fn discover_peers_from_peer_static(peer_address: &str) -> Result<Vec<PeerInfo>, String> {
         use time_network::protocol::NetworkMessage;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
@@ -849,9 +857,7 @@ impl NetworkManager {
             .unwrap_or(24100);
         let tcp_addr = format!("{}:{}", peer_ip, port);
 
-        log::info!("Discovering peers via TCP from: {}", tcp_addr);
-
-        match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&tcp_addr)).await {
+        match tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr)).await {
             Ok(Ok(mut stream)) => {
                 // Perform handshake first
                 let network_type = if port == 24100 {
@@ -1073,87 +1079,100 @@ impl NetworkManager {
     pub async fn discover_and_connect_peers(&mut self) -> Result<(), String> {
         log::info!("Starting peer discovery...");
 
-        let mut discovered_peers: std::collections::HashMap<String, PeerInfo> =
-            std::collections::HashMap::new();
-        let mut peers_to_check: Vec<String> = self
+        let peers_to_check: Vec<String> = self
             .connected_peers
             .iter()
             .map(|p| format!("{}:{}", p.address, p.port))
             .collect();
-        let mut checked_peers: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        // Discover peers from each connected peer
-        while !peers_to_check.is_empty() {
-            let current_peer = peers_to_check.pop().unwrap();
-
-            if checked_peers.contains(&current_peer) {
-                continue;
-            }
-
-            checked_peers.insert(current_peer.clone());
-
-            if let Ok(peers) = self.discover_peers_from_peer(&current_peer).await {
-                for peer in peers {
-                    let peer_key = format!("{}:{}", peer.address, peer.port);
-                    if !discovered_peers.contains_key(&peer_key)
-                        && !checked_peers.contains(&peer_key)
-                    {
-                        discovered_peers.insert(peer_key.clone(), peer.clone());
-                        peers_to_check.push(peer_key);
+        // Discover peers from ALL connected peers in PARALLEL
+        let mut discovery_tasks = Vec::new();
+        for peer_addr in peers_to_check {
+            let task = tokio::spawn({
+                let peer_addr = peer_addr.clone();
+                async move {
+                    // Use shorter timeout for discovery
+                    match tokio::time::timeout(
+                        Duration::from_secs(3),
+                        Self::discover_peers_from_peer_static(&peer_addr)
+                    ).await {
+                        Ok(Ok(peers)) => Some(peers),
+                        _ => None,
                     }
                 }
-            }
+            });
+            discovery_tasks.push(task);
+        }
 
-            // Limit discovery to avoid infinite loops
-            if checked_peers.len() > 20 {
-                log::info!(
-                    "Reached discovery limit, stopping at {} peers checked",
-                    checked_peers.len()
-                );
-                break;
+        // Wait for all discovery tasks in parallel
+        let mut results = Vec::new();
+        for task in discovery_tasks {
+            results.push(task.await);
+        }
+        
+        let mut discovered_peers: std::collections::HashMap<String, PeerInfo> =
+            std::collections::HashMap::new();
+
+        for result in results {
+            if let Ok(Some(peers)) = result {
+                for peer in peers {
+                    let peer_key = format!("{}:{}", peer.address, peer.port);
+                    discovered_peers.entry(peer_key).or_insert(peer);
+                }
             }
         }
 
         log::info!("Discovered {} total peers", discovered_peers.len());
 
-        // Measure latency for all discovered peers
-        let mut peers_with_latency: Vec<PeerInfo> = Vec::new();
+        // Measure latency for all discovered peers in PARALLEL
+        let mut latency_tasks = Vec::new();
+        for (address, peer) in discovered_peers {
+            let task = tokio::spawn(async move {
+                // Use shorter timeout for latency check
+                match tokio::time::timeout(
+                    Duration::from_secs(2),
+                    Self::measure_latency_static(&address)
+                ).await {
+                    Ok(Ok(latency)) => {
+                        let mut peer_with_latency = peer;
+                        peer_with_latency.latency_ms = latency;
+                        Some((address, peer_with_latency))
+                    }
+                    _ => None,
+                }
+            });
+            latency_tasks.push(task);
+        }
 
-        for (address, mut peer) in discovered_peers {
-            log::info!("Measuring latency for discovered peer: {}", address);
-            if let Ok(latency) = self.measure_latency(&address).await {
-                peer.latency_ms = latency;
+        // Wait for all latency checks in parallel
+        let mut latency_results = Vec::new();
+        for task in latency_tasks {
+            latency_results.push(task.await);
+        }
+        
+        let mut peers_with_latency: Vec<PeerInfo> = Vec::new();
+        for result in latency_results {
+            if let Ok(Some((address, peer))) = result {
+                log::info!("  ✓ Peer {} latency: {}ms", address, peer.latency_ms);
                 peers_with_latency.push(peer);
-                log::info!("  ✓ Peer {} latency: {}ms", address, latency);
-            } else {
-                log::warn!(
-                    "  ✗ Failed to measure latency for peer: {} - peer excluded",
-                    address
-                );
             }
         }
 
         // Sort by latency (lowest first)
         peers_with_latency.sort_by_key(|p| p.latency_ms);
 
-        // Use all peers (sorted by latency)
-        let top_peers: Vec<PeerInfo> = peers_with_latency;
-
-        log::info!("Selected {} peers based on latency:", top_peers.len());
-        for peer in &top_peers {
-            log::info!("  {}:{} - {}ms", peer.address, peer.port, peer.latency_ms);
-        }
+        log::info!("Selected {} peers based on latency", peers_with_latency.len());
 
         // ADD discovered peers to existing connected peers (don't replace!)
-        if !top_peers.is_empty() {
+        if !peers_with_latency.is_empty() {
             log::info!(
                 "Adding {} discovered peers to existing {} peers",
-                top_peers.len(),
+                peers_with_latency.len(),
                 self.connected_peers.len()
             );
 
             // Merge discovered peers with existing ones (avoid duplicates)
-            for new_peer in top_peers {
+            for new_peer in peers_with_latency {
                 let peer_key = format!("{}:{}", new_peer.address, new_peer.port);
                 if !self
                     .connected_peers
