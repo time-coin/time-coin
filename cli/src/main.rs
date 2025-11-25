@@ -1688,6 +1688,75 @@ async fn main() {
                                                     let mut conn = conn_arc_clone.lock().await;
                                                     if conn.send_message(response).await.is_ok() {
                                                         println!("✅ Sent XpubRegistered response to {}", peer_ip_listen);
+                                                        
+                                                        // Drop the lock before scanning blockchain
+                                                        drop(conn);
+                                                        
+                                                        // Scan blockchain for existing UTXOs for this xpub
+                                                        println!("🔍 Scanning blockchain for UTXOs for xpub: {}...", &xpub[..20]);
+                                                        let blockchain_guard = blockchain_listen.read().await;
+                                                        let height = blockchain_guard.chain_tip_height();
+                                                        
+                                                        // Derive addresses from xpub (first 20 addresses for now)
+                                                        let mut all_utxos = Vec::new();
+                                                        for i in 0..20 {
+                                                            if let Ok(address) = wallet::xpub_to_address(&xpub, 0, i, WalletNetworkType::Testnet) {
+                                                                // Scan all blocks for this address
+                                                                for block_height in 0..=height {
+                                                                    if let Some(block) = blockchain_guard.get_block_by_height(block_height) {
+                                                                        // Check coinbase and all transactions
+                                                                        if let Some(coinbase_tx) = block.coinbase() {
+                                                                            for (vout, output) in coinbase_tx.outputs.iter().enumerate() {
+                                                                                if output.address == address {
+                                                                                    all_utxos.push(time_network::protocol::UtxoInfo {
+                                                                                        txid: coinbase_tx.txid.clone(),
+                                                                                        vout: vout as u32,
+                                                                                        address: address.clone(),
+                                                                                        amount: output.amount,
+                                                                                        block_height: Some(block_height),
+                                                                                        confirmations: height - block_height,
+                                                                                    });
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        
+                                                                        for tx in block.regular_transactions() {
+                                                                            for (vout, output) in tx.outputs.iter().enumerate() {
+                                                                                if output.address == address {
+                                                                                    all_utxos.push(time_network::protocol::UtxoInfo {
+                                                                                        txid: tx.txid.clone(),
+                                                                                        vout: vout as u32,
+                                                                                        address: address.clone(),
+                                                                                        amount: output.amount,
+                                                                                        block_height: Some(block_height),
+                                                                                        confirmations: height - block_height,
+                                                                                    });
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        drop(blockchain_guard);
+                                                        
+                                                        if !all_utxos.is_empty() {
+                                                            println!("✅ Found {} UTXOs for xpub, sending to wallet", all_utxos.len());
+                                                            
+                                                            // Send UTXO update to wallet
+                                                            let utxo_update = time_network::protocol::NetworkMessage::UtxoUpdate {
+                                                                xpub: xpub.clone(),
+                                                                utxos: all_utxos,
+                                                            };
+                                                            
+                                                            let mut conn = conn_arc_clone.lock().await;
+                                                            if let Err(e) = conn.send_message(utxo_update).await {
+                                                                println!("❌ Failed to send UtxoUpdate: {}", e);
+                                                            }
+                                                        } else {
+                                                            println!("ℹ️  No UTXOs found for xpub");
+                                                        }
                                                     } else {
                                                         println!("❌ Failed to send XpubRegistered response to {}", peer_ip_listen);
                                                     }
