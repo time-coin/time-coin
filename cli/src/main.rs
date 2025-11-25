@@ -1701,6 +1701,7 @@ async fn main() {
                                                         let mut all_utxos = Vec::new();
                                                         for i in 0..20 {
                                                             if let Ok(address) = wallet::xpub_to_address(&xpub, 0, i, WalletNetworkType::Testnet) {
+                                                                println!("  📍 Derived address {}: {}", i, address);
                                                                 // Scan all blocks for this address
                                                                 for block_height in 0..=height {
                                                                     if let Some(block) = blockchain_guard.get_block_by_height(block_height) {
@@ -2114,6 +2115,8 @@ async fn main() {
     let consensus_heartbeat = consensus.clone();
     let block_consensus_heartbeat = block_consensus.clone();
     let peer_mgr_heartbeat = peer_manager.clone();
+    let mempool_heartbeat = mempool.clone();
+    let tx_consensus_heartbeat = tx_consensus.clone();
 
     loop {
         time::sleep(Duration::from_secs(60)).await;
@@ -2165,6 +2168,37 @@ async fn main() {
                 total_nodes.to_string().yellow(),
                 consensus_mode.yellow()
             );
+        }
+
+        // Retry instant finality for pending transactions every 2 heartbeats (2 minutes)
+        if counter % 2 == 0 {
+            let pending_txs = mempool_heartbeat.get_all_transactions().await;
+            if !pending_txs.is_empty() {
+                println!(
+                    "   🔄 Retrying instant finality for {} pending transaction(s)...",
+                    pending_txs.len()
+                );
+
+                for tx in pending_txs {
+                    let txid = tx.txid.clone();
+                    println!(
+                        "      ⚡ Re-broadcasting transaction {} to trigger voting...",
+                        &txid[..16]
+                    );
+
+                    // Convert to TransactionMessage and re-broadcast
+                    let tx_msg = time_network::protocol::TransactionMessage {
+                        transaction: tx,
+                        timestamp: chrono::Utc::now().timestamp(),
+                    };
+
+                    // Re-broadcast to masternodes - will trigger instant finality with updated protocol
+                    match peer_mgr_heartbeat.broadcast_transaction(tx_msg).await {
+                        Ok(count) => println!("         📡 Re-broadcasted to {} peer(s)", count),
+                        Err(e) => println!("         ❌ Re-broadcast failed: {}", e),
+                    }
+                }
+            }
         }
 
         // Test TCP connectivity by pinging connected peers every 5 heartbeats
