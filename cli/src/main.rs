@@ -1692,6 +1692,29 @@ async fn main() {
                                                         println!("❌ Failed to send XpubRegistered response to {}", peer_ip_listen);
                                                     }
                                                 }
+                                                time_network::protocol::NetworkMessage::GetBlockchainInfo => {
+                                                    println!("📊 Received GetBlockchainInfo request from {}", peer_ip_listen);
+
+                                                    let blockchain_guard = blockchain_listen.read().await;
+                                                    let height = blockchain_guard.chain_tip_height();
+                                                    let best_block_hash = blockchain_guard
+                                                        .get_block_by_height(height)
+                                                        .map(|b| hex::encode(&b.hash))
+                                                        .unwrap_or_else(|| "unknown".to_string());
+                                                    drop(blockchain_guard);
+
+                                                    let response = time_network::protocol::NetworkMessage::BlockchainInfo {
+                                                        height,
+                                                        best_block_hash,
+                                                    };
+
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(response).await.is_ok() {
+                                                        println!("✅ Sent BlockchainInfo (height {}) to {}", height, peer_ip_listen);
+                                                    } else {
+                                                        println!("❌ Failed to send BlockchainInfo to {}", peer_ip_listen);
+                                                    }
+                                                }
                                                 time_network::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json) => {
                                                     // Parse and store block proposal
                                                     if let Ok(proposal) = serde_json::from_str::<time_consensus::block_consensus::BlockProposal>(&proposal_json) {
