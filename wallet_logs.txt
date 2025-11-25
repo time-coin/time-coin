@@ -1,0 +1,892 @@
+[2025-11-25T00:59:25Z INFO  wallet_gui] Wallet database initialized
+[2025-11-25T00:59:25Z INFO  wallet_gui] Wallet auto-loaded successfully
+[2025-11-25T00:59:25Z INFO  wallet_gui] 📂 Found 0 peers in database
+[2025-11-25T00:59:25Z INFO  wallet_gui::peer_manager] 📂 Wallet database connected to PeerManager
+[2025-11-25T00:59:25Z INFO  wallet_gui] 📝 Adding 2 nodes from config
+[2025-11-25T00:59:25Z INFO  wallet_gui::peer_manager] ➕ Added new peer: 161.35.129.70:24100
+[2025-11-25T00:59:25Z INFO  wallet_gui::peer_manager] ➕ Added new peer: 69.167.168.176:24100
+[2025-11-25T00:59:25Z INFO  wallet_gui] 🔍 Bootstrapping PeerManager...
+[2025-11-25T00:59:25Z INFO  wallet_gui::network] get_connected_peers called, returning 0 peers
+[2025-11-25T00:59:25Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-25T00:59:25Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T00:59:25Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T00:59:25Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T00:59:25Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T00:59:25Z INFO  wallet_gui::network] get_connected_peers called, returning 0 peers
+[2025-11-25T00:59:25Z WARN  wallet_gui] No connected peers to check mempool from
+[2025-11-25T00:59:25Z INFO  wallet_gui::peer_manager] 🧹 Cleaned 17 ephemeral port entries, normalized to port 24100
+[2025-11-25T00:59:25Z INFO  wallet_gui::peer_manager] ✓ Using 9 configured peers
+[2025-11-25T00:59:25Z INFO  wallet_gui::peer_manager] 🔍 Discovering peers from network...
+[2025-11-25T00:59:25Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 161.35.129.70:24100
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] get_connected_peers called, returning 0 peers
+[2025-11-25T00:59:26Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] get_connected_peers called, returning 0 peers
+[2025-11-25T00:59:26Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] get_connected_peers called, returning 0 peers
+[2025-11-25T00:59:26Z WARN  wallet_gui] No masternodes available for protocol client
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] ✅ TCP connection established to 161.35.129.70:24100
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] 🤝 Handshake completed successfully
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] 📤 Sending GetPeerList request (13 bytes)
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] ✅ Request sent, waiting for response...
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] 📥 Reading response length...
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] 📥 Response length: 392 bytes
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] 📥 Response received, parsing...
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] ✅ Response parsed successfully
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] Got 6 peers from response
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] 📥 Received 6 peers from 161.35.129.70:24100
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] ➕ Added 6 new peers (total: 14)
+[2025-11-25T00:59:26Z INFO  wallet_gui::peer_manager] ✓ Peer discovery successful
+[2025-11-25T00:59:26Z INFO  wallet_gui] 🔗 Connecting NetworkManager to discovered peers...
+[2025-11-25T00:59:26Z INFO  wallet_gui] 📋 Attempting to connect to 14 peers
+[2025-11-25T00:59:26Z INFO  wallet_gui] 🔌 Initializing TCP listener for auto-loaded wallet
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Attempting to connect to 14 peers via TCP
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 161.35.129.70:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 134.199.175.106:45476...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 165.232.154.150:46904...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 69.167.168.176:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 134.199.175.106:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 165.232.154.150:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 178.128.199.144:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 50.28.104.50:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 178.128.199.144:42972...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 50.38.156.179:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 50.38.156.179:54679...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 216.198.79.65:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 50.28.104.50:35238...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network] Testing TCP connection to 64.29.17.65:24100...
+[2025-11-25T00:59:26Z INFO  wallet_gui::network]   ✓ Connected to 50.28.104.50:24100 (34ms)
+[2025-11-25T00:59:27Z INFO  wallet_gui::network]   ✓ Connected to 134.199.175.106:24100 (205ms)
+[2025-11-25T00:59:27Z INFO  wallet_gui::network]   ✓ Connected to 161.35.129.70:24100 (205ms)
+[2025-11-25T00:59:27Z INFO  wallet_gui::network]   ✓ Connected to 69.167.168.176:24100 (205ms)
+[2025-11-25T00:59:27Z INFO  wallet_gui::network]   ✓ Connected to 178.128.199.144:24100 (205ms)
+[2025-11-25T00:59:27Z INFO  wallet_gui::network]   ✓ Connected to 165.232.154.150:24100 (205ms)
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 50.38.156.179:54679
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 165.232.154.150:46904
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 134.199.175.106:45476
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 178.128.199.144:42972
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 64.29.17.65:24100
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 50.28.104.50:35238
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 50.38.156.179:24100
+[2025-11-25T00:59:28Z WARN  wallet_gui::network] Timeout connecting to 216.198.79.65:24100
+[2025-11-25T00:59:28Z INFO  wallet_gui::network]   ✓ Peer 161.35.129.70 responsive via TCP (205ms, version: unknown)
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 134.199.175.106 unreachable via TCP
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 165.232.154.150 unreachable via TCP
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 178.128.199.144 unreachable via TCP
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 50.28.104.50 unreachable via TCP
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 50.38.156.179 unreachable via TCP
+[2025-11-25T00:59:28Z INFO  wallet_gui::network]   ✓ Peer 69.167.168.176 responsive via TCP (205ms, version: unknown)
+[2025-11-25T00:59:28Z INFO  wallet_gui::network]   ✓ Peer 134.199.175.106 responsive via TCP (205ms, version: unknown)
+[2025-11-25T00:59:28Z INFO  wallet_gui::network]   ✓ Peer 165.232.154.150 responsive via TCP (205ms, version: 0.1.0-9cd6375)
+[2025-11-25T00:59:28Z INFO  wallet_gui::network]   ✓ Peer 178.128.199.144 responsive via TCP (205ms, version: unknown)
+[2025-11-25T00:59:28Z INFO  wallet_gui::network]   ✓ Peer 50.28.104.50 responsive via TCP (34ms, version: 0.1.0-76dd18a)
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 50.38.156.179 unreachable via TCP
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 216.198.79.65 unreachable via TCP
+[2025-11-25T00:59:28Z WARN  wallet_gui::network]   ✗ Peer 64.29.17.65 unreachable via TCP
+[2025-11-25T00:59:28Z INFO  wallet_gui::network] ✅ TCP connection test complete: 6 responsive out of 14
+[2025-11-25T00:59:28Z INFO  wallet_gui] ✅ NetworkManager connected to peers successfully
+[2025-11-25T00:59:28Z INFO  wallet_gui] 🔍 Starting peer discovery...
+[2025-11-25T00:59:28Z INFO  wallet_gui::network] Starting peer discovery...
+[2025-11-25T00:59:28Z INFO  wallet_gui::network] Discovering peers via TCP from: 64.29.17.65:24100
+[2025-11-25T00:59:33Z INFO  wallet_gui::network] Discovering peers via TCP from: 216.198.79.65:24100
+[2025-11-25T00:59:38Z INFO  wallet_gui::network] Discovering peers via TCP from: 50.38.156.179:24100
+[2025-11-25T00:59:43Z INFO  wallet_gui::network] Discovering peers via TCP from: 50.28.104.50:24100
+[2025-11-25T00:59:43Z INFO  wallet_gui::network] Discovering peers via TCP from: 178.128.199.144:24100
+[2025-11-25T00:59:44Z INFO  wallet_gui::network] Discovering peers via TCP from: 165.232.154.150:24100
+[2025-11-25T00:59:44Z INFO  wallet_gui::network] Discovering peers via TCP from: 134.199.175.106:24100
+[2025-11-25T00:59:44Z INFO  wallet_gui::network] Discovering peers via TCP from: 69.167.168.176:24100
+[2025-11-25T00:59:44Z INFO  wallet_gui::network] Discovering peers via TCP from: 50.38.156.179:54679
+[2025-11-25T00:59:49Z INFO  wallet_gui::network] Discovering peers via TCP from: 50.28.104.50:35238
+[2025-11-25T00:59:54Z INFO  wallet_gui::network] Discovering peers via TCP from: 178.128.199.144:42972
+[2025-11-25T00:59:57Z INFO  wallet_gui::network] Discovering peers via TCP from: 165.232.154.150:46904
+[2025-11-25T01:00:00Z INFO  wallet_gui::network] Discovering peers via TCP from: 134.199.175.106:45476
+[2025-11-25T01:00:02Z INFO  wallet_gui::network] Discovering peers via TCP from: 161.35.129.70:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::network] Discovered 0 total peers
+[2025-11-25T01:00:03Z INFO  wallet_gui::network] Selected 0 peers based on latency:
+[2025-11-25T01:00:03Z INFO  wallet_gui::network] No new peers discovered, keeping existing 14 peers
+[2025-11-25T01:00:03Z INFO  wallet_gui] ✅ Peer discovery completed
+[2025-11-25T01:00:03Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 34ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui] 🔗 Starting TCP listener for 50.28.104.50:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 🔌 Starting TCP listener for 50.28.104.50:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 34ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui] Initializing TIME Coin Protocol client with 14 masternodes
+[2025-11-25T01:00:03Z INFO  wallet_gui] ✅ Protocol client initialized for peer: http://50.28.104.50:24101
+[2025-11-25T01:00:03Z INFO  wallet_gui] ✅ TIME Coin Protocol client initialized
+[2025-11-25T01:00:03Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T01:00:03Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T01:00:03Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T01:00:03Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T01:00:03Z INFO  wallet_gui] 🔄 Running periodic peer discovery...
+[2025-11-25T01:00:03Z INFO  wallet_gui] 🔄 Running scheduled refresh...
+[2025-11-25T01:00:03Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 161.35.129.70:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 205ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 34ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:00:03Z INFO  wallet_gui] 📡 Checking mempool from peer: 50.28.104.50
+[2025-11-25T01:00:03Z INFO  wallet_gui::network] 🔄 Running periodic refresh (latency, version, blockchain height)...
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:00:03Z INFO  wallet_gui::peer_manager] ✅ TCP connection established to 161.35.129.70:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:00:03Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:00:03Z INFO  wallet_gui::peer_manager] 🤝 Handshake completed successfully
+[2025-11-25T01:00:03Z INFO  wallet_gui::peer_manager] 📤 Sending GetPeerList request (13 bytes)
+[2025-11-25T01:00:03Z INFO  wallet_gui::peer_manager] ✅ Request sent, waiting for response...
+[2025-11-25T01:00:03Z INFO  wallet_gui::peer_manager] 📥 Reading response length...
+[2025-11-25T01:00:04Z INFO  wallet_gui::peer_manager] 📥 Response length: 392 bytes
+[2025-11-25T01:00:04Z INFO  wallet_gui::peer_manager] 📥 Response received, parsing...
+[2025-11-25T01:00:04Z INFO  wallet_gui::peer_manager] ✅ Response parsed successfully
+[2025-11-25T01:00:04Z INFO  wallet_gui::peer_manager] Got 6 peers from response
+[2025-11-25T01:00:04Z INFO  wallet_gui::peer_manager] 📥 Received 6 peers from 161.35.129.70:24100
+[2025-11-25T01:00:04Z INFO  wallet_gui::peer_manager] ➕ Added 6 new peers (total: 15)
+[2025-11-25T01:00:04Z INFO  wallet_gui] ✅ Discovered and added new peers to database
+[2025-11-25T01:00:04Z INFO  wallet_gui] 🔗 Connecting to 15 total peers
+[2025-11-25T01:00:04Z INFO  wallet_gui] ⏭️  Skipping peer connection refresh to prevent GUI hang
+[2025-11-25T01:00:05Z INFO  wallet_gui::network] 📊 Fetching blockchain info from 14 connected peers...
+[2025-11-25T01:00:05Z INFO  wallet_gui::network]   Trying peer: 161.35.129.70:24100
+[2025-11-25T01:00:10Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 161.35.129.70:24100
+[2025-11-25T01:00:10Z WARN  wallet_gui::network] Failed to get blockchain info from 161.35.129.70:24100
+[2025-11-25T01:00:10Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:45476
+[2025-11-25T01:00:13Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:00:13Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:00:13Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:00:13Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:45476
+[2025-11-25T01:00:13Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:46904
+[2025-11-25T01:00:15Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:46904
+[2025-11-25T01:00:15Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:42972
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:00:18Z WARN  wallet_gui::network] Failed to get blockchain info from 178.128.199.144:42972
+[2025-11-25T01:00:18Z INFO  wallet_gui::network]   Trying peer: 50.28.104.50:35238
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:00:18Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:00:21Z WARN  wallet_gui::network] Failed to get blockchain info from 50.28.104.50:35238
+[2025-11-25T01:00:21Z INFO  wallet_gui::network]   Trying peer: 50.38.156.179:54679
+[2025-11-25T01:00:24Z WARN  wallet_gui::network] Failed to get blockchain info from 50.38.156.179:54679
+[2025-11-25T01:00:24Z INFO  wallet_gui::network]   Trying peer: 69.167.168.176:24100
+[2025-11-25T01:00:28Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:00:28Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:00:28Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:00:30Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 69.167.168.176:24100
+[2025-11-25T01:00:30Z WARN  wallet_gui::network] Failed to get blockchain info from 69.167.168.176:24100
+[2025-11-25T01:00:30Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:24100
+[2025-11-25T01:00:33Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:00:33Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:00:33Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:00:33Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:00:33Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:00:34Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:00:36Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 134.199.175.106:24100
+[2025-11-25T01:00:36Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:24100
+[2025-11-25T01:00:36Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:24100
+[2025-11-25T01:00:41Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 165.232.154.150:24100
+[2025-11-25T01:00:41Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:24100
+[2025-11-25T01:00:41Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:24100
+[2025-11-25T01:00:42Z INFO  wallet_gui::network] ✅ Got blockchain height 44 from peer 178.128.199.144:24100
+[2025-11-25T01:00:42Z INFO  wallet_gui::network] 📊 Updated blockchain height: 0 -> 44
+[2025-11-25T01:00:42Z INFO  wallet_gui] ✅ Scheduled refresh complete
+[2025-11-25T01:00:42Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T01:00:42Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T01:00:42Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T01:00:42Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T01:00:42Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 314ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 313ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 313ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 313ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 313ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 42ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:00:42Z INFO  wallet_gui] 📡 Checking mempool from peer: 50.28.104.50
+[2025-11-25T01:00:44Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:00:44Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:00:44Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:00:49Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:00:52Z INFO  wallet_gui] 🔄 Running scheduled refresh...
+[2025-11-25T01:00:52Z INFO  wallet_gui::network] 🔄 Running periodic refresh (latency, version, blockchain height)...
+[2025-11-25T01:00:54Z INFO  wallet_gui::network] 📊 Fetching blockchain info from 14 connected peers...
+[2025-11-25T01:00:54Z INFO  wallet_gui::network]   Trying peer: 161.35.129.70:24100
+[2025-11-25T01:00:59Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:00:59Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:00:59Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:01:00Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 161.35.129.70:24100
+[2025-11-25T01:01:00Z WARN  wallet_gui::network] Failed to get blockchain info from 161.35.129.70:24100
+[2025-11-25T01:01:00Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:45476
+[2025-11-25T01:01:03Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:45476
+[2025-11-25T01:01:03Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:46904
+[2025-11-25T01:01:03Z WARN  wallet_gui] ❌ Failed to check mempool from any peer
+[2025-11-25T01:01:04Z INFO  wallet_gui] 🔄 Running periodic peer discovery...
+[2025-11-25T01:01:04Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 161.35.129.70:24100
+[2025-11-25T01:01:04Z INFO  wallet_gui::peer_manager] ✅ TCP connection established to 161.35.129.70:24100
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:01:04Z INFO  wallet_gui::peer_manager] 🤝 Handshake completed successfully
+[2025-11-25T01:01:04Z INFO  wallet_gui::peer_manager] 📤 Sending GetPeerList request (13 bytes)
+[2025-11-25T01:01:04Z INFO  wallet_gui::peer_manager] ✅ Request sent, waiting for response...
+[2025-11-25T01:01:04Z INFO  wallet_gui::peer_manager] 📥 Reading response length...
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:01:04Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:01:04Z INFO  wallet_gui::peer_manager] 📥 Response length: 392 bytes
+[2025-11-25T01:01:05Z INFO  wallet_gui::peer_manager] 📥 Response received, parsing...
+[2025-11-25T01:01:05Z INFO  wallet_gui::peer_manager] ✅ Response parsed successfully
+[2025-11-25T01:01:05Z INFO  wallet_gui::peer_manager] Got 6 peers from response
+[2025-11-25T01:01:05Z INFO  wallet_gui::peer_manager] 📥 Received 6 peers from 161.35.129.70:24100
+[2025-11-25T01:01:05Z INFO  wallet_gui::peer_manager] ➕ Added 6 new peers (total: 16)
+[2025-11-25T01:01:05Z INFO  wallet_gui] ✅ Discovered and added new peers to database
+[2025-11-25T01:01:05Z INFO  wallet_gui] 🔗 Connecting to 16 total peers
+[2025-11-25T01:01:05Z INFO  wallet_gui] ⏭️  Skipping peer connection refresh to prevent GUI hang
+[2025-11-25T01:01:05Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:46904
+[2025-11-25T01:01:05Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:42972
+[2025-11-25T01:01:08Z WARN  wallet_gui::network] Failed to get blockchain info from 178.128.199.144:42972
+[2025-11-25T01:01:08Z INFO  wallet_gui::network]   Trying peer: 50.28.104.50:35238
+[2025-11-25T01:01:11Z WARN  wallet_gui::network] Failed to get blockchain info from 50.28.104.50:35238
+[2025-11-25T01:01:11Z INFO  wallet_gui::network]   Trying peer: 50.38.156.179:54679
+[2025-11-25T01:01:14Z WARN  wallet_gui::network] Failed to get blockchain info from 50.38.156.179:54679
+[2025-11-25T01:01:14Z INFO  wallet_gui::network]   Trying peer: 69.167.168.176:24100
+[2025-11-25T01:01:14Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:01:14Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:01:14Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:01:19Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:01:19Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:01:19Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:01:19Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:01:19Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:01:19Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:01:19Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:01:20Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 69.167.168.176:24100
+[2025-11-25T01:01:20Z WARN  wallet_gui::network] Failed to get blockchain info from 69.167.168.176:24100
+[2025-11-25T01:01:20Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:24100
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:01:20Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:01:25Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 134.199.175.106:24100
+[2025-11-25T01:01:25Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:24100
+[2025-11-25T01:01:25Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:24100
+[2025-11-25T01:01:30Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:01:30Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:01:30Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:01:31Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 165.232.154.150:24100
+[2025-11-25T01:01:31Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:24100
+[2025-11-25T01:01:31Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:24100
+[2025-11-25T01:01:32Z INFO  wallet_gui::network] ✅ Got blockchain height 44 from peer 178.128.199.144:24100
+[2025-11-25T01:01:32Z INFO  wallet_gui] ✅ Scheduled refresh complete
+[2025-11-25T01:01:32Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T01:01:32Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T01:01:32Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T01:01:32Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T01:01:32Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 152ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 152ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 173ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 151ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 252ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 59ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:01:32Z INFO  wallet_gui] 📡 Checking mempool from peer: 50.28.104.50
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:01:35Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:01:42Z INFO  wallet_gui] 🔄 Running scheduled refresh...
+[2025-11-25T01:01:42Z INFO  wallet_gui::network] 🔄 Running periodic refresh (latency, version, blockchain height)...
+[2025-11-25T01:01:43Z WARN  wallet_gui] ❌ Failed to check mempool from any peer
+[2025-11-25T01:01:44Z INFO  wallet_gui::network] 📊 Fetching blockchain info from 14 connected peers...
+[2025-11-25T01:01:44Z INFO  wallet_gui::network]   Trying peer: 161.35.129.70:24100
+[2025-11-25T01:01:45Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:01:45Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:01:45Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:01:50Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 161.35.129.70:24100
+[2025-11-25T01:01:50Z WARN  wallet_gui::network] Failed to get blockchain info from 161.35.129.70:24100
+[2025-11-25T01:01:50Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:45476
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:01:50Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:01:53Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:45476
+[2025-11-25T01:01:53Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:46904
+[2025-11-25T01:01:55Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:46904
+[2025-11-25T01:01:55Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:42972
+[2025-11-25T01:01:58Z WARN  wallet_gui::network] Failed to get blockchain info from 178.128.199.144:42972
+[2025-11-25T01:01:58Z INFO  wallet_gui::network]   Trying peer: 50.28.104.50:35238
+[2025-11-25T01:02:00Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:02:00Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:02:00Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:02:01Z WARN  wallet_gui::network] Failed to get blockchain info from 50.28.104.50:35238
+[2025-11-25T01:02:01Z INFO  wallet_gui::network]   Trying peer: 50.38.156.179:54679
+[2025-11-25T01:02:04Z WARN  wallet_gui::network] Failed to get blockchain info from 50.38.156.179:54679
+[2025-11-25T01:02:04Z INFO  wallet_gui::network]   Trying peer: 69.167.168.176:24100
+[2025-11-25T01:02:05Z INFO  wallet_gui] 🔄 Running periodic peer discovery...
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 161.35.129.70:24100
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] ✅ TCP connection established to 161.35.129.70:24100
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] 🤝 Handshake completed successfully
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] 📤 Sending GetPeerList request (13 bytes)
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] ✅ Request sent, waiting for response...
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] 📥 Reading response length...
+[2025-11-25T01:02:05Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:02:05Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:02:05Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:02:05Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:02:05Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] 📥 Response length: 392 bytes
+[2025-11-25T01:02:05Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:02:05Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] 📥 Response received, parsing...
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] ✅ Response parsed successfully
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] Got 6 peers from response
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] 📥 Received 6 peers from 161.35.129.70:24100
+[2025-11-25T01:02:05Z INFO  wallet_gui::peer_manager] ➕ Added 6 new peers (total: 17)
+[2025-11-25T01:02:05Z INFO  wallet_gui] ✅ Discovered and added new peers to database
+[2025-11-25T01:02:05Z INFO  wallet_gui] 🔗 Connecting to 17 total peers
+[2025-11-25T01:02:05Z INFO  wallet_gui] ⏭️  Skipping peer connection refresh to prevent GUI hang
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:02:06Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:02:09Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 69.167.168.176:24100
+[2025-11-25T01:02:09Z WARN  wallet_gui::network] Failed to get blockchain info from 69.167.168.176:24100
+[2025-11-25T01:02:09Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:24100
+[2025-11-25T01:02:15Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 134.199.175.106:24100
+[2025-11-25T01:02:15Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:24100
+[2025-11-25T01:02:15Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:24100
+[2025-11-25T01:02:16Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:02:16Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:02:16Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:02:21Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 165.232.154.150:24100
+[2025-11-25T01:02:21Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:24100
+[2025-11-25T01:02:21Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:24100
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:02:21Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:02:22Z INFO  wallet_gui::network] ✅ Got blockchain height 44 from peer 178.128.199.144:24100
+[2025-11-25T01:02:22Z INFO  wallet_gui] ✅ Scheduled refresh complete
+[2025-11-25T01:02:22Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T01:02:22Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T01:02:22Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T01:02:22Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T01:02:22Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 142ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 141ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 274ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 141ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 175ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 39ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:02:22Z INFO  wallet_gui] 📡 Checking mempool from peer: 50.28.104.50
+[2025-11-25T01:02:31Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:02:31Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:02:31Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:02:32Z INFO  wallet_gui] 🔄 Running scheduled refresh...
+[2025-11-25T01:02:32Z INFO  wallet_gui::network] 🔄 Running periodic refresh (latency, version, blockchain height)...
+[2025-11-25T01:02:33Z WARN  wallet_gui] ❌ Failed to check mempool from any peer
+[2025-11-25T01:02:34Z INFO  wallet_gui::network] 📊 Fetching blockchain info from 14 connected peers...
+[2025-11-25T01:02:34Z INFO  wallet_gui::network]   Trying peer: 161.35.129.70:24100
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:02:36Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:02:39Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 161.35.129.70:24100
+[2025-11-25T01:02:39Z WARN  wallet_gui::network] Failed to get blockchain info from 161.35.129.70:24100
+[2025-11-25T01:02:39Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:45476
+[2025-11-25T01:02:42Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:45476
+[2025-11-25T01:02:42Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:46904
+[2025-11-25T01:02:45Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:46904
+[2025-11-25T01:02:45Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:42972
+[2025-11-25T01:02:46Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:02:46Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:02:46Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:02:47Z WARN  wallet_gui::network] Failed to get blockchain info from 178.128.199.144:42972
+[2025-11-25T01:02:47Z INFO  wallet_gui::network]   Trying peer: 50.28.104.50:35238
+[2025-11-25T01:02:50Z WARN  wallet_gui::network] Failed to get blockchain info from 50.28.104.50:35238
+[2025-11-25T01:02:50Z INFO  wallet_gui::network]   Trying peer: 50.38.156.179:54679
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:02:51Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:02:53Z WARN  wallet_gui::network] Failed to get blockchain info from 50.38.156.179:54679
+[2025-11-25T01:02:53Z INFO  wallet_gui::network]   Trying peer: 69.167.168.176:24100
+[2025-11-25T01:02:59Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 69.167.168.176:24100
+[2025-11-25T01:02:59Z WARN  wallet_gui::network] Failed to get blockchain info from 69.167.168.176:24100
+[2025-11-25T01:02:59Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:24100
+[2025-11-25T01:03:01Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:03:01Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:03:01Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:03:05Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 134.199.175.106:24100
+[2025-11-25T01:03:05Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:24100
+[2025-11-25T01:03:05Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:24100
+[2025-11-25T01:03:05Z INFO  wallet_gui] 🔄 Running periodic peer discovery...
+[2025-11-25T01:03:05Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 161.35.129.70:24100
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] ✅ TCP connection established to 161.35.129.70:24100
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] 🤝 Handshake completed successfully
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] 📤 Sending GetPeerList request (13 bytes)
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] ✅ Request sent, waiting for response...
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] 📥 Reading response length...
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] 📥 Response length: 392 bytes
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] 📥 Response received, parsing...
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] ✅ Response parsed successfully
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] Got 6 peers from response
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] 📥 Received 6 peers from 161.35.129.70:24100
+[2025-11-25T01:03:06Z INFO  wallet_gui::peer_manager] ➕ Added 6 new peers (total: 18)
+[2025-11-25T01:03:06Z INFO  wallet_gui] ✅ Discovered and added new peers to database
+[2025-11-25T01:03:06Z INFO  wallet_gui] 🔗 Connecting to 18 total peers
+[2025-11-25T01:03:06Z INFO  wallet_gui] ⏭️  Skipping peer connection refresh to prevent GUI hang
+[2025-11-25T01:03:06Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:03:07Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:03:10Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 165.232.154.150:24100
+[2025-11-25T01:03:10Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:24100
+[2025-11-25T01:03:10Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:24100
+[2025-11-25T01:03:12Z INFO  wallet_gui::network] ✅ Got blockchain height 44 from peer 178.128.199.144:24100
+[2025-11-25T01:03:12Z INFO  wallet_gui] ✅ Scheduled refresh complete
+[2025-11-25T01:03:17Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:03:17Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:03:17Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:03:20Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T01:03:20Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T01:03:20Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T01:03:20Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T01:03:20Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 162ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 162ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 177ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 162ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 177ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 35ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:03:20Z INFO  wallet_gui] 📡 Checking mempool from peer: 50.28.104.50
+[2025-11-25T01:03:22Z INFO  wallet_gui] 🔄 Running scheduled refresh...
+[2025-11-25T01:03:22Z INFO  wallet_gui::network] 🔄 Running periodic refresh (latency, version, blockchain height)...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:03:22Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:03:22Z WARN  wallet_gui] ❌ Failed to check mempool from any peer
+[2025-11-25T01:03:24Z INFO  wallet_gui::network] 📊 Fetching blockchain info from 14 connected peers...
+[2025-11-25T01:03:24Z INFO  wallet_gui::network]   Trying peer: 161.35.129.70:24100
+[2025-11-25T01:03:29Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 161.35.129.70:24100
+[2025-11-25T01:03:29Z WARN  wallet_gui::network] Failed to get blockchain info from 161.35.129.70:24100
+[2025-11-25T01:03:29Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:45476
+[2025-11-25T01:03:32Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:45476
+[2025-11-25T01:03:32Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:46904
+[2025-11-25T01:03:32Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:03:32Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:03:32Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:03:34Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:46904
+[2025-11-25T01:03:34Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:42972
+[2025-11-25T01:03:37Z WARN  wallet_gui::network] Failed to get blockchain info from 178.128.199.144:42972
+[2025-11-25T01:03:37Z INFO  wallet_gui::network]   Trying peer: 50.28.104.50:35238
+[2025-11-25T01:03:37Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:03:37Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:03:37Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:03:37Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:03:37Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:03:37Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:03:37Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:03:38Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:03:40Z WARN  wallet_gui::network] Failed to get blockchain info from 50.28.104.50:35238
+[2025-11-25T01:03:40Z INFO  wallet_gui::network]   Trying peer: 50.38.156.179:54679
+[2025-11-25T01:03:43Z WARN  wallet_gui::network] Failed to get blockchain info from 50.38.156.179:54679
+[2025-11-25T01:03:43Z INFO  wallet_gui::network]   Trying peer: 69.167.168.176:24100
+[2025-11-25T01:03:48Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:03:48Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:03:48Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:03:49Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 69.167.168.176:24100
+[2025-11-25T01:03:49Z WARN  wallet_gui::network] Failed to get blockchain info from 69.167.168.176:24100
+[2025-11-25T01:03:49Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:24100
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:03:53Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:03:55Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 134.199.175.106:24100
+[2025-11-25T01:03:55Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:24100
+[2025-11-25T01:03:55Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:24100
+[2025-11-25T01:04:00Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 165.232.154.150:24100
+[2025-11-25T01:04:00Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:24100
+[2025-11-25T01:04:00Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:24100
+[2025-11-25T01:04:01Z INFO  wallet_gui::network] ✅ Got blockchain height 44 from peer 178.128.199.144:24100
+[2025-11-25T01:04:01Z INFO  wallet_gui] ✅ Scheduled refresh complete
+[2025-11-25T01:04:02Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T01:04:02Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T01:04:02Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T01:04:02Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T01:04:02Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 162ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 162ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 284ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 36ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 175ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 161ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:04:02Z INFO  wallet_gui] 📡 Checking mempool from peer: 165.232.154.150
+[2025-11-25T01:04:03Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:04:03Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:04:03Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:04:06Z INFO  wallet_gui] 🔄 Running periodic peer discovery...
+[2025-11-25T01:04:06Z INFO  wallet_gui::peer_manager] 🔍 Requesting peer list from 161.35.129.70:24100
+[2025-11-25T01:04:06Z INFO  wallet_gui::peer_manager] ✅ TCP connection established to 161.35.129.70:24100
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] 🤝 Handshake completed successfully
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] 📤 Sending GetPeerList request (13 bytes)
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] ✅ Request sent, waiting for response...
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] 📥 Reading response length...
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] 📥 Response length: 392 bytes
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] 📥 Response received, parsing...
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] ✅ Response parsed successfully
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] Got 6 peers from response
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] 📥 Received 6 peers from 161.35.129.70:24100
+[2025-11-25T01:04:07Z INFO  wallet_gui::peer_manager] ➕ Added 6 new peers (total: 19)
+[2025-11-25T01:04:07Z INFO  wallet_gui] ✅ Discovered and added new peers to database
+[2025-11-25T01:04:07Z INFO  wallet_gui] 🔗 Connecting to 19 total peers
+[2025-11-25T01:04:07Z INFO  wallet_gui] ⏭️  Skipping peer connection refresh to prevent GUI hang
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:04:08Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:04:11Z INFO  wallet_gui] 🔄 Running scheduled refresh...
+[2025-11-25T01:04:11Z INFO  wallet_gui::network] 🔄 Running periodic refresh (latency, version, blockchain height)...
+[2025-11-25T01:04:14Z INFO  wallet_gui::network] 📊 Fetching blockchain info from 14 connected peers...
+[2025-11-25T01:04:14Z INFO  wallet_gui::network]   Trying peer: 161.35.129.70:24100
+[2025-11-25T01:04:18Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:04:18Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:04:18Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:04:19Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 161.35.129.70:24100
+[2025-11-25T01:04:19Z WARN  wallet_gui::network] Failed to get blockchain info from 161.35.129.70:24100
+[2025-11-25T01:04:19Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:45476
+[2025-11-25T01:04:21Z WARN  wallet_gui] ❌ Failed to check mempool from any peer
+[2025-11-25T01:04:22Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:45476
+[2025-11-25T01:04:22Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:46904
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:04:23Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:04:24Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:46904
+[2025-11-25T01:04:24Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:42972
+[2025-11-25T01:04:27Z WARN  wallet_gui::network] Failed to get blockchain info from 178.128.199.144:42972
+[2025-11-25T01:04:27Z INFO  wallet_gui::network]   Trying peer: 50.28.104.50:35238
+[2025-11-25T01:04:30Z WARN  wallet_gui::network] Failed to get blockchain info from 50.28.104.50:35238
+[2025-11-25T01:04:30Z INFO  wallet_gui::network]   Trying peer: 50.38.156.179:54679
+[2025-11-25T01:04:33Z WARN  wallet_gui::network] Failed to get blockchain info from 50.38.156.179:54679
+[2025-11-25T01:04:33Z INFO  wallet_gui::network]   Trying peer: 69.167.168.176:24100
+[2025-11-25T01:04:33Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:04:33Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:04:33Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:04:38Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:04:38Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:04:39Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 69.167.168.176:24100
+[2025-11-25T01:04:39Z WARN  wallet_gui::network] Failed to get blockchain info from 69.167.168.176:24100
+[2025-11-25T01:04:39Z INFO  wallet_gui::network]   Trying peer: 134.199.175.106:24100
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:04:39Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...
+[2025-11-25T01:04:44Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 134.199.175.106:24100
+[2025-11-25T01:04:44Z WARN  wallet_gui::network] Failed to get blockchain info from 134.199.175.106:24100
+[2025-11-25T01:04:44Z INFO  wallet_gui::network]   Trying peer: 165.232.154.150:24100
+[2025-11-25T01:04:49Z ERROR wallet_gui::tcp_protocol_client] ❌ Timeout waiting for RegisterXpub response - masternode may not be responding
+[2025-11-25T01:04:49Z ERROR wallet_gui::tcp_protocol_client] TCP listener error: Timeout waiting for xpub registration response
+[2025-11-25T01:04:49Z INFO  wallet_gui::tcp_protocol_client] ⏳ Reconnecting in 5 seconds...
+[2025-11-25T01:04:50Z WARN  wallet_gui::network]   ⚠️ Timeout or error reading response from 165.232.154.150:24100
+[2025-11-25T01:04:50Z WARN  wallet_gui::network] Failed to get blockchain info from 165.232.154.150:24100
+[2025-11-25T01:04:50Z INFO  wallet_gui::network]   Trying peer: 178.128.199.144:24100
+[2025-11-25T01:04:51Z INFO  wallet_gui::network] ✅ Got blockchain height 44 from peer 178.128.199.144:24100
+[2025-11-25T01:04:51Z INFO  wallet_gui] ✅ Scheduled refresh complete
+[2025-11-25T01:04:51Z INFO  wallet_gui] Auto-triggering transaction sync and mempool check
+[2025-11-25T01:04:51Z INFO  wallet_gui] 🔄 Transaction sync via TCP monitoring...
+[2025-11-25T01:04:51Z INFO  wallet_gui] ✓ Wallet monitoring active via TCP protocol
+[2025-11-25T01:04:51Z INFO  wallet_gui] 🔄 Checking mempool for pending transactions...
+[2025-11-25T01:04:51Z INFO  wallet_gui::network] get_connected_peers called, returning 14 peers
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 1: 161.35.129.70:24100 - 137ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 2: 134.199.175.106:45476 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 3: 165.232.154.150:46904 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 4: 178.128.199.144:42972 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 5: 50.28.104.50:35238 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 6: 50.38.156.179:54679 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 7: 69.167.168.176:24100 - 136ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 8: 134.199.175.106:24100 - 174ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 9: 165.232.154.150:24100 - 136ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 10: 178.128.199.144:24100 - 278ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 11: 50.28.104.50:24100 - 58ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 12: 50.38.156.179:24100 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 13: 216.198.79.65:24100 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui::network]   Peer 14: 64.29.17.65:24100 - 9999ms
+[2025-11-25T01:04:51Z INFO  wallet_gui] 📡 Checking mempool from peer: 50.28.104.50
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 🔌 Attempting to connect to 50.28.104.50:24100
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] ✅ Connected to 50.28.104.50:24100
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📤 Sending handshake: 260 bytes
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] ✅ Handshake sent, waiting for response...
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading magic bytes...
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📥 Got magic: [126, 87, 126, 77]
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading length bytes...
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📥 Handshake response length: 269
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📥 Reading handshake payload...
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 🤝 Handshake completed with 50.28.104.50:24100
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📤 Registering xpub: xpub6CZosSrjGTSQi9Hb...
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 🔍 Serializing RegisterXpub message...
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 🔍 Sending RegisterXpub to masternode...
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] ✅ RegisterXpub message sent successfully
+[2025-11-25T01:04:54Z INFO  wallet_gui::tcp_protocol_client] 📝 Sent RegisterXpub request, waiting for response...

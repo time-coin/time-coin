@@ -1673,6 +1673,25 @@ async fn main() {
                                                         eprintln!("Failed to send wallet transactions response to {}", peer_ip_listen);
                                                     }
                                                 }
+                                                time_network::protocol::NetworkMessage::RegisterXpub { xpub } => {
+                                                    println!("📝 Received RegisterXpub from {} for xpub: {}...", peer_ip_listen, &xpub[..20]);
+
+                                                    // Subscribe this peer to transaction notifications
+                                                    peer_manager_listen.subscribe_wallet(&xpub, peer_ip_listen).await;
+
+                                                    // Send success response directly on this connection
+                                                    let response = time_network::protocol::NetworkMessage::XpubRegistered {
+                                                        success: true,
+                                                        message: "Xpub registered successfully".to_string(),
+                                                    };
+
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(response).await.is_ok() {
+                                                        println!("✅ Sent XpubRegistered response to {}", peer_ip_listen);
+                                                    } else {
+                                                        println!("❌ Failed to send XpubRegistered response to {}", peer_ip_listen);
+                                                    }
+                                                }
                                                 time_network::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json) => {
                                                     // Parse and store block proposal
                                                     if let Ok(proposal) = serde_json::from_str::<time_consensus::block_consensus::BlockProposal>(&proposal_json) {
