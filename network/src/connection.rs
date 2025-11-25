@@ -9,17 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MessageType {
-    Ping,
-    Pong,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkMessage {
-    pub msg_type: MessageType,
-    pub payload: Vec<u8>,
-}
 
 pub struct PeerConnection {
     stream: TcpStream,
@@ -271,10 +261,7 @@ impl PeerConnection {
     }
 
     pub async fn ping(&mut self) -> Result<(), String> {
-        let msg = NetworkMessage {
-            msg_type: MessageType::Ping,
-            payload: vec![],
-        };
+        let msg = crate::protocol::NetworkMessage::Ping;
         let json = serde_json::to_vec(&msg).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
         self.stream
