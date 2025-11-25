@@ -1476,6 +1476,7 @@ async fn main() {
                 let block_consensus_clone = block_consensus.clone();
                 let quarantine_clone = quarantine.clone();
                 let blockchain_clone = blockchain.clone();
+                let wallet_address_clone = wallet_address.clone();
 
                 tokio::spawn(async move {
                     loop {
@@ -1590,6 +1591,7 @@ async fn main() {
                             let peer_ip_listen = peer_ip;
                             let blockchain_listen = Arc::clone(&blockchain_clone);
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
+                            let wallet_address_listen = wallet_address_clone.clone();
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -1797,6 +1799,32 @@ async fn main() {
                                                     if let Ok(vote) = serde_json::from_str::<time_consensus::block_consensus::BlockVote>(&vote_json) {
                                                         println!("🗳️  Received block vote from {} for block #{}", peer_ip_listen, vote.block_height);
                                                         let _ = block_consensus_listen.vote_on_block(vote).await;
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::InstantFinalityRequest(tx) => {
+                                                    println!("⚡ Received instant finality request from {} for tx {}", peer_ip_listen, &tx.txid[..16]);
+
+                                                    // Validate the transaction
+                                                    let blockchain_guard = blockchain_listen.read().await;
+                                                    let is_valid = blockchain_guard.validate_transaction(&tx).is_ok();
+                                                    drop(blockchain_guard);
+
+                                                    let vote_result = if is_valid { "APPROVE ✓" } else { "REJECT ✗" };
+                                                    println!("   Voting {} for tx {}", vote_result, &tx.txid[..16]);
+
+                                                    // Send vote response back to requester
+                                                    let vote_msg = time_network::protocol::NetworkMessage::InstantFinalityVote {
+                                                        txid: tx.txid.clone(),
+                                                        voter: wallet_address_listen.clone(),
+                                                        approve: is_valid,
+                                                        timestamp: chrono::Utc::now().timestamp() as u64,
+                                                    };
+
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if let Err(e) = conn.send_message(vote_msg).await {
+                                                        println!("❌ Failed to send instant finality vote: {}", e);
+                                                    } else {
+                                                        println!("✅ Sent {} vote for tx {}", vote_result, &tx.txid[..16]);
                                                     }
                                                 }
                                                 _ => {
