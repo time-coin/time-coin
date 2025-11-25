@@ -1,7 +1,6 @@
 //! Peer connection with handshake
 use crate::discovery::{NetworkType, PeerInfo};
 use crate::protocol::HandshakeMessage;
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Arc as StdArc;
