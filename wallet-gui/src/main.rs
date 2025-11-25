@@ -2146,6 +2146,13 @@ impl WalletApp {
                                             ));
                                         }
                                     }
+                                } else {
+                                    // Wallet manager not initialized
+                                    pending_action = Some(AddressAction::CreateNew(
+                                        String::new(),
+                                        0,
+                                        "ERROR: Wallet not loaded".to_string(),
+                                    ));
                                 }
                             }
                             if ui.button("✗ Cancel").clicked() {
@@ -2450,6 +2457,8 @@ impl WalletApp {
                                     self.set_error(format!("Failed to save address: {}", e));
                                 }
                             }
+                        } else {
+                            self.set_error("Database not initialized".to_string());
                         }
                     }
                 }
