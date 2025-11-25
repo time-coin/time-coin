@@ -2115,7 +2115,7 @@ impl WalletApp {
                         ui.add_space(5.0);
 
                         ui.label("Name (optional):");
-                        ui.text_edit_singleline(&mut self.new_address_label);
+                        let label_input = ui.text_edit_singleline(&mut self.new_address_label);
                         ui.label(
                             egui::RichText::new("Leave empty for unnamed address")
                                 .size(10.0)
@@ -2125,20 +2125,32 @@ impl WalletApp {
                         ui.add_space(5.0);
                         ui.horizontal(|ui| {
                             if ui.button("✓ Create").clicked() {
+                                log::info!("Create button clicked!");
+                                // Clone the label before borrowing wallet_manager
+                                let current_label = self.new_address_label.clone();
+
                                 if let Some(ref mut manager) = self.wallet_manager {
+                                    log::info!("Wallet manager is available");
                                     // Generate new address with derivation index
                                     match manager.generate_new_address_with_index() {
                                         Ok((address, index)) => {
-                                            let label = if self.new_address_label.is_empty() {
+                                            log::info!(
+                                                "Generated address: {} at index {}",
+                                                address,
+                                                index
+                                            );
+                                            let label = if current_label.is_empty() {
                                                 format!("Address {}", index + 1)
                                             } else {
-                                                self.new_address_label.clone()
+                                                current_label
                                             };
+                                            log::info!("Setting pending action for CreateNew");
                                             pending_action = Some(AddressAction::CreateNew(
                                                 address, index, label,
                                             ));
                                         }
                                         Err(e) => {
+                                            log::error!("Failed to generate address: {}", e);
                                             pending_action = Some(AddressAction::CreateNew(
                                                 String::new(),
                                                 0,
@@ -2147,6 +2159,7 @@ impl WalletApp {
                                         }
                                     }
                                 } else {
+                                    log::error!("Wallet manager not initialized");
                                     // Wallet manager not initialized
                                     pending_action = Some(AddressAction::CreateNew(
                                         String::new(),
@@ -2419,6 +2432,16 @@ impl WalletApp {
 
         // Execute pending action outside the columns closure
         if let Some(action) = pending_action {
+            log::info!(
+                "Processing pending action: {:?}",
+                match &action {
+                    AddressAction::ToggleCreate => "ToggleCreate",
+                    AddressAction::CreateNew(_, _, _) => "CreateNew",
+                    AddressAction::SetDefault(_) => "SetDefault",
+                    AddressAction::ClearInfo(_) => "ClearInfo",
+                    AddressAction::SaveContactInfo(_, _, _, _) => "SaveContactInfo",
+                }
+            );
             match action {
                 AddressAction::ToggleCreate => {
                     self.is_creating_new_address = !self.is_creating_new_address;
