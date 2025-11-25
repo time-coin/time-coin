@@ -587,6 +587,14 @@ impl PeerManager {
         let handshake_json = serde_json::to_vec(&handshake).map_err(|e| e.to_string())?;
         let handshake_len = handshake_json.len() as u32;
 
+        // Write magic bytes first (CRITICAL: must match connection.rs send_handshake)
+        let magic = self.network.magic_bytes();
+        stream
+            .write_all(&magic)
+            .await
+            .map_err(|e| format!("Failed to write magic bytes: {}", e))?;
+
+        // Then write handshake length and payload
         stream
             .write_all(&handshake_len.to_be_bytes())
             .await
@@ -600,7 +608,21 @@ impl PeerManager {
             .await
             .map_err(|e| format!("Failed to flush handshake: {}", e))?;
 
-        // Receive their handshake
+        // Receive their handshake (expects MAGIC + LENGTH + PAYLOAD)
+        let mut magic_bytes = [0u8; 4];
+        stream
+            .read_exact(&mut magic_bytes)
+            .await
+            .map_err(|e| format!("Failed to read handshake magic: {}", e))?;
+
+        let expected_magic = self.network.magic_bytes();
+        if magic_bytes != expected_magic {
+            return Err(format!(
+                "Invalid handshake magic bytes: expected {:?}, got {:?}",
+                expected_magic, magic_bytes
+            ));
+        }
+
         let mut len_bytes = [0u8; 4];
         stream
             .read_exact(&mut len_bytes)
