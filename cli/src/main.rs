@@ -2125,13 +2125,14 @@ async fn main() {
         // Sync with connected peers before getting the count (with timeout to avoid blocking)
         let peers = peer_mgr_heartbeat.get_connected_peers().await;
         let connected_ips = extract_peer_ips(&peers);
-        
+
         // Use timeout to prevent blocking heartbeat
         let sync_result = tokio::time::timeout(
             Duration::from_secs(5),
-            block_consensus_heartbeat.sync_with_connected_peers(connected_ips)
-        ).await;
-        
+            block_consensus_heartbeat.sync_with_connected_peers(connected_ips),
+        )
+        .await;
+
         if sync_result.is_err() {
             eprintln!("⚠️  Peer sync timed out (>5s)");
         }
@@ -2182,7 +2183,7 @@ async fn main() {
         if counter % 2 == 0 {
             let mempool_clone = mempool_heartbeat.clone();
             let tx_broadcaster_clone = tx_broadcaster_heartbeat.clone();
-            
+
             tokio::spawn(async move {
                 let pending_txs = mempool_clone.get_all_transactions().await;
                 if !pending_txs.is_empty() {

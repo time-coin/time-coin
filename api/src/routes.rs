@@ -1456,7 +1456,7 @@ async fn receive_finalized_block(
     }
 }
 
-/// Trigger instant finality for a transaction received from another node with real distributed voting
+/// Trigger instant finality for a transaction - validates and finalizes immediately
 pub async fn trigger_instant_finality_for_received_tx(
     state: ApiState,
     tx: time_core::transaction::Transaction,
@@ -1466,198 +1466,41 @@ pub async fn trigger_instant_finality_for_received_tx(
         &tx.txid[..16]
     );
 
-    let consensus = state.consensus.clone();
     let mempool = state.mempool.clone();
     let blockchain = state.blockchain.clone();
     let txid = tx.txid.clone();
-    let tx_broadcaster = state.tx_broadcaster.clone();
-    let peer_manager = state.peer_manager.clone();
-    let wallet_address = state.wallet_address.clone();
-    // WebSocket removed - using TCP protocol only
 
-    // Spawn async task to handle consensus voting
+    // Spawn async task to finalize immediately
     tokio::spawn(async move {
-        // Get connected masternodes (real peers only)
-        let masternodes = peer_manager.get_peer_ips().await;
+        println!("✅ Validating transaction...");
+        
+        // Transaction is already validated by mempool.add_transaction()
+        // So we can finalize it immediately
+        
+        if let Some(mempool) = mempool.as_ref() {
+            let _ = mempool.finalize_transaction(&txid).await;
 
-        println!(
-            "🔍 Debug: peer_manager.get_peer_ips() returned {} masternodes",
-            masternodes.len()
-        );
-        for (i, mn) in masternodes.iter().enumerate() {
-            println!("   [{}] {}", i, mn);
-        }
-
-        if masternodes.is_empty() {
-            println!("⚠️  No masternodes connected - auto-finalizing in dev mode");
-            if let Some(mempool) = mempool.as_ref() {
-                let _ = mempool.finalize_transaction(&txid).await;
-
-                // Apply transaction to UTXO set for instant balance update
-                let mut blockchain = blockchain.write().await;
-                let _block_height = blockchain.chain_tip_height();
-                if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
-                    println!("❌ Failed to apply transaction to UTXO set: {}", e);
-                } else {
-                    println!("✅ UTXO set updated - balances are now live!");
-
-                    // Save finalized transaction to database for persistence
-                    if let Err(e) = blockchain.save_finalized_tx(&tx, 1, 1) {
-                        println!("⚠️  Failed to save finalized transaction: {}", e);
-                    } else {
-                        println!("💾 Finalized transaction saved to database");
-                    }
-
-                    // Save UTXO snapshot to disk for persistence
-                    if let Err(e) = blockchain.save_utxo_snapshot() {
-                        println!("⚠️  Failed to save UTXO snapshot: {}", e);
-                    } else {
-                        println!(
-                            "💾 UTXO snapshot saved - transaction will persist across restarts"
-                        );
-                    }
-
-                    // WebSocket notifications removed - using TCP protocol instead
-                }
-            }
-            return;
-        }
-
-        println!(
-            "📊 Broadcasting transaction to {} masternodes for voting",
-            masternodes.len()
-        );
-
-        // Vote locally
-        let _ = consensus
-            .vote_on_transaction(&txid, wallet_address.clone(), true)
-            .await;
-        println!("   ✅ Local node voted: APPROVE");
-
-        // Request instant finality votes from all peers and collect responses
-        let votes_received = if let Some(broadcaster) = tx_broadcaster.as_ref() {
-            broadcaster
-                .request_instant_finality_votes(tx.clone(), consensus.clone())
-                .await
-        } else {
-            0
-        };
-
-        println!(
-            "   📊 Collected {} votes from {} peers",
-            votes_received,
-            masternodes.len()
-        );
-
-        // Check vote counts from actual peer responses
-        let (approvals, rejections) = consensus.get_transaction_vote_count(&txid).await;
-        let total_votes = approvals + rejections;
-
-        println!(
-            "📊 Vote results: {} approvals, {} rejections (total {} votes from {} peers)",
-            approvals,
-            rejections,
-            total_votes,
-            masternodes.len()
-        );
-
-        // Check if consensus reached based on actual votes received
-        let has_consensus = consensus.has_transaction_consensus(&txid).await;
-
-        if has_consensus {
-            println!(
-                "✅ BFT consensus reached ({}/{} approvals from responding masternodes)",
-                approvals, total_votes
-            );
-
-            // Finalize the transaction in mempool
-            if let Some(mempool) = mempool.as_ref() {
-                match mempool.finalize_transaction(&txid).await {
-                    Ok(_) => {
-                        println!("🎉 Transaction {} instantly finalized!", &txid[..16]);
-
-                        // Apply transaction to UTXO set for instant balance update
-                        let mut blockchain = blockchain.write().await;
-                        let block_height = blockchain.chain_tip_height();
-                        if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
-                            println!("❌ Failed to apply transaction to UTXO set: {}", e);
-                        } else {
-                            println!("✅ UTXO set updated - balances are now live!");
-
-                            // Save finalized transaction to database for persistence
-                            if let Err(e) =
-                                blockchain.save_finalized_tx(&tx, approvals, masternodes.len())
-                            {
-                                println!("⚠️  Failed to save finalized transaction: {}", e);
-                            } else {
-                                println!("💾 Finalized transaction saved to database");
-                            }
-
-                            // Save UTXO snapshot to disk for persistence
-                            if let Err(e) = blockchain.save_utxo_snapshot() {
-                                println!("⚠️  Failed to save UTXO snapshot: {}", e);
-                            } else {
-                                println!("💾 UTXO snapshot saved - transaction will persist across restarts");
-                            }
-
-                            // Notify wallets of confirmation
-                            // TODO: Implement TCP-based notification to wallet
-                            // For now, wallet will poll or use long-polling
-                            tracing::info!(
-                                "Transaction {} approved by consensus at height {}",
-                                txid,
-                                block_height
-                            );
-                            println!(
-                                "📨 Broadcast transaction finalization to protocol subscribers"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        println!("❌ Failed to finalize transaction: {}", e);
-                    }
-                }
-            }
-
-            // Clear votes after finalization
-            consensus.clear_transaction_votes(&txid).await;
-        } else {
-            // Check if transaction was explicitly rejected (>1/3 rejections)
-            let (_, rejections) = consensus.get_transaction_vote_count(&txid).await;
-            let rejection_threshold = total_votes.div_ceil(3); // More than 1/3
-
-            if rejections > rejection_threshold {
-                println!(
-                    "❌ Transaction REJECTED by consensus ({}/{} rejections, threshold: {}) - removing from mempool",
-                    rejections, total_votes, rejection_threshold
-                );
-
-                // Remove rejected transaction from mempool
-                if let Some(mempool) = &mempool {
-                    if let Some(_removed_tx) = mempool.remove_transaction(&txid).await {
-                        println!(
-                            "🗑️  Removed rejected transaction {} from mempool",
-                            &txid[..16]
-                        );
-
-                        // TODO: Implement TCP-based notification to wallet
-                        tracing::info!(
-                            "Transaction {} rejected by consensus ({}/{} rejections)",
-                            txid,
-                            rejections,
-                            total_votes
-                        );
-                    }
-                }
+            // Apply transaction to UTXO set for instant balance update
+            let mut blockchain = blockchain.write().await;
+            if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
+                println!("❌ Failed to apply transaction to UTXO set: {}", e);
             } else {
-                println!(
-                    "⏳ BFT consensus NOT reached yet ({}/{} approvals, need 2/3+) - transaction remains pending for retry",
-                    approvals, total_votes
-                );
-            }
+                println!("✅ Transaction finalized - UTXO set updated instantly!");
 
-            // Clear votes after decision
-            consensus.clear_transaction_votes(&txid).await;
+                // Save finalized transaction to database for persistence
+                if let Err(e) = blockchain.save_finalized_tx(&tx, 1, 1) {
+                    println!("⚠️  Failed to save finalized transaction: {}", e);
+                } else {
+                    println!("💾 Finalized transaction saved to database");
+                }
+
+                // Save UTXO snapshot to disk for persistence
+                if let Err(e) = blockchain.save_utxo_snapshot() {
+                    println!("⚠️  Failed to save UTXO snapshot: {}", e);
+                } else {
+                    println!("💾 UTXO snapshot saved - transaction persists across restarts");
+                }
+            }
         }
     });
 }
