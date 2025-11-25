@@ -273,6 +273,18 @@ impl Wallet {
     }
 
     /// Create a transaction with fee support
+    /// 
+    /// **Instant Finality Behavior**: This method removes spent UTXOs immediately
+    /// from the wallet's UTXO list. This ensures that the wallet balance reflects
+    /// the transaction as soon as it's created and broadcast, consistent with the
+    /// TIME Coin Protocol's instant finality design. The UTXOs are:
+    /// 1. Removed immediately when transaction is created (this method)
+    /// 2. Locked in the instant finality consensus system (<3 seconds)
+    /// 3. Marked as spent when consensus achieved (instant finality)
+    /// 4. Confirmed when included in a block (~24 hours later)
+    /// 
+    /// This prevents the "ghost balance" issue where sent coins appear available
+    /// for 24 hours until the block is created.
     pub fn create_transaction(
         &mut self,
         to_address: &str,
@@ -339,6 +351,12 @@ impl Wallet {
 
         // Sign the transaction
         tx.sign_all(&self.keypair)?;
+
+        // Remove spent UTXOs immediately (instant finality)
+        // These UTXOs are now locked in the instant finality system
+        for utxo in &selected_utxos {
+            self.remove_utxo(&utxo.tx_hash, utxo.output_index);
+        }
 
         // Update wallet state (auto-increment nonce)
         self.increment_nonce();
@@ -542,6 +560,44 @@ mod tests {
             }
             _ => panic!("Expected InsufficientFunds error"),
         }
+    }
+
+    #[test]
+    fn test_instant_finality_utxo_removal() {
+        // Test that UTXOs are removed immediately when transaction is created
+        // This is critical for instant finality - the wallet should show the
+        // correct balance immediately, not 24 hours later when block is created
+        
+        let mut sender = Wallet::new(NetworkType::Mainnet).unwrap();
+        let recipient = Wallet::new(NetworkType::Mainnet).unwrap();
+
+        // Add UTXO to sender
+        let utxo = UTXO {
+            tx_hash: [1u8; 32],
+            output_index: 0,
+            amount: 10000,
+            address: sender.address_string(),
+        };
+        sender.add_utxo(utxo);
+
+        // Verify initial state
+        assert_eq!(sender.balance(), 10000);
+        assert_eq!(sender.utxos().len(), 1);
+
+        // Create transaction - this should IMMEDIATELY remove spent UTXOs
+        let _tx = sender
+            .create_transaction(&recipient.address_string(), 1000, 50)
+            .unwrap();
+
+        // CRITICAL TEST: Balance should be updated IMMEDIATELY (instant finality)
+        // The spent UTXO (10000) is removed
+        // Change output (8950) will be added when transaction is finalized
+        // For now, balance reflects only spent UTXOs being removed
+        assert_eq!(sender.balance(), 0, "Balance should reflect spent UTXOs immediately");
+        assert_eq!(sender.utxos().len(), 0, "Spent UTXOs should be removed immediately");
+        
+        // In a real scenario, when the transaction is finalized (within 3 seconds),
+        // the change output (8950) would be added back to the wallet as a new UTXO
     }
 
     #[test]
