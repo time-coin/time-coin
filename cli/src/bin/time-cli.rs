@@ -1050,11 +1050,12 @@ async fn handle_wallet_command(
             address,
             db_path: _,
         } => {
+            let client = reqwest::Client::new();
+
             let addr = if let Some(a) = address {
                 a
             } else {
                 // Get node wallet address from API
-                let client = reqwest::Client::new();
                 let response = client
                     .get(format!("{}/blockchain/info", api))
                     .send()
@@ -1071,17 +1072,43 @@ async fn handle_wallet_command(
                 }
             };
 
-            if json_output {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json!({
-                        "address": addr,
-                        "message": "This wallet command requires local database access"
-                    }))?
-                );
+            // Get balance from API
+            let response = client
+                .get(format!("{}/balance/{}", api, addr))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let balance: u64 = response.json().await?;
+                let balance_time = balance as f64 / 100_000_000.0;
+
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "address": addr,
+                            "balance": balance_time,
+                            "balance_satoshis": balance
+                        }))?
+                    );
+                } else {
+                    println!("Address: {}", addr);
+                    println!("Balance: {} TIME", balance_time);
+                }
             } else {
-                println!("Address: {}", addr);
-                println!("This wallet command requires local database access");
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "address": addr,
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("Address: {}", addr);
+                    println!("Error: {}", error);
+                }
             }
         }
 
@@ -1277,17 +1304,155 @@ async fn handle_wallet_command(
             }
         }
 
+        WalletCommands::Info {
+            address,
+            db_path: _,
+        } => {
+            let client = reqwest::Client::new();
+
+            let addr = if let Some(a) = address {
+                a
+            } else {
+                // Get node wallet address from API
+                let response = client
+                    .get(format!("{}/blockchain/info", api))
+                    .send()
+                    .await?;
+
+                if response.status().is_success() {
+                    let info: serde_json::Value = response.json().await?;
+                    info["wallet_address"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            };
+
+            // Get balance
+            let balance_response = client
+                .get(format!("{}/balance/{}", api, addr))
+                .send()
+                .await?;
+
+            let balance = if balance_response.status().is_success() {
+                balance_response.json::<u64>().await.unwrap_or(0)
+            } else {
+                0
+            };
+
+            // Get UTXOs
+            let utxos_response = client.get(format!("{}/utxos/{}", api, addr)).send().await?;
+
+            let utxo_count = if utxos_response.status().is_success() {
+                let utxos: serde_json::Value = utxos_response.json().await?;
+                utxos.as_array().map(|arr| arr.len()).unwrap_or(0)
+            } else {
+                0
+            };
+
+            let balance_time = balance as f64 / 100_000_000.0;
+
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "address": addr,
+                        "balance": balance_time,
+                        "balance_satoshis": balance,
+                        "utxo_count": utxo_count
+                    }))?
+                );
+            } else {
+                println!("Wallet Information:");
+                println!("  Address:    {}", addr);
+                println!("  Balance:    {} TIME", balance_time);
+                println!("  UTXOs:      {}", utxo_count);
+            }
+        }
+
+        WalletCommands::ListUtxos {
+            address,
+            db_path: _,
+        } => {
+            let client = reqwest::Client::new();
+
+            let addr = if let Some(a) = address {
+                a
+            } else {
+                // Get node wallet address from API
+                let response = client
+                    .get(format!("{}/blockchain/info", api))
+                    .send()
+                    .await?;
+
+                if response.status().is_success() {
+                    let info: serde_json::Value = response.json().await?;
+                    info["wallet_address"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            };
+
+            // Get UTXOs
+            let response = client.get(format!("{}/utxos/{}", api, addr)).send().await?;
+
+            if response.status().is_success() {
+                let utxos: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&utxos)?);
+                } else {
+                    println!("UTXOs for address: {}", addr);
+
+                    if let Some(utxo_array) = utxos.as_array() {
+                        if utxo_array.is_empty() {
+                            println!("  No UTXOs found");
+                        } else {
+                            for (i, utxo) in utxo_array.iter().enumerate() {
+                                let txid = utxo["txid"].as_str().unwrap_or("unknown");
+                                let vout = utxo["vout"].as_u64().unwrap_or(0);
+                                let amount = utxo["amount"].as_u64().unwrap_or(0);
+                                let amount_time = amount as f64 / 100_000_000.0;
+
+                                println!("\n  UTXO #{}:", i + 1);
+                                println!("    TxID:   {}", txid);
+                                println!("    Vout:   {}", vout);
+                                println!("    Amount: {} TIME", amount_time);
+                            }
+                        }
+                    }
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "address": addr,
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("Error fetching UTXOs for {}: {}", addr, error);
+                }
+            }
+        }
+
         _ => {
             if json_output {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&json!({
-                        "error": "This wallet command requires local database access"
+                        "error": "This wallet command is not yet implemented"
                     }))?
                 );
             } else {
-                println!("This wallet command requires local database access");
-                println!("Use the appropriate database operations");
+                println!("This wallet command is not yet implemented");
             }
         }
     }

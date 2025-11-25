@@ -1473,10 +1473,10 @@ pub async fn trigger_instant_finality_for_received_tx(
     // Spawn async task to finalize immediately
     tokio::spawn(async move {
         println!("✅ Validating transaction...");
-        
+
         // Transaction is already validated by mempool.add_transaction()
         // So we can finalize it immediately
-        
+
         if let Some(mempool) = mempool.as_ref() {
             let _ = mempool.finalize_transaction(&txid).await;
 
