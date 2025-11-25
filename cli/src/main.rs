@@ -2122,12 +2122,19 @@ async fn main() {
         time::sleep(Duration::from_secs(60)).await;
         counter += 1;
 
-        // Sync with connected peers before getting the count
+        // Sync with connected peers before getting the count (with timeout to avoid blocking)
         let peers = peer_mgr_heartbeat.get_connected_peers().await;
         let connected_ips = extract_peer_ips(&peers);
-        block_consensus_heartbeat
-            .sync_with_connected_peers(connected_ips)
-            .await;
+        
+        // Use timeout to prevent blocking heartbeat
+        let sync_result = tokio::time::timeout(
+            Duration::from_secs(5),
+            block_consensus_heartbeat.sync_with_connected_peers(connected_ips)
+        ).await;
+        
+        if sync_result.is_err() {
+            eprintln!("⚠️  Peer sync timed out (>5s)");
+        }
 
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
 
@@ -2171,26 +2178,32 @@ async fn main() {
         }
 
         // Retry instant finality for pending transactions every 2 heartbeats (2 minutes)
+        // Spawn in background to avoid blocking heartbeat
         if counter % 2 == 0 {
-            let pending_txs = mempool_heartbeat.get_all_transactions().await;
-            if !pending_txs.is_empty() {
-                println!(
-                    "   🔄 Retrying instant finality for {} pending transaction(s)...",
-                    pending_txs.len()
-                );
-
-                for tx in pending_txs {
-                    let txid = tx.txid.clone();
+            let mempool_clone = mempool_heartbeat.clone();
+            let tx_broadcaster_clone = tx_broadcaster_heartbeat.clone();
+            
+            tokio::spawn(async move {
+                let pending_txs = mempool_clone.get_all_transactions().await;
+                if !pending_txs.is_empty() {
                     println!(
-                        "      ⚡ Re-broadcasting transaction {} to trigger voting...",
-                        &txid[..16]
+                        "   🔄 Retrying instant finality for {} pending transaction(s)...",
+                        pending_txs.len()
                     );
 
-                    // Re-broadcast using tx_broadcaster - this will trigger instant finality
-                    tx_broadcaster_heartbeat.broadcast_transaction(tx).await;
-                    println!("         📡 Re-broadcasted to network");
+                    for tx in pending_txs {
+                        let txid = tx.txid.clone();
+                        println!(
+                            "      ⚡ Re-broadcasting transaction {} to trigger voting...",
+                            &txid[..16]
+                        );
+
+                        // Re-broadcast using tx_broadcaster - this will trigger instant finality
+                        tx_broadcaster_clone.broadcast_transaction(tx).await;
+                        println!("         📡 Re-broadcasted to network");
+                    }
                 }
-            }
+            });
         }
 
         // Test TCP connectivity by pinging connected peers every 5 heartbeats
