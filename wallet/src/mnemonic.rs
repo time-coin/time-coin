@@ -295,6 +295,59 @@ pub fn xpub_to_address(
     Ok(address.to_string())
 }
 
+/// Derive keypair using full BIP-44 path: m/44'/0'/account'/change/index
+///
+/// This is the CORRECT way to derive addresses in HD wallets.
+/// The GUI wallet should use this for proper BIP-44 compliance.
+///
+/// # Arguments
+/// * `phrase` - The mnemonic phrase
+/// * `passphrase` - Optional passphrase (use "" for none)
+/// * `account` - Account index (typically 0)
+/// * `change` - Change index (0 = receiving, 1 = change addresses)
+/// * `index` - Address index (0, 1, 2, ...)
+///
+/// # Returns
+/// * `Result<Keypair, MnemonicError>` - The derived keypair at the full BIP-44 path
+pub fn mnemonic_to_keypair_bip44(
+    phrase: &str,
+    passphrase: &str,
+    account: u32,
+    change: u32,
+    index: u32,
+) -> Result<Keypair, MnemonicError> {
+    // Parse mnemonic
+    let mnemonic = Mnemonic::parse_in(Language::English, phrase)
+        .map_err(|e| MnemonicError::InvalidMnemonic(e.to_string()))?;
+
+    // Convert to seed
+    let seed = mnemonic.to_seed(passphrase);
+
+    // Create extended private key from seed
+    let xprv = XPrv::new(seed).map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+
+    // Full BIP-44 path: m/44'/0'/account'/change/index
+    let path_str = format!("m/44'/0'/{}'/{}/{}", account, change, index);
+    let path: DerivationPath = path_str
+        .parse()
+        .map_err(|e: bip32::Error| MnemonicError::DerivationError(e.to_string()))?;
+
+    // Derive the key
+    let mut current_key = xprv;
+    for child_number in path.as_ref() {
+        current_key = current_key
+            .derive_child(*child_number)
+            .map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
+    }
+
+    // Get the private key bytes
+    let private_key_bytes = current_key.private_key().to_bytes();
+    let mut key_array = [0u8; 32];
+    key_array.copy_from_slice(&private_key_bytes);
+
+    Keypair::from_bytes(&key_array).map_err(MnemonicError::KeypairError)
+}
+
 impl std::fmt::Display for MnemonicPhrase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.phrase)

@@ -99,6 +99,7 @@ impl WalletDat {
     }
 
     /// Derive a keypair at the given index
+    /// Uses proper BIP-44 derivation: m/44'/0'/0'/0/index
     pub fn derive_keypair(&self, index: u32) -> Result<Keypair, WalletDatError> {
         // Decrypt mnemonic (TODO: proper decryption)
         let mnemonic_bytes = general_purpose::STANDARD
@@ -107,19 +108,24 @@ impl WalletDat {
         let mnemonic = String::from_utf8(mnemonic_bytes)
             .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
 
-        use wallet::mnemonic::mnemonic_to_keypair_hd;
-        let keypair = mnemonic_to_keypair_hd(&mnemonic, "", index)
+        // ✅ FIXED: Use proper BIP-44 derivation with full path
+        // m/44'/0'/0'/0/index (account=0, change=0, address_index=index)
+        use wallet::mnemonic::mnemonic_to_keypair_bip44;
+        let keypair = mnemonic_to_keypair_bip44(&mnemonic, "", 0, 0, index)
             .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
         Ok(keypair)
     }
 
     /// Derive an address at the given index
+    /// Uses proper BIP-44 derivation: m/44'/0'/0'/0/index
     pub fn derive_address(&self, index: u32) -> Result<String, WalletDatError> {
-        let keypair = self.derive_keypair(index)?;
-        let public_key = keypair.public_key_bytes();
-        let address = wallet::Address::from_public_key(&public_key, self.network)
-            .map_err(|_| WalletDatError::KeyGenerationError)?
-            .to_string();
+        // ✅ FIXED: Use xpub_to_address for proper BIP-44 derivation
+        // This matches what the masternode uses for address scanning
+        use wallet::xpub_to_address;
+
+        let address = xpub_to_address(&self.xpub, 0, index, self.network)
+            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+
         Ok(address)
     }
 

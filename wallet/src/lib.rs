@@ -21,8 +21,8 @@ pub use address::{Address, AddressError, NetworkType};
 pub use keypair::{Keypair, KeypairError};
 pub use metadata_db::{MetadataDb, MetadataDbError};
 pub use mnemonic::{
-    generate_mnemonic, mnemonic_to_keypair, mnemonic_to_xpub, validate_mnemonic, xpub_to_address,
-    MnemonicError, MnemonicPhrase,
+    generate_mnemonic, mnemonic_to_keypair, mnemonic_to_keypair_bip44, mnemonic_to_xpub,
+    validate_mnemonic, xpub_to_address, MnemonicError, MnemonicPhrase,
 };
 pub use p2p_client::WalletP2PClient;
 pub use transaction::{Transaction, TransactionError, TxInput, TxOutput};
