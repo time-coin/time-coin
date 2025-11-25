@@ -1094,8 +1094,10 @@ impl NetworkManager {
                     // Use shorter timeout for discovery
                     match tokio::time::timeout(
                         Duration::from_secs(3),
-                        Self::discover_peers_from_peer_static(&peer_addr)
-                    ).await {
+                        Self::discover_peers_from_peer_static(&peer_addr),
+                    )
+                    .await
+                    {
                         Ok(Ok(peers)) => Some(peers),
                         _ => None,
                     }
@@ -1109,7 +1111,7 @@ impl NetworkManager {
         for task in discovery_tasks {
             results.push(task.await);
         }
-        
+
         let mut discovered_peers: std::collections::HashMap<String, PeerInfo> =
             std::collections::HashMap::new();
 
@@ -1131,8 +1133,10 @@ impl NetworkManager {
                 // Use shorter timeout for latency check
                 match tokio::time::timeout(
                     Duration::from_secs(2),
-                    Self::measure_latency_static(&address)
-                ).await {
+                    Self::measure_latency_static(&address),
+                )
+                .await
+                {
                     Ok(Ok(latency)) => {
                         let mut peer_with_latency = peer;
                         peer_with_latency.latency_ms = latency;
@@ -1149,7 +1153,7 @@ impl NetworkManager {
         for task in latency_tasks {
             latency_results.push(task.await);
         }
-        
+
         let mut peers_with_latency: Vec<PeerInfo> = Vec::new();
         for result in latency_results {
             if let Ok(Some((address, peer))) = result {
@@ -1161,7 +1165,10 @@ impl NetworkManager {
         // Sort by latency (lowest first)
         peers_with_latency.sort_by_key(|p| p.latency_ms);
 
-        log::info!("Selected {} peers based on latency", peers_with_latency.len());
+        log::info!(
+            "Selected {} peers based on latency",
+            peers_with_latency.len()
+        );
 
         // ADD discovered peers to existing connected peers (don't replace!)
         if !peers_with_latency.is_empty() {

@@ -282,24 +282,14 @@ pub fn xpub_to_address(
         .derive_child(bip32::ChildNumber::new(index, false).unwrap())
         .map_err(|e| MnemonicError::DerivationError(e.to_string()))?;
 
-    // Get the public key fingerprint from the derived key
-    // This is a unique identifier for this derivation path
-    use sha2::{Digest, Sha256};
+    // Get the actual public key bytes from the derived key
+    // This must match what the GUI wallet does when deriving from mnemonic
+    use bip32::PublicKey;
+    let public_key_bytes = address_key.public_key().to_bytes();
 
-    // Get the key fingerprint from the extended public key itself
-    let key_fingerprint = address_key.fingerprint();
-
-    // We need 32 bytes for Address::from_public_key
-    // Hash the fingerprint with the derivation indices for deterministic address
-    let mut hasher = Sha256::new();
-    hasher.update(key_fingerprint);
-    hasher.update(change.to_le_bytes());
-    hasher.update(index.to_le_bytes());
-    let key_bytes = hasher.finalize();
-
-    // Create a proper TIME1 address using our Address type
+    // Create a proper TIME address using the actual public key
     // This uses the same SHA256+RIPEMD160+Base58+checksum format as regular addresses
-    let address = crate::address::Address::from_public_key(&key_bytes[..32], network)
+    let address = crate::address::Address::from_public_key(&public_key_bytes, network)
         .map_err(|e| MnemonicError::DerivationError(format!("Address generation failed: {}", e)))?;
 
     Ok(address.to_string())
