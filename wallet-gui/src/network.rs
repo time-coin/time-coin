@@ -853,62 +853,108 @@ impl NetworkManager {
 
         match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&tcp_addr)).await {
             Ok(Ok(mut stream)) => {
-                // Send GetPeerList
-                let message = NetworkMessage::GetPeerList;
-                if let Ok(data) = serde_json::to_vec(&message) {
-                    let len = data.len() as u32;
+                // Perform handshake first
+                let network_type = if port == 24100 {
+                    time_network::discovery::NetworkType::Testnet
+                } else {
+                    time_network::discovery::NetworkType::Mainnet
+                };
 
-                    if stream.write_all(&len.to_be_bytes()).await.is_ok()
-                        && stream.write_all(&data).await.is_ok()
+                let our_addr = "0.0.0.0:0".parse().unwrap();
+                let handshake =
+                    time_network::protocol::HandshakeMessage::new(network_type, our_addr);
+                let magic = network_type.magic_bytes();
+
+                if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                    let handshake_len = handshake_json.len() as u32;
+
+                    if stream.write_all(&magic).await.is_ok()
+                        && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                        && stream.write_all(&handshake_json).await.is_ok()
                         && stream.flush().await.is_ok()
                     {
-                        // Read response
-                        let mut len_bytes = [0u8; 4];
-                        if stream.read_exact(&mut len_bytes).await.is_ok() {
-                            let response_len = u32::from_be_bytes(len_bytes) as usize;
+                        // Read their handshake
+                        let mut their_magic = [0u8; 4];
+                        let mut their_len = [0u8; 4];
+                        if stream.read_exact(&mut their_magic).await.is_ok()
+                            && their_magic == magic
+                            && stream.read_exact(&mut their_len).await.is_ok()
+                        {
+                            let len = u32::from_be_bytes(their_len) as usize;
+                            if len < 10 * 1024 {
+                                let mut their_handshake = vec![0u8; len];
+                                if stream.read_exact(&mut their_handshake).await.is_ok() {
+                                    // Now send GetPeerList message
+                                    let message = NetworkMessage::GetPeerList;
+                                    if let Ok(data) = serde_json::to_vec(&message) {
+                                        let msg_len = data.len() as u32;
 
-                            if response_len < 10 * 1024 * 1024 {
-                                // 10MB limit
-                                let mut response_data = vec![0u8; response_len];
-                                if stream.read_exact(&mut response_data).await.is_ok() {
-                                    if let Ok(response) =
-                                        serde_json::from_slice::<NetworkMessage>(&response_data)
-                                    {
-                                        if let NetworkMessage::PeerList(peer_addresses) = response {
-                                            log::info!(
-                                                "Discovered {} peers from {}",
-                                                peer_addresses.len(),
-                                                tcp_addr
-                                            );
+                                        if stream.write_all(&msg_len.to_be_bytes()).await.is_ok()
+                                            && stream.write_all(&data).await.is_ok()
+                                            && stream.flush().await.is_ok()
+                                        {
+                                            // Read response
+                                            let mut len_bytes = [0u8; 4];
+                                            if stream.read_exact(&mut len_bytes).await.is_ok() {
+                                                let response_len =
+                                                    u32::from_be_bytes(len_bytes) as usize;
 
-                                            // Convert to PeerInfo
-                                            let peer_infos: Vec<PeerInfo> = peer_addresses
-                                                .into_iter()
-                                                .map(|pa| {
-                                                    log::debug!(
-                                                        "Peer: {}:{} version: {}",
-                                                        pa.ip,
-                                                        pa.port,
-                                                        pa.version
-                                                    );
-                                                    PeerInfo {
-                                                        address: pa.ip.clone(),
-                                                        port: pa.port,
-                                                        version: Some(pa.version.clone()),
-                                                        last_seen: Some(
-                                                            std::time::SystemTime::now()
-                                                                .duration_since(
-                                                                    std::time::UNIX_EPOCH,
-                                                                )
-                                                                .unwrap()
-                                                                .as_secs(),
-                                                        ),
-                                                        latency_ms: 0,
+                                                if response_len < 10 * 1024 * 1024 {
+                                                    // 10MB limit
+                                                    let mut response_data = vec![0u8; response_len];
+                                                    if stream
+                                                        .read_exact(&mut response_data)
+                                                        .await
+                                                        .is_ok()
+                                                    {
+                                                        if let Ok(response) = serde_json::from_slice::<
+                                                            NetworkMessage,
+                                                        >(
+                                                            &response_data
+                                                        ) {
+                                                            if let NetworkMessage::PeerList(
+                                                                peer_addresses,
+                                                            ) = response
+                                                            {
+                                                                log::info!(
+                                                                    "Discovered {} peers from {}",
+                                                                    peer_addresses.len(),
+                                                                    tcp_addr
+                                                                );
+
+                                                                // Convert to PeerInfo
+                                                                let peer_infos: Vec<PeerInfo> = peer_addresses
+                                                                    .into_iter()
+                                                                    .map(|pa| {
+                                                                        log::debug!(
+                                                                            "Peer: {}:{} version: {}",
+                                                                            pa.ip,
+                                                                            pa.port,
+                                                                            pa.version
+                                                                        );
+                                                                        PeerInfo {
+                                                                            address: pa.ip.clone(),
+                                                                            port: pa.port,
+                                                                            version: Some(pa.version.clone()),
+                                                                            last_seen: Some(
+                                                                                std::time::SystemTime::now()
+                                                                                    .duration_since(
+                                                                                        std::time::UNIX_EPOCH,
+                                                                                    )
+                                                                                    .unwrap()
+                                                                                    .as_secs(),
+                                                                            ),
+                                                                            latency_ms: 0,
+                                                                        }
+                                                                    })
+                                                                    .collect();
+
+                                                                return Ok(peer_infos);
+                                                            }
+                                                        }
                                                     }
-                                                })
-                                                .collect();
-
-                                            return Ok(peer_infos);
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1157,24 +1203,74 @@ impl NetworkManager {
             .await
             {
                 Ok(Ok(mut stream)) => {
-                    // Send Ping
-                    let ping = NetworkMessage::Ping;
-                    if let Ok(data) = serde_json::to_vec(&ping) {
-                        let len = data.len() as u32;
+                    // Perform handshake first
+                    let network_type = if peer.port == 24100 {
+                        time_network::discovery::NetworkType::Testnet
+                    } else {
+                        time_network::discovery::NetworkType::Mainnet
+                    };
 
-                        if stream.write_all(&len.to_be_bytes()).await.is_ok()
-                            && stream.write_all(&data).await.is_ok()
+                    let our_addr = "0.0.0.0:0".parse().unwrap();
+                    let handshake =
+                        time_network::protocol::HandshakeMessage::new(network_type, our_addr);
+                    let magic = network_type.magic_bytes();
+
+                    if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                        let handshake_len = handshake_json.len() as u32;
+
+                        if stream.write_all(&magic).await.is_ok()
+                            && stream.write_all(&handshake_len.to_be_bytes()).await.is_ok()
+                            && stream.write_all(&handshake_json).await.is_ok()
+                            && stream.flush().await.is_ok()
                         {
-                            // Wait for Pong
-                            let mut len_bytes = [0u8; 4];
-                            if stream.read_exact(&mut len_bytes).await.is_ok() {
-                                let latency = start.elapsed().as_millis() as u64;
-                                peer.latency_ms = latency;
-                                log::info!(
-                                    "  Peer {} responded in {}ms via TCP",
-                                    peer.address,
-                                    latency
-                                );
+                            // Read their handshake
+                            let mut their_magic = [0u8; 4];
+                            let mut their_len = [0u8; 4];
+                            if stream.read_exact(&mut their_magic).await.is_ok()
+                                && their_magic == magic
+                                && stream.read_exact(&mut their_len).await.is_ok()
+                            {
+                                let len = u32::from_be_bytes(their_len) as usize;
+                                if len < 10 * 1024 {
+                                    let mut their_handshake = vec![0u8; len];
+                                    if stream.read_exact(&mut their_handshake).await.is_ok() {
+                                        // Now send Ping
+                                        let ping = NetworkMessage::Ping;
+                                        if let Ok(data) = serde_json::to_vec(&ping) {
+                                            let msg_len = data.len() as u32;
+
+                                            if stream
+                                                .write_all(&msg_len.to_be_bytes())
+                                                .await
+                                                .is_ok()
+                                                && stream.write_all(&data).await.is_ok()
+                                            {
+                                                // Wait for Pong
+                                                let mut len_bytes = [0u8; 4];
+                                                if stream.read_exact(&mut len_bytes).await.is_ok() {
+                                                    let latency =
+                                                        start.elapsed().as_millis() as u64;
+                                                    peer.latency_ms = latency;
+                                                    log::info!(
+                                                        "  Peer {} responded in {}ms via TCP",
+                                                        peer.address,
+                                                        latency
+                                                    );
+                                                } else {
+                                                    peer.latency_ms = 9999;
+                                                }
+                                            } else {
+                                                peer.latency_ms = 9999;
+                                            }
+                                        } else {
+                                            peer.latency_ms = 9999;
+                                        }
+                                    } else {
+                                        peer.latency_ms = 9999;
+                                    }
+                                } else {
+                                    peer.latency_ms = 9999;
+                                }
                             } else {
                                 peer.latency_ms = 9999;
                             }

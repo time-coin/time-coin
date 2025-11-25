@@ -48,13 +48,51 @@ impl ProtocolClient {
 
     /// Connect to peer and send a message
     fn send_message(&self, message: &NetworkMessage) -> ProtocolResult<NetworkMessage> {
+        use std::io::{Read, Write};
+
         let mut stream = TcpStream::connect(&self.peer_address)
             .map_err(|e| ProtocolError::ConnectionError(e.to_string()))?;
 
         stream.set_read_timeout(Some(self.timeout))?;
         stream.set_write_timeout(Some(self.timeout))?;
 
-        // Serialize message
+        // Perform handshake first
+        let network_type_converted = match self.network {
+            NetworkType::Mainnet => time_network::discovery::NetworkType::Mainnet,
+            NetworkType::Testnet => time_network::discovery::NetworkType::Testnet,
+        };
+        let handshake = time_network::protocol::HandshakeMessage::new(
+            network_type_converted,
+            "0.0.0.0:0".parse().unwrap(),
+        );
+        let magic = network_type_converted.magic_bytes();
+
+        // Send magic + handshake
+        let handshake_json = serde_json::to_vec(&handshake).map_err(ProtocolError::JsonError)?;
+        let handshake_len = handshake_json.len() as u32;
+
+        stream.write_all(&magic)?;
+        stream.write_all(&handshake_len.to_be_bytes())?;
+        stream.write_all(&handshake_json)?;
+        stream.flush()?;
+
+        // Read their handshake response
+        let mut their_magic = [0u8; 4];
+        stream.read_exact(&mut their_magic)?;
+        if their_magic != magic {
+            return Err(ProtocolError::ConnectionError(format!(
+                "Invalid magic bytes: expected {:?}, got {:?}",
+                magic, their_magic
+            )));
+        }
+
+        let mut their_len_bytes = [0u8; 4];
+        stream.read_exact(&mut their_len_bytes)?;
+        let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+        let mut their_handshake = vec![0u8; their_len];
+        stream.read_exact(&mut their_handshake)?;
+
+        // Now send actual message
         let data = bincode::serialize(message)?;
 
         // Send length prefix (4 bytes)

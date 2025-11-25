@@ -9,7 +9,7 @@
 use chrono::Timelike;
 use eframe::egui;
 use std::sync::{Arc, Mutex};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use wallet::NetworkType;
 
@@ -771,22 +771,60 @@ impl WalletApp {
                                                             // Connect and send RegisterXpub message
                                                             match TcpStream::connect(&tcp_addr).await {
                                                                 Ok(mut stream) => {
-                                                                    let msg = time_network::protocol::NetworkMessage::RegisterXpub {
-                                                                        xpub: xpub_clone
+                                                                    // Perform handshake first
+                                                                    let handshake = time_network::protocol::HandshakeMessage::new(
+                                                                        if network_type == NetworkType::Testnet {
+                                                                            time_network::discovery::NetworkType::Testnet
+                                                                        } else {
+                                                                            time_network::discovery::NetworkType::Mainnet
+                                                                        },
+                                                                        "0.0.0.0:0".parse().unwrap()
+                                                                    );
+                                                                    let magic = if network_type == NetworkType::Testnet {
+                                                                        time_network::discovery::NetworkType::Testnet.magic_bytes()
+                                                                    } else {
+                                                                        time_network::discovery::NetworkType::Mainnet.magic_bytes()
                                                                     };
 
-                                                                    // Serialize with JSON (not bincode!)
-                                                                    match serde_json::to_vec(&msg) {
-                                                                        Ok(bytes) => {
-                                                                            let len = bytes.len() as u32;
-                                                                            if stream.write_all(&len.to_be_bytes()).await.is_ok() &&
-                                                                               stream.write_all(&bytes).await.is_ok() {
-                                                                                log::info!("✅ Successfully registered xpub with {}", peer_addr);
-                                                                            } else {
-                                                                                log::warn!("❌ Failed to send xpub to {}", peer_addr);
+                                                                    if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
+                                                                        let handshake_len = handshake_json.len() as u32;
+                                                                        if stream.write_all(&magic).await.is_ok() &&
+                                                                           stream.write_all(&handshake_len.to_be_bytes()).await.is_ok() &&
+                                                                           stream.write_all(&handshake_json).await.is_ok() &&
+                                                                           stream.flush().await.is_ok() {
+
+                                                                            // Read their handshake
+                                                                            let mut their_magic = [0u8; 4];
+                                                                            let mut their_len = [0u8; 4];
+                                                                            if stream.read_exact(&mut their_magic).await.is_ok() &&
+                                                                               their_magic == magic &&
+                                                                               stream.read_exact(&mut their_len).await.is_ok() {
+                                                                                let len = u32::from_be_bytes(their_len) as usize;
+                                                                                if len < 10 * 1024 {
+                                                                                    let mut their_handshake = vec![0u8; len];
+                                                                                    let _ = stream.read_exact(&mut their_handshake).await;
+
+                                                                                    // Now send actual message
+                                                                                    let msg = time_network::protocol::NetworkMessage::RegisterXpub {
+                                                                                        xpub: xpub_clone
+                                                                                    };
+
+                                                                                    // Serialize with JSON (not bincode!)
+                                                                                    match serde_json::to_vec(&msg) {
+                                                                                        Ok(bytes) => {
+                                                                                            let msg_len = bytes.len() as u32;
+                                                                                            if stream.write_all(&msg_len.to_be_bytes()).await.is_ok() &&
+                                                                                               stream.write_all(&bytes).await.is_ok() {
+                                                                                                log::info!("✅ Successfully registered xpub with {}", peer_addr);
+                                                                                            } else {
+                                                                                                log::warn!("❌ Failed to send xpub to {}", peer_addr);
+                                                                                            }
+                                                                                        }
+                                                                                        Err(e) => log::warn!("❌ Failed to serialize xpub message: {}", e),
+                                                                                    }
+                                                                                }
                                                                             }
                                                                         }
-                                                                        Err(e) => log::warn!("❌ Failed to serialize xpub message: {}", e),
                                                                     }
                                                                 }
                                                                 Err(e) => log::warn!("❌ Failed to connect to {}: {}", peer_addr, e),
