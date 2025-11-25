@@ -1098,9 +1098,23 @@ impl PeerManager {
         let message = crate::protocol::NetworkMessage::ConsensusBlockVote(vote_json.clone());
 
         let peers = self.peers.read().await.clone();
+        let connections = self.connections.read().await;
+        
+        tracing::info!("Broadcasting vote to {} peers", peers.len());
+        tracing::debug!("Available connections: {:?}", connections.keys().collect::<Vec<_>>());
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
+            let has_connection = connections.contains_key(&peer_ip);
+            
+            if !has_connection {
+                tracing::warn!(
+                    "No connection for peer {} (address in peer list: {})",
+                    peer_ip,
+                    peer_info.address
+                );
+            }
+            
             let msg_clone = message.clone();
             let manager_clone = self.clone();
 

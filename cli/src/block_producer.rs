@@ -2154,19 +2154,16 @@ impl BlockProducer {
         let previous_hash = blockchain.chain_tip_hash().to_string();
         let masternode_counts = blockchain.masternode_counts().clone();
 
-        // Get ALL registered masternodes (not just active ones)
-        let all_masternodes = self.consensus.get_masternodes().await;
-
-        // For catch-up blocks, reward ALL currently registered masternodes
-        // This ensures all masternodes get rewards even for historical blocks
-        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = all_masternodes
+        // CRITICAL: Use the same active masternodes logic as normal block production
+        // This ensures catch-up blocks are identical to what the leader produced
+        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+            .get_active_masternodes()
             .iter()
-            .map(|addr| {
-                // Use Free tier as default for catch-up blocks
-                // The actual tier distribution doesn't matter much for historical blocks
-                (addr.clone(), time_core::MasternodeTier::Free)
-            })
+            .map(|mn| (mn.wallet_address.clone(), mn.tier))
             .collect();
+
+        // Get all masternodes for consensus tracking
+        let all_masternodes = self.consensus.get_masternodes().await;
 
         drop(blockchain);
 

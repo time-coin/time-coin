@@ -1480,8 +1480,19 @@ async fn main() {
                 tokio::spawn(async move {
                     loop {
                         if let Ok(conn) = peer_listener.accept().await {
-                            let info = conn.peer_info().await;
-                            let peer_addr = info.address;
+                            let mut info = conn.peer_info().await;
+                            
+                            // CRITICAL: Get real TCP peer IP (not handshake listen_addr which may be 0.0.0.0)
+                            let real_peer_addr = match conn.peer_addr() {
+                                Ok(addr) => addr,
+                                Err(_) => {
+                                    continue; // Skip if we can't get real address
+                                }
+                            };
+                            
+                            // Use real TCP address for connection keying (not handshake listen_addr)
+                            info.address = real_peer_addr;
+                            let peer_addr = real_peer_addr;
 
                             // Check if peer is quarantined (log only once per hour)
                             if quarantine_clone.is_quarantined(&peer_addr.ip()).await {
