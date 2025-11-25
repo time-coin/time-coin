@@ -6,6 +6,7 @@
 #![allow(clippy::empty_line_after_doc_comments)]
 #![allow(unused_variables)]
 #![allow(non_snake_case)]
+use chrono::Timelike;
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncWriteExt;
@@ -382,13 +383,13 @@ impl WalletApp {
                             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
 
                             loop {
-                                log::info!("🔄 Running periodic peer discovery...");
+                                log::debug!("Running periodic peer discovery...");
 
                                 // Get new peers from network via PeerManager
                                 if let Some(new_peers) = peer_mgr_periodic.try_get_peer_list().await
                                 {
                                     peer_mgr_periodic.add_peers(new_peers).await;
-                                    log::info!("✅ Discovered and added new peers to database");
+                                    log::debug!("Discovered and added peers");
 
                                     // Connect NetworkManager to newly discovered peers
                                     let peer_list = peer_mgr_periodic.get_healthy_peers().await;
@@ -416,7 +417,7 @@ impl WalletApp {
 
                                         // TODO: Fix peer connection to not block GUI thread
                                         // For now, skip to prevent hanging
-                                        log::info!("⏭️  Skipping peer connection refresh to prevent GUI hang");
+                                        log::debug!("Skipping peer connection refresh");
                                         /*
                                         // Connect in background without blocking GUI
                                         let network_clone = network_mgr_periodic.clone();
@@ -489,11 +490,24 @@ impl WalletApp {
                         });
 
                         // Start periodic refresh for blockchain height, latency, versions
+                        // Check more frequently around midnight (23:50-00:10 UTC) when blocks are produced
                         let network_refresh = network_mgr_clone.clone();
                         tokio::spawn(async move {
                             loop {
-                                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                                log::info!("🔄 Running scheduled refresh...");
+                                // Determine refresh interval based on time of day
+                                let now = chrono::Utc::now();
+                                let hour = now.hour();
+                                let minute = now.minute();
+                                
+                                let refresh_interval = if (hour == 23 && minute >= 50) || (hour == 0 && minute <= 10) {
+                                    // Check every 10 seconds around midnight
+                                    tokio::time::Duration::from_secs(10)
+                                } else {
+                                    // Check every 5 minutes during the day
+                                    tokio::time::Duration::from_secs(300)
+                                };
+
+                                tokio::time::sleep(refresh_interval).await;
 
                                 let network_clone = network_refresh.clone();
                                 tokio::task::spawn_blocking(move || {
@@ -505,8 +519,6 @@ impl WalletApp {
                                 })
                                 .await
                                 .ok();
-
-                                log::info!("✅ Scheduled refresh complete");
                             }
                         });
                     });
@@ -820,7 +832,7 @@ impl WalletApp {
                                                 tokio::spawn(async move {
                                                     loop {
                                                         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                                                        log::info!("🔄 Running scheduled refresh...");
+                                                        log::debug!("Running scheduled refresh");
 
                                                         // Run periodic refresh (latency, version, blockchain height)
                                                         let network_clone = network_refresh.clone();
@@ -832,7 +844,7 @@ impl WalletApp {
                                                             });
                                                         }).await.ok();
 
-                                                        log::info!("✅ Scheduled refresh complete");
+                                                        log::debug!("Scheduled refresh complete");
                                                     }
                                                 });
                                             }
@@ -1069,7 +1081,7 @@ impl WalletApp {
                                     loop {
                                         tokio::time::sleep(tokio::time::Duration::from_secs(10))
                                             .await;
-                                        log::info!("🔄 Running scheduled refresh...");
+                                        log::debug!("Running scheduled refresh");
 
                                         // Run periodic refresh (latency, version, blockchain height)
                                         let network_clone = network_refresh.clone();
@@ -1083,7 +1095,7 @@ impl WalletApp {
                                         .await
                                         .ok();
 
-                                        log::info!("✅ Scheduled refresh complete");
+                                        log::debug!("Scheduled refresh complete");
                                     }
                                 });
                             }

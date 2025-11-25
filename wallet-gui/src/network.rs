@@ -427,8 +427,8 @@ impl NetworkManager {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
 
-        log::info!(
-            "📊 Fetching blockchain info from {} connected peers...",
+        log::trace!(
+            "Fetching blockchain info from {} connected peers",
             self.connected_peers.len()
         );
 
@@ -437,7 +437,7 @@ impl NetworkManager {
             let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
             let tcp_addr = format!("{}:{}", peer_ip, peer.port);
 
-            log::info!("  Trying peer: {}", tcp_addr);
+            log::trace!("  Trying peer: {}", tcp_addr);
 
             // Connect via TCP
             match tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr)).await
@@ -530,7 +530,7 @@ impl NetworkManager {
                                                         >(
                                                             &response_data
                                                         ) {
-                                                            log::debug!(
+                                                            log::trace!(
                                                                 "  Parsing response from {}",
                                                                 tcp_addr
                                                             );
@@ -539,8 +539,8 @@ impl NetworkManager {
                                                                 best_block_hash,
                                                             } = response
                                                             {
-                                                                log::info!(
-                                                                    "✅ Got blockchain height {} from peer {}",
+                                                                log::debug!(
+                                                                    "Got blockchain height {} from peer {}",
                                                                     height,
                                                                     tcp_addr
                                                                 );
@@ -552,13 +552,13 @@ impl NetworkManager {
                                                                     timestamp: 0,
                                                                 });
                                                             } else {
-                                                                log::warn!("  ⚠️ Unexpected response type from {}", tcp_addr);
+                                                                log::trace!("  ⚠️ Unexpected response type from {}", tcp_addr);
                                                             }
                                                         } else {
-                                                            log::warn!("  ⚠️ Failed to parse response from {}", tcp_addr);
+                                                            log::trace!("  ⚠️ Failed to parse response from {}", tcp_addr);
                                                         }
                                                     } else {
-                                                        log::warn!("  ⚠️ Timeout or error reading response from {}", tcp_addr);
+                                                        log::trace!("  ⚠️ Timeout or error reading response from {}", tcp_addr);
                                                     }
                                                 }
                                             }
@@ -1200,21 +1200,23 @@ impl NetworkManager {
         if let Ok(info) = self.fetch_blockchain_info().await {
             if info.height > self.network_block_height {
                 log::info!(
-                    "📊 Updated blockchain height: {} -> {}",
+                    "📊 Blockchain height updated: {} -> {}",
                     self.network_block_height,
                     info.height
                 );
                 self.network_block_height = info.height;
                 self.current_block_height = info.height;
+            } else {
+                log::trace!("Blockchain height unchanged: {}", self.network_block_height);
             }
         } else {
-            log::warn!("⚠️ Failed to fetch blockchain height from any peer");
+            log::debug!("Failed to fetch blockchain height from peers");
         }
     }
 
     /// Periodic refresh - updates latency, versions, and blockchain height
     pub async fn periodic_refresh(&mut self) {
-        log::info!("🔄 Running periodic refresh (latency, version, blockchain height)...");
+        log::debug!("Running periodic refresh...");
 
         // Refresh peer latency and version info
         let mut tasks = Vec::new();

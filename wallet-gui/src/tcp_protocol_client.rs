@@ -222,12 +222,12 @@ impl TcpProtocolListener {
 
     /// Start listening for incoming messages (persistent connection)
     pub async fn start(self) {
-        log::info!("🔌 Starting TCP listener for {}", self.peer_addr);
+        log::debug!("Starting TCP listener for {}", self.peer_addr);
 
         loop {
             match self.connect_and_listen().await {
                 Ok(_) => {
-                    log::info!("TCP connection closed normally");
+                    log::debug!("TCP connection closed");
                 }
                 Err(e) => {
                     log::error!("TCP listener error: {}", e);
@@ -235,7 +235,7 @@ impl TcpProtocolListener {
             }
 
             // Reconnect after 5 seconds
-            log::info!("⏳ Reconnecting in 5 seconds...");
+            log::debug!("Reconnecting in 5s");
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
     }
@@ -244,10 +244,10 @@ impl TcpProtocolListener {
         use time_network::protocol::HandshakeMessage;
 
         // Connect to masternode
-        log::info!("🔌 Attempting to connect to {}", self.peer_addr);
+        log::debug!("Connecting to {}", self.peer_addr);
         let mut stream = TcpStream::connect(&self.peer_addr).await?;
 
-        log::info!("✅ Connected to {}", self.peer_addr);
+        log::debug!("Connected to {}", self.peer_addr);
 
         // Perform handshake first (required by masternode protocol)
         let network_type = if self.peer_addr.contains("24100") {
@@ -264,18 +264,18 @@ impl TcpProtocolListener {
         if let Ok(handshake_json) = serde_json::to_vec(&handshake) {
             let handshake_len = handshake_json.len() as u32;
 
-            log::info!("📤 Sending handshake: {} bytes", handshake_len);
+            log::debug!("Sending handshake to {}", self.peer_addr);
             stream.write_all(&magic).await?;
             stream.write_all(&handshake_len.to_be_bytes()).await?;
             stream.write_all(&handshake_json).await?;
             stream.flush().await?;
-            log::info!("✅ Handshake sent, waiting for response...");
+            
 
             // Read their handshake response
             let mut their_magic = [0u8; 4];
             let mut their_len_bytes = [0u8; 4];
 
-            log::info!("📥 Reading magic bytes...");
+            
             stream.read_exact(&mut their_magic).await?;
             log::info!("📥 Got magic: {:?}", their_magic);
 
@@ -287,20 +287,20 @@ impl TcpProtocolListener {
                 .into());
             }
 
-            log::info!("📥 Reading length bytes...");
+            
             stream.read_exact(&mut their_len_bytes).await?;
             let their_len = u32::from_be_bytes(their_len_bytes) as usize;
-            log::info!("📥 Handshake response length: {}", their_len);
+            
 
             if their_len < 10 * 1024 {
                 let mut their_handshake_bytes = vec![0u8; their_len];
-                log::info!("📥 Reading handshake payload...");
+                
                 stream.read_exact(&mut their_handshake_bytes).await?;
 
                 if let Ok(_their_handshake) =
                     serde_json::from_slice::<HandshakeMessage>(&their_handshake_bytes)
                 {
-                    log::info!("🤝 Handshake completed with {}", self.peer_addr);
+                    log::debug!("Handshake completed with {}", self.peer_addr);
                 } else {
                     log::error!("❌ Failed to parse handshake JSON");
                     return Err("Failed to parse handshake response".into());
@@ -318,23 +318,23 @@ impl TcpProtocolListener {
             &self.xpub[..std::cmp::min(20, self.xpub.len())]
         );
 
-        log::info!("🔍 Serializing RegisterXpub message...");
+        
         let register_msg = NetworkMessage::RegisterXpub {
             xpub: self.xpub.clone(),
         };
 
-        log::info!("🔍 Sending RegisterXpub to masternode...");
+        
         self.send_message(&mut stream, register_msg).await?;
-        log::info!("✅ RegisterXpub message sent successfully");
+        
 
-        log::info!("📝 Sent RegisterXpub request, waiting for response...");
+        
 
         // Wait for XpubRegistered response or UtxoUpdate with 10 second timeout
         let response_timeout = tokio::time::Duration::from_secs(10);
         match tokio::time::timeout(response_timeout, self.read_message(&mut stream)).await {
             Ok(Ok(NetworkMessage::XpubRegistered { success, message })) => {
                 if success {
-                    log::info!("✅ Xpub registered: {}", message);
+                    log::info!("✅ Connected to {} - xpub registered", self.peer_addr);
                 } else {
                     log::error!("❌ Xpub registration failed: {}", message);
                     return Err(message.into());

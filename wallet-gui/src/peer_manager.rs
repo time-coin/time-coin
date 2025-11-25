@@ -248,13 +248,13 @@ impl PeerManager {
             return Ok(());
         }
 
-        log::info!("✓ Using {} configured peers", peer_count);
+        log::debug!("Using {} configured peers", peer_count);
 
         // Immediately try to get more peers from the network
-        log::info!("🔍 Discovering peers from network...");
+        log::debug!("Discovering peers from network");
         if let Some(new_peers) = self.try_get_peer_list().await {
             self.add_peers(new_peers).await;
-            log::info!("✓ Peer discovery successful");
+            log::debug!("Peer discovery complete");
         } else {
             log::warn!("⚠️ Could not discover peers from network, will retry periodically");
         }
@@ -336,14 +336,14 @@ impl PeerManager {
         let _their_handshake: HandshakeMessage = serde_json::from_slice(&their_handshake_bytes)
             .map_err(|e| format!("Failed to parse handshake response: {}", e))?;
 
-        log::info!("🤝 Handshake completed successfully");
+        
 
         // Now send GetPeerList request
         let request = NetworkMessage::GetPeerList;
         let request_bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
         let len = request_bytes.len() as u32;
 
-        log::info!("📤 Sending GetPeerList request ({} bytes)", len);
+        
         log::debug!("Request JSON: {}", String::from_utf8_lossy(&request_bytes));
 
         stream
@@ -358,10 +358,10 @@ impl PeerManager {
             .flush()
             .await
             .map_err(|e| format!("Failed to flush: {}", e))?;
-        log::info!("✅ Request sent, waiting for response...");
+        
 
         // Read response with timeout
-        log::info!("📥 Reading response length...");
+        
         let mut len_bytes = [0u8; 4];
 
         // Add timeout for reading response
@@ -371,7 +371,7 @@ impl PeerManager {
         ).await {
             Ok(Ok(_)) => {
                 let response_len = u32::from_be_bytes(len_bytes) as usize;
-                log::info!("📥 Response length: {} bytes", response_len);
+                
 
                 if response_len > 10 * 1024 * 1024 {
                     return Err(format!("Response too large: {} bytes", response_len));
@@ -382,12 +382,12 @@ impl PeerManager {
                     .read_exact(&mut response_bytes)
                     .await
                     .map_err(|e| format!("Failed to read response body: {}", e))?;
-                log::info!("📥 Response received, parsing...");
+                
                 log::debug!("Response JSON: {}", String::from_utf8_lossy(&response_bytes));
 
                 let response: NetworkMessage = serde_json::from_slice(&response_bytes)
                     .map_err(|e| format!("Failed to parse response: {}", e))?;
-                log::info!("✅ Response parsed successfully");
+                
 
                 match response {
                     NetworkMessage::PeerList(peer_addresses) => {
@@ -395,7 +395,7 @@ impl PeerManager {
                             .into_iter()
                             .map(|pa| (pa.ip, pa.port))
                             .collect();
-                        log::info!("Got {} peers from response", peers.len());
+                        
                         Ok(peers)
                     }
                     _ => Err("Unexpected response to GetPeerList".into()),
@@ -422,15 +422,15 @@ impl PeerManager {
         // Try up to 3 peers
         for peer in healthy_peers.iter().take(3) {
             let endpoint = format!("{}:{}", peer.address, peer.port);
-            log::info!("🔍 Requesting peer list from {}", endpoint);
+            log::debug!("Requesting peers from {}", endpoint);
 
             match tokio::net::TcpStream::connect(&endpoint).await {
                 Ok(mut stream) => {
-                    log::info!("✅ TCP connection established to {}", endpoint);
+                    log::debug!("Connected to {}", endpoint);
 
                     match self.request_peer_list(&mut stream).await {
                         Ok(new_peers) => {
-                            log::info!("📥 Received {} peers from {}", new_peers.len(), endpoint);
+                            log::debug!("Received {} peers from {}", new_peers.len(), endpoint);
                             self.record_success(&peer.address, peer.port).await;
                             return Some(new_peers);
                         }

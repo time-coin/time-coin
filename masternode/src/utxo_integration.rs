@@ -451,7 +451,7 @@ impl MasternodeUTXOIntegration {
                                 ));
                             }
 
-                            // Scan existing blockchain for UTXOs via RPC
+                            // Scan existing blockchain for UTXOs using BlockchainScanner
                             info!(
                                 node = %self.node_id,
                                 address_count = addresses.len(),
@@ -459,21 +459,33 @@ impl MasternodeUTXOIntegration {
                                 addresses.len()
                             );
 
-                            // Spawn background task to scan blockchain
-                            let xpub_clone = xpub.clone();
-                            let addresses_clone = addresses.clone();
-                            let utxo_tracker_clone = self.utxo_tracker.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = scan_blockchain_for_addresses(
-                                    &xpub_clone,
-                                    &addresses_clone,
-                                    utxo_tracker_clone,
-                                )
-                                .await
-                                {
-                                    warn!("Failed to scan blockchain: {}", e);
+                            // Scan blockchain synchronously before responding
+                            if let Some(ref monitor) = self.address_monitor {
+                                let scanner = crate::blockchain_scanner::BlockchainScanner::new(
+                                    self.blockchain_db.clone(),
+                                    monitor.clone(),
+                                    self.utxo_tracker.clone(),
+                                    self.node_id.clone(),
+                                );
+                                
+                                match scanner.scan_blockchain().await {
+                                    Ok(count) => {
+                                        info!(
+                                            node = %self.node_id,
+                                            utxos_found = count,
+                                            "Blockchain scan complete, found {} UTXOs",
+                                            count
+                                        );
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            node = %self.node_id,
+                                            error = %e,
+                                            "Failed to scan blockchain"
+                                        );
+                                    }
                                 }
-                            });
+                            }
 
                             // Get existing UTXOs for this xpub
                             match self.utxo_tracker.get_utxos_for_xpub(xpub).await {
