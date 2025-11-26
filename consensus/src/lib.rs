@@ -827,10 +827,7 @@ pub mod tx_consensus {
             drop(masternodes);
 
             // Use lock-free nested DashMap
-            let height_votes = self
-                .votes
-                .entry(vote.block_height)
-                .or_default();
+            let height_votes = self.votes.entry(vote.block_height).or_default();
 
             height_votes
                 .entry(vote.merkle_root.clone())
@@ -1016,10 +1013,7 @@ pub mod block_consensus {
             drop(masternodes);
 
             // Use lock-free nested DashMap
-            let height_votes = self
-                .votes
-                .entry(vote.block_height)
-                .or_default();
+            let height_votes = self.votes.entry(vote.block_height).or_default();
 
             height_votes
                 .entry(vote.block_hash.clone())
@@ -1362,10 +1356,7 @@ pub mod block_consensus {
         }
 
         pub async fn store_vote(&self, vote: BlockVote) {
-            let height_votes = self
-                .votes
-                .entry(vote.block_height)
-                .or_default();
+            let height_votes = self.votes.entry(vote.block_height).or_default();
 
             height_votes
                 .entry(vote.block_hash.clone())

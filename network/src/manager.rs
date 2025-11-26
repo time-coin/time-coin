@@ -983,14 +983,11 @@ impl PeerManager {
         &self,
         peer_addr: &str,
     ) -> Result<(u64, bool), Box<dyn std::error::Error>> {
-        // Parse peer address to get IP
-        let peer_ip: IpAddr = peer_addr
-            .split(':')
-            .next()
-            .ok_or("Invalid peer address")?
-            .parse()?;
+        // Parse peer address to get IP and full SocketAddr
+        let peer_socket_addr: SocketAddr = peer_addr.parse()?;
+        let peer_ip = peer_socket_addr.ip();
 
-        // Try TCP first - clone Arc and drop read lock immediately
+        // Try stored TCP connection first - clone Arc and drop read lock immediately
         let conn_arc = {
             let connections = self.connections.read().await;
             connections.get(&peer_ip).cloned()
@@ -1020,7 +1017,28 @@ impl PeerManager {
             }
         }
 
-        Err("No TCP connection available".into())
+        // No stored connection - establish new connection with handshake
+        eprintln!(
+            "   [DEBUG] No stored connection for {}, creating new connection with handshake",
+            peer_addr
+        );
+        let response = self
+            .send_message_to_peer_with_response(
+                peer_socket_addr,
+                crate::protocol::NetworkMessage::GetBlockchainInfo,
+                5,
+            )
+            .await?;
+
+        match response {
+            Some(crate::protocol::NetworkMessage::BlockchainInfo {
+                height,
+                has_genesis,
+                ..
+            }) => Ok((height, has_genesis)),
+            Some(_) => Err("Unexpected response type".into()),
+            None => Err("No response received".into()),
+        }
     }
 
     /// Request a specific block by height from a peer via TCP
@@ -1029,14 +1047,11 @@ impl PeerManager {
         peer_addr: &str,
         height: u64,
     ) -> Result<time_core::block::Block, Box<dyn std::error::Error>> {
-        // Parse peer address to get IP
-        let peer_ip: IpAddr = peer_addr
-            .split(':')
-            .next()
-            .ok_or("Invalid peer address")?
-            .parse()?;
+        // Parse peer address to get IP and full SocketAddr
+        let peer_socket_addr: SocketAddr = peer_addr.parse()?;
+        let peer_ip = peer_socket_addr.ip();
 
-        // Try TCP first - clone Arc and drop read lock immediately
+        // Try stored TCP connection first - clone Arc and drop read lock immediately
         let conn_arc = {
             let connections = self.connections.read().await;
             connections.get(&peer_ip).cloned()
@@ -1068,7 +1083,33 @@ impl PeerManager {
             }
         }
 
-        Err("No TCP connection available".into())
+        // No stored connection - establish new connection with handshake
+        eprintln!(
+            "   [DEBUG] No stored connection for {}, creating new connection with handshake",
+            peer_addr
+        );
+        let response = self
+            .send_message_to_peer_with_response(
+                peer_socket_addr,
+                crate::protocol::NetworkMessage::GetBlocks {
+                    start_height: height,
+                    end_height: height,
+                },
+                10,
+            )
+            .await?;
+
+        match response {
+            Some(crate::protocol::NetworkMessage::Blocks { blocks }) => {
+                if let Some(block) = blocks.into_iter().next() {
+                    Ok(block)
+                } else {
+                    Err("No block in response".into())
+                }
+            }
+            Some(_) => Err("Unexpected response type".into()),
+            None => Err("No response received".into()),
+        }
     }
 
     /// Request finalized transactions from a peer via TCP
