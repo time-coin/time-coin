@@ -908,9 +908,13 @@ impl PeerManager {
             .ok_or("Invalid peer address")?
             .parse()?;
 
-        // Try TCP first
-        let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
+        // Try TCP first - clone Arc and drop read lock immediately
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
             // Send request
@@ -946,9 +950,13 @@ impl PeerManager {
             .ok_or("Invalid peer address")?
             .parse()?;
 
-        // Try TCP first
-        let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
+        // Try TCP first - clone Arc and drop read lock immediately
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
             // Send request
@@ -982,9 +990,13 @@ impl PeerManager {
             .ok_or("Invalid peer address")?
             .parse()?;
 
-        // Try TCP first
-        let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
+        // Try TCP first - clone Arc and drop read lock immediately
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
             // Send request
@@ -1024,9 +1036,13 @@ impl PeerManager {
             .ok_or("Invalid peer address")?
             .parse()?;
 
-        // Try TCP first
-        let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
+        // Try TCP first - clone Arc and drop read lock immediately
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
             // Send request
@@ -1068,9 +1084,13 @@ impl PeerManager {
             .ok_or("Invalid peer address")?
             .parse()?;
 
-        // Try TCP first
-        let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
+        // Try TCP first - clone Arc and drop read lock immediately
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
             // Send request
@@ -1166,9 +1186,13 @@ impl PeerManager {
     ) -> Result<Vec<PeerInfo>, Box<dyn std::error::Error + Send + Sync>> {
         let peer_ip = peer_addr.ip();
 
-        // Use TCP connection
-        let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
+        // Use TCP connection - clone Arc and drop read lock immediately
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
             // Send request

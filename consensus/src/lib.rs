@@ -37,6 +37,7 @@ pub mod utxo_state_protocol;
 pub mod midnight_consensus;
 pub mod simplified;
 
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -69,11 +70,11 @@ pub struct ConsensusEngine {
     /// Current blockchain state
     state: Arc<RwLock<Option<BlockchainState>>>,
 
-    /// Pending votes for current block
-    pending_votes: Arc<RwLock<HashMap<String, Vec<Vote>>>>, // block_hash -> votes
+    /// Pending votes for current block - lock-free concurrent access
+    pending_votes: Arc<DashMap<String, Vec<Vote>>>, // block_hash -> votes
 
-    /// Pending votes for transactions (instant finality)
-    transaction_votes: Arc<RwLock<HashMap<String, Vec<Vote>>>>, // txid -> votes
+    /// Pending votes for transactions (instant finality) - lock-free concurrent access
+    transaction_votes: Arc<DashMap<String, Vec<Vote>>>, // txid -> votes
 
     /// Proposal manager for treasury grants
     proposal_manager: Option<Arc<crate::proposals::ProposalManager>>,
@@ -91,8 +92,8 @@ impl ConsensusEngine {
             masternodes: Arc::new(RwLock::new(Vec::new())),
             wallet_addresses: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(None)),
-            pending_votes: Arc::new(RwLock::new(HashMap::new())),
-            transaction_votes: Arc::new(RwLock::new(HashMap::new())),
+            pending_votes: Arc::new(DashMap::new()),
+            transaction_votes: Arc::new(DashMap::new()),
             proposal_manager: None,
         }
     }
@@ -331,20 +332,16 @@ impl ConsensusEngine {
         }
         drop(masternodes);
 
-        let mut votes = self.pending_votes.write().await;
-        let vote_list = votes.entry(block_hash.clone()).or_insert_with(Vec::new);
-
-        // Check if already voted
-        if vote_list.iter().any(|v| v.voter == voter) {
-            return Err(ConsensusError::DuplicateVote);
-        }
-
-        vote_list.push(Vote {
-            block_hash,
-            voter,
-            approve,
-            timestamp: chrono::Utc::now().timestamp(),
-        });
+        // Use DashMap for lock-free concurrent access
+        self.pending_votes
+            .entry(block_hash.clone())
+            .or_default()
+            .push(Vote {
+                block_hash,
+                voter,
+                approve,
+                timestamp: chrono::Utc::now().timestamp(),
+            });
 
         Ok(())
     }
@@ -359,15 +356,15 @@ impl ConsensusEngine {
                 true
             }
             ConsensusMode::BFT => {
-                let votes = self.pending_votes.read().await;
                 let masternodes = self.masternodes.read().await;
                 let total_nodes = masternodes.len();
+                drop(masternodes);
 
                 if total_nodes < 3 {
                     return true; // Shouldn't happen in BFT mode but handle gracefully
                 }
 
-                if let Some(vote_list) = votes.get(block_hash) {
+                if let Some(vote_list) = self.pending_votes.get(block_hash) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
                     let required = (total_nodes * 2).div_ceil(3); // Ceiling of 2/3
                     approvals >= required
@@ -392,11 +389,11 @@ impl ConsensusEngine {
 
     /// Get quorum status for a block
     pub async fn check_quorum(&self, block_hash: &str) -> (bool, usize, usize, usize) {
-        let votes = self.pending_votes.read().await;
         let masternodes = self.masternodes.read().await;
         let total_nodes = masternodes.len();
+        drop(masternodes);
 
-        let (approvals, rejections) = if let Some(vote_list) = votes.get(block_hash) {
+        let (approvals, rejections) = if let Some(vote_list) = self.pending_votes.get(block_hash) {
             let app = vote_list.iter().filter(|v| v.approve).count();
             let rej = vote_list.iter().filter(|v| !v.approve).count();
             (app, rej)
@@ -412,9 +409,7 @@ impl ConsensusEngine {
 
     /// Get vote counts for a block
     pub async fn get_vote_count(&self, block_hash: &str) -> (usize, usize) {
-        let votes = self.pending_votes.read().await;
-
-        if let Some(vote_list) = votes.get(block_hash) {
+        if let Some(vote_list) = self.pending_votes.get(block_hash) {
             let approvals = vote_list.iter().filter(|v| v.approve).count();
             let rejections = vote_list.iter().filter(|v| !v.approve).count();
             (approvals, rejections)
@@ -493,20 +488,16 @@ impl ConsensusEngine {
         }
         drop(masternodes);
 
-        let mut votes = self.transaction_votes.write().await;
-        let vote_list = votes.entry(txid.to_string()).or_insert_with(Vec::new);
-
-        // Check if already voted
-        if vote_list.iter().any(|v| v.voter == voter) {
-            return Err(ConsensusError::DuplicateVote);
-        }
-
-        vote_list.push(Vote {
-            block_hash: txid.to_string(), // Reuse block_hash field for txid
-            voter,
-            approve,
-            timestamp: chrono::Utc::now().timestamp(),
-        });
+        // Use DashMap for lock-free concurrent access
+        self.transaction_votes
+            .entry(txid.to_string())
+            .or_default()
+            .push(Vote {
+                block_hash: txid.to_string(), // Reuse block_hash field for txid
+                voter,
+                approve,
+                timestamp: chrono::Utc::now().timestamp(),
+            });
 
         Ok(())
     }
@@ -521,15 +512,15 @@ impl ConsensusEngine {
                 true
             }
             ConsensusMode::BFT => {
-                let votes = self.transaction_votes.read().await;
                 let masternodes = self.masternodes.read().await;
                 let total_nodes = masternodes.len();
+                drop(masternodes);
 
                 if total_nodes < 3 {
                     return true; // Accept in bootstrap mode
                 }
 
-                if let Some(vote_list) = votes.get(txid) {
+                if let Some(vote_list) = self.transaction_votes.get(txid) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
                     let required = (total_nodes * 2).div_ceil(3); // Ceiling of 2/3
                     approvals >= required
@@ -542,9 +533,7 @@ impl ConsensusEngine {
 
     /// Get transaction vote counts
     pub async fn get_transaction_vote_count(&self, txid: &str) -> (usize, usize) {
-        let votes = self.transaction_votes.read().await;
-
-        if let Some(vote_list) = votes.get(txid) {
+        if let Some(vote_list) = self.transaction_votes.get(txid) {
             let approvals = vote_list.iter().filter(|v| v.approve).count();
             let rejections = vote_list.iter().filter(|v| !v.approve).count();
             (approvals, rejections)
@@ -555,8 +544,7 @@ impl ConsensusEngine {
 
     /// Clear transaction votes after finalization
     pub async fn clear_transaction_votes(&self, txid: &str) {
-        let mut votes = self.transaction_votes.write().await;
-        votes.remove(txid);
+        self.transaction_votes.remove(txid);
     }
 
     /// VRF-based leader selection with weighted random
@@ -770,9 +758,10 @@ pub const QUARANTINE_DURATION_SECS: i64 = 3600; // 1 hour
 
 pub mod tx_consensus {
     use super::*;
+    use dashmap::DashMap;
 
-    // Type alias for complex nested type
-    type TxSetVotesMap = Arc<RwLock<HashMap<u64, HashMap<String, Vec<TxSetVote>>>>>;
+    // Type alias for lock-free concurrent nested map
+    type TxSetVotesMap = Arc<DashMap<u64, DashMap<String, Vec<TxSetVote>>>>;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct TransactionProposal {
@@ -808,7 +797,7 @@ pub mod tx_consensus {
         pub fn new() -> Self {
             Self {
                 proposals: Arc::new(RwLock::new(HashMap::new())),
-                votes: Arc::new(RwLock::new(HashMap::new())),
+                votes: Arc::new(DashMap::new()),
                 masternodes: Arc::new(RwLock::new(Vec::new())),
             }
         }
@@ -837,17 +826,17 @@ pub mod tx_consensus {
             }
             drop(masternodes);
 
-            let mut votes = self.votes.write().await;
-            let height_votes = votes.entry(vote.block_height).or_insert_with(HashMap::new);
-            let merkle_votes = height_votes
+            // Use lock-free nested DashMap
+            let height_votes = self
+                .votes
+                .entry(vote.block_height)
+                .or_default();
+
+            height_votes
                 .entry(vote.merkle_root.clone())
-                .or_insert_with(Vec::new);
+                .or_default()
+                .push(vote);
 
-            if merkle_votes.iter().any(|v| v.voter == vote.voter) {
-                return Err("Duplicate vote".to_string());
-            }
-
-            merkle_votes.push(vote);
             Ok(())
         }
 
@@ -864,8 +853,7 @@ pub mod tx_consensus {
                 return (true, 0, total_nodes);
             }
 
-            let votes = self.votes.read().await;
-            if let Some(height_votes) = votes.get(&block_height) {
+            if let Some(height_votes) = self.votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(merkle_root) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
                     let required = (total_nodes * 2).div_ceil(3);
@@ -894,10 +882,9 @@ pub mod tx_consensus {
 
         pub async fn cleanup_old(&self, current_height: u64) {
             let mut proposals = self.proposals.write().await;
-            let mut votes = self.votes.write().await;
-
             proposals.retain(|&h, _| h >= current_height.saturating_sub(10));
-            votes.retain(|&h, _| h >= current_height.saturating_sub(10));
+            self.votes
+                .retain(|h, _| *h >= current_height.saturating_sub(10));
         }
 
         pub async fn get_proposal(&self, block_height: u64) -> Option<TransactionProposal> {
@@ -906,8 +893,7 @@ pub mod tx_consensus {
         }
         /// Get list of masternodes that voted on this block's transaction set
         pub async fn get_voters(&self, block_height: u64, merkle_root: &str) -> Vec<String> {
-            let votes = self.votes.read().await;
-            if let Some(height_votes) = votes.get(&block_height) {
+            if let Some(height_votes) = self.votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(merkle_root) {
                     return vote_list
                         .iter()
@@ -924,9 +910,10 @@ pub mod tx_consensus {
 // Block consensus module - for voting on catch-up blocks
 pub mod block_consensus {
     use super::*;
+    use dashmap::DashMap;
 
-    // Type alias for complex nested type
-    type BlockVotesMap = Arc<RwLock<HashMap<u64, HashMap<String, Vec<BlockVote>>>>>;
+    // Type alias for lock-free concurrent nested map
+    type BlockVotesMap = Arc<DashMap<u64, DashMap<String, Vec<BlockVote>>>>;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct BlockProposal {
@@ -977,7 +964,7 @@ pub mod block_consensus {
         pub fn new() -> Self {
             Self {
                 proposals: Arc::new(RwLock::new(HashMap::new())),
-                votes: Arc::new(RwLock::new(HashMap::new())),
+                votes: Arc::new(DashMap::new()),
                 masternodes: Arc::new(RwLock::new(Vec::new())),
                 health: Arc::new(RwLock::new(HashMap::new())),
                 peer_versions: Arc::new(RwLock::new(HashMap::new())),
@@ -1028,17 +1015,17 @@ pub mod block_consensus {
             }
             drop(masternodes);
 
-            let mut votes = self.votes.write().await;
-            let height_votes = votes.entry(vote.block_height).or_insert_with(HashMap::new);
-            let block_votes = height_votes
+            // Use lock-free nested DashMap
+            let height_votes = self
+                .votes
+                .entry(vote.block_height)
+                .or_default();
+
+            height_votes
                 .entry(vote.block_hash.clone())
-                .or_insert_with(Vec::new);
+                .or_default()
+                .push(vote);
 
-            if block_votes.iter().any(|v| v.voter == vote.voter) {
-                return Err("Duplicate vote".to_string());
-            }
-
-            block_votes.push(vote);
             Ok(())
         }
 
@@ -1055,8 +1042,7 @@ pub mod block_consensus {
                 return (true, 0, total_nodes);
             }
 
-            let votes = self.votes.read().await;
-            if let Some(height_votes) = votes.get(&block_height) {
+            if let Some(height_votes) = self.votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(block_hash) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
                     let required = (total_nodes * 2).div_ceil(3);
@@ -1070,8 +1056,7 @@ pub mod block_consensus {
 
         /// Check if a voter has already voted on a specific block
         pub async fn has_voted(&self, voter: &str, block_height: u64, block_hash: &str) -> bool {
-            let votes = self.votes.read().await;
-            if let Some(height_votes) = votes.get(&block_height) {
+            if let Some(height_votes) = self.votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(block_hash) {
                     return vote_list.iter().any(|v| v.voter == voter);
                 }
@@ -1082,10 +1067,8 @@ pub mod block_consensus {
         /// Clear finalized block consensus data to free memory
         pub async fn clear_block_consensus(&self, block_height: u64) {
             let mut proposals = self.proposals.write().await;
-            let mut votes = self.votes.write().await;
-
             proposals.remove(&block_height);
-            votes.remove(&block_height);
+            self.votes.remove(&block_height);
         }
 
         /// Register peer version WITH build info when they connect
@@ -1174,13 +1157,11 @@ pub mod block_consensus {
             }
 
             // Get vote information
-            let votes = self.votes.read().await;
-            let vote_list = if let Some(height_votes) = votes.get(&block_height) {
-                height_votes.get(block_hash).cloned()
+            let vote_list = if let Some(height_votes) = self.votes.get(&block_height) {
+                height_votes.get(block_hash).map(|v| v.clone())
             } else {
                 None
             };
-            drop(votes);
 
             // ═══════════════════════════════════════════════════════════════
             // ROUND 1: Try consensus with ALL ACTIVE masternodes
@@ -1352,10 +1333,9 @@ pub mod block_consensus {
 
         pub async fn cleanup_old(&self, current_height: u64) {
             let mut proposals = self.proposals.write().await;
-            let mut votes = self.votes.write().await;
-
             proposals.retain(|&h, _| h >= current_height.saturating_sub(10));
-            votes.retain(|&h, _| h >= current_height.saturating_sub(10));
+            self.votes
+                .retain(|h, _| *h >= current_height.saturating_sub(10));
         }
 
         pub async fn get_proposal(&self, block_height: u64) -> Option<BlockProposal> {
@@ -1365,8 +1345,7 @@ pub mod block_consensus {
 
         /// Get list of masternodes that voted on this block
         pub async fn get_voters(&self, block_height: u64, block_hash: &str) -> Vec<String> {
-            let votes = self.votes.read().await;
-            if let Some(height_votes) = votes.get(&block_height) {
+            if let Some(height_votes) = self.votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(block_hash) {
                     return vote_list
                         .iter()
@@ -1383,12 +1362,15 @@ pub mod block_consensus {
         }
 
         pub async fn store_vote(&self, vote: BlockVote) {
-            let mut votes = self.votes.write().await;
-            let height_votes = votes.entry(vote.block_height).or_insert_with(HashMap::new);
-            let block_votes = height_votes
+            let height_votes = self
+                .votes
+                .entry(vote.block_height)
+                .or_default();
+
+            height_votes
                 .entry(vote.block_hash.clone())
-                .or_insert_with(Vec::new);
-            block_votes.push(vote);
+                .or_default()
+                .push(vote);
         }
 
         pub async fn wait_for_proposal(&self, block_height: u64) -> Option<BlockProposal> {
@@ -1428,10 +1410,10 @@ pub mod block_consensus {
             drop(masternodes);
 
             for _ in 0..iterations {
-                let votes = self.votes.read().await;
-                if let Some(height_votes) = votes.get(&block_height) {
+                if let Some(height_votes) = self.votes.get(&block_height) {
                     let mut approved = 0;
-                    for (_hash, vote_list) in height_votes.iter() {
+                    for entry in height_votes.iter() {
+                        let vote_list = entry.value();
                         for vote in vote_list {
                             if vote.approve {
                                 approved += 1;
@@ -1443,15 +1425,14 @@ pub mod block_consensus {
                         return (approved, total_masternodes);
                     }
                 }
-                drop(votes);
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
 
             // Timeout reached - return whatever votes we have vs total masternodes
-            let votes = self.votes.read().await;
-            if let Some(height_votes) = votes.get(&block_height) {
+            if let Some(height_votes) = self.votes.get(&block_height) {
                 let mut approved = 0;
-                for (_hash, vote_list) in height_votes.iter() {
+                for entry in height_votes.iter() {
+                    let vote_list = entry.value();
                     for vote in vote_list {
                         if vote.approve {
                             approved += 1;
@@ -1885,8 +1866,7 @@ pub mod block_consensus {
                 return (true, 0, total_nodes);
             }
 
-            let votes = self.votes.read().await;
-            if let Some(height_votes) = votes.get(&block_height) {
+            if let Some(height_votes) = self.votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(block_hash) {
                     let approvals = vote_list
                         .iter()
