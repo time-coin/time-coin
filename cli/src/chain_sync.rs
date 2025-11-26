@@ -185,6 +185,43 @@ impl ChainSync {
                         "   {} reports height: {}, has_genesis: {}",
                         peer_ip, height, has_genesis
                     );
+
+                    // Check if WE need genesis and this peer has it
+                    let blockchain = self.blockchain.read().await;
+                    let we_have_genesis = !blockchain.genesis_hash().is_empty();
+                    drop(blockchain);
+
+                    if !we_have_genesis && has_genesis {
+                        // We need genesis and this peer has it - download immediately!
+                        println!(
+                            "   🚀 Peer {} has genesis and we don't - downloading immediately!",
+                            peer_ip
+                        );
+                        if let Some(block) = self.download_block(&peer_ip, 0).await {
+                            let mut blockchain = self.blockchain.write().await;
+                            match blockchain.add_block(block.clone()) {
+                                Ok(()) => {
+                                    println!(
+                                        "   ✅ Genesis block downloaded and imported from {}",
+                                        peer_ip
+                                    );
+                                    println!(
+                                        "✅ Genesis block downloaded and initialized: {}...",
+                                        hash_preview(&block.hash())
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "   ⚠️  Failed to import genesis from {}: {}",
+                                        peer_ip, e
+                                    );
+                                }
+                            }
+                        } else {
+                            eprintln!("   ⚠️  Failed to download genesis from {}", peer_ip);
+                        }
+                    }
+
                     // Skip peers without genesis if we need genesis
                     if height == 0 && !has_genesis {
                         println!("   ⏭️  Skipping {} (no genesis)", peer_ip);

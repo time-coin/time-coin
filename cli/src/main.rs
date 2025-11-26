@@ -1098,6 +1098,139 @@ async fn main() {
         "✓ Periodic chain sync started (5 min interval)".green()
     );
 
+    // Start automatic genesis downloader for nodes without genesis
+    {
+        let has_genesis = {
+            let blockchain_read = blockchain.read().await;
+            !blockchain_read.genesis_hash().is_empty()
+        };
+
+        if !has_genesis {
+            println!("{}", "🔄 Starting automatic genesis downloader...".cyan());
+            let genesis_blockchain = Arc::clone(&blockchain);
+            let genesis_peer_manager = Arc::clone(&peer_manager);
+
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+                interval.tick().await; // Skip first immediate tick
+
+                loop {
+                    interval.tick().await;
+
+                    // Check if we still need genesis
+                    let needs_genesis = {
+                        let blockchain_read = genesis_blockchain.read().await;
+                        blockchain_read.genesis_hash().is_empty()
+                    };
+
+                    if !needs_genesis {
+                        println!(
+                            "{}",
+                            "   ✅ Genesis downloaded - stopping genesis downloader".green()
+                        );
+                        break;
+                    }
+
+                    println!(
+                        "{}",
+                        "   🔍 Searching for peers with genesis...".bright_black()
+                    );
+
+                    // Query all connected peers for genesis
+                    let peers = genesis_peer_manager.get_connected_tcp_peers().await;
+
+                    for peer_ip in peers {
+                        // Check if peer has genesis
+                        match p2p::get_blockchain_info_tcp(&peer_ip, network).await {
+                            Ok(info) if info.has_genesis => {
+                                println!("   {} Found peer with genesis: {}", "✓".green(), peer_ip);
+
+                                // Try to download genesis block
+                                match p2p::get_blocks_tcp(&peer_ip, 0, 0, network).await {
+                                    Ok(blocks) if !blocks.is_empty() => {
+                                        println!(
+                                            "   {} Downloading genesis from {}...",
+                                            "📥".cyan(),
+                                            peer_ip
+                                        );
+
+                                        let genesis_block = blocks[0].clone();
+
+                                        // Add genesis to blockchain
+                                        match genesis_blockchain
+                                            .write()
+                                            .await
+                                            .add_block(genesis_block.clone())
+                                        {
+                                            Ok(_) => {
+                                                // Save to disk
+                                                let data_dir =
+                                                    std::path::PathBuf::from("/var/lib/time-coin");
+                                                if let Err(e) = blockchain::save_block_to_disk(
+                                                    &genesis_block,
+                                                    &data_dir,
+                                                )
+                                                .await
+                                                {
+                                                    println!(
+                                                        "   {} Failed to save genesis to disk: {}",
+                                                        "⚠️".yellow(),
+                                                        e
+                                                    );
+                                                } else {
+                                                    println!(
+                                                        "   {} Genesis block saved to disk",
+                                                        "💾".green()
+                                                    );
+                                                }
+
+                                                println!("{}", format!("✅ Genesis block downloaded and initialized: {}...", &genesis_block.hash[..16]).green());
+                                                return; // Exit the task
+                                            }
+                                            Err(e) => {
+                                                println!(
+                                                    "   {} Failed to add genesis: {}",
+                                                    "⚠️".yellow(),
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Ok(_) => {
+                                        println!(
+                                            "   {} Peer {} returned empty blocks",
+                                            "⚠️".yellow(),
+                                            peer_ip
+                                        );
+                                    }
+                                    Err(e) => {
+                                        println!(
+                                            "   {} Failed to download from {}: {}",
+                                            "⚠️".yellow(),
+                                            peer_ip,
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            Ok(_) => {
+                                // Peer doesn't have genesis, skip
+                            }
+                            Err(e) => {
+                                println!(
+                                    "   {} Failed to contact {}: {}",
+                                    "⚠️".yellow(),
+                                    peer_ip,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     // Start periodic quarantine logging (every 15 minutes)
     let quarantine_logger = quarantine.clone();
     tokio::spawn(async move {
