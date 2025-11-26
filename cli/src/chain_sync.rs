@@ -151,6 +151,73 @@ impl ChainSync {
         false
     }
 
+    /// Try to download genesis from any available peer
+    pub async fn try_download_genesis_from_all_peers(&self) -> Result<(), String> {
+        println!("   🔍 Searching all known peers for genesis block...");
+
+        // Get all known peers (from peer manager's known peers list)
+        let all_peers = self.peer_manager.get_all_known_peers().await;
+        let p2p_port = self.get_p2p_port();
+
+        for peer_ip in all_peers {
+            let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
+
+            // Check if peer has genesis
+            match self
+                .peer_manager
+                .request_blockchain_info(&peer_addr_with_port)
+                .await
+            {
+                Ok((height, has_genesis)) => {
+                    if height == 0 && has_genesis {
+                        println!("   ✨ Found peer {} with genesis block!", peer_ip);
+
+                        // Try to download genesis from this peer
+                        match self
+                            .peer_manager
+                            .request_blocks(&peer_addr_with_port, 0, 0)
+                            .await
+                        {
+                            Ok(blocks) if !blocks.is_empty() => {
+                                let genesis_block = &blocks[0];
+                                println!("   📥 Downloading genesis block (block 0)...");
+
+                                // Import the genesis block
+                                let mut blockchain = self.blockchain.write().await;
+                                if let Err(e) = blockchain.add_block(genesis_block.clone()).await {
+                                    println!(
+                                        "   ⚠️  Failed to import genesis from {}: {}",
+                                        peer_ip, e
+                                    );
+                                    continue;
+                                }
+
+                                println!(
+                                    "✅ Genesis block downloaded and initialized: {}...",
+                                    hash_preview(&genesis_block.hash())
+                                );
+                                println!("   ✓ Genesis block imported from {}", peer_ip);
+                                return Ok(());
+                            }
+                            Ok(_) => {
+                                println!("   ⚠️  Peer {} returned empty blocks", peer_ip);
+                            }
+                            Err(e) => {
+                                println!("   ⚠️  Failed to download from {}: {}", peer_ip, e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Silently skip peers that don't respond
+                    continue;
+                }
+            }
+        }
+
+        Err("No peers with genesis block found".to_string())
+    }
+
     /// Query all peers and find the highest blockchain height
     pub async fn query_peer_heights(&self) -> Vec<(String, u64, String)> {
         let peers = self.peer_manager.get_connected_peers().await;
@@ -175,66 +242,62 @@ impl ChainSync {
             // Use TCP protocol instead of HTTP API
             let p2p_port = self.get_p2p_port();
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
-            match self
+            
+            if let Ok((height, has_genesis)) = self
                 .peer_manager
                 .request_blockchain_info(&peer_addr_with_port)
                 .await
             {
-                Ok((height, has_genesis)) => {
-                    println!(
-                        "   {} reports height: {}, has_genesis: {}",
-                        peer_ip, height, has_genesis
-                    );
+                println!(
+                    "   {} reports height: {}, has_genesis: {}",
+                    peer_ip, height, has_genesis
+                );
 
-                    // Check if WE need genesis and this peer has it
+                // Check if WE need genesis and this peer has it
+                let we_have_genesis = {
                     let blockchain = self.blockchain.read().await;
-                    let we_have_genesis = !blockchain.genesis_hash().is_empty();
-                    drop(blockchain);
+                    !blockchain.genesis_hash().is_empty()
+                };
 
-                    if !we_have_genesis && has_genesis {
-                        // We need genesis and this peer has it - download immediately!
-                        println!(
-                            "   🚀 Peer {} has genesis and we don't - downloading immediately!",
-                            peer_ip
-                        );
-                        if let Some(block) = self.download_block(&peer_ip, 0).await {
-                            let mut blockchain = self.blockchain.write().await;
-                            match blockchain.add_block(block.clone()) {
-                                Ok(()) => {
-                                    println!(
-                                        "   ✅ Genesis block downloaded and imported from {}",
-                                        peer_ip
-                                    );
-                                    println!(
-                                        "✅ Genesis block downloaded and initialized: {}...",
-                                        hash_preview(&block.hash())
-                                    );
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "   ⚠️  Failed to import genesis from {}: {}",
-                                        peer_ip, e
-                                    );
-                                }
+                if !we_have_genesis && has_genesis {
+                    // We need genesis and this peer has it - download immediately!
+                    println!(
+                        "   🚀 Peer {} has genesis and we don't - downloading immediately!",
+                        peer_ip
+                    );
+                    if let Some(block) = self.download_block(&peer_ip, 0).await {
+                        let mut blockchain = self.blockchain.write().await;
+                        match blockchain.add_block(block.clone()) {
+                            Ok(()) => {
+                                println!(
+                                    "   ✅ Genesis block downloaded and imported from {}",
+                                    peer_ip
+                                );
+                                println!(
+                                    "✅ Genesis block downloaded and initialized: {}...",
+                                    hash_preview(&block.hash)
+                                );
                             }
-                        } else {
-                            eprintln!("   ⚠️  Failed to download genesis from {}", peer_ip);
+                            Err(e) => {
+                                eprintln!(
+                                    "   ⚠️  Failed to import genesis from {}: {}",
+                                    peer_ip, e
+                                );
+                            }
                         }
+                    } else {
+                        eprintln!("   ⚠️  Failed to download genesis from {}", peer_ip);
                     }
-
-                    // Skip peers without genesis if we need genesis
-                    if height == 0 && !has_genesis {
-                        println!("   ⏭️  Skipping {} (no genesis)", peer_ip);
-                        continue;
-                    }
-                    // Get the hash too - for now use a placeholder until we extend the protocol
-                    // The height is what matters most for sync
-                    peer_heights.push((peer_ip.clone(), height, String::new()));
                 }
-                Err(_e) => {
-                    // Silently continue on error
+
+                // Skip peers without genesis if we need genesis
+                if height == 0 && !has_genesis {
+                    println!("   ⏭️  Skipping {} (no genesis)", peer_ip);
                     continue;
                 }
+                // Get the hash too - for now use a placeholder until we extend the protocol
+                // The height is what matters most for sync
+                peer_heights.push((peer_ip.clone(), height, String::new()));
             }
         }
 
