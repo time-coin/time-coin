@@ -1666,18 +1666,21 @@ async fn main() {
                                                     println!("📡 Peer {} announced new tip: block {} ({})",
                                                         peer_ip_listen, height, &hash[..16]);
 
-                                                    // Trigger sync if we're behind
+                                                    // Trigger sync if we're behind (with rate limiting to prevent spam)
                                                     let our_height = {
                                                         let blockchain_guard = blockchain_listen.read().await;
                                                         blockchain_guard.chain_tip_height()
                                                     };
 
-                                                    if height > our_height {
-                                                        println!("   ℹ️  We're behind (height {}), peer is at {} - triggering sync", our_height, height);
+                                                    // Only trigger sync if significantly behind (avoid triggering on every single block)
+                                                    if height > our_height + 2 {
+                                                        println!("   ℹ️  We're significantly behind (height {}), peer is at {} - triggering sync", our_height, height);
                                                         // Trigger async sync without blocking message processing
                                                         let chain_sync_trigger = chain_sync_listen.clone();
                                                         tokio::spawn(async move {
-                                                            let _ = chain_sync_trigger.sync_from_peers().await;
+                                                            if let Err(e) = chain_sync_trigger.sync_from_peers().await {
+                                                                eprintln!("   ⚠️  Auto-sync failed: {}", e);
+                                                            }
                                                         });
                                                     }
                                                 }
@@ -1952,12 +1955,15 @@ async fn main() {
                                                             blockchain_guard.chain_tip_height()
                                                         };
 
-                                                        if proposal.block_height > our_height + 1 {
-                                                            println!("   ℹ️  We're behind (height {}), peer is at {} - triggering sync", our_height, proposal.block_height);
+                                                        // Only trigger sync if significantly behind (avoid spam)
+                                                        if proposal.block_height > our_height + 5 {
+                                                            println!("   ℹ️  We're significantly behind (height {}), peer is at {} - triggering sync", our_height, proposal.block_height);
                                                             // Trigger async sync without blocking message processing
                                                             let chain_sync_trigger = chain_sync_listen.clone();
                                                             tokio::spawn(async move {
-                                                                let _ = chain_sync_trigger.sync_from_peers().await;
+                                                                if let Err(e) = chain_sync_trigger.sync_from_peers().await {
+                                                                    eprintln!("   ⚠️  Auto-sync failed: {}", e);
+                                                                }
                                                             });
                                                         }
 
