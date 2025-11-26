@@ -325,7 +325,7 @@ impl ChainSync {
         let peer_ips = self.peer_manager.get_peer_ips().await;
         let mut peer_heights = Vec::new();
 
-        println!("   🔍 Querying {} known peer(s)...", peer_ips.len());
+        // Query peers silently
 
         for peer_ip in peer_ips {
             // Skip quarantined peers
@@ -353,21 +353,13 @@ impl ChainSync {
                 .ok();
 
             if let Some((height, has_genesis)) = peer_info {
-                println!(
-                    "   {} reports height: {}, has_genesis: {}",
-                    peer_ip, height, has_genesis
-                );
-
                 // Skip peers without genesis (they need to sync too)
                 if height == 0 && !has_genesis {
-                    println!("   ⏭️  Skipping {} (no genesis)", peer_ip);
                     continue;
                 }
                 // Get the hash too - for now use a placeholder until we extend the protocol
                 // The height is what matters most for sync
                 peer_heights.push((peer_ip.clone(), height, String::new()));
-            } else {
-                println!("   ⚠️  Could not query peer {}", peer_ip);
             }
         }
 

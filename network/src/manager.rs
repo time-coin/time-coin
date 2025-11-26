@@ -1030,21 +1030,13 @@ impl PeerManager {
 
             match result {
                 Ok(info) => return Ok(info),
-                Err(e) => {
-                    eprintln!(
-                        "   [DEBUG] Stored connection failed for {}: {} - will try new connection",
-                        peer_addr, e
-                    );
-                    // Fall through to create new connection
+                Err(_e) => {
+                    // Silently fall through to create new connection
                 }
             }
         }
 
         // No stored connection - establish new connection with handshake
-        eprintln!(
-            "   [DEBUG] No stored connection for {}, creating new connection with handshake",
-            peer_addr
-        );
         let response = self
             .send_message_to_peer_with_response(
                 peer_socket_addr,
@@ -1127,21 +1119,13 @@ impl PeerManager {
 
             match result {
                 Ok(block) => return Ok(block),
-                Err(e) => {
-                    eprintln!(
-                        "   [DEBUG] Stored connection failed for {} (block {}): {} - will try new connection",
-                        peer_addr, height, e
-                    );
-                    // Fall through to create new connection
+                Err(_e) => {
+                    // Silently fall through to create new connection
                 }
             }
         }
 
         // No stored connection - establish new connection with handshake
-        eprintln!(
-            "   [DEBUG] No stored connection for {}, creating new connection with handshake",
-            peer_addr
-        );
         let response = self
             .send_message_to_peer_with_response(
                 peer_socket_addr,
