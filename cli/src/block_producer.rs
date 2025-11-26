@@ -684,6 +684,11 @@ impl BlockProducer {
                             eprintln!("   ⚠️  Auto-vote failed: {}", e);
                         } else {
                             println!("   ✅ Auto-vote successful!");
+
+                            // Broadcast the vote to other nodes
+                            if let Ok(vote_value) = serde_json::to_value(&vote) {
+                                self.peer_manager.broadcast_block_vote(vote_value).await;
+                            }
                         }
 
                         // Give it a moment to be processed
