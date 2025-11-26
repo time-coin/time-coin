@@ -156,7 +156,7 @@ impl ChainSync {
         println!("   🔍 Searching all known peers for genesis block...");
 
         // Get all known peers (from peer manager's known peers list)
-        let all_peers = self.peer_manager.get_all_known_peers().await;
+        let all_peers = self.peer_manager.get_peer_ips().await;
         let p2p_port = self.get_p2p_port();
 
         for peer_ip in all_peers {
@@ -175,16 +175,15 @@ impl ChainSync {
                         // Try to download genesis from this peer
                         match self
                             .peer_manager
-                            .request_blocks(&peer_addr_with_port, 0, 0)
+                            .request_block_by_height(&peer_addr_with_port, 0)
                             .await
                         {
-                            Ok(blocks) if !blocks.is_empty() => {
-                                let genesis_block = &blocks[0];
+                            Ok(genesis_block) => {
                                 println!("   📥 Downloading genesis block (block 0)...");
 
                                 // Import the genesis block
                                 let mut blockchain = self.blockchain.write().await;
-                                if let Err(e) = blockchain.add_block(genesis_block.clone()).await {
+                                if let Err(e) = blockchain.add_block(genesis_block.clone()) {
                                     println!(
                                         "   ⚠️  Failed to import genesis from {}: {}",
                                         peer_ip, e
@@ -194,13 +193,10 @@ impl ChainSync {
 
                                 println!(
                                     "✅ Genesis block downloaded and initialized: {}...",
-                                    hash_preview(&genesis_block.hash())
+                                    hash_preview(&genesis_block.hash)
                                 );
                                 println!("   ✓ Genesis block imported from {}", peer_ip);
                                 return Ok(());
-                            }
-                            Ok(_) => {
-                                println!("   ⚠️  Peer {} returned empty blocks", peer_ip);
                             }
                             Err(e) => {
                                 println!("   ⚠️  Failed to download from {}: {}", peer_ip, e);
@@ -208,7 +204,7 @@ impl ChainSync {
                         }
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     // Silently skip peers that don't respond
                     continue;
                 }
@@ -242,12 +238,15 @@ impl ChainSync {
             // Use TCP protocol instead of HTTP API
             let p2p_port = self.get_p2p_port();
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
-            
-            if let Ok((height, has_genesis)) = self
+
+            // Get peer info and extract values immediately to avoid Send issues
+            let peer_info = self
                 .peer_manager
                 .request_blockchain_info(&peer_addr_with_port)
                 .await
-            {
+                .ok();
+
+            if let Some((height, has_genesis)) = peer_info {
                 println!(
                     "   {} reports height: {}, has_genesis: {}",
                     peer_ip, height, has_genesis
