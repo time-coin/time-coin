@@ -151,14 +151,34 @@ impl ChainSync {
         false
     }
 
+    /// Check if we need genesis and download if missing (called on peer connect)
+    ///
+    /// This is the event-driven entry point called whenever a new peer connects.
+    /// It checks if we're missing genesis and triggers download if needed.
+    pub async fn on_peer_connected(&self) {
+        // Quick check if we already have genesis (avoid expensive lock if not needed)
+        let blockchain = self.blockchain.read().await;
+        let has_genesis =
+            blockchain.chain_tip_height() > 0 || !blockchain.genesis_hash().is_empty();
+        drop(blockchain);
+
+        if !has_genesis {
+            println!("   🔍 New peer connected, missing genesis - attempting download...");
+            if let Err(e) = self.try_download_genesis_from_all_peers().await {
+                // Silent failure - will retry on next peer connection or periodic sync
+                println!("   ℹ️  Genesis download failed: {} (will retry)", e);
+            }
+        }
+    }
+
     /// Try to download genesis from any available peer
-    /// 
+    ///
     /// This implements the network's genesis discovery protocol:
     /// 1. Query all peers to find those with a genesis block
     /// 2. Download the genesis block from the first responsive peer
     /// 3. Validate it's a proper genesis block (height 0, previous_hash = "0")
     /// 4. Accept it as THE authoritative genesis for this network
-    /// 
+    ///
     /// This works for any network (testnet, mainnet, etc.) without hardcoding genesis blocks.
     pub async fn try_download_genesis_from_all_peers(&self) -> Result<(), String> {
         println!("   🔍 Searching all known peers for genesis block...");
@@ -218,13 +238,18 @@ impl ChainSync {
 
                 // Validate it's actually a genesis block
                 if genesis_block.header.block_number != 0 {
-                    println!("   ⚠️  Peer {} returned block at height {} instead of 0", 
-                             peer_ip, genesis_block.header.block_number);
+                    println!(
+                        "   ⚠️  Peer {} returned block at height {} instead of 0",
+                        peer_ip, genesis_block.header.block_number
+                    );
                     continue;
                 }
 
                 if genesis_block.header.previous_hash != "0" {
-                    println!("   ⚠️  Peer {} returned invalid genesis (previous_hash != '0')", peer_ip);
+                    println!(
+                        "   ⚠️  Peer {} returned invalid genesis (previous_hash != '0')",
+                        peer_ip
+                    );
                     continue;
                 }
 

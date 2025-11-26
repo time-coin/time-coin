@@ -1501,6 +1501,7 @@ async fn main() {
                 let blockchain_clone = blockchain.clone();
                 let wallet_address_clone = wallet_address.clone();
                 let mempool_clone = mempool.clone();
+                let chain_sync_clone = chain_sync.clone();
 
                 tokio::spawn(async move {
                     loop {
@@ -1568,6 +1569,12 @@ async fn main() {
                                     conn_arc.clone(),
                                 )
                                 .await;
+
+                            // Trigger genesis download if needed (event-driven)
+                            let chain_sync_for_genesis = chain_sync_clone.clone();
+                            tokio::spawn(async move {
+                                chain_sync_for_genesis.on_peer_connected().await;
+                            });
 
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone
