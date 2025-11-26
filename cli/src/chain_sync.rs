@@ -153,80 +153,77 @@ impl ChainSync {
 
     /// Try to download genesis from any available peer
     pub async fn try_download_genesis_from_all_peers(&self) -> Result<(), String> {
-        println!("   🔍 Searching all known peers for genesis block...");
+        println!("   🔍 Searching connected peers for genesis block...");
 
-        // Get all known peers (from peer manager's known peers list)
-        let all_peers = self.peer_manager.get_peer_ips().await;
+        // First, try only connected peers (faster and more reliable)
+        let connected_peers = self.peer_manager.get_connected_peers().await;
         let p2p_port = self.get_p2p_port();
 
-        for peer_ip in all_peers {
+        for peer in connected_peers {
+            let peer_ip = peer.address.ip().to_string();
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
 
-            // Check if peer has genesis
-            let blockchain_info_result = self
-                .peer_manager
-                .request_blockchain_info(&peer_addr_with_port)
-                .await
-                .map_err(|e| e.to_string());
+            // Check if peer has genesis with a short timeout
+            // Use .ok() pattern to avoid Send issues with Box<dyn Error>
+            let peer_info = tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                self.peer_manager
+                    .request_blockchain_info(&peer_addr_with_port),
+            )
+            .await
+            .ok()
+            .and_then(|r| r.ok());
 
-            match blockchain_info_result {
-                Ok((height, has_genesis)) => {
-                    println!(
-                        "   🔍 Peer {} reports: height={}, has_genesis={}",
-                        peer_ip, height, has_genesis
-                    );
-                    if height == 0 && has_genesis {
-                        println!("   ✨ Found peer {} with genesis block!", peer_ip);
-
-                        // Try to download genesis from this peer
-                        println!("   📞 Requesting block 0 from {}...", peer_addr_with_port);
-                        let download_result = self
-                            .peer_manager
-                            .request_block_by_height(&peer_addr_with_port, 0)
-                            .await
-                            .map_err(|e| e.to_string());
-
-                        match download_result {
-                            Ok(genesis_block) => {
-                                println!("   📥 Received genesis block from peer!");
-                                println!("   🔍 Block hash: {}", hash_preview(&genesis_block.hash));
-
-                                // Import the genesis block
-                                let mut blockchain = self.blockchain.write().await;
-                                if let Err(e) = blockchain.add_block(genesis_block.clone()) {
-                                    println!(
-                                        "   ⚠️  Failed to import genesis from {}: {}",
-                                        peer_ip, e
-                                    );
-                                    continue;
-                                }
-
-                                println!(
-                                    "✅ Genesis block downloaded and initialized: {}...",
-                                    hash_preview(&genesis_block.hash)
-                                );
-                                println!("   ✓ Genesis block imported from {}", peer_ip);
-                                return Ok(());
-                            }
-                            Err(e) => {
-                                println!("   ⚠️  Failed to download from {}: {}", peer_ip, e);
-                            }
-                        }
-                    } else {
-                        println!(
-                            "   ⏭️  Peer {} has no genesis (height={}, has_genesis={})",
-                            peer_ip, height, has_genesis
-                        );
-                    }
-                }
-                Err(e) => {
-                    println!("   ⚠️  Could not query peer {}: {}", peer_ip, e);
+            let (height, has_genesis) = match peer_info {
+                Some((h, hg)) => (h, hg),
+                None => {
+                    println!("   ⚠️  Could not query peer {}", peer_ip);
                     continue;
                 }
+            };
+
+            if height == 0 && has_genesis {
+                println!("   ✨ Connected peer {} has genesis block!", peer_ip);
+
+                // Try to download genesis from this peer
+                println!("   📞 Requesting block 0 from {}...", peer_addr_with_port);
+                let genesis_block = tokio::time::timeout(
+                    tokio::time::Duration::from_secs(10),
+                    self.peer_manager
+                        .request_block_by_height(&peer_addr_with_port, 0),
+                )
+                .await
+                .ok()
+                .and_then(|r| r.ok());
+
+                let genesis_block = match genesis_block {
+                    Some(block) => block,
+                    None => {
+                        println!("   ⚠️  Failed to download from {}", peer_ip);
+                        continue;
+                    }
+                };
+
+                println!("   📥 Received genesis block from peer!");
+                println!("   🔍 Block hash: {}", hash_preview(&genesis_block.hash));
+
+                // Import the genesis block
+                let mut blockchain = self.blockchain.write().await;
+                if let Err(e) = blockchain.add_block(genesis_block.clone()) {
+                    println!("   ⚠️  Failed to import genesis from {}: {}", peer_ip, e);
+                    continue;
+                }
+
+                println!(
+                    "✅ Genesis block downloaded and initialized: {}...",
+                    hash_preview(&genesis_block.hash)
+                );
+                println!("   ✓ Genesis block imported from {}", peer_ip);
+                return Ok(());
             }
         }
 
-        Err("No peers with genesis block found".to_string())
+        Err("No connected peers with genesis block found".to_string())
     }
 
     /// Query all peers and find the highest blockchain height
