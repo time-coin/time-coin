@@ -982,9 +982,11 @@ impl PeerManager {
     pub async fn request_blockchain_info(
         &self,
         peer_addr: &str,
-    ) -> Result<(u64, bool), Box<dyn std::error::Error>> {
+    ) -> Result<(u64, bool), Box<dyn std::error::Error + Send>> {
         // Parse peer address to get IP and full SocketAddr
-        let peer_socket_addr: SocketAddr = peer_addr.parse()?;
+        let peer_socket_addr: SocketAddr = peer_addr
+            .parse()
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
         let peer_ip = peer_socket_addr.ip();
 
         // Try stored TCP connection first - clone Arc and drop read lock immediately
@@ -996,24 +998,45 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
-            // Send request
-            conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
-                .await?;
+            // Try to use stored connection, but fall back to new connection if it fails
+            let result: Result<(u64, bool), Box<dyn std::error::Error + Send>> = async {
+                // Send request
+                conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
+                    .await
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
+                    })?;
 
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
-                    .await??;
+                // Wait for response with timeout
+                let response =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
+                        .await
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
+                        })?;
 
-            match response {
-                crate::protocol::NetworkMessage::BlockchainInfo {
-                    height,
-                    has_genesis,
-                    ..
-                } => {
-                    return Ok((height, has_genesis));
+                match response {
+                    crate::protocol::NetworkMessage::BlockchainInfo {
+                        height,
+                        has_genesis,
+                        ..
+                    } => Ok((height, has_genesis)),
+                    _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
+                        as Box<dyn std::error::Error + Send>),
                 }
-                _ => return Err("Unexpected response type".into()),
+            }
+            .await;
+
+            match result {
+                Ok(info) => return Ok(info),
+                Err(e) => {
+                    eprintln!(
+                        "   [DEBUG] Stored connection failed for {}: {} - will try new connection",
+                        peer_addr, e
+                    );
+                    // Fall through to create new connection
+                }
             }
         }
 
@@ -1028,7 +1051,8 @@ impl PeerManager {
                 crate::protocol::NetworkMessage::GetBlockchainInfo,
                 5,
             )
-            .await?;
+            .await
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>)?;
 
         match response {
             Some(crate::protocol::NetworkMessage::BlockchainInfo {
@@ -1036,8 +1060,8 @@ impl PeerManager {
                 has_genesis,
                 ..
             }) => Ok((height, has_genesis)),
-            Some(_) => Err("Unexpected response type".into()),
-            None => Err("No response received".into()),
+            Some(_) => Err(Box::new(std::io::Error::other("Unexpected response type"))),
+            None => Err(Box::new(std::io::Error::other("No response received"))),
         }
     }
 
@@ -1046,9 +1070,11 @@ impl PeerManager {
         &self,
         peer_addr: &str,
         height: u64,
-    ) -> Result<time_core::block::Block, Box<dyn std::error::Error>> {
+    ) -> Result<time_core::block::Block, Box<dyn std::error::Error + Send>> {
         // Parse peer address to get IP and full SocketAddr
-        let peer_socket_addr: SocketAddr = peer_addr.parse()?;
+        let peer_socket_addr: SocketAddr = peer_addr
+            .parse()
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
         let peer_ip = peer_socket_addr.ip();
 
         // Try stored TCP connection first - clone Arc and drop read lock immediately
@@ -1060,26 +1086,54 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
-            // Send request
-            conn.send_message(crate::protocol::NetworkMessage::GetBlocks {
-                start_height: height,
-                end_height: height,
-            })
-            .await?;
+            // Try to use stored connection, but fall back to new connection if it fails
+            let result: Result<time_core::block::Block, Box<dyn std::error::Error + Send>> =
+                async {
+                    // Send request
+                    conn.send_message(crate::protocol::NetworkMessage::GetBlocks {
+                        start_height: height,
+                        end_height: height,
+                    })
+                    .await
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
+                    })?;
 
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(10), conn.receive_message())
-                    .await??;
+                    // Wait for response with timeout
+                    let response = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        conn.receive_message(),
+                    )
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
+                    })?;
 
-            match response {
-                crate::protocol::NetworkMessage::Blocks { blocks } => {
-                    if let Some(block) = blocks.into_iter().next() {
-                        return Ok(block);
+                    match response {
+                        crate::protocol::NetworkMessage::Blocks { blocks } => {
+                            if let Some(block) = blocks.into_iter().next() {
+                                Ok(block)
+                            } else {
+                                Err(Box::new(std::io::Error::other("No block in response"))
+                                    as Box<dyn std::error::Error + Send>)
+                            }
+                        }
+                        _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
+                            as Box<dyn std::error::Error + Send>),
                     }
-                    return Err("No block in response".into());
                 }
-                _ => return Err("Unexpected response type".into()),
+                .await;
+
+            match result {
+                Ok(block) => return Ok(block),
+                Err(e) => {
+                    eprintln!(
+                        "   [DEBUG] Stored connection failed for {} (block {}): {} - will try new connection",
+                        peer_addr, height, e
+                    );
+                    // Fall through to create new connection
+                }
             }
         }
 
@@ -1097,18 +1151,19 @@ impl PeerManager {
                 },
                 10,
             )
-            .await?;
+            .await
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>)?;
 
         match response {
             Some(crate::protocol::NetworkMessage::Blocks { blocks }) => {
                 if let Some(block) = blocks.into_iter().next() {
                     Ok(block)
                 } else {
-                    Err("No block in response".into())
+                    Err(Box::new(std::io::Error::other("No block in response")))
                 }
             }
-            Some(_) => Err("Unexpected response type".into()),
-            None => Err("No response received".into()),
+            Some(_) => Err(Box::new(std::io::Error::other("Unexpected response type"))),
+            None => Err(Box::new(std::io::Error::other("No response received"))),
         }
     }
 

@@ -193,19 +193,21 @@ impl ChainSync {
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
 
             // Check if peer has genesis with a short timeout
-            let peer_info = tokio::time::timeout(
+            let peer_info_result = tokio::time::timeout(
                 tokio::time::Duration::from_secs(3),
                 self.peer_manager
                     .request_blockchain_info(&peer_addr_with_port),
             )
-            .await
-            .ok()
-            .and_then(|r| r.ok());
+            .await;
 
-            let (height, has_genesis) = match peer_info {
-                Some((h, hg)) => (h, hg),
-                None => {
-                    println!("   ⚠️  Could not query peer {} - trying next", peer_ip);
+            let (height, has_genesis) = match peer_info_result {
+                Ok(Ok((h, hg))) => (h, hg),
+                Ok(Err(e)) => {
+                    eprintln!("   ⚠️  Could not query peer {} - error: {}", peer_ip, e);
+                    continue;
+                }
+                Err(_) => {
+                    eprintln!("   ⚠️  Could not query peer {} - timeout after 3s", peer_ip);
                     continue;
                 }
             };
