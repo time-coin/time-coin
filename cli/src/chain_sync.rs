@@ -278,10 +278,16 @@ impl ChainSync {
                     continue;
                 }
 
-                if genesis_block.header.previous_hash != "0" {
+                // Genesis block should have all zeros as previous_hash
+                let is_zero_hash = genesis_block.header.previous_hash == "0"
+                    || genesis_block.header.previous_hash
+                        == "0000000000000000000000000000000000000000000000000000000000000000"
+                    || genesis_block.header.previous_hash.chars().all(|c| c == '0');
+
+                if !is_zero_hash {
                     println!(
-                        "   ⚠️  Peer {} returned invalid genesis (previous_hash != '0')",
-                        peer_ip
+                        "   ⚠️  Peer {} returned invalid genesis (previous_hash = '{}')",
+                        peer_ip, genesis_block.header.previous_hash
                     );
                     continue;
                 }
