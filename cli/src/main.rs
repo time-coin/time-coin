@@ -1520,12 +1520,13 @@ async fn main() {
                             // Normalize ephemeral port to standard server port
                             // When peers connect TO us, conn.peer_addr() returns their ephemeral client port
                             // We need to store the standard server port for connecting BACK to them
-                            let peer_addr = if real_peer_addr.port() >= 49152 {
-                                // Ephemeral port detected - use standard p2p port instead
-                                let standard_port = match network_type_clone {
-                                    time_network::NetworkType::Mainnet => 24000,
-                                    time_network::NetworkType::Testnet => 24100,
-                                };
+                            let standard_port = match network_type_clone {
+                                time_network::NetworkType::Mainnet => 24000,
+                                time_network::NetworkType::Testnet => 24100,
+                            };
+                            let peer_addr = if real_peer_addr.port() != standard_port {
+                                // Non-standard port detected - use standard p2p port instead
+                                // This handles ephemeral ports from any range (Linux: 32768-60999, Windows: 49152-65535)
                                 SocketAddr::new(real_peer_addr.ip(), standard_port)
                             } else {
                                 real_peer_addr

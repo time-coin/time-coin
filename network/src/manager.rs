@@ -496,12 +496,12 @@ impl PeerManager {
     }
 
     pub async fn get_peer_ips(&self) -> Vec<String> {
-        // Return host:port strings (unique) rather than bare IPs
+        // Return just IP addresses (without ports)
         self.peers
             .read()
             .await
             .values()
-            .map(|p| p.address.to_string())
+            .map(|p| p.address.ip().to_string())
             .collect()
     }
 
