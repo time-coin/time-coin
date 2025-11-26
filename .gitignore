@@ -82,6 +82,9 @@ _timecoin_rescue_*/
 # ---- Fix Documentation (Local Only) ----
 fixes/
 
+# ---- Analysis Documentation (Local Only) ----
+analysis/
+
 # ---- Archive / Package Files ----
 *.tar
 *.gz

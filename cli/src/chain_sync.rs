@@ -1022,33 +1022,40 @@ impl ChainSync {
 
             println!("   ⚠️  Could not adopt any block from longest chain");
 
-            // CRITICAL: None of the peer chains validated - this means network-wide corruption
-            // Best solution: Rollback to previous height and recreate missing blocks
-            println!("   🚨 Network-wide chain inconsistency detected!");
-            println!(
-                "   🔧 Solution: Rolling back to height {} and recreating blocks...",
-                our_height - 1
-            );
+            // CRITICAL: Don't rollback genesis block (height 0)
+            if our_height == 0 {
+                println!("   ⚠️  Fork at genesis height - cannot rollback further");
+                println!("   ℹ️  Using timestamp-based selection to resolve genesis fork");
+                // Fall through to timestamp-based selection
+            } else {
+                // CRITICAL: None of the peer chains validated - this means network-wide corruption
+                // Best solution: Rollback to previous height and recreate missing blocks
+                println!("   🚨 Network-wide chain inconsistency detected!");
+                println!(
+                    "   🔧 Solution: Rolling back to height {} and recreating blocks...",
+                    our_height - 1
+                );
 
-            {
-                let mut blockchain = self.blockchain.write().await;
-                match blockchain.rollback_to_height(our_height - 1) {
-                    Ok(_) => {
-                        println!("   ✅ Rollback successful");
-                        println!(
-                            "   🔄 Blocks {} and {} will be recreated by consensus",
-                            our_height,
-                            our_height + 1
-                        );
-                        println!(
-                            "   ℹ️  The block producer will recreate missing blocks on next cycle"
-                        );
-                        println!("   🚫 Skipping sync to prevent re-downloading bad blocks");
-                        return Ok(true); // Rollback occurred, skip sync
-                    }
-                    Err(e) => {
-                        println!("   ❌ Rollback failed: {:?}", e);
-                        // Continue to timestamp-based resolution as fallback
+                {
+                    let mut blockchain = self.blockchain.write().await;
+                    match blockchain.rollback_to_height(our_height - 1) {
+                        Ok(_) => {
+                            println!("   ✅ Rollback successful");
+                            println!(
+                                "   🔄 Blocks {} and {} will be recreated by consensus",
+                                our_height,
+                                our_height + 1
+                            );
+                            println!(
+                                "   ℹ️  The block producer will recreate missing blocks on next cycle"
+                            );
+                            println!("   🚫 Skipping sync to prevent re-downloading bad blocks");
+                            return Ok(true); // Rollback occurred, skip sync
+                        }
+                        Err(e) => {
+                            println!("   ❌ Rollback failed: {:?}", e);
+                            // Continue to timestamp-based resolution as fallback
+                        }
                     }
                 }
             }
