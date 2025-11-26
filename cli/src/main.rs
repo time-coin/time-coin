@@ -472,15 +472,14 @@ async fn sync_mempool_from_peers(
 /// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
 async fn peer_is_online(addr: &std::net::SocketAddr, _timeout_ms: u64) -> bool {
     // Try to establish TCP connection (this is what the function name implies)
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(_timeout_ms),
-        tokio::net::TcpStream::connect(addr),
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(_timeout_ms),
+            tokio::net::TcpStream::connect(addr),
+        )
+        .await,
+        Ok(Ok(_stream))
     )
-    .await
-    {
-        Ok(Ok(_stream)) => true,
-        _ => false,
-    }
 }
 
 fn detect_public_ip() -> Option<String> {
@@ -1805,6 +1804,33 @@ async fn main() {
                                                         println!("✅ Sent {} finalized transactions to {}", finalized_txs.len(), peer_ip_listen);
                                                     } else {
                                                         println!("❌ Failed to send finalized transactions response to {}", peer_ip_listen);
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::GetBlocks { start_height, end_height } => {
+                                                    println!("📦 Received GetBlocks request from {} (heights {}-{})", peer_ip_listen, start_height, end_height);
+
+                                                    let blockchain_guard = blockchain_listen.read().await;
+                                                    let mut blocks = Vec::new();
+
+                                                    // Limit the range to prevent abuse
+                                                    let max_blocks = 100;
+                                                    let actual_end = std::cmp::min(end_height, start_height + max_blocks - 1);
+
+                                                    for height in start_height..=actual_end {
+                                                        if let Some(block) = blockchain_guard.get_block_by_height(height) {
+                                                            blocks.push(block.clone());
+                                                        }
+                                                    }
+
+                                                    drop(blockchain_guard);
+
+                                                    let response = time_network::protocol::NetworkMessage::Blocks { blocks: blocks.clone() };
+
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(response).await.is_ok() {
+                                                        println!("✅ Sent {} blocks to {}", blocks.len(), peer_ip_listen);
+                                                    } else {
+                                                        println!("❌ Failed to send blocks response to {}", peer_ip_listen);
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json) => {

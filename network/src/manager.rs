@@ -1007,6 +1007,50 @@ impl PeerManager {
         Err("No TCP connection available".into())
     }
 
+    /// Request a specific block by height from a peer via TCP
+    pub async fn request_block_by_height(
+        &self,
+        peer_addr: &str,
+        height: u64,
+    ) -> Result<time_core::block::Block, Box<dyn std::error::Error>> {
+        // Parse peer address to get IP
+        let peer_ip: IpAddr = peer_addr
+            .split(':')
+            .next()
+            .ok_or("Invalid peer address")?
+            .parse()?;
+
+        // Try TCP first
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
+
+            // Send request
+            conn.send_message(crate::protocol::NetworkMessage::GetBlocks {
+                start_height: height,
+                end_height: height,
+            })
+            .await?;
+
+            // Wait for response with timeout
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(10), conn.receive_message())
+                    .await??;
+
+            match response {
+                crate::protocol::NetworkMessage::Blocks { blocks } => {
+                    if let Some(block) = blocks.into_iter().next() {
+                        return Ok(block);
+                    }
+                    return Err("No block in response".into());
+                }
+                _ => return Err("Unexpected response type".into()),
+            }
+        }
+
+        Err("No TCP connection available".into())
+    }
+
     /// Request finalized transactions from a peer via TCP
     pub async fn request_finalized_transactions(
         &self,

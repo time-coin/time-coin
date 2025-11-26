@@ -647,6 +647,9 @@ pub enum NetworkMessage {
         end_height: u64,
     },
     BlocksData(Vec<BlockData>),
+    Blocks {
+        blocks: Vec<time_core::block::Block>,
+    },
 
     // Catch-up coordination messages
     CatchUpRequest {

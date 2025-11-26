@@ -196,10 +196,14 @@ impl ChainSync {
     }
 
     /// Download a specific block from a peer
-    async fn download_block(&self, _peer_ip: &str, _height: u64) -> Option<Block> {
-        // TODO: Implement TCP-based block download using GetBlocks message
-        // For now, return None - blocks will need to be synced through other means
-        None
+    async fn download_block(&self, peer_ip: &str, height: u64) -> Option<Block> {
+        let p2p_port = self.get_p2p_port();
+        let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
+
+        self.peer_manager
+            .request_block_by_height(&peer_addr_with_port, height)
+            .await
+            .ok()
     }
 
     /// Validate a block before importing
