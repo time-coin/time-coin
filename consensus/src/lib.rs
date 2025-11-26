@@ -1486,8 +1486,14 @@ pub mod block_consensus {
 
             println!("   ✅ Proposal validation passed");
             println!("      Block height: {}", proposal.block_height);
-            println!("      Previous hash: {}...", &proposal.previous_hash[..16]);
-            println!("      Merkle root: {}...", &proposal.merkle_root[..16]);
+            println!(
+                "      Previous hash: {}...",
+                &proposal.previous_hash[..proposal.previous_hash.len().min(16)]
+            );
+            println!(
+                "      Merkle root: {}...",
+                &proposal.merkle_root[..proposal.merkle_root.len().min(16)]
+            );
 
             true
         }
