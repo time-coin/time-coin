@@ -320,12 +320,14 @@ impl ChainSync {
 
     /// Query all peers and find the highest blockchain height
     pub async fn query_peer_heights(&self) -> Vec<(String, u64, String)> {
-        let peers = self.peer_manager.get_connected_peers().await;
+        // Use all known peer IPs instead of just connected peers
+        // This allows us to query peers even if we only have inbound connections from them
+        let peer_ips = self.peer_manager.get_peer_ips().await;
         let mut peer_heights = Vec::new();
 
-        for peer in peers {
-            let peer_ip = peer.address.ip().to_string();
+        println!("   🔍 Querying {} known peer(s)...", peer_ips.len());
 
+        for peer_ip in peer_ips {
             // Skip quarantined peers
             if let Ok(peer_addr) = peer_ip.parse::<IpAddr>() {
                 if self.quarantine.is_quarantined(&peer_addr).await {
@@ -364,6 +366,8 @@ impl ChainSync {
                 // Get the hash too - for now use a placeholder until we extend the protocol
                 // The height is what matters most for sync
                 peer_heights.push((peer_ip.clone(), height, String::new()));
+            } else {
+                println!("   ⚠️  Could not query peer {}", peer_ip);
             }
         }
 

@@ -1587,7 +1587,7 @@ async fn main() {
 
                             // Trigger genesis download if needed (event-driven)
                             // Call directly to avoid race condition with connection storage
-                            chain_sync_clone.on_peer_connected().await;
+                            chain_sync_clone.clone().on_peer_connected().await;
 
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone
@@ -1637,6 +1637,7 @@ async fn main() {
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
                             let wallet_address_listen = wallet_address_clone.clone();
                             let mempool_listen = Arc::clone(&mempool_clone);
+                            let chain_sync_listen = Arc::clone(&chain_sync_clone);
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -1664,7 +1665,21 @@ async fn main() {
                                                 time_network::protocol::NetworkMessage::UpdateTip { height, hash } => {
                                                     println!("📡 Peer {} announced new tip: block {} ({})",
                                                         peer_ip_listen, height, &hash[..16]);
-                                                    // Could trigger sync here if our height is lower
+
+                                                    // Trigger sync if we're behind
+                                                    let our_height = {
+                                                        let blockchain_guard = blockchain_listen.read().await;
+                                                        blockchain_guard.chain_tip_height()
+                                                    };
+
+                                                    if height > our_height {
+                                                        println!("   ℹ️  We're behind (height {}), peer is at {} - triggering sync", our_height, height);
+                                                        // Trigger async sync without blocking message processing
+                                                        let chain_sync_trigger = chain_sync_listen.clone();
+                                                        tokio::spawn(async move {
+                                                            let _ = chain_sync_trigger.sync_from_peers().await;
+                                                        });
+                                                    }
                                                 }
                                                 time_network::protocol::NetworkMessage::GetPeerList => {
                                                     // Respond with our known peers directly on this connection
@@ -1930,6 +1945,22 @@ async fn main() {
                                                     // Parse and store block proposal
                                                     if let Ok(proposal) = serde_json::from_str::<time_consensus::block_consensus::BlockProposal>(&proposal_json) {
                                                         println!("📦 Received block proposal for height {} from {}", proposal.block_height, peer_ip_listen);
+
+                                                        // Check if we're behind and trigger sync
+                                                        let our_height = {
+                                                            let blockchain_guard = blockchain_listen.read().await;
+                                                            blockchain_guard.chain_tip_height()
+                                                        };
+
+                                                        if proposal.block_height > our_height + 1 {
+                                                            println!("   ℹ️  We're behind (height {}), peer is at {} - triggering sync", our_height, proposal.block_height);
+                                                            // Trigger async sync without blocking message processing
+                                                            let chain_sync_trigger = chain_sync_listen.clone();
+                                                            tokio::spawn(async move {
+                                                                let _ = chain_sync_trigger.sync_from_peers().await;
+                                                            });
+                                                        }
+
                                                         block_consensus_listen.propose_block(proposal).await;
                                                     }
                                                 }
