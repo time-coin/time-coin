@@ -89,6 +89,14 @@ impl ChainSync {
         self.quarantine.clone()
     }
 
+    /// Get the correct TCP port based on network type
+    fn get_p2p_port(&self) -> u16 {
+        match self.peer_manager.network {
+            time_network::discovery::NetworkType::Mainnet => 24000,
+            time_network::discovery::NetworkType::Testnet => 24100,
+        }
+    }
+
     /// Check if current time is within the midnight window
     fn is_in_midnight_window(&self) -> bool {
         if let Some(config) = &self.midnight_config {
@@ -162,15 +170,23 @@ impl ChainSync {
                 }
             }
 
-            let url = format!("http://{}:24101/blockchain/info", peer_ip);
-
-            match reqwest::get(&url).await {
-                Ok(response) => {
-                    if let Ok(info) = response.json::<BlockchainInfo>().await {
-                        peer_heights.push((peer_ip, info.height, info.best_block_hash));
-                    }
+            // Use TCP protocol instead of HTTP API
+            let p2p_port = self.get_p2p_port();
+            let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
+            match self
+                .peer_manager
+                .request_blockchain_info(&peer_addr_with_port)
+                .await
+            {
+                Ok(height) => {
+                    // Get the hash too - for now use a placeholder until we extend the protocol
+                    // The height is what matters most for sync
+                    peer_heights.push((peer_ip.clone(), height, String::new()));
                 }
-                Err(_) => continue,
+                Err(_e) => {
+                    // Silently continue on error
+                    continue;
+                }
             }
         }
 
@@ -178,17 +194,9 @@ impl ChainSync {
     }
 
     /// Download a specific block from a peer
-    async fn download_block(&self, peer_ip: &str, height: u64) -> Option<Block> {
-        let url = format!("http://{}:24101/blockchain/block/{}", peer_ip, height);
-
-        match reqwest::get(&url).await {
-            Ok(response) => {
-                if let Ok(block_resp) = response.json::<BlockResponse>().await {
-                    return Some(block_resp.block);
-                }
-            }
-            Err(_) => return None,
-        }
+    async fn download_block(&self, _peer_ip: &str, _height: u64) -> Option<Block> {
+        // TODO: Implement TCP-based block download using GetBlocks message
+        // For now, return None - blocks will need to be synced through other means
         None
     }
 
@@ -1179,18 +1187,24 @@ impl ChainSync {
             // Small delay between blocks to avoid overwhelming the system
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-            // Broadcast the new block to peers
+            // Broadcast the new block to peers via TCP
             let peers = self.peer_manager.get_peer_ips().await;
+            let block_height = block.header.block_number;
+            let block_hash = block.hash.clone();
+
             for peer_ip in peers {
-                let url = format!("http://{}:24101/consensus/finalized-block", peer_ip);
-                let block_clone = block.clone();
+                let peer_manager = self.peer_manager.clone();
+                let hash = block_hash.clone();
+
                 tokio::spawn(async move {
-                    let _ = reqwest::Client::new()
-                        .post(&url)
-                        .json(&serde_json::json!({"block": block_clone}))
-                        .timeout(std::time::Duration::from_secs(3))
-                        .send()
-                        .await;
+                    // Send via TCP using UpdateTip message
+                    if let Ok(peer_addr) = peer_ip.parse::<IpAddr>() {
+                        let message = time_network::protocol::NetworkMessage::UpdateTip {
+                            height: block_height,
+                            hash,
+                        };
+                        let _ = peer_manager.send_to_peer_tcp(peer_addr, message).await;
+                    }
                 });
             }
         }
