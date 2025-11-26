@@ -1744,6 +1744,10 @@ async fn main() {
                                                         .map(|b| hex::encode(&b.hash))
                                                         .unwrap_or_else(|| "unknown".to_string());
                                                     let has_genesis = blockchain_guard.get_block_by_height(0).is_some();
+                                                    println!("   🔍 Our state: height={}, has_genesis={}", height, has_genesis);
+                                                    if !has_genesis && height == 0 {
+                                                        println!("   ⚠️  We have height 0 but NO genesis block in memory!");
+                                                    }
                                                     drop(blockchain_guard);
 
                                                     let response = time_network::protocol::NetworkMessage::BlockchainInfo {
