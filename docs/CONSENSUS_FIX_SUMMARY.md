@@ -13,23 +13,34 @@
 **Issue:** Single-vote finalization bypassed BFT consensus
 **Fix:** Removed emergency fallback code
 
-### 3. ⚠️ DEPLOYMENT NEEDED: Nodes Running Old Version
+### 3. ✅ FIXED: Vote Counting Bug (CRITICAL)
+**Location:** `consensus/src/lib.rs:1417-1463`
+**Issue:** Showed "1/1 votes" when only 1 of 2 nodes voted
+**Cause:** Counted votes received instead of total masternodes
+**Fix:** Return (approved, total_masternodes) not (approved, votes_counted)
+
+**Impact:**
+- **Before:** `🗳️ Votes: 1/1` → Looks like consensus passed!
+- **After:** `🗳️ Votes: 1/2` → Clearly shows 1 node missing
+
+### 4. ⚠️ DEPLOYMENT NEEDED: Nodes Running Old Version
 **Current:** Nodes running `0.1.0-b5c8c14` (before fixes)
-**Latest:** `0.1.0-76a94d8` (with fixes)
+**Latest:** `0.1.0-4b82e09` (with all fixes)
 **Action:** Deploy new version to all nodes
 
-### 4. 🔍 INVESTIGATION NEEDED: Missing Votes (2/4 instead of 3/4)
-**Observed:**
-- Node 161.35.129.70 - VOTING ✅
-- Node 50.28.104.50 - VOTING ✅
-- Node 165.232.154.150 - NOT VOTING ❌ (at height 44)
-- Node 178.128.199.144 - NOT VOTING ❌ (at height 44)
+### 4. 🔍 INVESTIGATION NEEDED: Missing Votes (1/2 instead of 2/2)
+**Observed from LW-Michigan node:**
+- Consensus pool: 2 active, 4 excluded
+- Leader: 69.167.168.176 (this node)
+- Only 1/2 votes received (leader's own vote)
+- Missing vote from the other active masternode
 
 **Why nodes don't vote:**
 1. Version mismatch (likely - still on b5c8c14)
 2. Network connectivity issues
 3. Not receiving proposals
 4. Behind on blockchain height
+5. Excluded from consensus pool (4 nodes excluded!)
 
 ## How BFT Consensus Should Work
 
@@ -86,7 +97,7 @@ time-cli --api http://165.232.154.150:24101 rpc getinfo | grep version
 time-cli --api http://178.128.199.144:24101 rpc getinfo | grep version
 ```
 
-**All should show:** `0.1.0-76a94d8` or later
+**All should show:** `0.1.0-4b82e09` or later
 
 ### Step 3: Check Consensus
 
@@ -212,7 +223,8 @@ if voter_version != my_version {
 
 ✅ **Panic fixed** - String slicing now safe  
 ✅ **Emergency fallback removed** - Proper BFT consensus enforced  
-⚠️ **Deployment needed** - All nodes must update to 76a94d8  
-🔍 **Investigation needed** - Find why 2 nodes aren't voting  
+✅ **Vote counting fixed** - Shows actual masternodes not votes received  
+⚠️ **Deployment needed** - All nodes must update to 4b82e09  
+🔍 **Investigation needed** - Why are 4 nodes excluded from consensus?  
 
-The network is now **safer** but requires **all nodes to be healthy** for block production.
+The network is now **safer** and **more transparent** but requires **all nodes to be healthy** for block production.
