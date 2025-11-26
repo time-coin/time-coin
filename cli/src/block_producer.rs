@@ -314,11 +314,16 @@ impl BlockProducer {
                 // Find peers with the longest valid chain
                 let mut peer_heights: Vec<(String, u64)> = Vec::new();
                 for peer_ip in &peers {
-                    let url = format!("http://{}:24101/blockchain/info", peer_ip);
-                    if let Ok(response) = reqwest::get(&url).await {
-                        if let Ok(info) = response.json::<BlockchainInfo>().await {
-                            peer_heights.push((peer_ip.clone(), info.height));
-                        }
+                    // Get network-aware port
+                    let p2p_port = match self.peer_manager.network {
+                        time_network::discovery::NetworkType::Mainnet => 24000,
+                        time_network::discovery::NetworkType::Testnet => 24100,
+                    };
+                    let peer_addr = format!("{}:{}", peer_ip, p2p_port);
+
+                    if let Ok(height) = self.peer_manager.request_blockchain_info(&peer_addr).await
+                    {
+                        peer_heights.push((peer_ip.clone(), height));
                     }
                 }
 
@@ -337,167 +342,47 @@ impl BlockProducer {
                     );
 
                     let sync_to_height = std::cmp::min(peer_height, expected_height);
-                    let mut all_blocks = Vec::new();
-                    let mut download_success = true;
 
-                    // Download all blocks first before adding any
-                    for height in 1..=sync_to_height {
-                        let url = format!("http://{}:24101/blockchain/block/{}", peer_ip, height);
+                    // TODO: Implement block download via TCP GetBlocks/BlocksData protocol
+                    // For now, rely on BFT consensus block recreation
+                    println!("      ℹ️  Block download via TCP not yet implemented");
+                    println!("      ℹ️  Blocks will be recreated via BFT consensus");
 
-                        match reqwest::Client::new()
-                            .get(&url)
-                            .timeout(std::time::Duration::from_secs(10))
-                            .send()
-                            .await
-                        {
-                            Ok(resp) => {
-                                if let Ok(json) = resp.json::<serde_json::Value>().await {
-                                    if let Some(block_data) = json.get("block") {
-                                        if let Ok(block) =
-                                            serde_json::from_value::<time_core::block::Block>(
-                                                block_data.clone(),
-                                            )
-                                        {
-                                            all_blocks.push((height, block));
-                                        } else {
-                                            download_success = false;
-                                            break;
-                                        }
-                                    } else {
-                                        download_success = false;
-                                        break;
-                                    }
-                                } else {
-                                    download_success = false;
-                                    break;
-                                }
-                            }
-                            Err(_) => {
-                                download_success = false;
-                                break;
-                            }
-                        }
-                    }
-
-                    if download_success && !all_blocks.is_empty() {
-                        println!(
-                            "      ✓ Downloaded {} blocks, validating chain...",
-                            all_blocks.len()
-                        );
-
-                        // Try to add all blocks sequentially
-                        let mut added = 0;
-                        let mut blockchain = self.blockchain.write().await;
-                        for (height, block) in all_blocks {
-                            match blockchain.add_block(block) {
-                                Ok(_) => {
-                                    added += 1;
-                                    if added % 5 == 0 {
-                                        println!("         ✓ Validated {} blocks...", added);
-                                    }
-                                }
-                                Err(e) => {
-                                    println!(
-                                        "         ✗ Block #{} validation failed: {:?}",
-                                        height, e
-                                    );
-                                    // This peer's chain is invalid, try next peer
-                                    break;
-                                }
-                            }
-                        }
-                        drop(blockchain);
-
-                        if added > 0 {
-                            println!(
-                                "      ✅ Successfully synced {} blocks from {}!",
-                                added, peer_ip
-                            );
-                            synced_any = true;
-                            break; // Successfully synced, exit peer loop
-                        }
-                    } else {
-                        println!("      ✗ Failed to download complete chain from {}", peer_ip);
-                    }
+                    // Skip to next peer
+                    continue;
                 }
             } else {
                 // Not at genesis, use incremental sync
                 for peer_ip in &peers {
-                    let url = format!("http://{}:24101/blockchain/info", peer_ip);
-                    if let Ok(response) = reqwest::get(&url).await {
-                        if let Ok(info) = response.json::<BlockchainInfo>().await {
-                            // If peer has blocks we need, try to sync
-                            if info.height > current_height {
-                                println!(
-                                    "      🔗 Peer {} has height {}, downloading blocks {}-{}...",
-                                    peer_ip,
-                                    info.height,
-                                    current_height + 1,
-                                    std::cmp::min(info.height, expected_height)
-                                );
+                    // Get network-aware port
+                    let p2p_port = match self.peer_manager.network {
+                        time_network::discovery::NetworkType::Mainnet => 24000,
+                        time_network::discovery::NetworkType::Testnet => 24100,
+                    };
+                    let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
-                                let sync_to_height = std::cmp::min(info.height, expected_height);
-                                let mut downloaded = 0;
+                    if let Ok(peer_height) =
+                        self.peer_manager.request_blockchain_info(&peer_addr).await
+                    {
+                        // If peer has blocks we need, try to sync
+                        if peer_height > current_height {
+                            println!(
+                                "      🔗 Peer {} has height {}, downloading blocks {}-{}...",
+                                peer_ip,
+                                peer_height,
+                                current_height + 1,
+                                std::cmp::min(peer_height, expected_height)
+                            );
 
-                                for height in (current_height + 1)..=sync_to_height {
-                                    let url = format!(
-                                        "http://{}:24101/blockchain/block/{}",
-                                        peer_ip, height
-                                    );
+                            let sync_to_height = std::cmp::min(peer_height, expected_height);
 
-                                    match reqwest::Client::new()
-                                        .get(&url)
-                                        .timeout(std::time::Duration::from_secs(10))
-                                        .send()
-                                        .await
-                                    {
-                                        Ok(resp) => {
-                                            if let Ok(json) = resp.json::<serde_json::Value>().await
-                                            {
-                                                if let Some(block_data) = json.get("block") {
-                                                    if let Ok(block) = serde_json::from_value::<
-                                                        time_core::block::Block,
-                                                    >(
-                                                        block_data.clone()
-                                                    ) {
-                                                        let mut blockchain =
-                                                            self.blockchain.write().await;
-                                                        match blockchain.add_block(block) {
-                                                            Ok(_) => {
-                                                                downloaded += 1;
-                                                                println!(
-                                                                    "         ✓ Block #{} downloaded",
-                                                                    height
-                                                                );
-                                                                synced_any = true;
-                                                            }
-                                                            Err(e) => {
-                                                                println!(
-                                                                    "         ✗ Failed to add block #{}: {:?}",
-                                                                    height, e
-                                                                );
-                                                                // Skip this peer and try next
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(_) => {
-                                            // Network error, try next peer
-                                            break;
-                                        }
-                                    }
-                                }
+                            // TODO: Implement block download via TCP GetBlocks/BlocksData protocol
+                            // For now, rely on BFT consensus block recreation
+                            println!("      ℹ️  Block download via TCP not yet implemented");
+                            println!("      ℹ️  Blocks will be recreated via BFT consensus");
 
-                                if downloaded > 0 {
-                                    println!(
-                                        "      ✓ Downloaded {} blocks from {}",
-                                        downloaded, peer_ip
-                                    );
-                                }
-                            }
+                            // Skip to next peer
+                            continue;
                         }
                     }
                 }
@@ -633,13 +518,17 @@ impl BlockProducer {
         let mut peer_heights: Vec<(String, u64)> = Vec::new();
 
         for masternode_ip in &masternodes {
-            let url = format!("http://{}:24101/blockchain/info", masternode_ip);
-            match reqwest::get(&url).await {
-                Ok(response) => {
-                    if let Ok(info) = response.json::<BlockchainInfo>().await {
-                        peer_heights.push((masternode_ip.clone(), info.height));
-                        println!("      {} is at height {}", masternode_ip, info.height);
-                    }
+            // Get network-aware port
+            let p2p_port = match self.peer_manager.network {
+                time_network::discovery::NetworkType::Mainnet => 24000,
+                time_network::discovery::NetworkType::Testnet => 24100,
+            };
+            let peer_addr = format!("{}:{}", masternode_ip, p2p_port);
+
+            match self.peer_manager.request_blockchain_info(&peer_addr).await {
+                Ok(height) => {
+                    peer_heights.push((masternode_ip.clone(), height));
+                    println!("      {} is at height {}", masternode_ip, height);
                 }
                 Err(_) => {
                     println!("      ⚠️  Could not reach {}", masternode_ip);
@@ -1391,40 +1280,46 @@ impl BlockProducer {
         hashes[0].clone()
     }
 
-    /// Broadcast finalized block to peers (best-effort)
+    /// Broadcast finalized block to peers via TCP UpdateTip message
     async fn broadcast_finalized_block(
         &self,
         block: &time_core::block::Block,
         masternodes: &[String],
     ) {
-        let block_json = match serde_json::to_value(block) {
-            Ok(json) => json,
-            Err(e) => {
-                println!("   ⚠️  Failed to serialize block for broadcast: {:?}", e);
-                return;
-            }
-        };
+        let height = block.header.block_number;
+        let hash = hex::encode(&block.hash);
 
-        let payload = serde_json::json!({
-            "block": block_json
-        });
+        println!(
+            "   📡 Broadcasting finalized block #{} to peers via TCP...",
+            height
+        );
 
-        for node in masternodes {
-            let url = format!("http://{}:24101/consensus/finalized-block", node);
-            let payload_clone = payload.clone();
+        for node_ip in masternodes {
+            let peer_manager = self.peer_manager.clone();
+            let node_ip_owned = node_ip.clone();
+            let hash_clone = hash.clone();
 
-            // Fire-and-forget, best-effort broadcast
+            // Fire-and-forget, best-effort broadcast via TCP
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
-                if let Err(e) = client
-                    .post(&url)
-                    .json(&payload_clone)
-                    .timeout(std::time::Duration::from_secs(2))
-                    .send()
-                    .await
-                {
-                    // Log warning but don't fail - best effort only
-                    eprintln!("   ⚠️  Failed to broadcast to {}: {:?}", url, e);
+                // Parse IP from node string
+                let ip: std::net::IpAddr = match node_ip_owned.parse() {
+                    Ok(ip) => ip,
+                    Err(_) => {
+                        eprintln!("   ⚠️  Invalid IP address: {}", node_ip_owned);
+                        return;
+                    }
+                };
+
+                let message = time_network::protocol::NetworkMessage::UpdateTip {
+                    height,
+                    hash: hash_clone,
+                };
+
+                if let Err(e) = peer_manager.send_to_peer_tcp(ip, message).await {
+                    eprintln!(
+                        "   ⚠️  Failed to broadcast UpdateTip to {}: {}",
+                        node_ip_owned, e
+                    );
                 }
             });
         }
@@ -1433,57 +1328,14 @@ impl BlockProducer {
     /// Attempt to fetch finalized block from producer with retries
     async fn fetch_finalized_block(
         &self,
-        producer: &str,
-        height: u64,
-        expected_merkle: &str,
+        _producer: &str,
+        _height: u64,
+        _expected_merkle: &str,
     ) -> Option<time_core::block::Block> {
-        const MAX_ATTEMPTS: u32 = 8;
-        const RETRY_DELAY_MS: u64 = 500;
-
-        for attempt in 1..=MAX_ATTEMPTS {
-            let url = format!("http://{}:24101/consensus/block/{}", producer, height);
-
-            match reqwest::Client::new()
-                .get(&url)
-                .timeout(std::time::Duration::from_secs(2))
-                .send()
-                .await
-            {
-                Ok(response) => {
-                    if let Ok(json) = response.json::<serde_json::Value>().await {
-                        if let Some(block_data) = json.get("block") {
-                            if let Ok(block) = serde_json::from_value::<time_core::block::Block>(
-                                block_data.clone(),
-                            ) {
-                                // Validate merkle root matches proposal
-                                if block.header.merkle_root == expected_merkle {
-                                    println!("   ✅ Fetched finalized block from {}", producer);
-                                    return Some(block);
-                                } else {
-                                    println!(
-                                        "   ⚠️  Merkle mismatch: expected {}, got {}",
-                                        &expected_merkle[..16],
-                                        &block.header.merkle_root[..16]
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    if attempt < MAX_ATTEMPTS {
-                        println!(
-                            "   ⏳ Fetch attempt {}/{} failed, retrying... ({:?})",
-                            attempt, MAX_ATTEMPTS, e
-                        );
-                        tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
-                    } else {
-                        println!("   ⚠️  All fetch attempts failed: {:?}", e);
-                    }
-                }
-            }
-        }
-
+        // TODO: Implement block fetch via TCP GetBlocks/BlocksData protocol
+        // For now, blocks are recreated deterministically via BFT consensus
+        println!("   ℹ️  Block download via TCP not yet implemented");
+        println!("   ℹ️  Block will be recreated via BFT consensus");
         None
     }
 
@@ -2242,40 +2094,35 @@ impl BlockProducer {
     }
 
     #[allow(dead_code)]
-    #[allow(dead_code)]
     async fn notify_leader_to_produce_block(
         &self,
         leader_ip: &str,
         block_height: u64,
         requester_ip: &str,
     ) {
-        let request = serde_json::json!({
-            "block_height": block_height,
-            "leader_ip": leader_ip,
-            "requester_ip": requester_ip,
-        });
-
-        let url = format!(
-            "http://{}:24101/consensus/request-block-proposal",
-            leader_ip
+        println!(
+            "   📤 Notifying leader {} to produce block #{} via TCP...",
+            leader_ip, block_height
         );
-        let result = reqwest::Client::new()
-            .post(&url)
-            .json(&request)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await;
 
-        match result {
-            Ok(response) if response.status().is_success() => {
-                println!("      ✓ Leader {} acknowledged the request", leader_ip);
+        // Parse IP
+        let ip: std::net::IpAddr = match leader_ip.parse() {
+            Ok(ip) => ip,
+            Err(_) => {
+                eprintln!("      ✗ Invalid leader IP: {}", leader_ip);
+                return;
             }
-            Ok(response) => {
-                println!(
-                    "      ⚠️  Leader {} responded with status: {}",
-                    leader_ip,
-                    response.status()
-                );
+        };
+
+        let message = time_network::protocol::NetworkMessage::RequestBlockProposal {
+            block_height,
+            leader_ip: leader_ip.to_string(),
+            requester_ip: requester_ip.to_string(),
+        };
+
+        match self.peer_manager.send_to_peer_tcp(ip, message).await {
+            Ok(_) => {
+                println!("      ✓ Leader {} acknowledged the request", leader_ip);
             }
             Err(e) => {
                 println!("      ✗ Failed to notify leader {}: {}", leader_ip, e);
@@ -2442,16 +2289,38 @@ impl BlockProducer {
 
     async fn broadcast_block_to_peers(&self, block: &time_core::block::Block) {
         let peers = self.peer_manager.get_peer_ips().await;
+        let height = block.header.block_number;
+        let hash = hex::encode(&block.hash);
+
+        println!(
+            "   📡 Broadcasting block #{} to {} peers via TCP...",
+            height,
+            peers.len()
+        );
+
         for peer_ip in peers {
-            let url = format!("http://{}:24101/consensus/finalized-block", peer_ip);
-            let block_clone = block.clone();
+            let peer_manager = self.peer_manager.clone();
+            let hash_clone = hash.clone();
+            let peer_ip_clone = peer_ip.clone();
+
             tokio::spawn(async move {
-                let _ = reqwest::Client::new()
-                    .post(&url)
-                    .json(&block_clone)
-                    .timeout(std::time::Duration::from_secs(5))
-                    .send()
-                    .await;
+                // Parse IP from peer string
+                let ip: std::net::IpAddr = match peer_ip_clone
+                    .split(':')
+                    .next()
+                    .unwrap_or(&peer_ip_clone)
+                    .parse()
+                {
+                    Ok(ip) => ip,
+                    Err(_) => return,
+                };
+
+                let message = time_network::protocol::NetworkMessage::UpdateTip {
+                    height,
+                    hash: hash_clone,
+                };
+
+                let _ = peer_manager.send_to_peer_tcp(ip, message).await;
             });
         }
     }
@@ -2465,26 +2334,35 @@ impl BlockProducer {
         }
 
         println!(
-            "   📡 Notifying {} peer(s) of catch-up need...",
+            "   📡 Notifying {} peer(s) of catch-up need via TCP...",
             peers.len()
         );
 
         for peer_ip in peers {
-            let url = format!("http://{}:24101/network/catch-up-request", peer_ip);
-            let request = serde_json::json!({
-                "requester": node_id,
-                "current_height": current_height,
-                "expected_height": expected_height,
-            });
+            let peer_manager = self.peer_manager.clone();
+            let requester = node_id.clone();
+            let peer_ip_clone = peer_ip.clone();
 
             // Fire and forget - don't wait for responses
             tokio::spawn(async move {
-                let _ = reqwest::Client::new()
-                    .post(&url)
-                    .json(&request)
-                    .timeout(std::time::Duration::from_secs(3))
-                    .send()
-                    .await;
+                // Parse IP from peer string
+                let ip: std::net::IpAddr = match peer_ip_clone
+                    .split(':')
+                    .next()
+                    .unwrap_or(&peer_ip_clone)
+                    .parse()
+                {
+                    Ok(ip) => ip,
+                    Err(_) => return,
+                };
+
+                let message = time_network::protocol::NetworkMessage::CatchUpRequest {
+                    requester,
+                    current_height,
+                    expected_height,
+                };
+
+                let _ = peer_manager.send_to_peer_tcp(ip, message).await;
             });
         }
     }
