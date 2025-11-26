@@ -821,7 +821,10 @@ async fn main() {
     let has_genesis_on_disk = {
         match time_core::db::BlockchainDB::open(&db_path) {
             Ok(db) => match db.load_all_blocks() {
-                Ok(blocks) => !blocks.is_empty(),
+                Ok(blocks) => {
+                    // Check if we have the genesis block specifically (height 0)
+                    blocks.iter().any(|b| b.header.block_number == 0)
+                }
                 Err(_) => false,
             },
             Err(_) => false,
