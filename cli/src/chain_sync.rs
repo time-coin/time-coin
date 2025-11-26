@@ -181,8 +181,13 @@ impl ChainSync {
                 .await
             {
                 Ok((height, has_genesis)) => {
+                    println!(
+                        "   {} reports height: {}, has_genesis: {}",
+                        peer_ip, height, has_genesis
+                    );
                     // Skip peers without genesis if we need genesis
                     if height == 0 && !has_genesis {
+                        println!("   ⏭️  Skipping {} (no genesis)", peer_ip);
                         continue;
                     }
                     // Get the hash too - for now use a placeholder until we extend the protocol

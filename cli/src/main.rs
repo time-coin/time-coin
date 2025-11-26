@@ -1754,7 +1754,7 @@ async fn main() {
 
                                                     let mut conn = conn_arc_clone.lock().await;
                                                     if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent BlockchainInfo (height {}) to {}", height, peer_ip_listen);
+                                                        println!("✅ Sent BlockchainInfo (height {}, has_genesis: {}) to {}", height, has_genesis, peer_ip_listen);
                                                     } else {
                                                         println!("❌ Failed to send BlockchainInfo to {}", peer_ip_listen);
                                                     }
