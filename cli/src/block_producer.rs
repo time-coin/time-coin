@@ -667,27 +667,32 @@ impl BlockProducer {
                             break;
                         }
 
-                        // Auto-vote on the proposal to help reach consensus
-                        println!("   🗳️  Auto-voting APPROVE to help consensus...");
-
-                        // Create and send the vote
-                        let vote = BlockVote {
-                            block_height: block_num,
-                            voter: self.node_id.clone(),
-                            block_hash: proposal.block_hash.clone(),
-                            approve: true,
-                            timestamp: Utc::now().timestamp(),
-                        };
-
-                        // Send vote to consensus manager
-                        if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
-                            eprintln!("   ⚠️  Auto-vote failed: {}", e);
+                        // Skip auto-voting if this is our own proposal (we already voted)
+                        if proposal.proposer == self.node_id {
+                            println!("   ℹ️  Skipping auto-vote (our own proposal)");
                         } else {
-                            println!("   ✅ Auto-vote successful!");
+                            // Auto-vote on the proposal to help reach consensus
+                            println!("   🗳️  Auto-voting APPROVE to help consensus...");
 
-                            // Broadcast the vote to other nodes
-                            if let Ok(vote_value) = serde_json::to_value(&vote) {
-                                self.peer_manager.broadcast_block_vote(vote_value).await;
+                            // Create and send the vote
+                            let vote = BlockVote {
+                                block_height: block_num,
+                                voter: self.node_id.clone(),
+                                block_hash: proposal.block_hash.clone(),
+                                approve: true,
+                                timestamp: Utc::now().timestamp(),
+                            };
+
+                            // Send vote to consensus manager
+                            if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
+                                eprintln!("   ⚠️  Auto-vote failed: {}", e);
+                            } else {
+                                println!("   ✅ Auto-vote successful!");
+
+                                // Broadcast the vote to other nodes
+                                if let Ok(vote_value) = serde_json::to_value(&vote) {
+                                    self.peer_manager.broadcast_block_vote(vote_value).await;
+                                }
                             }
                         }
 
