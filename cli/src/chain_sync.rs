@@ -180,7 +180,11 @@ impl ChainSync {
                 .request_blockchain_info(&peer_addr_with_port)
                 .await
             {
-                Ok(height) => {
+                Ok((height, has_genesis)) => {
+                    // Skip peers without genesis if we need genesis
+                    if height == 0 && !has_genesis {
+                        continue;
+                    }
                     // Get the hash too - for now use a placeholder until we extend the protocol
                     // The height is what matters most for sync
                     peer_heights.push((peer_ip.clone(), height, String::new()));

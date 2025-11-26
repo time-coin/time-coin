@@ -974,7 +974,7 @@ impl PeerManager {
     pub async fn request_blockchain_info(
         &self,
         peer_addr: &str,
-    ) -> Result<u64, Box<dyn std::error::Error>> {
+    ) -> Result<(u64, bool), Box<dyn std::error::Error>> {
         // Parse peer address to get IP
         let peer_ip: IpAddr = peer_addr
             .split(':')
@@ -997,8 +997,12 @@ impl PeerManager {
                     .await??;
 
             match response {
-                crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => {
-                    return Ok(height);
+                crate::protocol::NetworkMessage::BlockchainInfo {
+                    height,
+                    has_genesis,
+                    ..
+                } => {
+                    return Ok((height, has_genesis));
                 }
                 _ => return Err("Unexpected response type".into()),
             }

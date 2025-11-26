@@ -183,15 +183,17 @@ async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
     for peer in peers.iter().take(3) {
         // Query up to 3 peers
         match peer_manager.request_blockchain_info(peer).await {
-            Ok(height) => {
+            Ok((height, has_genesis)) => {
                 successful_queries += 1;
                 if height > max_height {
                     max_height = height;
                 }
+                let genesis_status = if has_genesis { "✓" } else { "✗" };
                 println!(
-                    "   {} reports height: {}",
+                    "   {} reports height: {} [genesis: {}]",
                     peer.bright_black(),
-                    height.to_string().yellow()
+                    height.to_string().yellow(),
+                    genesis_status
                 );
             }
             Err(_) => {
@@ -1741,11 +1743,13 @@ async fn main() {
                                                         .get_block_by_height(height)
                                                         .map(|b| hex::encode(&b.hash))
                                                         .unwrap_or_else(|| "unknown".to_string());
+                                                    let has_genesis = blockchain_guard.get_block_by_height(0).is_some();
                                                     drop(blockchain_guard);
 
                                                     let response = time_network::protocol::NetworkMessage::BlockchainInfo {
                                                         height,
                                                         best_block_hash,
+                                                        has_genesis,
                                                     };
 
                                                     let mut conn = conn_arc_clone.lock().await;

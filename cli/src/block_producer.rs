@@ -311,7 +311,7 @@ impl BlockProducer {
                 println!("      🔄 At genesis - attempting full chain sync from longest chain...");
 
                 // Find peers with the longest valid chain
-                let mut peer_heights: Vec<(String, u64)> = Vec::new();
+                let mut peer_heights: Vec<(String, u64, bool)> = Vec::new();
                 for peer_ip in &peers {
                     // Get network-aware port
                     let p2p_port = match self.peer_manager.network {
@@ -320,9 +320,14 @@ impl BlockProducer {
                     };
                     let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
-                    if let Ok(height) = self.peer_manager.request_blockchain_info(&peer_addr).await
+                    if let Ok((height, has_genesis)) =
+                        self.peer_manager.request_blockchain_info(&peer_addr).await
                     {
-                        peer_heights.push((peer_ip.clone(), height));
+                        // Skip peers without genesis when we're at genesis
+                        if height == 0 && !has_genesis {
+                            continue;
+                        }
+                        peer_heights.push((peer_ip.clone(), height, has_genesis));
                     }
                 }
 
@@ -330,8 +335,8 @@ impl BlockProducer {
                 peer_heights.sort_by(|a, b| b.1.cmp(&a.1));
 
                 // Try downloading complete chain from longest chains first
-                for (peer_ip, peer_height) in peer_heights {
-                    if peer_height == 0 {
+                for (peer_ip, peer_height, has_genesis) in peer_heights {
+                    if peer_height == 0 && !has_genesis {
                         continue;
                     }
 
@@ -360,11 +365,11 @@ impl BlockProducer {
                     };
                     let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
-                    if let Ok(peer_height) =
+                    if let Ok((peer_height, has_genesis)) =
                         self.peer_manager.request_blockchain_info(&peer_addr).await
                     {
                         // If peer has blocks we need, try to sync
-                        if peer_height > current_height {
+                        if peer_height > current_height || (current_height == 0 && has_genesis) {
                             println!(
                                 "      🔗 Peer {} has height {}, downloading blocks {}-{}...",
                                 peer_ip,
@@ -525,9 +530,13 @@ impl BlockProducer {
             let peer_addr = format!("{}:{}", masternode_ip, p2p_port);
 
             match self.peer_manager.request_blockchain_info(&peer_addr).await {
-                Ok(height) => {
+                Ok((height, has_genesis)) => {
+                    let genesis_status = if has_genesis { " [✓ genesis]" } else { "" };
                     peer_heights.push((masternode_ip.clone(), height));
-                    println!("      {} is at height {}", masternode_ip, height);
+                    println!(
+                        "      {} is at height {}{}",
+                        masternode_ip, height, genesis_status
+                    );
                 }
                 Err(_) => {
                     println!("      ⚠️  Could not reach {}", masternode_ip);

@@ -723,6 +723,7 @@ pub enum NetworkMessage {
     BlockchainInfo {
         height: u64,
         best_block_hash: String,
+        has_genesis: bool,
     },
     GetPeerList,
     PeerList(Vec<PeerAddress>),
