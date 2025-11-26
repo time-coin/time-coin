@@ -1756,11 +1756,15 @@ async fn main() {
                                                         has_genesis,
                                                     };
 
+                                                    println!("   📤 Sending response: height={}, has_genesis={}", height, has_genesis);
                                                     let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent BlockchainInfo (height {}, has_genesis: {}) to {}", height, has_genesis, peer_ip_listen);
-                                                    } else {
-                                                        println!("❌ Failed to send BlockchainInfo to {}", peer_ip_listen);
+                                                    match conn.send_message(response).await {
+                                                        Ok(_) => {
+                                                            println!("✅ Sent BlockchainInfo (height {}, has_genesis: {}) to {}", height, has_genesis, peer_ip_listen);
+                                                        }
+                                                        Err(e) => {
+                                                            println!("❌ Failed to send BlockchainInfo to {}: {:?}", peer_ip_listen, e);
+                                                        }
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::GetMempool => {
