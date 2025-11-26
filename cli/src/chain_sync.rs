@@ -16,12 +16,14 @@ fn hash_preview(hash: &str) -> &str {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct BlockchainInfo {
     pub height: u64,
     pub best_block_hash: String,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct BlockResponse {
     block: Block,

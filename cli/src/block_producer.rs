@@ -1,5 +1,4 @@
 use crate::bft_consensus::BftConsensus;
-use crate::chain_sync::BlockchainInfo;
 use chrono::{TimeZone, Utc};
 use crossterm::style::Stylize;
 use owo_colors::OwoColorize;
@@ -305,7 +304,7 @@ impl BlockProducer {
                 break;
             }
 
-            let mut synced_any = false;
+            let synced_any = false;
 
             // If we're at genesis (height 0), try to download the entire chain from one valid peer
             if current_height == 0 {
@@ -341,7 +340,7 @@ impl BlockProducer {
                         peer_ip, peer_height
                     );
 
-                    let sync_to_height = std::cmp::min(peer_height, expected_height);
+                    let _sync_to_height = std::cmp::min(peer_height, expected_height);
 
                     // TODO: Implement block download via TCP GetBlocks/BlocksData protocol
                     // For now, rely on BFT consensus block recreation
@@ -374,7 +373,7 @@ impl BlockProducer {
                                 std::cmp::min(peer_height, expected_height)
                             );
 
-                            let sync_to_height = std::cmp::min(peer_height, expected_height);
+                            let _sync_to_height = std::cmp::min(peer_height, expected_height);
 
                             // TODO: Implement block download via TCP GetBlocks/BlocksData protocol
                             // For now, rely on BFT consensus block recreation

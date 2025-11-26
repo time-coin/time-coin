@@ -469,8 +469,6 @@ async fn sync_mempool_from_peers(
     Ok(new_transactions)
 }
 
-use tokio::time::timeout;
-
 /// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
 async fn peer_is_online(addr: &std::net::SocketAddr, _timeout_ms: u64) -> bool {
     // Try to establish TCP connection (this is what the function name implies)
