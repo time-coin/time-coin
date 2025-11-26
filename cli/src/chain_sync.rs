@@ -724,7 +724,46 @@ impl ChainSync {
             return Ok(false);
         }
 
-        // Check for genesis block mismatches first
+        // Expected genesis hash for testnet
+        const EXPECTED_GENESIS: &str =
+            "9a81c7599d8eed9720282aa68dccbc76e92ac3770a1892a96e1d073f375d0aed";
+
+        // Check if OUR genesis is correct
+        if our_genesis != EXPECTED_GENESIS {
+            println!("\n⚠️  Our genesis block does not match expected hash!");
+            println!("   Expected:  {}...", hash_preview(EXPECTED_GENESIS));
+            println!("   We have:   {}...", hash_preview(&our_genesis));
+            println!("   🔄 Will download correct genesis from peers...");
+
+            // Try to download the correct genesis from peers
+            for (peer_ip, _, _) in &peer_heights {
+                if let Some(peer_genesis_block) = self.download_block(peer_ip, 0).await {
+                    if peer_genesis_block.hash == EXPECTED_GENESIS {
+                        println!("   ✓ Found correct genesis on peer {}", peer_ip);
+
+                        // Replace our invalid genesis with the correct one
+                        let mut blockchain = self.blockchain.write().await;
+                        let _ = blockchain.rollback_to_height(u64::MAX); // Remove all blocks
+                        match blockchain.add_block(peer_genesis_block) {
+                            Ok(_) => {
+                                println!("   ✅ Successfully replaced genesis block");
+                                // Genesis corrected - will be checked on next fork detection cycle
+                                return Ok(false);
+                            }
+                            Err(e) => {
+                                println!("   ❌ Failed to add correct genesis: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            println!("   ⚠️  Could not find correct genesis from any peer");
+            return Ok(false);
+        }
+
+        // Check for genesis block mismatches with peers
+        // Now we know OUR genesis is correct, so quarantine peers with wrong ones
         for (peer_ip, _, _peer_hash) in &peer_heights {
             // Parse IP address for quarantine
             let peer_addr: IpAddr = match peer_ip.parse() {
@@ -739,21 +778,24 @@ impl ChainSync {
 
             // Try to get their genesis block (height 0)
             if let Some(peer_genesis_block) = self.download_block(peer_ip, 0).await {
-                if peer_genesis_block.hash != our_genesis {
+                if peer_genesis_block.hash != EXPECTED_GENESIS {
                     println!(
-                        "\n⛔ GENESIS MISMATCH: Peer {} on different chain!",
+                        "\n⛔ GENESIS MISMATCH: Peer {} has invalid genesis!",
                         peer_ip
                     );
-                    println!("   Our genesis:   {}...", &our_genesis[..16]);
-                    println!("   Peer genesis:  {}...", &peer_genesis_block.hash[..16]);
-                    println!("   ⚠️  This peer will be quarantined from consensus");
+                    println!("   Expected:      {}...", hash_preview(EXPECTED_GENESIS));
+                    println!(
+                        "   Peer has:      {}...",
+                        hash_preview(&peer_genesis_block.hash)
+                    );
+                    println!("   ⚠️  This peer will be quarantined");
 
-                    // Quarantine this peer
+                    // Quarantine this peer - they have the wrong genesis
                     self.quarantine
                         .quarantine_peer(
                             peer_addr,
                             QuarantineReason::GenesisMismatch {
-                                our_genesis: our_genesis.clone(),
+                                our_genesis: EXPECTED_GENESIS.to_string(),
                                 their_genesis: peer_genesis_block.hash.clone(),
                             },
                         )
@@ -761,6 +803,13 @@ impl ChainSync {
                     continue;
                 }
             }
+        }
+
+        // SKIP fork detection if we're at genesis (height 0)
+        // Genesis blocks should never fork - they're either correct or the peer is quarantined
+        if our_height == 0 {
+            println!("   ✓ At genesis - skipping fork detection (genesis blocks handled above)");
+            return Ok(false);
         }
 
         // Check if any peer has a different block at our height
