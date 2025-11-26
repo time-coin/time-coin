@@ -247,6 +247,34 @@ impl BlockProducer {
         // Wait a moment for other nodes to acknowledge and prepare
         tokio::time::sleep(Duration::from_secs(2)).await;
 
+        // If we don't have genesis, trigger a sync which will download it
+        if actual_height == 0 {
+            let has_genesis = {
+                let blockchain = self.blockchain.read().await;
+                !blockchain.genesis_hash().is_empty()
+            };
+
+            if !has_genesis {
+                println!("   📥 No genesis block - triggering sync to download...");
+
+                // Create a chain sync instance and trigger sync
+                let sync = crate::chain_sync::ChainSync::new(
+                    self.blockchain.clone(),
+                    self.peer_manager.clone(),
+                );
+
+                // Attempt to sync genesis
+                match sync.sync_from_peers().await {
+                    Ok(_) => {
+                        println!("   ✅ Genesis sync completed!");
+                    }
+                    Err(e) => {
+                        println!("   ⚠️  Genesis sync failed: {}", e);
+                    }
+                }
+            }
+        }
+
         // CRITICAL: Check consensus mode FIRST - NEVER create blocks in BOOTSTRAP mode
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
