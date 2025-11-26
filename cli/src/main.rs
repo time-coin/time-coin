@@ -279,12 +279,58 @@ async fn sync_finalized_transactions_from_peers(
             peer_ip.as_str()
         };
 
-        let url = format!("http://{}:24101/finality/sync", ip_only);
+        // Get network-aware port
+        let p2p_port = match peer_manager.network {
+            time_network::discovery::NetworkType::Mainnet => 24000,
+            time_network::discovery::NetworkType::Testnet => 24100,
+        };
+        let peer_addr_with_port = format!("{}:{}", ip_only, p2p_port);
 
-        // TODO: Implement TCP-based finality sync
-        // For now, skip HTTP request - transactions will be synced through blocks
-        let _ = url; // Suppress unused warning
-        continue;
+        // Use TCP to request finalized transactions
+        match peer_manager
+            .request_finalized_transactions(&peer_addr_with_port, since_timestamp)
+            .await
+        {
+            Ok(transactions_with_timestamps) => {
+                println!(
+                    "   ✓ Received {} finalized transactions from {}",
+                    transactions_with_timestamps.len(),
+                    ip_only
+                );
+
+                if transactions_with_timestamps.is_empty() {
+                    continue;
+                }
+
+                let mut blockchain_write = blockchain.write().await;
+
+                for (tx, _finalized_at) in transactions_with_timestamps {
+                    // Apply to UTXO set
+                    match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
+                        Ok(_) => {
+                            total_synced += 1;
+                            println!("      ✓ Applied tx {}", &tx.txid[..16]);
+                        }
+                        Err(e) => {
+                            println!("      ⚠️  Skipped tx {} ({})", &tx.txid[..16], e);
+                        }
+                    }
+                }
+
+                if total_synced > 0 {
+                    // Save UTXO snapshot after applying synced transactions
+                    if let Err(e) = blockchain_write.save_utxo_snapshot() {
+                        println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                    }
+                }
+
+                drop(blockchain_write);
+                break; // Successfully synced from one peer
+            }
+            Err(e) => {
+                println!("   ✗ Failed to contact {}: {}", ip_only, e);
+            }
+        }
     }
 
     if total_synced > 0 {
@@ -1400,6 +1446,7 @@ async fn main() {
                 let quarantine_clone = quarantine.clone();
                 let blockchain_clone = blockchain.clone();
                 let wallet_address_clone = wallet_address.clone();
+                let mempool_clone = mempool.clone();
 
                 tokio::spawn(async move {
                     loop {
@@ -1515,6 +1562,7 @@ async fn main() {
                             let blockchain_listen = Arc::clone(&blockchain_clone);
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
                             let wallet_address_listen = wallet_address_clone.clone();
+                            let mempool_listen = Arc::clone(&mempool_clone);
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -1708,6 +1756,57 @@ async fn main() {
                                                         println!("✅ Sent BlockchainInfo (height {}) to {}", height, peer_ip_listen);
                                                     } else {
                                                         println!("❌ Failed to send BlockchainInfo to {}", peer_ip_listen);
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::GetMempool => {
+                                                    println!("📦 Received GetMempool request from {}", peer_ip_listen);
+
+                                                    let transactions = mempool_listen.get_all_transactions().await;
+                                                    let response = time_network::protocol::NetworkMessage::MempoolResponse(transactions);
+
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(response).await.is_ok() {
+                                                        println!("✅ Sent {} mempool transactions to {}", mempool_listen.size().await, peer_ip_listen);
+                                                    } else {
+                                                        println!("❌ Failed to send mempool response to {}", peer_ip_listen);
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::RequestFinalizedTransactions { since_timestamp } => {
+                                                    println!("📥 Received RequestFinalizedTransactions from {} (since: {})", peer_ip_listen, since_timestamp);
+
+                                                    let blockchain_guard = blockchain_listen.read().await;
+
+                                                    // Get all finalized transactions from blocks after the given timestamp
+                                                    let mut finalized_txs = Vec::new();
+                                                    let mut finalized_timestamps = Vec::new();
+
+                                                    let current_height = blockchain_guard.chain_tip_height();
+
+                                                    // Iterate through blocks to find transactions finalized after the timestamp
+                                                    for height in 0..=current_height {
+                                                        if let Some(block) = blockchain_guard.get_block_by_height(height) {
+                                                            let block_timestamp = block.header.timestamp.timestamp();
+                                                            if block_timestamp > since_timestamp {
+                                                                for tx in &block.transactions {
+                                                                    finalized_txs.push(tx.clone());
+                                                                    finalized_timestamps.push(block_timestamp);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    drop(blockchain_guard);
+
+                                                    let response = time_network::protocol::NetworkMessage::FinalizedTransactionsResponse {
+                                                        transactions: finalized_txs.clone(),
+                                                        finalized_at: finalized_timestamps,
+                                                    };
+
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    if conn.send_message(response).await.is_ok() {
+                                                        println!("✅ Sent {} finalized transactions to {}", finalized_txs.len(), peer_ip_listen);
+                                                    } else {
+                                                        println!("❌ Failed to send finalized transactions response to {}", peer_ip_listen);
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json) => {

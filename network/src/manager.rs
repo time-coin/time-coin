@@ -1007,6 +1007,54 @@ impl PeerManager {
         Err("No TCP connection available".into())
     }
 
+    /// Request finalized transactions from a peer via TCP
+    pub async fn request_finalized_transactions(
+        &self,
+        peer_addr: &str,
+        since_timestamp: i64,
+    ) -> Result<Vec<(time_core::Transaction, i64)>, Box<dyn std::error::Error>> {
+        // Parse peer address to get IP
+        let peer_ip: IpAddr = peer_addr
+            .split(':')
+            .next()
+            .ok_or("Invalid peer address")?
+            .parse()?;
+
+        // Try TCP first
+        let connections = self.connections.read().await;
+        if let Some(conn_arc) = connections.get(&peer_ip) {
+            let mut conn = conn_arc.lock().await;
+
+            // Send request
+            conn.send_message(
+                crate::protocol::NetworkMessage::RequestFinalizedTransactions { since_timestamp },
+            )
+            .await?;
+
+            // Wait for response with timeout
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(30), conn.receive_message())
+                    .await??;
+
+            match response {
+                crate::protocol::NetworkMessage::FinalizedTransactionsResponse {
+                    transactions,
+                    finalized_at,
+                } => {
+                    // Pair transactions with their finalization timestamps
+                    let paired: Vec<(time_core::Transaction, i64)> = transactions
+                        .into_iter()
+                        .zip(finalized_at.into_iter())
+                        .collect();
+                    return Ok(paired);
+                }
+                _ => return Err("Unexpected response type".into()),
+            }
+        }
+
+        Err("No TCP connection available".into())
+    }
+
     pub async fn request_snapshot(
         &self,
         peer_addr: &str,
