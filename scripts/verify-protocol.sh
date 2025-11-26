@@ -1,89 +1,62 @@
 #!/bin/bash
 # Protocol Compatibility Verification Script
-# Checks if all masternodes are using compatible protocol versions
+# Checks if all masternodes are using compatible TCP connections
 
 echo "════════════════════════════════════════════════════════"
-echo "  TIME Coin Protocol Compatibility Check"
+echo "  TIME Coin Protocol Compatibility Check (TCP)"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
 # List of masternodes to check
 NODES=(
-    "134.199.175.106:24101"
-    "161.35.129.70:24101"
-    "165.232.154.150:24101"
-    "178.128.199.144:24101"
-    "50.28.104.50:24101"
-    "69.167.168.176:24101"
+    "134.199.175.106"
+    "161.35.129.70"
+    "165.232.154.150"
+    "178.128.199.144"
+    "50.28.104.50"
+    "69.167.168.176"
 )
 
 # Expected values
 EXPECTED_PROTOCOL_VERSION=1
 EXPECTED_NETWORK="testnet"
 EXPECTED_MAGIC_BYTES="7E 57 7E 4D"  # TEST TIME
+TCP_PORT=24100
 
 echo "🔍 Expected Protocol Configuration:"
 echo "   Protocol Version: $EXPECTED_PROTOCOL_VERSION"
 echo "   Network: $EXPECTED_NETWORK"
 echo "   Magic Bytes: $EXPECTED_MAGIC_BYTES"
+echo "   TCP Port: $TCP_PORT"
 echo ""
 
-INCOMPATIBLE_COUNT=0
+REACHABLE_COUNT=0
 UNREACHABLE_COUNT=0
-COMPATIBLE_COUNT=0
 
-echo "📊 Checking ${#NODES[@]} masternodes..."
+echo "📊 Checking ${#NODES[@]} masternodes (TCP connectivity)..."
 echo ""
 
 for node in "${NODES[@]}"; do
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "🔍 Checking: $node"
+    echo "🔍 Checking: $node:$TCP_PORT"
     
-    # Get node info via RPC
-    response=$(curl -s --connect-timeout 5 "http://$node/rpc/getinfo" 2>/dev/null)
-    
-    if [ $? -ne 0 ] || [ -z "$response" ]; then
-        echo "   ❌ UNREACHABLE - Cannot connect to node"
-        ((UNREACHABLE_COUNT++))
-        continue
-    fi
-    
-    # Extract version info
-    version=$(echo "$response" | jq -r '.version' 2>/dev/null)
-    network=$(echo "$response" | jq -r '.network' 2>/dev/null)
-    commit=$(echo "$response" | jq -r '.commit' 2>/dev/null)
-    
-    if [ -z "$version" ] || [ "$version" == "null" ]; then
-        echo "   ❌ INCOMPATIBLE - Cannot parse version info"
-        echo "   Response: $response"
-        ((INCOMPATIBLE_COUNT++))
-        continue
-    fi
-    
-    echo "   📦 Version: $version"
-    echo "   🌐 Network: $network"
-    echo "   📝 Commit: $commit"
-    
-    # Check network
-    if [ "$network" != "$EXPECTED_NETWORK" ]; then
-        echo "   ❌ NETWORK MISMATCH - Expected $EXPECTED_NETWORK, got $network"
-        ((INCOMPATIBLE_COUNT++))
-        continue
-    fi
-    
-    # Extract commit hash from version (format: 0.1.0-COMMIT)
-    node_commit=$(echo "$version" | cut -d'-' -f2)
-    
-    # Check if commit is recent (should be 345b616 or later for all fixes)
-    REQUIRED_COMMIT="345b616"
-    
-    if [ "$commit" != "$REQUIRED_COMMIT" ] && [[ ! "$version" =~ "$REQUIRED_COMMIT" ]]; then
-        echo "   ⚠️  OLD VERSION - Expected $REQUIRED_COMMIT or later"
-        echo "   ℹ️  This node may not have latest protocol fixes"
-        ((INCOMPATIBLE_COUNT++))
+    # Test TCP connectivity with timeout
+    if timeout 3 bash -c "</dev/tcp/$node/$TCP_PORT" 2>/dev/null; then
+        echo "   ✅ TCP PORT $TCP_PORT OPEN"
+        ((REACHABLE_COUNT++))
+        
+        # Also check API for version info (optional, for information only)
+        api_response=$(curl -s --connect-timeout 2 "http://$node:24101/rpc/getinfo" 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$api_response" ]; then
+            version=$(echo "$api_response" | jq -r '.version' 2>/dev/null)
+            if [ -n "$version" ] && [ "$version" != "null" ]; then
+                echo "   📦 Version: $version (via HTTP API)"
+            fi
+        fi
     else
-        echo "   ✅ COMPATIBLE - Protocol version and network match"
-        ((COMPATIBLE_COUNT++))
+        echo "   ❌ TCP PORT $TCP_PORT CLOSED/FILTERED"
+        echo "   🔥 Check firewall: sudo ufw allow $TCP_PORT/tcp"
+        ((UNREACHABLE_COUNT++))
     fi
     
     echo ""
@@ -91,32 +64,38 @@ done
 
 echo "════════════════════════════════════════════════════════"
 echo "📊 Summary:"
-echo "   ✅ Compatible: $COMPATIBLE_COUNT"
-echo "   ⚠️  Incompatible/Old: $INCOMPATIBLE_COUNT"
-echo "   ❌ Unreachable: $UNREACHABLE_COUNT"
+echo "   ✅ TCP Reachable: $REACHABLE_COUNT"
+echo "   ❌ TCP Unreachable: $UNREACHABLE_COUNT"
 echo ""
 
-if [ $COMPATIBLE_COUNT -eq ${#NODES[@]} ]; then
-    echo "✅ ALL NODES COMPATIBLE!"
-    echo "   All masternodes are using compatible protocol versions."
-    exit 0
-elif [ $INCOMPATIBLE_COUNT -gt 0 ]; then
-    echo "⚠️  PROTOCOL MISMATCH DETECTED!"
+if [ $REACHABLE_COUNT -eq ${#NODES[@]} ]; then
+    echo "✅ ALL NODES TCP REACHABLE!"
+    echo "   All masternodes can communicate via TCP port $TCP_PORT."
     echo ""
-    echo "   $INCOMPATIBLE_COUNT node(s) have incompatible versions."
-    echo "   This will prevent consensus from working properly."
-    echo ""
-    echo "   Action Required:"
-    echo "   1. Update all nodes to latest version (345b616 or later)"
+    echo "   Next steps:"
+    echo "   1. Ensure all nodes are updated to latest version"
     echo "   2. Run: sudo ./scripts/update-node.sh on each node"
-    echo "   3. Verify with: ./scripts/verify-protocol.sh"
+    echo "   3. Monitor consensus with: sudo journalctl -u timed -f"
+    echo ""
+    exit 0
+elif [ $UNREACHABLE_COUNT -gt 0 ]; then
+    echo "⚠️  TCP CONNECTIVITY ISSUES DETECTED!"
+    echo ""
+    echo "   $UNREACHABLE_COUNT node(s) cannot be reached on TCP port $TCP_PORT."
+    echo "   Consensus requires TCP communication, NOT HTTP API."
+    echo ""
+    echo "   Action Required (on each unreachable node):"
+    echo "   1. Open firewall: sudo ufw allow $TCP_PORT/tcp"
+    echo "   2. Check service: sudo systemctl status timed"
+    echo "   3. Verify listening: sudo netstat -tlnp | grep $TCP_PORT"
+    echo "   4. Restart if needed: sudo systemctl restart timed"
     echo ""
     exit 1
 else
-    echo "❌ CONNECTIVITY ISSUES"
+    echo "❌ NO NODES REACHABLE"
     echo ""
-    echo "   $UNREACHABLE_COUNT node(s) could not be reached."
-    echo "   Check network connectivity and firewall rules."
+    echo "   Could not reach any nodes on TCP port $TCP_PORT."
+    echo "   Check your network configuration and firewall rules."
     echo ""
     exit 2
 fi

@@ -1934,8 +1934,10 @@ impl BlockProducer {
                 println!("      ℹ️  Another proposal already stored");
             }
 
-            // Broadcast proposal to all peers IN PARALLEL
-            self.broadcast_block_proposal(proposal.clone(), masternodes)
+            // Broadcast proposal to all peers via TCP
+            let proposal_json = serde_json::to_value(&proposal).unwrap();
+            self.peer_manager
+                .broadcast_block_proposal(proposal_json)
                 .await;
 
             // ALL nodes vote on their own calculated block hash
@@ -1953,8 +1955,9 @@ impl BlockProducer {
                 println!("      ✓ Voted APPROVE on block {}", &block.hash[..16]);
             }
 
-            // Broadcast vote IN PARALLEL
-            self.broadcast_block_vote(vote, masternodes).await;
+            // Broadcast vote via TCP
+            let vote_json = serde_json::to_value(&vote).unwrap();
+            self.peer_manager.broadcast_block_vote(vote_json).await;
 
             // ULTRA-FAST consensus check - 3 second timeout, 50ms polling
             println!("      ⚡ Ultra-fast consensus check...");
@@ -2239,63 +2242,6 @@ impl BlockProducer {
     }
 
     #[allow(dead_code)]
-    async fn broadcast_block_proposal(
-        &self,
-        proposal: time_consensus::block_consensus::BlockProposal,
-        masternodes: &[String],
-    ) {
-        // ULTRA-FAST PARALLEL BROADCAST - all requests fire simultaneously
-        let mut handles = Vec::new();
-
-        for node in masternodes {
-            let url = format!("http://{}:24101/consensus/block-proposal", node);
-            let proposal_clone = proposal.clone();
-
-            let handle = tokio::spawn(async move {
-                // OPTIMIZED: 100ms timeout for LAN, fire-and-forget
-                let _ = reqwest::Client::new()
-                    .post(&url)
-                    .json(&proposal_clone)
-                    .timeout(Duration::from_millis(100)) // REDUCED from 2s to 100ms
-                    .send()
-                    .await;
-            });
-            handles.push(handle);
-        }
-
-        // Wait for all broadcasts to complete (or timeout)
-        let _ = futures::future::join_all(handles).await;
-    }
-
-    #[allow(dead_code)]
-    async fn broadcast_block_vote(
-        &self,
-        vote: time_consensus::block_consensus::BlockVote,
-        masternodes: &[String],
-    ) {
-        // ULTRA-FAST PARALLEL BROADCAST - all votes sent simultaneously
-        let mut handles = Vec::new();
-
-        for node in masternodes {
-            let url = format!("http://{}:24101/consensus/block-vote", node);
-            let vote_clone = vote.clone();
-
-            let handle = tokio::spawn(async move {
-                // OPTIMIZED: 100ms timeout for LAN speed
-                let _ = reqwest::Client::new()
-                    .post(&url)
-                    .json(&vote_clone)
-                    .timeout(Duration::from_millis(100)) // REDUCED from 2s to 100ms
-                    .send()
-                    .await;
-            });
-            handles.push(handle);
-        }
-
-        // Wait for all broadcasts (or timeout)
-        let _ = futures::future::join_all(handles).await;
-    }
-
     #[allow(dead_code)]
     async fn notify_leader_to_produce_block(
         &self,
