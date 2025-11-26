@@ -20,6 +20,7 @@ use chrono::TimeZone;
 use owo_colors::OwoColorize;
 use serde::Serialize;
 use std::collections::HashMap;
+use tracing as log;
 
 /// Create routes with TIME Coin-specific endpoints
 pub fn create_routes() -> Router<ApiState> {
@@ -69,6 +70,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/mempool/status", get(get_mempool_status))
         .route("/mempool/add", post(add_to_mempool))
         .route("/mempool/all", get(get_all_mempool_txs))
+        .route("/mempool/clear", post(clear_mempool))
         // Transaction endpoints
         .route("/transactions", post(add_to_mempool)) // REST endpoint
         .route("/transactions/{txid}", get(get_transaction)) // Get single transaction
@@ -831,6 +833,22 @@ async fn get_all_mempool_txs(
 
     let transactions = mempool.get_all_transactions().await;
     Ok(Json(transactions))
+}
+
+async fn clear_mempool(State(state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
+    let mempool = state
+        .mempool
+        .as_ref()
+        .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
+
+    mempool.clear().await;
+    
+    log::info!("🗑️ Mempool cleared via API");
+    
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Mempool cleared successfully"
+    })))
 }
 
 async fn get_transaction(

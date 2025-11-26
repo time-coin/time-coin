@@ -518,6 +518,9 @@ enum MempoolCommands {
 
     /// List all mempool transactions with full details
     List,
+    
+    /// Clear all transactions from mempool
+    Clear,
 }
 
 // Response types for RPC calls
@@ -2611,6 +2614,34 @@ async fn handle_mempool_command(
                             }
                         }
                     }
+                }
+            } else if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "error": format!("{}", response.status())
+                    }))?
+                );
+            } else {
+                eprintln!("Error: {}", response.status());
+            }
+        }
+        
+        MempoolCommands::Clear => {
+            let response = client
+                .post(format!("{}/mempool/clear", api))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n🗑️  Mempool Cleared");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("✅ All transactions removed from mempool");
                 }
             } else if json_output {
                 println!(
