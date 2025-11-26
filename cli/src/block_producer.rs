@@ -2061,14 +2061,8 @@ impl BlockProducer {
                     println!("         ❌ Missing votes from: {:?}", non_voters);
                 }
 
-                // FALLBACK: If on final attempt and we have at least 1 vote (ourselves),
-                // unilaterally finalize to keep chain moving during version upgrades
-                if attempt == 2 && approvals >= 1 {
-                    println!("         ⚠️  EMERGENCY FALLBACK: Finalizing with single vote");
-                    println!("         ℹ️  This allows progress during version upgrades");
-                    // Use the block we already created and voted on
-                    return self.finalize_agreed_block(block.clone(), masternodes).await;
-                }
+                // Don't proceed without proper consensus
+                println!("         ⚠️  Insufficient votes - cannot finalize block");
             } else {
                 println!("         ⚠️  No proposal was received");
             }

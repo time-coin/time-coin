@@ -518,7 +518,7 @@ enum MempoolCommands {
 
     /// List all mempool transactions with full details
     List,
-    
+
     /// Clear all transactions from mempool
     Clear,
 }
@@ -2626,12 +2626,9 @@ async fn handle_mempool_command(
                 eprintln!("Error: {}", response.status());
             }
         }
-        
+
         MempoolCommands::Clear => {
-            let response = client
-                .post(format!("{}/mempool/clear", api))
-                .send()
-                .await?;
+            let response = client.post(format!("{}/mempool/clear", api)).send().await?;
 
             if response.status().is_success() {
                 let result: serde_json::Value = response.json().await?;

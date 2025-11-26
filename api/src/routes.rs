@@ -842,9 +842,9 @@ async fn clear_mempool(State(state): State<ApiState>) -> ApiResult<Json<serde_js
         .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
 
     mempool.clear().await;
-    
+
     log::info!("🗑️ Mempool cleared via API");
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Mempool cleared successfully"
