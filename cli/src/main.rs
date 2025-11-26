@@ -28,6 +28,16 @@ use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
 
 use time_consensus::ConsensusEngine;
 
+/// Safely truncate a string to a maximum length, handling short strings
+fn truncate_str(s: &str, max_len: usize) -> &str {
+    if s.len() <= max_len {
+        s
+    } else {
+        &s[..max_len]
+    }
+}
+
+
 use tokio::time;
 
 use clap::Subcommand;
@@ -311,10 +321,10 @@ async fn sync_finalized_transactions_from_peers(
                     match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
                         Ok(_) => {
                             total_synced += 1;
-                            println!("      ✓ Applied tx {}", &tx.txid[..16]);
+                            println!("      ✓ Applied tx {}", truncate_str(&tx.txid, 16));
                         }
                         Err(e) => {
-                            println!("      ⚠️  Skipped tx {} ({})", &tx.txid[..16], e);
+                            println!("      ⚠️  Skipped tx {} ({})", truncate_str(&tx.txid, 16), e);
                         }
                     }
                 }
@@ -900,7 +910,7 @@ async fn main() {
                         Ok(genesis_hash) => {
                             println!(
                                 "{}",
-                                format!("✅ Genesis block loaded: {}...", &genesis_hash[..16])
+                                format!("✅ Genesis block loaded: {}...", truncate_str(&genesis_hash, 16))
                                     .green()
                             );
                         }
@@ -971,7 +981,7 @@ async fn main() {
                         Err(e) => {
                             // Transaction may have already been included in a block or invalid
                             failed_count += 1;
-                            println!("   ⚠️  Skipped tx {} ({})", &tx.txid[..16], e);
+                            println!("   ⚠️  Skipped tx {} ({})", truncate_str(&tx.txid, 16), e);
                         }
                     }
                 }
@@ -1664,7 +1674,7 @@ async fn main() {
                                                 }
                                                 time_network::protocol::NetworkMessage::UpdateTip { height, hash } => {
                                                     println!("📡 Peer {} announced new tip: block {} ({})",
-                                                        peer_ip_listen, height, &hash[..16]);
+                                                        peer_ip_listen, height, truncate_str(&hash, 16));
 
                                                     // Trigger sync if we're behind (with rate limiting to prevent spam)
                                                     let our_height = {
@@ -1978,7 +1988,7 @@ async fn main() {
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::InstantFinalityRequest(tx) => {
-                                                    println!("⚡ Received instant finality request from {} for tx {}", peer_ip_listen, &tx.txid[..16]);
+                                                    println!("⚡ Received instant finality request from {} for tx {}", peer_ip_listen, truncate_str(&tx.txid, 16));
 
                                                     // Validate the transaction
                                                     let blockchain_guard = blockchain_listen.read().await;
@@ -1986,7 +1996,7 @@ async fn main() {
                                                     drop(blockchain_guard);
 
                                                     let vote_result = if is_valid { "APPROVE ✓" } else { "REJECT ✗" };
-                                                    println!("   Voting {} for tx {}", vote_result, &tx.txid[..16]);
+                                                    println!("   Voting {} for tx {}", vote_result, truncate_str(&tx.txid, 16));
 
                                                     // Send vote response back to requester
                                                     let vote_msg = time_network::protocol::NetworkMessage::InstantFinalityVote {
@@ -2000,7 +2010,7 @@ async fn main() {
                                                     if let Err(e) = conn.send_message(vote_msg).await {
                                                         println!("❌ Failed to send instant finality vote: {}", e);
                                                     } else {
-                                                        println!("✅ Sent {} vote for tx {}", vote_result, &tx.txid[..16]);
+                                                        println!("✅ Sent {} vote for tx {}", vote_result, truncate_str(&tx.txid, 16));
                                                     }
                                                 }
                                                 _ => {
@@ -2400,7 +2410,7 @@ async fn main() {
                         let txid = tx.txid.clone();
                         println!(
                             "      ⚡ Re-broadcasting transaction {} to trigger voting...",
-                            &txid[..16]
+                            truncate_str(&txid, 16)
                         );
 
                         // Re-broadcast using tx_broadcaster - this will trigger instant finality

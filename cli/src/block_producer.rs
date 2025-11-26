@@ -13,6 +13,15 @@ use time_core::MasternodeTier;
 use time_network::PeerManager;
 use tokio::sync::RwLock;
 
+/// Helper to safely get hash/string preview
+fn truncate_str(s: &str, max_len: usize) -> &str {
+    if s.len() <= max_len {
+        s
+    } else {
+        &s[..max_len]
+    }
+}
+
 pub struct BlockProducer {
     #[allow(dead_code)]
     node_id: String,
@@ -1563,7 +1572,7 @@ impl BlockProducer {
                     if let Err(e) = blockchain.remove_finalized_tx(&tx.txid) {
                         println!(
                             "   ⚠️  Failed to remove finalized tx {}: {}",
-                            &tx.txid[..16],
+                            truncate_str(&tx.txid, 16),
                             e
                         );
                     }
@@ -1867,7 +1876,7 @@ impl BlockProducer {
             "      Timestamp: {}",
             timestamp.format("%Y-%m-%d %H:%M:%S UTC")
         );
-        println!("      Block Hash: {}...", &block.hash[..16]);
+        println!("      Block Hash: {}...", truncate_str(&block.hash, 16));
 
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
@@ -1922,7 +1931,7 @@ impl BlockProducer {
                 .create_catchup_block_structure(block_num, timestamp)
                 .await;
 
-            println!("      ✓ Block created: {}...", &block.hash[..16]);
+            println!("      ✓ Block created: {}...", truncate_str(&block.hash, 16));
 
             let proposal = BlockProposal {
                 block_height: block_num,
@@ -1962,7 +1971,7 @@ impl BlockProducer {
             if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
                 println!("      ⚠️  Failed to record vote: {}", e);
             } else {
-                println!("      ✓ Voted APPROVE on block {}", &block.hash[..16]);
+                println!("      ✓ Voted APPROVE on block {}", truncate_str(&block.hash, 16));
             }
 
             // Broadcast vote via TCP
@@ -2246,7 +2255,7 @@ impl BlockProducer {
         block.hash = block.calculate_hash();
         println!(
             "      ✓ Deterministic block created: {}...",
-            &block.hash[..16]
+            truncate_str(&block.hash, 16)
         );
         block
     }
@@ -2308,7 +2317,7 @@ impl BlockProducer {
         }
 
         println!("      🔧 Finalizing agreed block #{}...", block_num);
-        println!("      📋 Block hash: {}...", &block.hash[..16]);
+        println!("      📋 Block hash: {}...", truncate_str(&block.hash, 16));
 
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
