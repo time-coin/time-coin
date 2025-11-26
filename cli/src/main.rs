@@ -1877,6 +1877,9 @@ async fn main() {
                                                     println!("📦 Received GetBlocks request from {} (heights {}-{})", peer_ip_listen, start_height, end_height);
 
                                                     let blockchain_guard = blockchain_listen.read().await;
+                                                    let chain_height = blockchain_guard.chain_tip_height();
+                                                    let has_genesis = !blockchain_guard.genesis_hash().is_empty();
+                                                    println!("   🔍 Our blockchain: height={}, has_genesis={}", chain_height, has_genesis);
                                                     let mut blocks = Vec::new();
 
                                                     // Limit the range to prevent abuse
@@ -1885,7 +1888,10 @@ async fn main() {
 
                                                     for height in start_height..=actual_end {
                                                         if let Some(block) = blockchain_guard.get_block_by_height(height) {
+                                                            println!("   ✓ Found block at height {}", height);
                                                             blocks.push(block.clone());
+                                                        } else {
+                                                            println!("   ✗ No block found at height {}", height);
                                                         }
                                                     }
 

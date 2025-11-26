@@ -171,10 +171,15 @@ impl ChainSync {
 
             match blockchain_info_result {
                 Ok((height, has_genesis)) => {
+                    println!(
+                        "   🔍 Peer {} reports: height={}, has_genesis={}",
+                        peer_ip, height, has_genesis
+                    );
                     if height == 0 && has_genesis {
                         println!("   ✨ Found peer {} with genesis block!", peer_ip);
 
                         // Try to download genesis from this peer
+                        println!("   📞 Requesting block 0 from {}...", peer_addr_with_port);
                         let download_result = self
                             .peer_manager
                             .request_block_by_height(&peer_addr_with_port, 0)
@@ -183,7 +188,8 @@ impl ChainSync {
 
                         match download_result {
                             Ok(genesis_block) => {
-                                println!("   📥 Downloading genesis block (block 0)...");
+                                println!("   📥 Received genesis block from peer!");
+                                println!("   🔍 Block hash: {}", hash_preview(&genesis_block.hash));
 
                                 // Import the genesis block
                                 let mut blockchain = self.blockchain.write().await;
@@ -206,10 +212,15 @@ impl ChainSync {
                                 println!("   ⚠️  Failed to download from {}: {}", peer_ip, e);
                             }
                         }
+                    } else {
+                        println!(
+                            "   ⏭️  Peer {} has no genesis (height={}, has_genesis={})",
+                            peer_ip, height, has_genesis
+                        );
                     }
                 }
-                Err(_e) => {
-                    // Silently skip peers that don't respond
+                Err(e) => {
+                    println!("   ⚠️  Could not query peer {}: {}", peer_ip, e);
                     continue;
                 }
             }
