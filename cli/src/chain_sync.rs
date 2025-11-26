@@ -151,7 +151,15 @@ impl ChainSync {
         false
     }
 
-    /// Try to download genesis from any available peer - SIMPLIFIED VERSION
+    /// Try to download genesis from any available peer
+    /// 
+    /// This implements the network's genesis discovery protocol:
+    /// 1. Query all peers to find those with a genesis block
+    /// 2. Download the genesis block from the first responsive peer
+    /// 3. Validate it's a proper genesis block (height 0, previous_hash = "0")
+    /// 4. Accept it as THE authoritative genesis for this network
+    /// 
+    /// This works for any network (testnet, mainnet, etc.) without hardcoding genesis blocks.
     pub async fn try_download_genesis_from_all_peers(&self) -> Result<(), String> {
         println!("   🔍 Searching all known peers for genesis block...");
 
@@ -187,10 +195,10 @@ impl ChainSync {
                 peer_ip, height, has_genesis
             );
 
-            if has_genesis && height == 0 {
+            if has_genesis {
                 println!("   ✨ Peer {} has genesis block - downloading...", peer_ip);
 
-                // Try to download genesis from this peer
+                // Try to download genesis from this peer (always request block at height 0)
                 let genesis_block = tokio::time::timeout(
                     tokio::time::Duration::from_secs(10),
                     self.peer_manager
@@ -208,8 +216,21 @@ impl ChainSync {
                     }
                 };
 
-                println!("   📥 Received genesis block from peer!");
+                // Validate it's actually a genesis block
+                if genesis_block.header.block_number != 0 {
+                    println!("   ⚠️  Peer {} returned block at height {} instead of 0", 
+                             peer_ip, genesis_block.header.block_number);
+                    continue;
+                }
+
+                if genesis_block.header.previous_hash != "0" {
+                    println!("   ⚠️  Peer {} returned invalid genesis (previous_hash != '0')", peer_ip);
+                    continue;
+                }
+
+                println!("   📥 Received valid genesis block from peer!");
                 println!("   🔍 Block hash: {}", hash_preview(&genesis_block.hash));
+                println!("   ℹ️  This is now THE authoritative genesis for this network");
 
                 // Import the genesis block
                 let mut blockchain = self.blockchain.write().await;
@@ -724,89 +745,130 @@ impl ChainSync {
             return Ok(false);
         }
 
-        // Expected genesis hash for testnet
-        const EXPECTED_GENESIS: &str =
-            "9a81c7599d8eed9720282aa68dccbc76e92ac3770a1892a96e1d073f375d0aed";
+        // Collect genesis blocks from all peers to determine network consensus
+        let mut peer_genesis_blocks = Vec::new();
+        for (peer_ip, _, _) in &peer_heights {
+            if let Some(genesis_block) = self.download_block(peer_ip, 0).await {
+                peer_genesis_blocks.push((peer_ip.clone(), genesis_block));
+            }
+        }
 
-        // Check if OUR genesis is correct
-        if our_genesis != EXPECTED_GENESIS {
-            println!("\n⚠️  Our genesis block does not match expected hash!");
-            println!("   Expected:  {}...", hash_preview(EXPECTED_GENESIS));
+        if peer_genesis_blocks.is_empty() {
+            println!("   ⚠️  Could not download genesis from any peer");
+            return Ok(false);
+        }
+
+        // Count genesis block hashes to find consensus
+        let mut genesis_counts = std::collections::HashMap::new();
+        for (_peer_ip, block) in &peer_genesis_blocks {
+            *genesis_counts.entry(block.hash.clone()).or_insert(0) += 1;
+        }
+
+        // Find the genesis with majority consensus
+        let consensus_genesis = genesis_counts
+            .iter()
+            .max_by_key(|(_hash, count)| *count)
+            .map(|(hash, _count)| hash.clone());
+
+        let consensus_genesis = match consensus_genesis {
+            Some(hash) => hash,
+            None => {
+                println!("   ⚠️  Could not determine genesis consensus");
+                return Ok(false);
+            }
+        };
+
+        let consensus_count = genesis_counts.get(&consensus_genesis).unwrap();
+        let total_peers = peer_genesis_blocks.len();
+
+        println!("\n🔍 Genesis consensus check:");
+        println!(
+            "   Network consensus: {}... ({}/{} peers)",
+            hash_preview(&consensus_genesis),
+            consensus_count,
+            total_peers
+        );
+
+        // Check if OUR genesis matches network consensus
+        if our_genesis != consensus_genesis {
+            println!("\n⚠️  Our genesis block does not match network consensus!");
+            println!(
+                "   Network:   {}... ({}/{} peers)",
+                hash_preview(&consensus_genesis),
+                consensus_count,
+                total_peers
+            );
             println!("   We have:   {}...", hash_preview(&our_genesis));
-            println!("   🔄 Will download correct genesis from peers...");
+            println!("   🔄 Downloading consensus genesis from peers...");
 
-            // Try to download the correct genesis from peers
-            for (peer_ip, _, _) in &peer_heights {
-                if let Some(peer_genesis_block) = self.download_block(peer_ip, 0).await {
-                    if peer_genesis_block.hash == EXPECTED_GENESIS {
-                        println!("   ✓ Found correct genesis on peer {}", peer_ip);
+            // Find a peer with the consensus genesis
+            for (peer_ip, block) in &peer_genesis_blocks {
+                if block.hash == consensus_genesis {
+                    println!("   ✓ Found consensus genesis on peer {}", peer_ip);
 
-                        // Replace our invalid genesis with the correct one
-                        let mut blockchain = self.blockchain.write().await;
-                        let _ = blockchain.rollback_to_height(u64::MAX); // Remove all blocks
-                        match blockchain.add_block(peer_genesis_block) {
-                            Ok(_) => {
-                                println!("   ✅ Successfully replaced genesis block");
-                                // Genesis corrected - will be checked on next fork detection cycle
-                                return Ok(false);
-                            }
-                            Err(e) => {
-                                println!("   ❌ Failed to add correct genesis: {}", e);
-                            }
+                    // Replace our invalid genesis with the consensus one
+                    let mut blockchain = self.blockchain.write().await;
+                    let _ = blockchain.rollback_to_height(u64::MAX); // Remove all blocks
+                    match blockchain.add_block(block.clone()) {
+                        Ok(_) => {
+                            println!("   ✅ Successfully adopted consensus genesis block");
+                            // Genesis corrected - will be checked on next fork detection cycle
+                            return Ok(false);
+                        }
+                        Err(e) => {
+                            println!("   ❌ Failed to add consensus genesis: {}", e);
                         }
                     }
                 }
             }
 
-            println!("   ⚠️  Could not find correct genesis from any peer");
+            println!("   ⚠️  Could not adopt consensus genesis");
             return Ok(false);
         }
 
-        // Check for genesis block mismatches with peers
-        // Now we know OUR genesis is correct, so quarantine peers with wrong ones
-        for (peer_ip, _, _peer_hash) in &peer_heights {
-            // Parse IP address for quarantine
-            let peer_addr: IpAddr = match peer_ip.parse() {
-                Ok(addr) => addr,
-                Err(_) => continue,
-            };
+        println!("   ✓ Our genesis matches network consensus");
 
-            // Skip if already quarantined
-            if self.quarantine.is_quarantined(&peer_addr).await {
-                continue;
-            }
+        // Quarantine peers with non-consensus genesis blocks
+        for (peer_ip, block) in &peer_genesis_blocks {
+            if block.hash != consensus_genesis {
+                let peer_addr: IpAddr = match peer_ip.parse() {
+                    Ok(addr) => addr,
+                    Err(_) => continue,
+                };
 
-            // Try to get their genesis block (height 0)
-            if let Some(peer_genesis_block) = self.download_block(peer_ip, 0).await {
-                if peer_genesis_block.hash != EXPECTED_GENESIS {
-                    println!(
-                        "\n⛔ GENESIS MISMATCH: Peer {} has invalid genesis!",
-                        peer_ip
-                    );
-                    println!("   Expected:      {}...", hash_preview(EXPECTED_GENESIS));
-                    println!(
-                        "   Peer has:      {}...",
-                        hash_preview(&peer_genesis_block.hash)
-                    );
-                    println!("   ⚠️  This peer will be quarantined");
-
-                    // Quarantine this peer - they have the wrong genesis
-                    self.quarantine
-                        .quarantine_peer(
-                            peer_addr,
-                            QuarantineReason::GenesisMismatch {
-                                our_genesis: EXPECTED_GENESIS.to_string(),
-                                their_genesis: peer_genesis_block.hash.clone(),
-                            },
-                        )
-                        .await;
+                // Skip if already quarantined
+                if self.quarantine.is_quarantined(&peer_addr).await {
                     continue;
                 }
+
+                println!(
+                    "\n⛔ GENESIS MISMATCH: Peer {} has non-consensus genesis!",
+                    peer_ip
+                );
+                println!(
+                    "   Network:   {}... ({}/{} peers)",
+                    hash_preview(&consensus_genesis),
+                    consensus_count,
+                    total_peers
+                );
+                println!("   Peer has:  {}...", hash_preview(&block.hash));
+                println!("   ⚠️  This peer will be quarantined");
+
+                // Quarantine this peer - they have the wrong genesis
+                self.quarantine
+                    .quarantine_peer(
+                        peer_addr,
+                        QuarantineReason::GenesisMismatch {
+                            our_genesis: consensus_genesis.clone(),
+                            their_genesis: block.hash.clone(),
+                        },
+                    )
+                    .await;
             }
         }
 
         // SKIP fork detection if we're at genesis (height 0)
-        // Genesis blocks should never fork - they're either correct or the peer is quarantined
+        // Genesis blocks should never fork - they're either consensus or the peer is quarantined
         if our_height == 0 {
             println!("   ✓ At genesis - skipping fork detection (genesis blocks handled above)");
             return Ok(false);
