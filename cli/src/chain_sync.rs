@@ -163,21 +163,25 @@ impl ChainSync {
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
 
             // Check if peer has genesis
-            match self
+            let blockchain_info_result = self
                 .peer_manager
                 .request_blockchain_info(&peer_addr_with_port)
                 .await
-            {
+                .map_err(|e| e.to_string());
+
+            match blockchain_info_result {
                 Ok((height, has_genesis)) => {
                     if height == 0 && has_genesis {
                         println!("   ✨ Found peer {} with genesis block!", peer_ip);
 
                         // Try to download genesis from this peer
-                        match self
+                        let download_result = self
                             .peer_manager
                             .request_block_by_height(&peer_addr_with_port, 0)
                             .await
-                        {
+                            .map_err(|e| e.to_string());
+
+                        match download_result {
                             Ok(genesis_block) => {
                                 println!("   📥 Downloading genesis block (block 0)...");
 
@@ -1344,6 +1348,23 @@ impl ChainSync {
                 }
 
                 println!("\n🔄 Running periodic chain sync...");
+
+                // First, check if we need genesis
+                {
+                    let blockchain = self.blockchain.read().await;
+                    let has_genesis = blockchain.chain_tip_height() > 0
+                        || blockchain.get_block_by_height(0).is_some();
+                    drop(blockchain);
+
+                    if !has_genesis {
+                        println!("   🔍 Missing genesis block - attempting to download...");
+                        if let Err(e) = self.try_download_genesis_from_all_peers().await {
+                            println!("   ⚠️  Could not download genesis: {}", e);
+                            println!("   ℹ️  Will retry on next sync interval (5 minutes)");
+                            continue;
+                        }
+                    }
+                }
 
                 // First check for forks
                 let _rollback_occurred = match self.detect_and_resolve_forks().await {
