@@ -1422,43 +1422,45 @@ pub mod block_consensus {
         ) -> (usize, usize) {
             let iterations = (timeout_secs * 10) as usize; // Check every 100ms
 
+            // Get total masternodes that should be voting
+            let masternodes = self.masternodes.read().await;
+            let total_masternodes = masternodes.len();
+            drop(masternodes);
+
             for _ in 0..iterations {
                 let votes = self.votes.read().await;
                 if let Some(height_votes) = votes.get(&block_height) {
-                    let mut total = 0;
                     let mut approved = 0;
                     for (_hash, vote_list) in height_votes.iter() {
                         for vote in vote_list {
-                            total += 1;
                             if vote.approve {
                                 approved += 1;
                             }
                         }
                     }
-                    if total >= required_votes {
-                        return (approved, total);
+                    // Return approved votes vs total masternodes
+                    if approved >= required_votes {
+                        return (approved, total_masternodes);
                     }
                 }
                 drop(votes);
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
 
-            // Timeout reached - return whatever votes we have
+            // Timeout reached - return whatever votes we have vs total masternodes
             let votes = self.votes.read().await;
             if let Some(height_votes) = votes.get(&block_height) {
-                let mut total = 0;
                 let mut approved = 0;
                 for (_hash, vote_list) in height_votes.iter() {
                     for vote in vote_list {
-                        total += 1;
                         if vote.approve {
                             approved += 1;
                         }
                     }
                 }
-                (approved, total)
+                (approved, total_masternodes)
             } else {
-                (0, 0)
+                (0, total_masternodes)
             }
         }
 
