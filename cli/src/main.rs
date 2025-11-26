@@ -281,64 +281,10 @@ async fn sync_finalized_transactions_from_peers(
 
         let url = format!("http://{}:24101/finality/sync", ip_only);
 
-        match tokio::time::timeout(
-            tokio::time::Duration::from_secs(10),
-            reqwest::Client::new()
-                .post(&url)
-                .json(&serde_json::json!({
-                    "since_timestamp": since_timestamp
-                }))
-                .send(),
-        )
-        .await
-        {
-            Ok(Ok(response)) => {
-                if let Ok(data) = response.json::<serde_json::Value>().await {
-                    if let Some(txs_array) = data["transactions"].as_array() {
-                        println!(
-                            "   ✓ Received {} finalized transactions from {}",
-                            txs_array.len(),
-                            ip_only
-                        );
-
-                        let mut blockchain_write = blockchain.write().await;
-
-                        for tx_value in txs_array {
-                            if let Ok(tx) =
-                                serde_json::from_value::<time_core::Transaction>(tx_value.clone())
-                            {
-                                // Apply to UTXO set
-                                match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
-                                    Ok(_) => {
-                                        total_synced += 1;
-                                        println!("      ✓ Applied tx {}", &tx.txid[..16]);
-                                    }
-                                    Err(e) => {
-                                        println!("      ⚠️  Skipped tx {} ({})", &tx.txid[..16], e);
-                                    }
-                                }
-                            }
-                        }
-
-                        if total_synced > 0 {
-                            // Save UTXO snapshot after applying synced transactions
-                            if let Err(e) = blockchain_write.save_utxo_snapshot() {
-                                println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
-                            }
-                        }
-
-                        drop(blockchain_write);
-                        break; // Successfully synced from one peer
-                    }
-                }
-            }
-            Ok(Err(e)) => {
-                println!("   ✗ Failed to contact {}: {}", ip_only, e);
-            }
-            Err(_) => {
-                println!("   ✗ Request timeout for {}", ip_only);
-            }
-        }
+        // TODO: Implement TCP-based finality sync
+        // For now, skip HTTP request - transactions will be synced through blocks
+        let _ = url; // Suppress unused warning
+        continue;
     }
 
     if total_synced > 0 {
@@ -384,7 +330,12 @@ async fn sync_mempool_from_peers(
             peer_ip.as_str()
         };
 
-        let url = format!("http://{}:24101/mempool/all", ip_only);
+        // Get network-aware port
+        let p2p_port = match peer_manager.network {
+            time_network::discovery::NetworkType::Mainnet => 24000,
+            time_network::discovery::NetworkType::Testnet => 24100,
+        };
+        let peer_addr_with_port = format!("{}:{}", ip_only, p2p_port);
 
         // Retry logic with exponential backoff
         let mut retry_count = 0;
@@ -392,60 +343,47 @@ async fn sync_mempool_from_peers(
         let mut success = false;
 
         while retry_count < max_retries && !success {
-            println!("   Requesting mempool from {}:24101 (API)...", ip_only);
+            println!(
+                "   Requesting mempool from {} (TCP)...",
+                peer_addr_with_port
+            );
 
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(5),
-                reqwest::Client::new().get(&url).send(),
-            )
-            .await
-            {
-                Ok(Ok(response)) => {
-                    match response
-                        .json::<Vec<time_core::transaction::Transaction>>()
-                        .await
-                    {
-                        Ok(transactions) => {
-                            let tx_count = transactions.len();
-                            println!("   ✓ Received {} transactions", tx_count);
+            match peer_manager.request_mempool(&peer_addr_with_port).await {
+                Ok(transactions) => {
+                    let tx_count = transactions.len();
+                    println!("   ✓ Received {} transactions", tx_count);
 
-                            // Track new transactions we didn't already have
-                            let mut newly_added = 0;
+                    // Track new transactions we didn't already have
+                    let mut newly_added = 0;
 
-                            // Iterate over references to avoid moving the vector
-                            for tx in &transactions {
-                                // Skip if we already have this transaction
-                                if existing_txids.contains(&tx.txid) {
-                                    continue;
-                                }
-
-                                // Try to add to mempool
-                                if mempool.add_transaction(tx.clone()).await.is_ok() {
-                                    newly_added += 1;
-
-                                    // Only broadcast NEW transactions (not ones we had from disk)
-                                    if let Some(broadcaster) = tx_broadcaster {
-                                        broadcaster.broadcast_transaction(tx.clone()).await;
-                                    }
-                                }
-                            }
-
-                            if newly_added > 0 {
-                                println!("      {} new transactions", newly_added);
-                            }
-
-                            total_transactions += tx_count as u32;
-                            new_transactions += newly_added;
-                            successful_peers += 1;
-                            success = true;
+                    // Iterate over references to avoid moving the vector
+                    for tx in &transactions {
+                        // Skip if we already have this transaction
+                        if existing_txids.contains(&tx.txid) {
+                            continue;
                         }
-                        Err(e) => {
-                            eprintln!("   ✗ Failed to parse response from {}: {}", ip_only, e);
-                            failed_peers.push((peer_ip.clone(), format!("parse error: {}", e)));
+
+                        // Try to add to mempool
+                        if mempool.add_transaction(tx.clone()).await.is_ok() {
+                            newly_added += 1;
+
+                            // Only broadcast NEW transactions (not ones we had from disk)
+                            if let Some(broadcaster) = tx_broadcaster {
+                                broadcaster.broadcast_transaction(tx.clone()).await;
+                            }
                         }
                     }
+
+                    if newly_added > 0 {
+                        println!("      {} new transactions", newly_added);
+                    }
+
+                    total_transactions += tx_count as u32;
+                    new_transactions += newly_added;
+                    successful_peers += 1;
+                    success = true;
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     if retry_count < max_retries - 1 {
                         let wait_secs = 2_u64.pow(retry_count);
                         println!(
@@ -457,12 +395,9 @@ async fn sync_mempool_from_peers(
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(wait_secs)).await;
                     } else {
+                        eprintln!("   ✗ Failed to get mempool from {}: {}", ip_only, e);
                         failed_peers.push((peer_ip.clone(), format!("request failed: {}", e)));
                     }
-                }
-                Err(_) => {
-                    eprintln!("   ✗ Request timeout for {}", ip_only);
-                    failed_peers.push((peer_ip.clone(), "timeout".to_string()));
                 }
             }
             retry_count += 1;
@@ -491,27 +426,15 @@ async fn sync_mempool_from_peers(
 use tokio::time::timeout;
 
 /// Return true if we can open a TCP connection to `addr` within `timeout_ms`.
-async fn peer_is_online(addr: &std::net::SocketAddr, timeout_ms: u64) -> bool {
-    // Build HTTP client with timeout
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(timeout_ms))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-
-    // Use only the peer IP (strip port) to call their API port 24101
-    let host = addr.ip().to_string();
-    let url = format!("http://{}:24101/blockchain/info", host);
-
-    match timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        client.get(&url).send(),
+async fn peer_is_online(addr: &std::net::SocketAddr, _timeout_ms: u64) -> bool {
+    // Try to establish TCP connection (this is what the function name implies)
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(_timeout_ms),
+        tokio::net::TcpStream::connect(addr),
     )
     .await
     {
-        Ok(Ok(response)) => response.status().is_success(),
+        Ok(Ok(_stream)) => true,
         _ => false,
     }
 }

@@ -57,6 +57,14 @@ impl BftConsensus {
         }
     }
 
+    /// Get the correct TCP port based on network type
+    fn get_p2p_port(&self) -> u16 {
+        match self.peer_manager.network {
+            time_network::discovery::NetworkType::Mainnet => 24000,
+            time_network::discovery::NetworkType::Testnet => 24100,
+        }
+    }
+
     /// Run complete BFT consensus for a block
     ///
     /// This is the main entry point for all consensus operations.
@@ -335,58 +343,53 @@ impl BftConsensus {
         }
     }
 
-    /// Broadcast finalized block to all masternodes
+    /// Broadcast finalized block to all masternodes via TCP
     async fn broadcast_finalized_block(&self, block: &Block, masternodes: &[String]) {
-        let block_json = match serde_json::to_value(block) {
-            Ok(json) => json,
-            Err(e) => {
-                println!("   ⚠️  Failed to serialize block: {:?}", e);
-                return;
-            }
-        };
+        let block_height = block.header.block_number;
+        let block_hash = block.hash.clone();
 
         for node in masternodes {
-            let url = format!("http://{}:24101/consensus/finalized-block", node);
-            let payload = serde_json::json!({ "block": block_json });
-
-            let url_clone = url.clone();
-            let payload_clone = payload.clone();
+            let peer_manager = self.peer_manager.clone();
+            let hash = block_hash.clone();
+            let node_ip = node.clone();
 
             tokio::spawn(async move {
-                let client = reqwest::Client::new();
-                if let Err(e) = client
-                    .post(&url_clone)
-                    .json(&payload_clone)
-                    .timeout(Duration::from_secs(2))
-                    .send()
-                    .await
-                {
-                    eprintln!("   ⚠️  Failed to broadcast to {}: {:?}", url_clone, e);
+                // Send via TCP using UpdateTip message
+                if let Ok(peer_addr) = node_ip.parse::<std::net::IpAddr>() {
+                    let message = time_network::protocol::NetworkMessage::UpdateTip {
+                        height: block_height,
+                        hash,
+                    };
+                    if let Err(e) = peer_manager.send_to_peer_tcp(peer_addr, message).await {
+                        eprintln!("   ⚠️  Failed to broadcast to {}: {}", node_ip, e);
+                    }
                 }
             });
         }
     }
 
-    /// Notify leader to produce block (non-leader behavior)
+    /// Notify leader to produce block (non-leader behavior) via TCP
     async fn notify_leader(&self, leader: &str, block_num: u64) {
         println!("      Notifying leader {}...", leader);
 
-        let url = format!("http://{}:24101/consensus/request-block-proposal", leader);
-        let request = serde_json::json!({
-            "block_height": block_num,
-            "leader_ip": leader,
-            "requester_ip": self.my_id,
-        });
+        // Send via TCP using RequestBlockProposal message
+        if let Ok(leader_addr) = leader.parse::<std::net::IpAddr>() {
+            let message = time_network::protocol::NetworkMessage::RequestBlockProposal {
+                block_height: block_num,
+                leader_ip: leader.to_string(),
+                requester_ip: self.my_id.clone(),
+            };
 
-        match reqwest::Client::new()
-            .post(&url)
-            .json(&request)
-            .timeout(Duration::from_secs(5))
-            .send()
-            .await
-        {
-            Ok(_) => println!("      ✓ Leader {} acknowledged the request", leader),
-            Err(_) => println!("      ⚠️  Could not reach leader {}", leader),
+            match self
+                .peer_manager
+                .send_to_peer_tcp(leader_addr, message)
+                .await
+            {
+                Ok(_) => println!("      ✓ Leader {} acknowledged the request", leader),
+                Err(_) => println!("      ⚠️  Could not reach leader {}", leader),
+            }
+        } else {
+            println!("      ⚠️  Invalid leader IP address: {}", leader);
         }
     }
 
