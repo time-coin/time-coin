@@ -537,6 +537,7 @@ impl NetworkManager {
                                                             if let NetworkMessage::BlockchainInfo {
                                                                 height,
                                                                 best_block_hash,
+                                                                has_genesis: _,
                                                             } = response
                                                             {
                                                                 log::debug!(

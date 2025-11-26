@@ -1502,6 +1502,7 @@ async fn main() {
                 let wallet_address_clone = wallet_address.clone();
                 let mempool_clone = mempool.clone();
                 let chain_sync_clone = chain_sync.clone();
+                let network_type_clone = network_type;
 
                 tokio::spawn(async move {
                     loop {
@@ -1516,9 +1517,22 @@ async fn main() {
                                 }
                             };
 
-                            // Use real TCP address for connection keying (not handshake listen_addr)
-                            info.address = real_peer_addr;
-                            let peer_addr = real_peer_addr;
+                            // Normalize ephemeral port to standard server port
+                            // When peers connect TO us, conn.peer_addr() returns their ephemeral client port
+                            // We need to store the standard server port for connecting BACK to them
+                            let peer_addr = if real_peer_addr.port() >= 49152 {
+                                // Ephemeral port detected - use standard p2p port instead
+                                let standard_port = match network_type_clone {
+                                    time_network::NetworkType::Mainnet => 24000,
+                                    time_network::NetworkType::Testnet => 24100,
+                                };
+                                SocketAddr::new(real_peer_addr.ip(), standard_port)
+                            } else {
+                                real_peer_addr
+                            };
+
+                            // Use normalized address for all peer operations
+                            info.address = peer_addr;
 
                             // Check if peer is quarantined (log only once per hour)
                             if quarantine_clone.is_quarantined(&peer_addr.ip()).await {
@@ -1571,10 +1585,8 @@ async fn main() {
                                 .await;
 
                             // Trigger genesis download if needed (event-driven)
-                            let chain_sync_for_genesis = chain_sync_clone.clone();
-                            tokio::spawn(async move {
-                                chain_sync_for_genesis.on_peer_connected().await;
-                            });
+                            // Call directly to avoid race condition with connection storage
+                            chain_sync_clone.on_peer_connected().await;
 
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone
