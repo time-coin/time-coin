@@ -332,7 +332,7 @@ impl BlockProducer {
                 break;
             }
 
-            let synced_any = false;
+            let mut synced_any = false;
 
             // If we're at genesis (height 0), try to download the entire chain from one valid peer
             if current_height == 0 {
@@ -373,15 +373,59 @@ impl BlockProducer {
                         peer_ip, peer_height
                     );
 
-                    let _sync_to_height = std::cmp::min(peer_height, expected_height);
+                    let sync_to_height = std::cmp::min(peer_height, expected_height);
 
-                    // TODO: Implement block download via TCP GetBlocks/BlocksData protocol
-                    // For now, rely on BFT consensus block recreation
-                    println!("      ℹ️  Block download via TCP not yet implemented");
-                    println!("      ℹ️  Blocks will be recreated via BFT consensus");
+                    // Get network-aware port
+                    let p2p_port = match self.peer_manager.network {
+                        time_network::discovery::NetworkType::Mainnet => 24000,
+                        time_network::discovery::NetworkType::Testnet => 24100,
+                    };
+                    let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
-                    // Skip to next peer
-                    continue;
+                    // Download blocks from genesis to sync_to_height
+                    let mut downloaded_count = 0;
+                    for height in 0..=sync_to_height {
+                        match self
+                            .peer_manager
+                            .request_block_by_height(&peer_addr, height)
+                            .await
+                        {
+                            Ok(block) => {
+                                // Validate and add block
+                                let mut blockchain = self.blockchain.write().await;
+                                match blockchain.add_block(block.clone()) {
+                                    Ok(_) => {
+                                        downloaded_count += 1;
+                                        if downloaded_count % 10 == 0 || height == sync_to_height {
+                                            println!(
+                                                "      ✓ Downloaded {} blocks (current: {})",
+                                                downloaded_count, height
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("      ⚠️  Failed to add block {}: {}", height, e);
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("      ⚠️  Failed to download block {}: {}", height, e);
+                                break;
+                            }
+                        }
+                    }
+
+                    if downloaded_count > 0 {
+                        println!(
+                            "      ✅ Successfully downloaded {} blocks from {}",
+                            downloaded_count, peer_ip
+                        );
+                        synced_any = true;
+                        break; // Successfully synced, no need to try other peers
+                    }
+
+                    // If download failed, continue to next peer
                 }
             } else {
                 // Not at genesis, use incremental sync
@@ -398,23 +442,66 @@ impl BlockProducer {
                     {
                         // If peer has blocks we need, try to sync
                         if peer_height > current_height || (current_height == 0 && has_genesis) {
+                            let sync_to_height = std::cmp::min(peer_height, expected_height);
+
                             println!(
                                 "      🔗 Peer {} has height {}, downloading blocks {}-{}...",
                                 peer_ip,
                                 peer_height,
                                 current_height + 1,
-                                std::cmp::min(peer_height, expected_height)
+                                sync_to_height
                             );
 
-                            let _sync_to_height = std::cmp::min(peer_height, expected_height);
+                            // Download missing blocks
+                            let mut downloaded_count = 0;
+                            for height in (current_height + 1)..=sync_to_height {
+                                match self
+                                    .peer_manager
+                                    .request_block_by_height(&peer_addr, height)
+                                    .await
+                                {
+                                    Ok(block) => {
+                                        // Validate and add block
+                                        let mut blockchain = self.blockchain.write().await;
+                                        match blockchain.add_block(block.clone()) {
+                                            Ok(_) => {
+                                                downloaded_count += 1;
+                                                if downloaded_count % 10 == 0
+                                                    || height == sync_to_height
+                                                {
+                                                    println!(
+                                                        "      ✓ Downloaded {} blocks (current: {})",
+                                                        downloaded_count, height
+                                                    );
+                                                }
+                                            }
+                                            Err(e) => {
+                                                println!(
+                                                    "      ⚠️  Failed to add block {}: {}",
+                                                    height, e
+                                                );
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!(
+                                            "      ⚠️  Failed to download block {}: {}",
+                                            height, e
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
 
-                            // TODO: Implement block download via TCP GetBlocks/BlocksData protocol
-                            // For now, rely on BFT consensus block recreation
-                            println!("      ℹ️  Block download via TCP not yet implemented");
-                            println!("      ℹ️  Blocks will be recreated via BFT consensus");
-
-                            // Skip to next peer
-                            continue;
+                            if downloaded_count > 0 {
+                                println!(
+                                    "      ✅ Successfully downloaded {} blocks from {}",
+                                    downloaded_count, peer_ip
+                                );
+                                synced_any = true;
+                                break; // Successfully synced, no need to try other peers
+                            }
                         }
                     }
                 }
@@ -1374,15 +1461,40 @@ impl BlockProducer {
     /// Attempt to fetch finalized block from producer with retries
     async fn fetch_finalized_block(
         &self,
-        _producer: &str,
-        _height: u64,
+        producer: &str,
+        height: u64,
         _expected_merkle: &str,
     ) -> Option<time_core::block::Block> {
-        // TODO: Implement block fetch via TCP GetBlocks/BlocksData protocol
-        // For now, blocks are recreated deterministically via BFT consensus
-        println!("   ℹ️  Block download via TCP not yet implemented");
-        println!("   ℹ️  Block will be recreated via BFT consensus");
-        None
+        // Try to fetch block from the producer
+        let p2p_port = match self.peer_manager.network {
+            time_network::discovery::NetworkType::Mainnet => 24000,
+            time_network::discovery::NetworkType::Testnet => 24100,
+        };
+        let peer_addr = format!("{}:{}", producer, p2p_port);
+
+        println!(
+            "   📡 Attempting to download block {} from {}...",
+            height, producer
+        );
+
+        match self
+            .peer_manager
+            .request_block_by_height(&peer_addr, height)
+            .await
+        {
+            Ok(block) => {
+                println!(
+                    "   ✅ Successfully downloaded block {} from {}",
+                    height, producer
+                );
+                Some(block)
+            }
+            Err(e) => {
+                println!("   ⚠️  Failed to download block {}: {}", height, e);
+                println!("   ℹ️  Block will be recreated via BFT consensus");
+                None
+            }
+        }
     }
 
     async fn finalize_block_bft(
