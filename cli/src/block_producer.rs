@@ -1985,7 +1985,7 @@ impl BlockProducer {
             let mut last_log_time = start_time;
             let mut last_vote_count = 0;
             let mut stall_count = 0;
-            const MAX_STALLS: u32 = 6; // Exit after 300ms of no progress (6 * 50ms)
+            const MAX_STALLS: u32 = 40; // Exit after 2 seconds of no progress (40 * 50ms)
 
             // NO artificial delay - check immediately
             while start_time.elapsed() < timeout {
