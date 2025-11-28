@@ -836,15 +836,10 @@ impl BlockProducer {
                             break;
                         }
 
-                        // Check if we already voted on this exact block
-                        let already_voted = self
-                            .block_consensus
-                            .has_voted(&self.node_id, block_num, &proposal.block_hash)
-                            .await;
-
-                        if already_voted {
-                            println!("   ℹ️  Skipping auto-vote (already voted)");
-                        } else {
+                        // Always auto-vote on proposals received from network to help consensus
+                        // Since blocks are deterministic, multiple nodes will create identical blocks
+                        // and we should vote on matching proposals even if we already voted locally
+                        {
                             // Auto-vote on the proposal to help reach consensus
                             println!("   🗳️  Auto-voting APPROVE to help consensus...");
 
@@ -868,14 +863,14 @@ impl BlockProducer {
                                     self.peer_manager.broadcast_block_vote(vote_value).await;
                                 }
                             }
-                        }
 
-                        // Give it a moment to be processed
-                        tokio::time::sleep(Duration::from_secs(2)).await;
-                        let current_height = self.load_block_height().await;
-                        if current_height >= block_num {
-                            block_received = true;
-                            break;
+                            // Give it a moment to be processed
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            let current_height = self.load_block_height().await;
+                            if current_height >= block_num {
+                                block_received = true;
+                                break;
+                            }
                         }
                     }
 
