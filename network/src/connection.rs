@@ -24,9 +24,28 @@ impl PeerConnection {
         block_consensus: Option<StdArc<time_consensus::block_consensus::BlockConsensusManager>>,
     ) -> Result<Self, String> {
         let peer_addr = peer.lock().await.address;
-        let mut stream = TcpStream::connect(peer_addr)
+        let stream = TcpStream::connect(peer_addr)
             .await
             .map_err(|e| format!("Connect failed: {}", e))?;
+
+        // Enable TCP keep-alive to prevent connection timeouts
+        if let Err(e) = stream.set_nodelay(true) {
+            eprintln!("⚠️  Failed to set TCP_NODELAY: {}", e);
+        }
+
+        // Set keep-alive parameters (30 second interval, 3 retries = 90 seconds total)
+        let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(std::time::Duration::from_secs(30))
+            .with_interval(std::time::Duration::from_secs(30));
+
+        if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
+            eprintln!("⚠️  Failed to set TCP keep-alive: {}", e);
+        }
+
+        // Convert back to tokio TcpStream
+        let mut stream = TcpStream::from_std(socket2_sock.into())
+            .map_err(|e| format!("Failed to convert socket: {}", e))?;
 
         // Get our genesis hash if blockchain is available
         let our_genesis_hash = if let Some(bc) = &blockchain {
