@@ -1370,6 +1370,7 @@ impl PeerManager {
 
         let peers = self.peers.read().await.clone();
         let connections = self.connections.read().await;
+        let my_ip = self.public_addr.ip();
 
         println!("📤 Broadcasting proposal to {} peers", peers.len());
         println!("   Available TCP connections: {}", connections.len());
@@ -1378,6 +1379,13 @@ impl PeerManager {
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
+
+            // Skip self
+            if peer_ip == my_ip {
+                println!("   Peer {}: skipping (self)", peer_ip);
+                continue;
+            }
+
             let has_connection = connections.contains_key(&peer_ip);
 
             println!("   Peer {}: connection={}", peer_ip, has_connection);
@@ -1425,6 +1433,7 @@ impl PeerManager {
 
         let peers = self.peers.read().await.clone();
         let connections = self.connections.read().await;
+        let my_ip = self.public_addr.ip();
 
         println!("📤 Broadcasting vote to {} peers", peers.len());
         println!("   Available TCP connections: {}", connections.len());
@@ -1433,6 +1442,13 @@ impl PeerManager {
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
+
+            // Skip self
+            if peer_ip == my_ip {
+                println!("   Peer {}: skipping (self)", peer_ip);
+                continue;
+            }
+
             let has_connection = connections.contains_key(&peer_ip);
 
             println!("   Peer {}: connection={}", peer_ip, has_connection);
