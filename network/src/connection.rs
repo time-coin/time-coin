@@ -258,19 +258,33 @@ impl PeerConnection {
     }
 
     pub async fn ping(&mut self) -> Result<(), String> {
+        // Send ping
         let msg = crate::protocol::NetworkMessage::Ping;
         let json = serde_json::to_vec(&msg).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
         self.stream
             .write_all(&len.to_be_bytes())
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Ping write failed: {}", e))?;
         self.stream
             .write_all(&json)
             .await
-            .map_err(|e| e.to_string())?;
-        self.stream.flush().await.map_err(|e| e.to_string())?;
-        Ok(())
+            .map_err(|e| format!("Ping write failed: {}", e))?;
+        self.stream
+            .flush()
+            .await
+            .map_err(|e| format!("Ping flush failed: {}", e))?;
+
+        // Wait for pong response with timeout
+        let pong_result =
+            tokio::time::timeout(std::time::Duration::from_secs(5), self.receive_message()).await;
+
+        match pong_result {
+            Ok(Ok(crate::protocol::NetworkMessage::Pong)) => Ok(()),
+            Ok(Ok(_)) => Err("Unexpected response to ping (expected Pong)".to_string()),
+            Ok(Err(e)) => Err(format!("Pong receive error: {}", e)),
+            Err(_) => Err("Pong timeout (5s)".to_string()),
+        }
     }
 
     pub async fn keep_alive(mut self) {

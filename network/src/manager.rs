@@ -1329,12 +1329,38 @@ impl PeerManager {
         peer_ip: IpAddr,
         message: crate::protocol::NetworkMessage,
     ) -> Result<(), String> {
-        let connections = self.connections.read().await;
-        if let Some(conn_arc) = connections.get(&peer_ip) {
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
-            return conn.send_message(message).await;
+            match conn.send_message(message).await {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    // Check if this is a broken pipe error
+                    if e.contains("Broken pipe") || e.contains("Connection reset") {
+                        println!(
+                            "   🔄 Broken connection detected to {}, removing from pool",
+                            peer_ip
+                        );
+                        drop(conn); // Release lock before removing
+
+                        // Remove the stale connection
+                        let mut connections = self.connections.write().await;
+                        connections.remove(&peer_ip);
+                        drop(connections);
+
+                        // Mark peer for reconnection
+                        self.remove_connected_peer(&peer_ip).await;
+                    }
+                    Err(e)
+                }
+            }
+        } else {
+            Err("No TCP connection available".to_string())
         }
-        Err("No TCP connection available".to_string())
     }
 
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
