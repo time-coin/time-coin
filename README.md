@@ -12,7 +12,7 @@ A next-generation cryptocurrency featuring 24-hour time blocks, instant transact
 
 - ⚡ **Instant finality** — sub-3 second transaction confirmation via TIME Coin Protocol
 - 🕐 **24-hour blocks** — daily checkpoints for immutable settlement
-- 🔗 **Masternode network** — BFT-style consensus for instant validation
+- 🔷 **Deterministic consensus** — all nodes generate identical blocks, no single point of failure
 - 🏦 **UTXO model** — Bitcoin-compatible accounting with instant finality
 - 💰 **Tiered staking** — competitive APY across collateral tiers
 - 🛡️ **Community treasury** — on-chain governance and funding
@@ -36,7 +36,11 @@ TIME separates transaction finality from block production:
 1. **Instant transactions** validated by masternodes in real time via TIME Coin Protocol
 2. **UTXO state tracking** prevents double-spends through immediate locking
 3. **Daily blocks** used as periodic immutable checkpoints
-4. **BFT consensus**: validators must reach a 67% agreement threshold
+4. **Deterministic consensus**: all nodes independently generate identical blocks at midnight UTC
+   - No leader election or single point of failure
+   - All nodes compare blocks with peers (<10 seconds)
+   - 67% agreement threshold for instant finalization
+   - Automatic reconciliation if differences detected
 5. **Masternode rewards**: block rewards distributed to masternodes by tier
 6. **Treasury funding**: a portion of each block funds ecosystem development
 

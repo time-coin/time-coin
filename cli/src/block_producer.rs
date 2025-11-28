@@ -1,4 +1,5 @@
 use crate::bft_consensus::BftConsensus;
+use crate::deterministic_consensus::{ConsensusResult, DeterministicConsensus};
 use chrono::{TimeZone, Utc};
 use crossterm::style::Stylize;
 use owo_colors::OwoColorize;
@@ -12,6 +13,15 @@ use time_core::transaction::{Transaction, TxOutput};
 use time_core::MasternodeTier;
 use time_network::PeerManager;
 use tokio::sync::RwLock;
+
+// ============================================================================
+// TESTING CONFIGURATION
+// ============================================================================
+// Change this to adjust block production interval for testing
+// Production: 86400 seconds (24 hours)
+// Testing: 600 seconds (10 minutes)
+const BLOCK_INTERVAL_SECONDS: u64 = 600; // 10 minutes for testing
+const IS_TESTING_MODE: bool = true;
 
 /// Helper to safely get hash/string preview
 fn truncate_str(s: &str, max_len: usize) -> &str {
@@ -37,6 +47,7 @@ pub struct BlockProducer {
     allow_block_recreation: bool,
     quarantine: Arc<time_network::PeerQuarantine>,
     bft: Arc<BftConsensus>,
+    deterministic: Arc<DeterministicConsensus>,
 }
 
 impl BlockProducer {
@@ -60,6 +71,12 @@ impl BlockProducer {
             blockchain.clone(),
         ));
 
+        let deterministic = Arc::new(DeterministicConsensus::new(
+            node_id.clone(),
+            peer_manager.clone(),
+            blockchain.clone(),
+        ));
+
         BlockProducer {
             node_id,
             peer_manager,
@@ -72,6 +89,7 @@ impl BlockProducer {
             allow_block_recreation,
             quarantine,
             bft,
+            deterministic,
         }
     }
 
@@ -95,6 +113,12 @@ impl BlockProducer {
             blockchain.clone(),
         ));
 
+        let deterministic = Arc::new(DeterministicConsensus::new(
+            node_id.clone(),
+            peer_manager.clone(),
+            blockchain.clone(),
+        ));
+
         BlockProducer {
             node_id,
             peer_manager,
@@ -107,6 +131,7 @@ impl BlockProducer {
             allow_block_recreation,
             quarantine,
             bft,
+            deterministic,
         }
     }
 
@@ -143,39 +168,61 @@ impl BlockProducer {
             self.catch_up_missed_blocks().await;
         }
 
-        println!("Block producer started (24-hour interval)");
+        if IS_TESTING_MODE {
+            println!(
+                "⚠️  TESTING MODE: Block interval = {} seconds ({} minutes)",
+                BLOCK_INTERVAL_SECONDS,
+                BLOCK_INTERVAL_SECONDS / 60
+            );
+        } else {
+            println!("Block producer started (24-hour interval)");
+        }
 
         if self.allow_block_recreation {
             self.spawn_periodic_catchup_task();
         }
 
-        // Main loop: sleep until midnight, then produce block
+        // Main loop: sleep until next interval, then produce block
         loop {
             let now = Utc::now();
 
-            // Calculate next midnight UTC
-            let tomorrow = now.date_naive() + chrono::Duration::days(1);
-            let next_midnight = tomorrow.and_hms_opt(0, 0, 0).unwrap().and_utc();
+            // Calculate next block time based on mode
+            let next_block_time = if IS_TESTING_MODE {
+                // Testing: round up to next 10-minute interval
+                let current_seconds = now.timestamp();
+                let next_interval = ((current_seconds / BLOCK_INTERVAL_SECONDS as i64) + 1)
+                    * BLOCK_INTERVAL_SECONDS as i64;
+                Utc.timestamp_opt(next_interval, 0).unwrap()
+            } else {
+                // Production: next midnight UTC
+                let tomorrow = now.date_naive() + chrono::Duration::days(1);
+                tomorrow.and_hms_opt(0, 0, 0).unwrap().and_utc()
+            };
 
-            let duration_until_midnight = (next_midnight - now)
+            let duration_until_next = (next_block_time - now)
                 .to_std()
                 .unwrap_or(Duration::from_secs(60));
 
-            let hours = duration_until_midnight.as_secs() / 3600;
-            let minutes = (duration_until_midnight.as_secs() % 3600) / 60;
-            let seconds = duration_until_midnight.as_secs() % 60;
+            let hours = duration_until_next.as_secs() / 3600;
+            let minutes = (duration_until_next.as_secs() % 3600) / 60;
+            let seconds = duration_until_next.as_secs() % 60;
 
             println!(
                 "Next block at {} UTC (in {}h {}m {}s)",
-                next_midnight.format("%Y-%m-%d %H:%M:%S"),
+                next_block_time.format("%Y-%m-%d %H:%M:%S"),
                 hours,
                 minutes,
                 seconds
             );
 
-            // Sleep until midnight
-            tokio::time::sleep(duration_until_midnight).await;
-            println!("Midnight reached - producing block...");
+            // Sleep until next block time
+            tokio::time::sleep(duration_until_next).await;
+
+            if IS_TESTING_MODE {
+                println!("⏰ Block interval reached - producing block...");
+            } else {
+                println!("Midnight reached - producing block...");
+            }
 
             *self.is_active.write().await = true;
             self.create_and_propose_block().await;
@@ -197,6 +244,7 @@ impl BlockProducer {
             allow_block_recreation: self.allow_block_recreation,
             quarantine: self.quarantine.clone(),
             bft: self.bft.clone(),
+            deterministic: self.deterministic.clone(),
         };
 
         tokio::spawn(async move {
@@ -215,12 +263,11 @@ impl BlockProducer {
     #[allow(dead_code)]
     async fn catch_up_missed_blocks(&self) {
         let now = Utc::now();
-        let current_date = now.date_naive();
 
         // Get genesis date from blockchain state
         let blockchain = self.blockchain.read().await;
         let genesis_block = match blockchain.get_block_by_height(0) {
-            Some(block) => block,
+            Some(block) => block.clone(),
             None => {
                 // No genesis block yet - node is still syncing
                 println!("⏳ Waiting for genesis block to be downloaded...");
@@ -228,11 +275,22 @@ impl BlockProducer {
                 return; // Exit catch-up, will retry on next cycle
             }
         };
-        let genesis_date = genesis_block.header.timestamp.date_naive();
         drop(blockchain);
 
-        let days_since_genesis = (current_date - genesis_date).num_days();
-        let expected_height = days_since_genesis as u64;
+        let genesis_timestamp = genesis_block.header.timestamp.timestamp();
+        let genesis_date = genesis_block.header.timestamp.date_naive();
+
+        // Calculate expected height based on mode
+        let expected_height = if IS_TESTING_MODE {
+            // Testing: blocks every 10 minutes
+            let elapsed_seconds = now.timestamp() - genesis_timestamp;
+            (elapsed_seconds / BLOCK_INTERVAL_SECONDS as i64) as u64
+        } else {
+            // Production: blocks every 24 hours
+            let current_date = now.date_naive();
+            let days_since_genesis = (current_date - genesis_date).num_days();
+            days_since_genesis as u64
+        };
 
         let actual_height = self.load_block_height().await;
 
@@ -694,6 +752,21 @@ impl BlockProducer {
             still_missing
         );
 
+        // Get genesis block for timestamp calculations
+        let blockchain = self.blockchain.read().await;
+        let genesis_block = match blockchain.get_block_by_height(0) {
+            Some(block) => block.clone(),
+            None => {
+                println!("   ⚠️  No genesis block found, cannot create catch-up blocks");
+                drop(blockchain);
+                return;
+            }
+        };
+        drop(blockchain);
+
+        let genesis_timestamp = genesis_block.header.timestamp.timestamp();
+        let genesis_date = genesis_block.header.timestamp.date_naive();
+
         // CRITICAL: Process blocks sequentially, ONE AT A TIME
         // Wait for each block to be fully consensus-accepted before starting the next
         let start_from = self.load_block_height().await + 1;
@@ -718,8 +791,17 @@ impl BlockProducer {
                 break;
             }
 
-            let timestamp_date = genesis_date + chrono::Duration::days(block_num as i64);
-            let timestamp = Utc.from_utc_datetime(&timestamp_date.and_hms_opt(0, 0, 0).unwrap());
+            // Calculate timestamp based on mode
+            let timestamp = if IS_TESTING_MODE {
+                // Testing: blocks every 10 minutes from genesis
+                let block_timestamp =
+                    genesis_timestamp + (block_num as i64 * BLOCK_INTERVAL_SECONDS as i64);
+                Utc.timestamp_opt(block_timestamp, 0).unwrap()
+            } else {
+                // Production: blocks every 24 hours (midnight)
+                let timestamp_date = genesis_date + chrono::Duration::days(block_num as i64);
+                Utc.from_utc_datetime(&timestamp_date.and_hms_opt(0, 0, 0).unwrap())
+            };
 
             // Single attempt with improved consensus (fast-track + emergency fallback)
             let success = self
@@ -839,590 +921,158 @@ impl BlockProducer {
 
         let all_masternodes = self.consensus.get_masternodes().await;
 
-        // Initialize health tracking for any new masternodes
-        for mn in &all_masternodes {
-            self.block_consensus
-                .init_masternode_health(mn.clone())
-                .await;
-        }
-
-        // Get only active masternodes for consensus
-        let mut masternodes = self
-            .block_consensus
-            .get_active_masternodes(&all_masternodes)
-            .await;
-
         // Filter out quarantined masternodes
+        let mut masternodes = Vec::new();
         let mut quarantined_count = 0;
-        masternodes.retain(|mn| {
+
+        for mn in &all_masternodes {
             if let Ok(ip_addr) = mn.parse::<std::net::IpAddr>() {
-                let is_quarantined = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current()
-                        .block_on(self.quarantine.is_quarantined(&ip_addr))
-                });
-                if is_quarantined {
+                if self.quarantine.is_quarantined(&ip_addr).await {
                     quarantined_count += 1;
-                    return false;
+                    continue;
                 }
             }
-            true
-        });
+            masternodes.push(mn.clone());
+        }
 
         if quarantined_count > 0 {
             println!(
-                "   🚨 {} masternode(s) quarantined and excluded from consensus",
+                "   ℹ️  Consensus pool: {} active, {} excluded",
+                masternodes.len(),
                 quarantined_count
             );
         }
 
-        let required_votes = ((masternodes.len() * 2) / 3) + 1;
-
-        if masternodes.len() < all_masternodes.len() {
-            println!(
-                "   ⚠️  {} masternode(s) excluded from consensus",
-                all_masternodes.len() - masternodes.len()
-            );
-        }
-
-        let selected_producer = self.consensus.get_leader(block_num).await;
-        let my_id = self.get_node_id();
-        let am_i_leader = selected_producer
-            .as_ref()
-            .map(|p| p == &my_id)
-            .unwrap_or(false);
-
-        // Log leader selection for debugging
-        println!(
-            "   🎯 Leader selection (VRF-based on {} total masternodes)",
-            all_masternodes.len()
-        );
-        println!(
-            "      Selected leader: {}",
-            selected_producer.as_ref().unwrap_or(&"none".to_string())
-        );
+        println!("   🔷 Deterministic Consensus - all nodes generate identical block");
         println!("      Active masternodes: {}", masternodes.len());
 
-        if am_i_leader {
-            println!("{}", "   🟢 I am the block producer".green().bold());
+        // Get pending transactions
+        let mut transactions = self.mempool.get_all_transactions().await;
 
-            // Get all pending transactions from mempool
-            // Regular block production includes all pending transactions
-            let mut transactions = self.mempool.get_all_transactions().await;
-
-            // Sort transactions deterministically by txid to ensure same merkle root
-            transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
-
-            // Check for approved proposals and add treasury grants
-            if let Some(proposal_manager) = self.consensus.proposal_manager() {
-                let masternode_count = self.consensus.masternode_count().await;
-                let approved_proposals = proposal_manager
-                    .get_approved_pending(masternode_count)
-                    .await;
-
-                if !approved_proposals.is_empty() {
-                    println!(
-                        "   💰 Processing {} approved proposal(s)",
-                        approved_proposals.len()
-                    );
-
-                    for proposal in approved_proposals {
-                        // Create treasury grant transaction
-                        let grant_tx = time_core::transaction::Transaction {
-                            txid: format!("treasury_grant_{}", proposal.id),
-                            version: 1,
-                            inputs: vec![], // No inputs = treasury grant
-                            outputs: vec![time_core::transaction::TxOutput::new(
-                                proposal.amount,
-                                proposal.recipient.clone(),
-                            )],
-                            lock_time: 0,
-                            timestamp: chrono::Utc::now().timestamp(),
-                        };
-
-                        println!(
-                            "      ✓ Grant: {} TIME to {}",
-                            proposal.amount as f64 / 100_000_000.0,
-                            proposal.recipient
-                        );
-                        println!("         Reason: {}", proposal.reason);
-
-                        transactions.push(grant_tx);
-
-                        // Mark proposal as executed (will be persisted after block)
-                        let _ = proposal_manager
-                            .mark_executed(&proposal.id, format!("treasury_grant_{}", proposal.id))
-                            .await;
-                    }
-                }
-            }
-
-            // Get blockchain state atomically (all data retrieved while holding read lock)
-            let blockchain = self.blockchain.read().await;
-            let previous_hash = blockchain.chain_tip_hash().to_string();
-            let masternode_counts = blockchain.masternode_counts().clone();
-
-            // Get active masternodes with their wallet addresses and tiers
-            // Note: masternode_counts and active_masternodes represent the same state
-            let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
-                .get_active_masternodes()
-                .iter()
-                .map(|mn| (mn.wallet_address.clone(), mn.tier))
-                .collect();
-
-            drop(blockchain);
-
-            // Check for empty mempool - use deterministic reward-only block path
-            let is_reward_only = transactions.is_empty();
-
-            if is_reward_only {
-                println!("   📭 Mempool is empty - creating deterministic reward-only block");
-                println!("   ⚡ This should achieve instant consensus (identical blocks)");
-
-                // Use deterministic reward-only block creation
-                let block = time_core::block::create_reward_only_block(
-                    block_num,
-                    previous_hash.clone(),
-                    my_id.clone(),
-                    &active_masternodes,
-                    &masternode_counts,
-                );
-
-                // Create proposal with reward-only flag
-                let proposal = time_consensus::block_consensus::BlockProposal {
-                    block_height: block_num,
-                    proposer: my_id.clone(),
-                    block_hash: block.hash.clone(),
-                    merkle_root: block.header.merkle_root.clone(),
-                    previous_hash: previous_hash.clone(),
-                    timestamp: block.header.timestamp.timestamp(),
-                    is_reward_only: true,
-                    strategy: None, // Regular block production doesn't use foolproof strategies
-                };
-
-                self.block_consensus.store_proposal(proposal.clone()).await;
-
-                // Leader auto-votes on their own proposal
-                let leader_vote = time_consensus::block_consensus::BlockVote {
-                    block_height: block_num,
-                    block_hash: block.hash.clone(),
-                    voter: my_id.clone(),
-                    approve: true,
-                    timestamp: chrono::Utc::now().timestamp(),
-                };
-                if let Err(e) = self
-                    .block_consensus
-                    .vote_on_block(leader_vote.clone())
-                    .await
-                {
-                    println!("   ⚠️  Leader failed to record own vote: {}", e);
-                } else {
-                    println!("   ✓ Leader auto-voted APPROVE");
-                }
-
-                let proposal_json = serde_json::to_value(&proposal).unwrap();
-                self.peer_manager
-                    .broadcast_block_proposal(proposal_json)
-                    .await;
-
-                // Also broadcast leader's vote
-                let vote_json = serde_json::to_value(&leader_vote).unwrap();
-                self.peer_manager.broadcast_block_vote(vote_json).await;
-
-                println!("   📡 Reward-only proposal and vote broadcast");
-
-                // Give peers time to receive and process proposal (2 second buffer)
-                println!("   ⏳ Waiting 2s for peers to receive proposal...");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-
-                println!(
-                    "   ▶️ Collecting votes (need {}/{})...",
-                    required_votes,
-                    masternodes.len()
-                );
-
-                // Collect votes for reward-only block
-                let (approved, total) = self
-                    .block_consensus
-                    .collect_votes_with_timeout(block_num, required_votes, 60)
-                    .await;
-
-                println!("   🗳️  Votes: {}/{}", approved, total);
-
-                if approved >= required_votes {
-                    println!("   ✔ Quorum reached! Finalizing reward-only block...");
-
-                    // Apply the deterministic block
-                    let mut blockchain_write = self.blockchain.write().await;
-                    match blockchain_write.add_block(block.clone()) {
-                        Ok(_) => {
-                            println!("   ✅ Reward-only block {} finalized", block_num);
-                            // Broadcast to peers
-                            drop(blockchain_write);
-                            self.broadcast_finalized_block(&block, &masternodes).await;
-                        }
-                        Err(e) => {
-                            println!("   ❌ Failed to finalize reward-only block: {:?}", e);
-                        }
-                    }
-                } else {
-                    println!("   ❌ FAILED: Insufficient votes ({}/{})", approved, total);
-                }
-
-                return;
-            }
-
-            // Regular path: mempool has transactions
-            println!("   📋 {} mempool transactions", transactions.len());
-
-            let total_fees = self.calculate_total_fees(&transactions).await;
-
-            if total_fees > 0 {
-                println!(
-                    "   💵 Total transaction fees: {} satoshis ({} TIME)",
-                    total_fees,
-                    total_fees as f64 / 100_000_000.0
-                );
-            }
-
-            // Log masternode reward distribution
-            if !active_masternodes.is_empty() {
-                println!(
-                    "   💰 Distributing rewards to {} masternodes:",
-                    active_masternodes.len()
-                );
-
-                // Calculate what each tier will receive
-                let total_pool =
-                    time_core::block::calculate_total_masternode_reward(&masternode_counts);
-                let total_weight = masternode_counts.total_weight();
-                let per_weight = if total_weight > 0 {
-                    total_pool / total_weight
-                } else {
-                    0
-                };
-
-                println!(
-                    "      Total reward pool: {} satoshis ({} TIME)",
-                    total_pool,
-                    total_pool / 100_000_000
-                );
-                println!("      Total weight: {}", total_weight);
-                println!("      Per weight unit: {} satoshis", per_weight);
-
-                // Show breakdown by tier
-                let mut tier_summary: std::collections::HashMap<
-                    time_core::MasternodeTier,
-                    (usize, u64),
-                > = std::collections::HashMap::new();
-
-                for (wallet_addr, tier) in &active_masternodes {
-                    let reward = per_weight * tier.weight();
-                    let entry = tier_summary.entry(*tier).or_insert((0, 0));
-                    entry.0 += 1;
-                    entry.1 += reward;
-
-                    println!(
-                        "      - {:?} tier ({} weight): {} → {} satoshis ({:.2} TIME)",
-                        tier,
-                        tier.weight(),
-                        if wallet_addr.len() >= 20 {
-                            &wallet_addr[..20]
-                        } else {
-                            wallet_addr.as_str()
-                        },
-                        reward,
-                        reward as f64 / 100_000_000.0
-                    );
-                }
-
-                println!("   📊 Reward Summary:");
-                for (tier, (count, total_reward)) in tier_summary.iter() {
-                    println!(
-                        "      {:?}: {} nodes, {} satoshis total ({:.2} TIME each)",
-                        tier,
-                        count,
-                        total_reward,
-                        (*total_reward as f64 / *count as f64) / 100_000_000.0
-                    );
-                }
-            } else {
-                println!("   ⚠️  No active masternodes registered for rewards");
-            }
-
-            let block_timestamp = now.timestamp();
-            let coinbase_tx = time_core::block::create_coinbase_transaction(
-                block_num,
-                &active_masternodes,
-                &masternode_counts,
-                total_fees,
-                block_timestamp,
-            );
-
-            let mut all_transactions = vec![coinbase_tx];
-            let mempool_count = transactions.len();
-            all_transactions.extend(transactions);
-
-            self.log_coinbase_info(&all_transactions, mempool_count);
-
-            let merkle_root = self.calc_merkle(&all_transactions);
-            let block_hash = self.calculate_block_hash(
-                block_num,
-                &now,
-                &previous_hash,
-                &merkle_root,
-                &my_id,
-                &masternode_counts,
-            );
-
-            let proposal = time_consensus::block_consensus::BlockProposal {
-                block_height: block_num,
-                proposer: my_id.clone(),
-                block_hash: block_hash.clone(),
-                merkle_root: merkle_root.clone(),
-                previous_hash: previous_hash.clone(),
-                timestamp: now.timestamp(),
-                is_reward_only: false,
-                strategy: None, // Regular block production doesn't use foolproof strategies
-            };
-
-            self.block_consensus.store_proposal(proposal.clone()).await;
-
-            // Leader auto-votes on their own proposal
-            let leader_vote = time_consensus::block_consensus::BlockVote {
-                block_height: block_num,
-                block_hash: block_hash.clone(),
-                voter: my_id.clone(),
-                approve: true,
-                timestamp: chrono::Utc::now().timestamp(),
-            };
-            if let Err(e) = self
-                .block_consensus
-                .vote_on_block(leader_vote.clone())
-                .await
-            {
-                println!("   ⚠️  Leader failed to record own vote: {}", e);
-            } else {
-                println!("   ✓ Leader auto-voted APPROVE");
-            }
-
-            let proposal_json = serde_json::to_value(&proposal).unwrap();
-            self.peer_manager
-                .broadcast_block_proposal(proposal_json)
+        // Handle approved treasury proposals
+        if let Some(proposal_manager) = self.consensus.proposal_manager() {
+            let masternode_count = self.consensus.masternode_count().await;
+            let approved_proposals = proposal_manager
+                .get_approved_pending(masternode_count)
                 .await;
 
-            // Also broadcast leader's vote
-            let vote_json = serde_json::to_value(&leader_vote).unwrap();
-            self.peer_manager.broadcast_block_vote(vote_json).await;
+            if !approved_proposals.is_empty() {
+                println!(
+                    "   💰 Processing {} approved proposal(s)",
+                    approved_proposals.len()
+                );
 
-            println!("   📡 Proposal and vote broadcast");
+                for proposal in approved_proposals {
+                    let grant_tx = Transaction {
+                        txid: format!("treasury_grant_{}", proposal.id),
+                        version: 1,
+                        inputs: vec![],
+                        outputs: vec![TxOutput::new(proposal.amount, proposal.recipient.clone())],
+                        lock_time: 0,
+                        timestamp: now.timestamp(),
+                    };
 
-            // Give peers time to receive and process proposal (2 second buffer)
-            println!("   ⏳ Waiting 2s for peers to receive proposal...");
-            tokio::time::sleep(Duration::from_secs(2)).await;
+                    println!(
+                        "      ✓ Grant: {} TIME to {}",
+                        proposal.amount as f64 / 100_000_000.0,
+                        proposal.recipient
+                    );
+                    transactions.push(grant_tx);
 
-            println!(
-                "   ▶️ Collecting votes (need {}/{})...",
-                required_votes,
-                masternodes.len()
-            );
+                    let _ = proposal_manager
+                        .mark_executed(&proposal.id, format!("treasury_grant_{}", proposal.id))
+                        .await;
+                }
+            }
+        }
 
-            self.collect_and_finalize_votes(
-                &all_transactions,
-                &previous_hash,
-                &merkle_root,
-                block_num,
-                required_votes,
-                &masternodes,
-                &proposal,
-            )
-            .await;
+        // Use deterministic timestamp based on mode
+        let timestamp = if IS_TESTING_MODE {
+            // Testing: round to 10-minute interval
+            let current_seconds = now.timestamp();
+            let interval_timestamp =
+                (current_seconds / BLOCK_INTERVAL_SECONDS as i64) * BLOCK_INTERVAL_SECONDS as i64;
+            Utc.timestamp_opt(interval_timestamp, 0).unwrap()
         } else {
-            println!(
-                "   ℹ️  Producer: {}",
-                selected_producer.as_deref().unwrap_or("unknown")
-            );
-            println!("   ⏳ Waiting for proposal...");
+            // Production: midnight UTC
+            now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+        };
 
-            if let Some(proposal) = self.block_consensus.wait_for_proposal(block_num).await {
-                println!("   📨 Received from {}", proposal.proposer);
+        println!("   📡 Running deterministic consensus...");
 
-                let blockchain = self.blockchain.read().await;
-                let chain_tip_hash = blockchain.chain_tip_hash().to_string();
-                let chain_tip_height = blockchain.chain_tip_height();
-                let masternode_counts = blockchain.masternode_counts().clone();
-                let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
-                    .get_active_masternodes()
-                    .iter()
-                    .map(|mn| (mn.wallet_address.clone(), mn.tier))
-                    .collect();
+        // Calculate total fees
+        let total_fees = self.calculate_total_fees(&transactions).await;
+
+        // Run deterministic consensus
+        match self
+            .deterministic
+            .run_consensus(block_num, timestamp, &masternodes, transactions, total_fees)
+            .await
+        {
+            ConsensusResult::Consensus(block) => {
+                println!("   ✅ CONSENSUS REACHED - Block finalized!");
+                self.finalize_and_broadcast_block(block).await;
+            }
+            ConsensusResult::NeedsReconciliation {
+                our_block,
+                peer_blocks,
+                differences,
+            } => {
+                println!("   ⚠️  Block differences detected - reconciling...");
+
+                if let Some(reconciled_block) = self
+                    .deterministic
+                    .reconcile_and_finalize(
+                        block_num,
+                        timestamp,
+                        our_block,
+                        peer_blocks,
+                        differences,
+                    )
+                    .await
+                {
+                    println!("   ✅ Reconciliation successful!");
+                    self.finalize_and_broadcast_block(reconciled_block).await;
+                } else {
+                    println!("   ❌ Reconciliation failed - will retry next block");
+                }
+            }
+            ConsensusResult::InsufficientPeers => {
+                println!("   ⚠️  Insufficient peers - creating block locally");
+                // In single-node or bootstrap scenarios, proceed anyway
+            }
+        }
+    }
+
+    /// Finalize and broadcast a block to the network
+    async fn finalize_and_broadcast_block(&self, block: Block) {
+        let block_num = block.header.block_number;
+
+        // Add block to blockchain
+        let mut blockchain = self.blockchain.write().await;
+        match blockchain.add_block(block.clone()) {
+            Ok(_) => {
+                println!("   💾 Block {} added to blockchain", block_num);
                 drop(blockchain);
 
-                let mut is_valid = self.block_consensus.validate_proposal(
-                    &proposal,
-                    &chain_tip_hash,
-                    chain_tip_height,
-                );
-
-                // Fast-path validation for reward-only blocks
-                if proposal.is_reward_only {
-                    println!("   🚀 Reward-only block - using fast-path validation");
-
-                    // Recreate the deterministic block locally
-                    let expected_block = time_core::block::create_reward_only_block(
-                        block_num,
-                        chain_tip_hash.clone(),
-                        proposal.proposer.clone(),
-                        &active_masternodes,
-                        &masternode_counts,
-                    );
-
-                    // Verify the block hash matches
-                    if expected_block.hash == proposal.block_hash {
-                        println!("   ✅ Reward-only block verified - auto-approving");
-                        is_valid = true;
-                    } else {
-                        println!("   ❌ Reward-only block mismatch - rejecting");
-                        println!("      Expected hash: {}", expected_block.hash);
-                        println!("      Received hash: {}", proposal.block_hash);
-                        is_valid = false;
+                // Clear processed transactions from mempool
+                for tx in &block.transactions {
+                    if !tx.inputs.is_empty() {
+                        // Skip coinbase (first tx with no inputs)
+                        self.mempool.remove_transaction(&tx.txid).await;
                     }
                 }
 
-                let vote = time_consensus::block_consensus::BlockVote {
-                    block_height: block_num,
-                    block_hash: proposal.block_hash.clone(),
-                    voter: my_id.clone(),
-                    approve: is_valid,
-                    timestamp: Utc::now().timestamp(),
-                };
-
-                // Use vote_on_block() instead of store_vote() to ensure proper validation
-                if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
-                    println!("   ⚠️  Failed to record vote: {}", e);
-                }
-
-                let vote_json = serde_json::to_value(&vote).unwrap();
-                self.peer_manager.broadcast_block_vote(vote_json).await;
-
-                println!(
-                    "   {} Voted {}",
-                    if is_valid { "✓" } else { "✗" },
-                    if is_valid { "APPROVE" } else { "REJECT" }
-                );
-
-                let (approved, _total) = self
-                    .block_consensus
-                    .collect_votes(block_num, required_votes)
-                    .await;
-
-                if approved >= required_votes {
-                    // For reward-only blocks, we can recreate locally instead of fetching
-                    if proposal.is_reward_only {
-                        println!("   ✅ Reward-only block approved - applying locally...");
-
-                        let reward_block = time_core::block::create_reward_only_block(
-                            block_num,
-                            chain_tip_hash,
-                            proposal.proposer.clone(),
-                            &active_masternodes,
-                            &masternode_counts,
-                        );
-
-                        let mut blockchain = self.blockchain.write().await;
-                        match blockchain.add_block(reward_block) {
-                            Ok(_) => {
-                                println!("   ✅ Reward-only block {} applied locally", block_num);
-
-                                // Save UTXO snapshot to persist state
-                                if let Err(e) = blockchain.save_utxo_snapshot() {
-                                    println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
-                                } else {
-                                    println!("   💾 UTXO snapshot saved");
-                                }
-                            }
-                            Err(e) => {
-                                println!("   ⚠️  Failed to apply reward-only block: {:?}", e);
-                            }
-                        }
-                    } else {
-                        println!("   ✅ Block approved - fetching finalized block...");
-
-                        // Actively fetch the finalized block from producer
-                        if let Some(producer_id) = selected_producer {
-                            if let Some(block) = self
-                                .fetch_finalized_block(
-                                    &producer_id,
-                                    block_num,
-                                    &proposal.merkle_root,
-                                )
-                                .await
-                            {
-                                // Apply the finalized block
-                                let mut blockchain = self.blockchain.write().await;
-                                match blockchain.add_block(block) {
-                                    Ok(_) => {
-                                        println!("   ✅ Block {} applied from producer", block_num);
-
-                                        // Save UTXO snapshot to persist state
-                                        if let Err(e) = blockchain.save_utxo_snapshot() {
-                                            println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
-                                        } else {
-                                            println!("   💾 UTXO snapshot saved");
-                                        }
-                                    }
-                                    Err(e) => {
-                                        println!("   ⚠️  Failed to apply fetched block: {:?}", e);
-                                        println!("   ⏳ Falling back to catch-up...");
-                                    }
-                                }
-                            } else {
-                                println!("   ⚠️  Failed to fetch block, falling back to catch-up");
-                            }
-                        }
-                    }
-                } else {
-                    println!("   ✗ Block rejected");
-                }
-            } else {
-                println!("   ⚠️  Timeout");
+                // Broadcast via UpdateTip message
+                let masternodes = self.consensus.get_masternodes().await;
+                self.broadcast_finalized_block(&block, &masternodes).await;
+            }
+            Err(e) => {
+                println!("   ❌ Failed to add block {}: {:?}", block_num, e);
             }
         }
     }
 
-    fn calc_merkle(&self, transactions: &[time_core::Transaction]) -> String {
-        if transactions.is_empty() {
-            return "0".repeat(64);
-        }
-
-        use sha3::{Digest, Sha3_256};
-
-        // Build proper merkle tree (matching Block::calculate_merkle_root in core/src/block.rs)
-        let mut hashes: Vec<String> = transactions.iter().map(|tx| tx.txid.clone()).collect();
-
-        // Build merkle tree iteratively
-        while hashes.len() > 1 {
-            let mut next_level = Vec::new();
-
-            for i in (0..hashes.len()).step_by(2) {
-                let left = &hashes[i];
-                let right = if i + 1 < hashes.len() {
-                    &hashes[i + 1]
-                } else {
-                    left // Duplicate if odd number
-                };
-
-                let combined = format!("{}{}", left, right);
-                let hash = Sha3_256::digest(combined.as_bytes());
-                next_level.push(hex::encode(hash));
-            }
-
-            hashes = next_level;
-        }
-
-        hashes[0].clone()
-    }
-
-    /// Broadcast finalized block to peers via TCP UpdateTip message
     async fn broadcast_finalized_block(
         &self,
         block: &time_core::block::Block,
@@ -1468,6 +1118,7 @@ impl BlockProducer {
     }
 
     /// Attempt to fetch finalized block from producer with retries
+    #[allow(dead_code)]
     async fn fetch_finalized_block(
         &self,
         producer: &str,
@@ -1506,6 +1157,7 @@ impl BlockProducer {
         }
     }
 
+    #[allow(dead_code)]
     async fn finalize_block_bft(
         &self,
         transactions: &[time_core::Transaction],
@@ -1627,6 +1279,7 @@ impl BlockProducer {
         total_fees
     }
 
+    #[allow(dead_code)]
     fn log_coinbase_info(&self, all_transactions: &[Transaction], mempool_count: usize) {
         if mempool_count == 0 {
             println!("   📦 Block will contain ONLY coinbase transaction (zero regular txs)");
@@ -1649,6 +1302,7 @@ impl BlockProducer {
         );
     }
 
+    #[allow(dead_code)]
     fn calculate_block_hash(
         &self,
         block_num: u64,
@@ -1689,6 +1343,7 @@ impl BlockProducer {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code)]
     async fn collect_and_finalize_votes(
         &self,
         all_transactions: &[Transaction],
@@ -1931,7 +1586,10 @@ impl BlockProducer {
                 .create_catchup_block_structure(block_num, timestamp)
                 .await;
 
-            println!("      ✓ Block created: {}...", truncate_str(&block.hash, 16));
+            println!(
+                "      ✓ Block created: {}...",
+                truncate_str(&block.hash, 16)
+            );
 
             let proposal = BlockProposal {
                 block_height: block_num,
@@ -1971,7 +1629,10 @@ impl BlockProducer {
             if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
                 println!("      ⚠️  Failed to record vote: {}", e);
             } else {
-                println!("      ✓ Voted APPROVE on block {}", truncate_str(&block.hash, 16));
+                println!(
+                    "      ✓ Voted APPROVE on block {}",
+                    truncate_str(&block.hash, 16)
+                );
             }
 
             // Broadcast vote via TCP

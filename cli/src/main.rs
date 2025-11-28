@@ -13,6 +13,7 @@ use serde::Deserialize;
 mod bft_consensus;
 mod block_producer;
 mod chain_sync;
+mod deterministic_consensus;
 use block_producer::BlockProducer;
 use chain_sync::ChainSync;
 
@@ -36,7 +37,6 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
         &s[..max_len]
     }
 }
-
 
 use tokio::time;
 
@@ -324,7 +324,11 @@ async fn sync_finalized_transactions_from_peers(
                             println!("      ✓ Applied tx {}", truncate_str(&tx.txid, 16));
                         }
                         Err(e) => {
-                            println!("      ⚠️  Skipped tx {} ({})", truncate_str(&tx.txid, 16), e);
+                            println!(
+                                "      ⚠️  Skipped tx {} ({})",
+                                truncate_str(&tx.txid, 16),
+                                e
+                            );
                         }
                     }
                 }
@@ -910,8 +914,11 @@ async fn main() {
                         Ok(genesis_hash) => {
                             println!(
                                 "{}",
-                                format!("✅ Genesis block loaded: {}...", truncate_str(&genesis_hash, 16))
-                                    .green()
+                                format!(
+                                    "✅ Genesis block loaded: {}...",
+                                    truncate_str(&genesis_hash, 16)
+                                )
+                                .green()
                             );
                         }
                         Err(e) => {

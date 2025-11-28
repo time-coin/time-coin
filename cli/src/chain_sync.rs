@@ -122,6 +122,7 @@ impl ChainSync {
         // Never skip sync if we don't have genesis - critical for bootstrapping
         let blockchain = self.blockchain.read().await;
         let has_genesis = !blockchain.genesis_hash().is_empty();
+        let our_height = blockchain.chain_tip_height();
         drop(blockchain);
 
         if !has_genesis {
@@ -132,18 +133,30 @@ impl ChainSync {
             return false;
         }
 
-        // We're in the midnight window
+        // We're in the midnight window - but ONLY skip if we're actually caught up
+        // Check if we might be behind the network
+        let peer_heights = self.query_peer_heights().await;
+        if !peer_heights.is_empty() {
+            let max_peer_height = peer_heights.iter().map(|(_, h, _)| h).max().unwrap_or(&0);
+            if *max_peer_height > our_height {
+                // We're behind - DO NOT skip sync
+                println!("   ℹ️  In midnight window but behind network (our: {}, peer: {}) - syncing anyway", our_height, max_peer_height);
+                return false;
+            }
+        }
+
+        // We're in the midnight window and caught up
         if let Some(config) = &self.midnight_config {
             if config.check_consensus {
                 // Check if consensus (block producer) is actively running
                 let is_active = *self.is_block_producer_active.read().await;
                 if is_active {
-                    println!("   ⏸️  Skipping sync: in midnight window and consensus is active");
+                    println!("   ⏸️  Skipping sync: in midnight window, caught up, and consensus is active");
                     return true;
                 }
             } else {
                 // Just skip during midnight window without checking consensus
-                println!("   ⏸️  Skipping sync: in midnight window");
+                println!("   ⏸️  Skipping sync: in midnight window and caught up");
                 return true;
             }
         }

@@ -1013,7 +1013,10 @@ pub mod block_consensus {
             drop(masternodes);
 
             // Check for duplicate vote BEFORE adding
-            if self.has_voted(&vote.voter, vote.block_height, &vote.block_hash).await {
+            if self
+                .has_voted(&vote.voter, vote.block_height, &vote.block_hash)
+                .await
+            {
                 // Silently ignore duplicate votes
                 return Ok(());
             }
