@@ -726,23 +726,14 @@ impl BlockProducer {
             }
         }
 
-        // Check if anyone is significantly behind
+        // Log peer status but don't block - BFT consensus handles this
         let min_height = peer_heights.iter().map(|(_, h)| *h).min().unwrap_or(0);
         if min_height + 1 < start_from_height {
             println!(
-                "   ⚠️  Cannot create blocks - some masternodes don't have required base blocks"
+                "   ℹ️  Some peers are behind (lowest: {}, we're at: {})",
+                min_height, our_height
             );
-            println!(
-                "      We're at height {}, but lowest peer is at height {}",
-                our_height, min_height
-            );
-            println!(
-                "      All peers must have block {} before we can create block {}",
-                start_from_height - 1,
-                start_from_height
-            );
-            println!("   ℹ️  Waiting for peers to sync genesis/base blocks first...");
-            return;
+            println!("   ℹ️  Proceeding with BFT consensus - behind peers will catch up");
         }
 
         // Create catch-up blocks
