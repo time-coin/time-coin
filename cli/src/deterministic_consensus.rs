@@ -189,12 +189,15 @@ impl DeterministicConsensus {
         let previous_hash = blockchain.chain_tip_hash().to_string();
         let masternode_counts = blockchain.masternode_counts().clone();
 
-        // Get active masternodes with tiers
-        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+        // Get active masternodes with tiers - MUST BE DETERMINISTICALLY SORTED
+        let mut active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_active_masternodes()
             .iter()
             .map(|mn| (mn.wallet_address.clone(), mn.tier))
             .collect();
+
+        // Sort by wallet address to ensure all nodes have same order
+        active_masternodes.sort_by(|a, b| a.0.cmp(&b.0));
 
         drop(blockchain);
 

@@ -845,9 +845,14 @@ impl BlockProducer {
                             break;
                         }
 
-                        // Skip auto-voting if this is our own proposal (we already voted)
-                        if proposal.proposer == self.node_id {
-                            println!("   ℹ️  Skipping auto-vote (our own proposal)");
+                        // Check if we already voted on this exact block
+                        let already_voted = self
+                            .block_consensus
+                            .has_voted(&self.node_id, block_num, &proposal.block_hash)
+                            .await;
+
+                        if already_voted {
+                            println!("   ℹ️  Skipping auto-vote (already voted)");
                         } else {
                             // Auto-vote on the proposal to help reach consensus
                             println!("   🗳️  Auto-voting APPROVE to help consensus...");
