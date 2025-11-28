@@ -1651,7 +1651,7 @@ impl BlockProducer {
 
                 if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
                     // Check consensus (need 2/3+ votes)
-                    let required_votes = ((masternodes.len() * 2) / 3) + 1;
+                    let required_votes = (masternodes.len() * 2).div_ceil(3);
                     let (has_consensus, approvals, _total) = self
                         .block_consensus
                         .has_block_consensus(block_num, &proposal.block_hash)
@@ -1710,7 +1710,7 @@ impl BlockProducer {
             );
 
             if let Some(proposal) = self.block_consensus.get_proposal(block_num).await {
-                let required_votes = ((masternodes.len() * 2) / 3) + 1;
+                let required_votes = (masternodes.len() * 2).div_ceil(3);
                 let (_, approvals, _) = self
                     .block_consensus
                     .has_block_consensus(block_num, &proposal.block_hash)
