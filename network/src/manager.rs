@@ -1324,6 +1324,7 @@ impl PeerManager {
     }
 
     /// Send a message to a peer via TCP (if connection exists)
+    /// Automatically retries once if connection is broken
     pub async fn send_to_peer_tcp(
         &self,
         peer_ip: IpAddr,
