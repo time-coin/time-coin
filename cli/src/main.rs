@@ -1989,9 +1989,18 @@ async fn main() {
                                                 }
                                                 time_network::protocol::NetworkMessage::ConsensusBlockVote(vote_json) => {
                                                     // Parse and record block vote
-                                                    if let Ok(vote) = serde_json::from_str::<time_consensus::block_consensus::BlockVote>(&vote_json) {
-                                                        println!("🗳️  Received block vote from {} for block #{}", peer_ip_listen, vote.block_height);
-                                                        let _ = block_consensus_listen.vote_on_block(vote).await;
+                                                    match serde_json::from_str::<time_consensus::block_consensus::BlockVote>(&vote_json) {
+                                                        Ok(vote) => {
+                                                            println!("🗳️  Received block vote from {} for block #{} (hash: {}..., voter: {})", 
+                                                                peer_ip_listen, vote.block_height, truncate_str(&vote.block_hash, 16), vote.voter);
+                                                            match block_consensus_listen.vote_on_block(vote.clone()).await {
+                                                                Ok(_) => println!("   ✅ Vote recorded successfully"),
+                                                                Err(e) => println!("   ⚠️  Failed to record vote: {}", e),
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            println!("   ⚠️  Failed to parse vote from {}: {}", peer_ip_listen, e);
+                                                        }
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::InstantFinalityRequest(tx) => {

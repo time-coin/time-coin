@@ -1343,21 +1343,54 @@ impl PeerManager {
             crate::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json.clone());
 
         let peers = self.peers.read().await.clone();
+        let connections = self.connections.read().await;
+
+        println!("📤 Broadcasting proposal to {} peers", peers.len());
+        println!("   Available TCP connections: {}", connections.len());
+
+        let mut send_tasks = vec![];
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
+            let has_connection = connections.contains_key(&peer_ip);
+
+            println!("   Peer {}: connection={}", peer_ip, has_connection);
+
+            if !has_connection {
+                println!("   ⚠️  No TCP connection to peer {}", peer_ip);
+                continue;
+            }
+
             let msg_clone = message.clone();
             let manager_clone = self.clone();
 
-            tokio::spawn(async move {
-                // Send via TCP
-                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
-                    debug!(peer = %peer_ip, error = %e, "Failed to send block proposal via TCP");
-                } else {
-                    debug!(peer = %peer_ip, "Sent block proposal via TCP");
+            let task = tokio::spawn(async move {
+                match manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                    Ok(_) => {
+                        println!("   ✓ Proposal sent to {}", peer_ip);
+                        true
+                    }
+                    Err(e) => {
+                        println!("   ✗ Failed to send proposal to {}: {}", peer_ip, e);
+                        false
+                    }
                 }
             });
+
+            send_tasks.push(task);
         }
+
+        // Wait for all sends to complete
+        let results = futures::future::join_all(send_tasks).await;
+        let successful = results
+            .iter()
+            .filter(|r| r.as_ref().ok() == Some(&true))
+            .count();
+        println!(
+            "   📊 Proposal broadcast: {} successful, {} failed",
+            successful,
+            results.len() - successful
+        );
     }
 
     pub async fn broadcast_block_vote(&self, vote: serde_json::Value) {
@@ -1367,36 +1400,52 @@ impl PeerManager {
         let peers = self.peers.read().await.clone();
         let connections = self.connections.read().await;
 
-        tracing::info!("Broadcasting vote to {} peers", peers.len());
-        tracing::debug!(
-            "Available connections: {:?}",
-            connections.keys().collect::<Vec<_>>()
-        );
+        println!("📤 Broadcasting vote to {} peers", peers.len());
+        println!("   Available TCP connections: {}", connections.len());
+
+        let mut send_tasks = vec![];
 
         for (_key, peer_info) in peers {
             let peer_ip = peer_info.address.ip();
             let has_connection = connections.contains_key(&peer_ip);
 
+            println!("   Peer {}: connection={}", peer_ip, has_connection);
+
             if !has_connection {
-                tracing::warn!(
-                    "No connection for peer {} (address in peer list: {})",
-                    peer_ip,
-                    peer_info.address
-                );
+                println!("   ⚠️  No TCP connection to peer {}", peer_ip);
+                continue;
             }
 
             let msg_clone = message.clone();
             let manager_clone = self.clone();
 
-            tokio::spawn(async move {
-                // Send via TCP
-                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
-                    warn!(peer = %peer_ip, error = %e, "Failed to send block vote via TCP");
-                } else {
-                    debug!(peer = %peer_ip, "Sent block vote via TCP");
+            let task = tokio::spawn(async move {
+                match manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                    Ok(_) => {
+                        println!("   ✓ Vote sent to {}", peer_ip);
+                        true
+                    }
+                    Err(e) => {
+                        println!("   ✗ Failed to send vote to {}: {}", peer_ip, e);
+                        false
+                    }
                 }
             });
+
+            send_tasks.push(task);
         }
+
+        // Wait for all sends to complete
+        let results = futures::future::join_all(send_tasks).await;
+        let successful = results
+            .iter()
+            .filter(|r| r.as_ref().ok() == Some(&true))
+            .count();
+        println!(
+            "   📊 Vote broadcast: {} successful, {} failed",
+            successful,
+            results.len() - successful
+        );
     }
 
     /// Broadcast a newly connected peer to all other connected peers
