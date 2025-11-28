@@ -116,12 +116,12 @@ impl DeterministicConsensus {
             )
             .await;
 
-        println!("   ✓ Created local block: {}...", &our_block.hash[..16]);
-        println!("      Transactions: {}", our_block.transactions.len());
         println!(
-            "      Merkle root: {}...",
-            &our_block.header.merkle_root[..16]
+            "   ✓ Created local block: {}...",
+            &our_block.hash[..our_block.hash.len().min(16)]
         );
+        println!("      Transactions: {}", our_block.transactions.len());
+        println!("      Merkle root: {}", &our_block.header.merkle_root);
 
         // Step 2: Request blocks from all peers
         let peer_ips = self.peer_manager.get_peer_ips().await;
@@ -361,7 +361,12 @@ impl DeterministicConsensus {
                 differences.transaction_mismatches.len()
             );
             for mismatch in &differences.transaction_mismatches {
-                println!("         • {}...", &mismatch.tx_hash[..16]);
+                let tx_hash_display = if mismatch.tx_hash.len() > 16 {
+                    format!("{}...", &mismatch.tx_hash[..16])
+                } else {
+                    mismatch.tx_hash.clone()
+                };
+                println!("         • {}", tx_hash_display);
                 println!("           Present on: {:?}", mismatch.present_on);
                 println!("           Missing on: {:?}", mismatch.missing_on);
             }
@@ -420,7 +425,14 @@ impl DeterministicConsensus {
             )
             .await;
 
-        println!("   ✓ Reconciled block: {}...", &reconciled_block.hash[..16]);
+        println!(
+            "   ✓ Reconciled block: {}",
+            if reconciled_block.hash.len() > 16 {
+                format!("{}...", &reconciled_block.hash[..16])
+            } else {
+                reconciled_block.hash.clone()
+            }
+        );
 
         // Step 4: Verify reconciled block with peers
         // (In production, we'd do another round of comparison here)
