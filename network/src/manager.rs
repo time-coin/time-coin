@@ -959,7 +959,7 @@ impl PeerManager {
     }
 
     /// Remove a dead connection from both connections and peers maps
-    async fn remove_dead_connection(&self, peer_ip: IpAddr) {
+    pub async fn remove_dead_connection(&self, peer_ip: IpAddr) {
         // Remove from connections
         let mut connections = self.connections.write().await;
         connections.remove(&peer_ip);

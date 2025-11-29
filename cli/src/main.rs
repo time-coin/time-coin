@@ -1883,9 +1883,15 @@ async fn main() {
                                                     match conn.send_message(response).await {
                                                         Ok(_) => {
                                                             println!("✅ Sent BlockchainInfo (height {:?}) to {}", height, peer_ip_listen);
+                                                            // CRITICAL FIX: Mark peer as seen after successful response
+                                                            drop(conn);
+                                                            peer_manager_listen.peer_seen(peer_ip_listen).await;
                                                         }
                                                         Err(e) => {
                                                             println!("❌ Failed to send BlockchainInfo to {}: {:?}", peer_ip_listen, e);
+                                                            // Remove dead connection
+                                                            drop(conn);
+                                                            peer_manager_listen.remove_dead_connection(peer_ip_listen).await;
                                                         }
                                                     }
                                                 }
@@ -1896,10 +1902,17 @@ async fn main() {
                                                     let response = time_network::protocol::NetworkMessage::MempoolResponse(transactions);
 
                                                     let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent {} mempool transactions to {}", mempool_listen.size().await, peer_ip_listen);
-                                                    } else {
-                                                        println!("❌ Failed to send mempool response to {}", peer_ip_listen);
+                                                    match conn.send_message(response).await {
+                                                        Ok(_) => {
+                                                            println!("✅ Sent {} mempool transactions to {}", mempool_listen.size().await, peer_ip_listen);
+                                                            drop(conn);
+                                                            peer_manager_listen.peer_seen(peer_ip_listen).await;
+                                                        }
+                                                        Err(e) => {
+                                                            println!("❌ Failed to send mempool response to {}: {:?}", peer_ip_listen, e);
+                                                            drop(conn);
+                                                            peer_manager_listen.remove_dead_connection(peer_ip_listen).await;
+                                                        }
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::RequestFinalizedTransactions { since_timestamp } => {
@@ -1934,10 +1947,17 @@ async fn main() {
                                                     };
 
                                                     let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent {} finalized transactions to {}", finalized_txs.len(), peer_ip_listen);
-                                                    } else {
-                                                        println!("❌ Failed to send finalized transactions response to {}", peer_ip_listen);
+                                                    match conn.send_message(response).await {
+                                                        Ok(_) => {
+                                                            println!("✅ Sent {} finalized transactions to {}", finalized_txs.len(), peer_ip_listen);
+                                                            drop(conn);
+                                                            peer_manager_listen.peer_seen(peer_ip_listen).await;
+                                                        }
+                                                        Err(e) => {
+                                                            println!("❌ Failed to send finalized transactions response to {}: {:?}", peer_ip_listen, e);
+                                                            drop(conn);
+                                                            peer_manager_listen.remove_dead_connection(peer_ip_listen).await;
+                                                        }
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::GetBlocks { start_height, end_height } => {
@@ -1967,10 +1987,17 @@ async fn main() {
                                                     let response = time_network::protocol::NetworkMessage::Blocks { blocks: blocks.clone() };
 
                                                     let mut conn = conn_arc_clone.lock().await;
-                                                    if conn.send_message(response).await.is_ok() {
-                                                        println!("✅ Sent {} blocks to {}", blocks.len(), peer_ip_listen);
-                                                    } else {
-                                                        println!("❌ Failed to send blocks response to {}", peer_ip_listen);
+                                                    match conn.send_message(response).await {
+                                                        Ok(_) => {
+                                                            println!("✅ Sent {} blocks to {}", blocks.len(), peer_ip_listen);
+                                                            drop(conn);
+                                                            peer_manager_listen.peer_seen(peer_ip_listen).await;
+                                                        }
+                                                        Err(e) => {
+                                                            println!("❌ Failed to send blocks response to {}: {:?}", peer_ip_listen, e);
+                                                            drop(conn);
+                                                            peer_manager_listen.remove_dead_connection(peer_ip_listen).await;
+                                                        }
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json) => {
