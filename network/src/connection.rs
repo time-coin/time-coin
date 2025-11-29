@@ -419,11 +419,11 @@ impl PeerListener {
         // Strategy: Very frequent probes to keep NAT/firewall tables alive
         let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
 
-        // Extremely aggressive keepalive: probe every 5 seconds
-        // This prevents silent connection drops from firewalls/NAT
+        // Industry-standard keepalive: 60s idle, 30s probes
+        // Prevents firewall timeouts while avoiding aggressive probing
         let ka = socket2::TcpKeepalive::new()
-            .with_time(std::time::Duration::from_secs(5)) // First probe after 5s idle
-            .with_interval(std::time::Duration::from_secs(5)); // 5s between probes
+            .with_time(std::time::Duration::from_secs(60)) // First probe after 60s idle
+            .with_interval(std::time::Duration::from_secs(30)); // 30s between probes
 
         if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
             eprintln!(
