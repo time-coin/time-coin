@@ -61,8 +61,7 @@ impl PeerManager {
             wallet_subscriptions: Arc::new(RwLock::new(HashMap::new())),
         };
 
-        // TEMPORARY: Disable reaper for debugging
-        // manager.spawn_reaper();
+        manager.spawn_reaper();
         manager.spawn_reconnection_task();
         manager.spawn_broadcast_cleanup_task();
         manager
