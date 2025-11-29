@@ -361,14 +361,15 @@ impl PeerManager {
     /// Return a vector of active PeerInfo entries (live connections).
     /// Only returns peers that have an active TCP connection stored.
     pub async fn get_connected_peers(&self) -> Vec<PeerInfo> {
-        let peers = self.peers.read().await;
+        // Optimized: Get locks sequentially and minimize hold time
         let connections = self.connections.read().await;
+        let connected_ips: Vec<IpAddr> = connections.keys().copied().collect();
+        drop(connections); // Release lock early
 
-        // Only return peers that have an active connection
-        peers
+        let peers = self.peers.read().await;
+        connected_ips
             .iter()
-            .filter(|(ip, _)| connections.contains_key(ip))
-            .map(|(_, peer_info)| peer_info.clone())
+            .filter_map(|ip| peers.get(ip).cloned())
             .collect()
     }
 
