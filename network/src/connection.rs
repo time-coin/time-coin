@@ -38,16 +38,11 @@ impl PeerConnection {
         // Strategy: Send probes frequently to keep connection alive
         let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
 
-        #[cfg(not(windows))]
+        // Note: with_retries() is only available in socket2 >= 0.5.0
+        // For older versions, OS defaults will be used (typically 9 probes)
         let ka = socket2::TcpKeepalive::new()
             .with_time(std::time::Duration::from_secs(15)) // First probe after 15s idle
-            .with_interval(std::time::Duration::from_secs(15)) // 15s between probes
-            .with_retries(3); // 3 retries = 45s total before declaring dead
-
-        #[cfg(windows)]
-        let ka = socket2::TcpKeepalive::new()
-            .with_time(std::time::Duration::from_secs(15)) // First probe after 15s idle
-            .with_interval(std::time::Duration::from_secs(15)); // 15s between probes (retries not supported on Windows)
+            .with_interval(std::time::Duration::from_secs(15)); // 15s between probes
 
         if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
             eprintln!("⚠️  Failed to set TCP keep-alive: {}", e);
@@ -389,16 +384,11 @@ impl PeerListener {
         // Strategy: Send probes frequently to keep connection alive
         let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
 
-        #[cfg(not(windows))]
+        // Note: with_retries() is only available in socket2 >= 0.5.0
+        // For older versions, OS defaults will be used (typically 9 probes)
         let ka = socket2::TcpKeepalive::new()
             .with_time(std::time::Duration::from_secs(15)) // First probe after 15s idle
-            .with_interval(std::time::Duration::from_secs(15)) // 15s between probes
-            .with_retries(3); // 3 retries = 45s total before declaring dead
-
-        #[cfg(windows)]
-        let ka = socket2::TcpKeepalive::new()
-            .with_time(std::time::Duration::from_secs(15)) // First probe after 15s idle
-            .with_interval(std::time::Duration::from_secs(15)); // 15s between probes (retries not supported on Windows)
+            .with_interval(std::time::Duration::from_secs(15)); // 15s between probes
 
         if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
             eprintln!(
