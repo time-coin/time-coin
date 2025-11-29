@@ -272,8 +272,9 @@ impl DeterministicConsensus {
             let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
             // Try to get the block from this peer
+            // Use longer timeout (20s) since peer might be busy creating their own block
             match tokio::time::timeout(
-                tokio::time::Duration::from_secs(5),
+                tokio::time::Duration::from_secs(20),
                 self.peer_manager
                     .request_block_by_height(&peer_addr, block_num),
             )
