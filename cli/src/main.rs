@@ -2154,10 +2154,10 @@ async fn main() {
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-    // Periodic peer discovery refresh
+    // Periodic peer discovery refresh (every 30 minutes to reduce API load)
     let discovery_refresh = discovery.clone();
     tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(300));
+        let mut interval = time::interval(Duration::from_secs(1800)); // 30 minutes
         interval.tick().await; // Skip first immediate tick
         loop {
             interval.tick().await;
