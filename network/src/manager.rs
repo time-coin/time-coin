@@ -68,6 +68,11 @@ impl PeerManager {
         manager
     }
 
+    /// Get our public IP address
+    pub async fn get_public_ip(&self) -> String {
+        self.public_addr.ip().to_string()
+    }
+
     /// Mark that we have recent evidence the peer is alive.
     /// Call this when you receive a heartbeat/pong, upon successful connect, or
     /// periodically while a connection's keep-alive is running.

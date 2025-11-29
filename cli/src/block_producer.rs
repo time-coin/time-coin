@@ -1071,7 +1071,15 @@ impl BlockProducer {
             height
         );
 
+        // Get our own IP to skip self-broadcast
+        let our_ip = self.peer_manager.get_public_ip().await;
+
         for node_ip in masternodes {
+            // Skip broadcasting to ourselves
+            if *node_ip == our_ip {
+                continue;
+            }
+
             let peer_manager = self.peer_manager.clone();
             let node_ip_owned = node_ip.clone();
             let hash_clone = hash.clone();
