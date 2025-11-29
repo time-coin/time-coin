@@ -38,7 +38,7 @@ impl TransactionBroadcaster {
         }
     }
 
-    /// Broadcast a transaction to all peers via TCP
+    /// Broadcast a transaction to all peers via TCP - OPTIMIZED PARALLEL
     pub async fn broadcast_transaction(&self, tx: Transaction) {
         let peers = self.peer_manager.get_connected_peers().await;
         println!(
@@ -48,18 +48,43 @@ impl TransactionBroadcaster {
         );
 
         let message = NetworkMessage::TransactionBroadcast(tx);
+        let mut send_tasks = Vec::new();
 
+        // Launch all sends in parallel with timeout per send
         for peer_info in peers {
             let peer_addr = peer_info.address;
             let msg_clone = message.clone();
             let manager = self.peer_manager.clone();
 
-            tokio::spawn(async move {
-                if let Err(e) = manager.send_message_to_peer(peer_addr, msg_clone).await {
-                    debug!(peer = %peer_addr, error = %e, "Failed to send transaction");
+            let task = tokio::spawn(async move {
+                // 2 second timeout per peer to prevent blocking on slow peers
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(2),
+                    manager.send_message_to_peer(peer_addr, msg_clone),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => true,
+                    Ok(Err(e)) => {
+                        debug!(peer = %peer_addr, error = %e, "Failed to send transaction");
+                        false
+                    }
+                    Err(_) => {
+                        debug!(peer = %peer_addr, "Timeout sending transaction");
+                        false
+                    }
                 }
             });
+            send_tasks.push(task);
         }
+
+        // Wait for all sends to complete (or timeout)
+        let results = futures::future::join_all(send_tasks).await;
+        let success_count = results
+            .into_iter()
+            .filter(|r| matches!(r, Ok(true)))
+            .count();
+        debug!(success = success_count, "Transaction broadcast completed");
     }
 
     /// Sync mempool with a peer via TCP
@@ -83,7 +108,7 @@ impl TransactionBroadcaster {
         Ok(vec![])
     }
 
-    /// Broadcast transaction proposal via TCP
+    /// Broadcast transaction proposal via TCP - OPTIMIZED PARALLEL
     pub async fn broadcast_tx_proposal(&self, proposal: serde_json::Value) {
         let peers = self.peer_manager.get_connected_peers().await;
         let proposal_json = proposal.to_string();
@@ -94,36 +119,82 @@ impl TransactionBroadcaster {
             peers.len()
         );
 
+        let mut send_tasks = Vec::new();
+
         for peer_info in peers {
             let peer_ip = peer_info.address.ip();
             let msg_clone = message.clone();
             let manager_clone = self.peer_manager.clone();
 
-            tokio::spawn(async move {
-                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
-                    debug!(peer = %peer_ip, error = %e, "Failed to send tx proposal");
+            let task = tokio::spawn(async move {
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(2),
+                    manager_clone.send_to_peer_tcp(peer_ip, msg_clone),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => true,
+                    Ok(Err(e)) => {
+                        debug!(peer = %peer_ip, error = %e, "Failed to send tx proposal");
+                        false
+                    }
+                    Err(_) => {
+                        debug!(peer = %peer_ip, "Timeout sending tx proposal");
+                        false
+                    }
                 }
             });
+            send_tasks.push(task);
         }
+
+        let results = futures::future::join_all(send_tasks).await;
+        let success_count = results
+            .into_iter()
+            .filter(|r| matches!(r, Ok(true)))
+            .count();
+        debug!(success = success_count, "TX proposal broadcast completed");
     }
 
-    /// Broadcast vote on transaction set via TCP
+    /// Broadcast vote on transaction set via TCP - OPTIMIZED PARALLEL
     pub async fn broadcast_tx_vote(&self, vote: serde_json::Value) {
         let peers = self.peer_manager.get_connected_peers().await;
         let vote_json = vote.to_string();
         let message = NetworkMessage::ConsensusTxVote(vote_json);
 
+        let mut send_tasks = Vec::new();
+
         for peer_info in peers {
             let peer_ip = peer_info.address.ip();
             let msg_clone = message.clone();
             let manager_clone = self.peer_manager.clone();
 
-            tokio::spawn(async move {
-                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
-                    debug!(peer = %peer_ip, error = %e, "Failed to send tx vote");
+            let task = tokio::spawn(async move {
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(2),
+                    manager_clone.send_to_peer_tcp(peer_ip, msg_clone),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => true,
+                    Ok(Err(e)) => {
+                        debug!(peer = %peer_ip, error = %e, "Failed to send tx vote");
+                        false
+                    }
+                    Err(_) => {
+                        debug!(peer = %peer_ip, "Timeout sending tx vote");
+                        false
+                    }
                 }
             });
+            send_tasks.push(task);
         }
+
+        let results = futures::future::join_all(send_tasks).await;
+        let success_count = results
+            .into_iter()
+            .filter(|r| matches!(r, Ok(true)))
+            .count();
+        debug!(success = success_count, "TX vote broadcast completed");
     }
 
     /// Request instant finality votes from peers - ULTRA-FAST PARALLEL
@@ -181,7 +252,7 @@ impl TransactionBroadcaster {
         votes_received
     }
 
-    /// Broadcast instant finality vote to all peers via TCP
+    /// Broadcast instant finality vote to all peers via TCP - OPTIMIZED PARALLEL
     pub async fn broadcast_instant_finality_vote(&self, vote: serde_json::Value) {
         let peers = self.peer_manager.get_connected_peers().await;
 
@@ -208,14 +279,36 @@ impl TransactionBroadcaster {
             timestamp,
         };
 
+        let mut send_tasks = Vec::new();
+
         for peer_info in peers {
             let peer_addr = peer_info.address;
             let msg_clone = message.clone();
             let manager = self.peer_manager.clone();
 
-            tokio::spawn(async move {
-                let _ = manager.send_message_to_peer(peer_addr, msg_clone).await;
+            let task = tokio::spawn(async move {
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(1),
+                    manager.send_message_to_peer(peer_addr, msg_clone),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => true,
+                    Ok(Err(_)) => false,
+                    Err(_) => false,
+                }
             });
+            send_tasks.push(task);
         }
+
+        let results = futures::future::join_all(send_tasks).await;
+        let success_count = results
+            .into_iter()
+            .filter(|r| matches!(r, Ok(true)))
+            .count();
+        debug!(
+            success = success_count,
+            "Instant finality vote broadcast completed"
+        );
     }
 }

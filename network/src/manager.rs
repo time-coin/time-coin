@@ -535,7 +535,7 @@ impl PeerManager {
         // Try to use stored connection first (preferred - already has handshake)
         let connections = self.connections.read().await;
         if let Some(conn_arc) = connections.get(&peer_ip) {
-            // Use the stored connection
+            // Use the stored connection (CONNECTION REUSE - OPTIMIZED!)
             let mut conn = conn_arc.lock().await;
             let msg_clone = message.clone();
             return conn
@@ -551,9 +551,26 @@ impl PeerManager {
             "No stored connection, creating new connection with handshake"
         );
 
-        let mut stream = tokio::net::TcpStream::connect(peer_addr)
+        let stream = tokio::net::TcpStream::connect(peer_addr)
             .await
             .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
+
+        // Enable TCP keep-alive and TCP_NODELAY for fallback connections
+        if let Err(e) = stream.set_nodelay(true) {
+            warn!(peer = %peer_addr, "Failed to set TCP_NODELAY: {}", e);
+        }
+
+        let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(std::time::Duration::from_secs(30))
+            .with_interval(std::time::Duration::from_secs(30));
+
+        if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
+            warn!(peer = %peer_addr, "Failed to set TCP keep-alive: {}", e);
+        }
+
+        let mut stream = tokio::net::TcpStream::from_std(socket2_sock.into())
+            .map_err(|e| format!("Failed to convert socket: {}", e))?;
 
         // Perform handshake first (CRITICAL: must include magic bytes)
         let handshake = crate::protocol::HandshakeMessage::new(self.network, self.listen_addr);

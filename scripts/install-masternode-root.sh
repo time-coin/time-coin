@@ -57,7 +57,7 @@ print_info() {
 # Paths / constants
 #############################
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_DIR="/root/time-coin-node"
 CONFIG_DIR="$NODE_DIR/config"
 SERVICE_NAME="timed"
