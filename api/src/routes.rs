@@ -1520,6 +1520,34 @@ pub async fn trigger_instant_finality_for_received_tx(
                 } else {
                     println!("💾 UTXO snapshot saved - transaction persists across restarts");
                 }
+
+                // Notify registered wallets about this transaction
+                let wallet_tx = time_network::protocol::WalletTransaction {
+                    tx_hash: tx.txid.clone(),
+                    from_address: "N/A".to_string(), // Input addresses not directly available
+                    to_address: if let Some(output) = tx.outputs.first() {
+                        output.address.clone()
+                    } else {
+                        String::new()
+                    },
+                    amount: tx.outputs.iter().map(|o| o.amount).sum(),
+                    timestamp: tx.timestamp as u64,
+                    block_height: 0, // Mempool transaction, not in block yet
+                    confirmations: 0,
+                };
+
+                // Extract output addresses for matching
+                let addresses: Vec<String> = tx.outputs.iter().map(|o| o.address.clone()).collect();
+
+                // Notify wallets via peer manager
+                state
+                    .peer_manager
+                    .notify_wallet_transaction(wallet_tx, &addresses)
+                    .await;
+                println!(
+                    "📨 Notified registered wallets about transaction {}",
+                    &tx.txid[..16]
+                );
             }
         }
     });
