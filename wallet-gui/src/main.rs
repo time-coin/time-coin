@@ -3479,7 +3479,7 @@ impl WalletApp {
         };
 
         if masternodes.is_empty() {
-            log::warn!("No masternodes available for protocol client");
+            // Silently return - peers may still be connecting
             return;
         }
 
@@ -3496,8 +3496,6 @@ impl WalletApp {
             ));
             self.protocol_client = Some(client);
             log::info!("✅ Protocol client initialized for peer: {}", first_peer);
-        } else {
-            log::warn!("No masternodes available for protocol client");
         }
 
         log::info!("✅ TIME Coin Protocol client initialized");

@@ -715,6 +715,8 @@ pub enum NetworkMessage {
         transactions: Vec<WalletTransaction>,
         last_synced_height: u64,
     },
+    // Peer list request for wallet GUI
+    GetPeerList,
     // Real-time notification when a wallet receives a new transaction
     NewTransactionNotification {
         transaction: WalletTransaction,
@@ -729,7 +731,6 @@ pub enum NetworkMessage {
         height: Option<u64>, // None = no genesis yet, Some(0) = genesis exists
         best_block_hash: String,
     },
-    GetPeerList,
     PeerList(Vec<PeerAddress>),
 
     // Transaction consensus messages
