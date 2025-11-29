@@ -61,7 +61,8 @@ impl PeerManager {
             wallet_subscriptions: Arc::new(RwLock::new(HashMap::new())),
         };
 
-        manager.spawn_reaper();
+        // TEMPORARY: Disable reaper for debugging
+        // manager.spawn_reaper();
         manager.spawn_reconnection_task();
         manager.spawn_broadcast_cleanup_task();
         manager
@@ -1709,6 +1710,7 @@ impl PeerManager {
     }
 
     /// Spawn a background task that periodically removes stale peers and logs removals.
+    #[allow(dead_code)] // Temporarily disabled for debugging
     fn spawn_reaper(&self) {
         let last_seen = self.last_seen.clone();
         let peers = self.peers.clone();
