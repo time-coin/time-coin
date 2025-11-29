@@ -190,12 +190,19 @@ impl PeerManager {
 
                 // Spawn a task to run the connection keep-alive and cleanup on exit.
                 tokio::spawn(async move {
-                    // Run keep_alive loop manually using the shared connection
-                    let mut consecutive_failures = 0u32;
-                    const MAX_FAILURES: u32 = 3;
+                    // CRITICAL FIX: Don't fail immediately on ping errors
+                    // The ping loop can race with the message handler reading from the stream
+                    // We now call peer_seen() on every successful message exchange
+                    // So check if reaper removed us, and if so, exit gracefully
 
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+                        // Check if reaper already removed this peer
+                        if !connections_clone.read().await.contains_key(&peer_ip) {
+                            debug!(peer = %peer_addr, "Connection removed by reaper, exiting keep-alive loop");
+                            break;
+                        }
 
                         let mut conn_guard = conn_arc_clone.lock().await;
                         let ping_result = conn_guard.ping().await;
@@ -203,46 +210,32 @@ impl PeerManager {
 
                         match ping_result {
                             Ok(_) => {
-                                // Successful ping - reset failure counter
-                                consecutive_failures = 0;
-                                // Refresh last-seen timestamp for this peer using IP address
+                                // Successful ping - refresh last-seen
                                 manager_clone.peer_seen(peer_ip).await;
                             }
                             Err(e) => {
-                                consecutive_failures += 1;
+                                // Ping failed but this might be OK - message handler could be using the stream
+                                // Don't fail immediately, let reaper check last_seen timestamp
                                 debug!(
                                     peer = %peer_addr,
-                                    failures = consecutive_failures,
                                     error = %e,
-                                    "Ping failed"
+                                    "Ping failed (non-fatal, will check again in 30s)"
                                 );
-
-                                if consecutive_failures >= MAX_FAILURES {
-                                    warn!(
-                                        peer = %peer_addr,
-                                        failures = consecutive_failures,
-                                        "Connection lost after multiple ping failures"
-                                    );
-                                    break;
-                                }
-                                // Otherwise continue and retry on next iteration
                             }
                         }
                     }
 
                     debug!(peer = %peer_addr, "peer keep_alive finished");
 
-                    // Always attempt to remove the peer from active map when the connection finishes.
+                    // Clean up peer info
                     if peers_clone.write().await.remove(&peer_ip).is_some() {
                         info!(peer = %peer_addr, "removed peer from active peers after disconnect");
-                    } else {
-                        debug!(peer = %peer_addr, "peer not present in active peers map at disconnect");
                     }
 
                     // Remove connection from connections map
                     connections_clone.write().await.remove(&peer_ip);
 
-                    // Ensure last_seen entry is cleared as well
+                    // Ensure last_seen entry is cleared
                     let mut ls = manager_clone.last_seen.write().await;
                     ls.remove(&peer_ip);
                 });
@@ -494,11 +487,19 @@ impl PeerManager {
         let conn_arc_clone = conn_arc.clone();
 
         tokio::spawn(async move {
-            let mut consecutive_failures = 0u32;
-            const MAX_FAILURES: u32 = 3;
+            // CRITICAL FIX: Don't fail immediately on ping errors
+            // The ping loop can race with the message handler reading from the stream
+            // We now call peer_seen() on every successful message exchange
+            // So check if reaper removed us, and if so, exit gracefully
 
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+                // Check if reaper already removed this peer
+                if !connections_clone.read().await.contains_key(&peer_ip) {
+                    debug!(peer = %peer_addr, "Connection removed by reaper, exiting keep-alive loop");
+                    break;
+                }
 
                 let mut conn_guard = conn_arc_clone.lock().await;
                 let ping_result = conn_guard.ping().await;
@@ -506,36 +507,26 @@ impl PeerManager {
 
                 match ping_result {
                     Ok(_) => {
-                        consecutive_failures = 0;
+                        // Successful ping - refresh last-seen
                         manager_clone.peer_seen(peer_ip).await;
                     }
                     Err(e) => {
-                        consecutive_failures += 1;
+                        // Ping failed but this might be OK - message handler could be using the stream
+                        // Don't fail immediately, let reaper check last_seen timestamp
                         debug!(
                             peer = %peer_addr,
-                            failures = consecutive_failures,
                             error = %e,
-                            "Ping failed"
+                            "Ping failed (non-fatal, will check again in 30s)"
                         );
-
-                        if consecutive_failures >= MAX_FAILURES {
-                            warn!(
-                                peer = %peer_addr,
-                                failures = consecutive_failures,
-                                "Connection lost after multiple ping failures"
-                            );
-                            break;
-                        }
                     }
                 }
             }
 
             debug!(peer = %peer_addr, "peer keep_alive finished");
 
+            // Clean up peer info
             if peers_clone.write().await.remove(&peer_ip).is_some() {
                 info!(peer = %peer_addr, "removed peer from active peers after disconnect");
-            } else {
-                debug!(peer = %peer_addr, "peer not present in active peers map at disconnect");
             }
 
             connections_clone.write().await.remove(&peer_ip);
