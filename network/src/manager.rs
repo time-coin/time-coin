@@ -1077,36 +1077,48 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
-            // Try to use stored connection, but fall back to new connection if it fails
-            let result: Result<Option<u64>, Box<dyn std::error::Error + Send>> = async {
-                // Send request
-                conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
-                    .await
-                    .map_err(|e| {
-                        Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
-                    })?;
-
-                // Wait for response with timeout
-                let response =
-                    tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
+            // Health check: verify connection is still alive before using
+            if !conn.is_alive().await {
+                debug!(peer = %peer_socket_addr.ip(), "Connection health check failed, reconnecting");
+                drop(conn);
+                // Remove from pool and fall through to create new connection
+                self.remove_dead_connection(peer_socket_addr.ip()).await;
+            } else {
+                // Try to use stored connection, but fall back to new connection if it fails
+                let result: Result<Option<u64>, Box<dyn std::error::Error + Send>> = async {
+                    // Send request
+                    conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
                         .await
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
                         .map_err(|e| {
                             Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
                         })?;
 
-                match response {
-                    crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => Ok(height),
-                    _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
-                        as Box<dyn std::error::Error + Send>),
-                }
-            }
-            .await;
+                    // Wait for response with timeout
+                    let response = tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        conn.receive_message(),
+                    )
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
+                    })?;
 
-            match result {
-                Ok(info) => return Ok(info),
-                Err(_e) => {
-                    // Silently fall through to create new connection
+                    match response {
+                        crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => {
+                            Ok(height)
+                        }
+                        _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
+                            as Box<dyn std::error::Error + Send>),
+                    }
+                }
+                .await;
+
+                match result {
+                    Ok(info) => return Ok(info),
+                    Err(_e) => {
+                        // Silently fall through to create new connection
+                    }
                 }
             }
         }

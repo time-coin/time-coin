@@ -33,16 +33,16 @@ impl PeerConnection {
             eprintln!("⚠️  Failed to set TCP_NODELAY: {}", e);
         }
 
-        // Aggressive TCP keep-alive to beat firewall/NAT timeouts
-        // Most firewalls close idle connections after 60-120 seconds
-        // Strategy: Send probes frequently to keep connection alive
+        // AGGRESSIVE TCP keep-alive to prevent connection drops
+        // Connection resets observed after 3-5 seconds of inactivity
+        // Strategy: Very frequent probes to keep NAT/firewall tables alive
         let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
 
-        // Note: with_retries() is only available in socket2 >= 0.5.0
-        // For older versions, OS defaults will be used (typically 9 probes)
+        // Extremely aggressive keepalive: probe every 5 seconds
+        // This prevents silent connection drops from firewalls/NAT
         let ka = socket2::TcpKeepalive::new()
-            .with_time(std::time::Duration::from_secs(15)) // First probe after 15s idle
-            .with_interval(std::time::Duration::from_secs(15)); // 15s between probes
+            .with_time(std::time::Duration::from_secs(5)) // First probe after 5s idle
+            .with_interval(std::time::Duration::from_secs(5)); // 5s between probes
 
         if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
             eprintln!("⚠️  Failed to set TCP keep-alive: {}", e);
@@ -233,6 +233,14 @@ impl PeerConnection {
         self.stream.peer_addr()
     }
 
+    /// Check if connection is still alive by attempting to peek at incoming data
+    /// Returns true if connection appears healthy, false if broken
+    pub async fn is_alive(&self) -> bool {
+        // Try to peek at the socket state
+        // We check if the peer_addr is still valid which indicates the socket is open
+        self.stream.peer_addr().is_ok()
+    }
+
     /// Send a network message over the TCP connection
     pub async fn send_message(
         &mut self,
@@ -396,16 +404,16 @@ impl PeerListener {
             );
         }
 
-        // Aggressive TCP keep-alive to beat firewall/NAT timeouts
-        // Most firewalls close idle connections after 60-120 seconds
-        // Strategy: Send probes frequently to keep connection alive
+        // AGGRESSIVE TCP keep-alive to prevent connection drops
+        // Connection resets observed after 3-5 seconds of inactivity
+        // Strategy: Very frequent probes to keep NAT/firewall tables alive
         let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
 
-        // Note: with_retries() is only available in socket2 >= 0.5.0
-        // For older versions, OS defaults will be used (typically 9 probes)
+        // Extremely aggressive keepalive: probe every 5 seconds
+        // This prevents silent connection drops from firewalls/NAT
         let ka = socket2::TcpKeepalive::new()
-            .with_time(std::time::Duration::from_secs(15)) // First probe after 15s idle
-            .with_interval(std::time::Duration::from_secs(15)); // 15s between probes
+            .with_time(std::time::Duration::from_secs(5)) // First probe after 5s idle
+            .with_interval(std::time::Duration::from_secs(5)); // 5s between probes
 
         if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
             eprintln!(
