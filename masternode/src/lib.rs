@@ -347,7 +347,7 @@ pub mod slashing;
 // Slashing executor module
 pub mod slashing_executor;
 
-// Module declarations for the new registry implementation
+// Module declarations for masternode-specific logic
 pub mod collateral;
 pub mod config;
 pub mod registry;
@@ -363,12 +363,10 @@ pub mod violations;
 pub mod address_monitor;
 pub mod blockchain_scanner;
 pub mod error;
-pub mod heartbeat;
 pub mod node;
 pub mod reputation;
 pub mod utxo_integration;
 pub mod utxo_tracker;
-pub mod voting;
 pub mod wallet_dat;
 pub mod wallet_manager;
 

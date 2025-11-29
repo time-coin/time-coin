@@ -537,17 +537,14 @@ impl NetworkManager {
                                                             if let NetworkMessage::BlockchainInfo {
                                                                 height,
                                                                 best_block_hash,
-                                                                has_genesis: _,
-                                                            } = response
+                                                                } = response
                                                             {
                                                                 log::debug!(
                                                                     "Got blockchain height {} from peer {}",
-                                                                    height,
-                                                                    tcp_addr
-                                                                );
+                                                                    height.unwrap_or(0), tcp_addr );
                                                                 return Ok(BlockchainInfo {
                                                                     network: "mainnet".to_string(),
-                                                                    height,
+                                                                    height: height.unwrap_or(0),
                                                                     best_block_hash,
                                                                     total_supply: 0,
                                                                     timestamp: 0,

@@ -3,11 +3,12 @@
 //! Integrates the UTXO state protocol with the P2P network layer,
 //! enabling instant finality through masternode consensus.
 
-use crate::{utxo_tracker::UtxoTracker, voting::VoteTracker};
+use crate::utxo_tracker::UtxoTracker;
 use std::net::IpAddr;
 use std::sync::Arc;
 use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOStateNotification};
 use time_mempool::Mempool;
+use time_network::voting::VoteTracker;
 use time_network::{PeerManager, UTXOProtocolHandler};
 use tracing::{debug, info, warn};
 
@@ -291,7 +292,7 @@ impl MasternodeUTXOIntegration {
                 );
 
                 // Record the vote
-                let vote = crate::voting::Vote {
+                let vote = time_network::voting::Vote {
                     txid: txid.clone(),
                     voter: voter.clone(),
                     approve: *approve,

@@ -1,6 +1,7 @@
-//! TIME Coin Network Module
+//! TIME Coin Network Module - P2P Networking Layer
 pub mod connection;
 pub mod discovery;
+pub mod heartbeat;
 pub mod manager;
 pub mod message_auth;
 pub mod protocol;
@@ -9,6 +10,7 @@ pub mod rate_limiter;
 pub mod sync;
 pub mod tx_broadcast;
 pub mod utxo_handler;
+pub mod voting;
 
 pub use connection::{PeerConnection, PeerListener};
 pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
