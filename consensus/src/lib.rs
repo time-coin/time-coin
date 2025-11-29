@@ -1711,9 +1711,34 @@ pub mod block_consensus {
             let connected_set: std::collections::HashSet<String> =
                 std::collections::HashSet::from_iter(connected_peer_ips.iter().cloned());
 
-            // Mark nodes that are no longer connected as Offline
+            // Add any new connected peers to the masternode list if they're not already there
+            for peer_ip in connected_peer_ips.iter() {
+                if !masternodes.contains(peer_ip) {
+                    masternodes.push(peer_ip.clone());
+                }
+            }
+            masternodes.sort(); // Keep deterministic ordering
+
+            // Update health status for all masternodes based on connection status
             for masternode in masternodes.iter() {
-                if !connected_set.contains(masternode) {
+                if connected_set.contains(masternode) {
+                    // Node is connected - mark as Active
+                    if let Some(node_health) = health.get_mut(masternode) {
+                        if node_health.status == NodeStatus::Offline {
+                            // Node reconnected, restore to Active
+                            node_health.status = NodeStatus::Active;
+                            node_health.consecutive_misses = 0;
+                            node_health.status_changed_at = chrono::Utc::now().timestamp();
+                        }
+                    } else {
+                        // New node, initialize health tracking as Active
+                        health.insert(
+                            masternode.clone(),
+                            MasternodeHealth::new(masternode.clone()),
+                        );
+                    }
+                } else {
+                    // Node is NOT connected - mark as Offline
                     if let Some(node_health) = health.get_mut(masternode) {
                         if node_health.status != NodeStatus::Offline {
                             node_health.status = NodeStatus::Offline;
@@ -1725,25 +1750,6 @@ pub mod block_consensus {
                         new_health.status = NodeStatus::Offline;
                         health.insert(masternode.clone(), new_health);
                     }
-                }
-            }
-
-            // Update masternode list to only include connected peers
-            *masternodes = connected_peer_ips;
-            masternodes.sort(); // Keep deterministic ordering
-
-            // Initialize or restore Active status for newly connected nodes
-            for peer_ip in masternodes.iter() {
-                if let Some(node_health) = health.get_mut(peer_ip) {
-                    if node_health.status == NodeStatus::Offline {
-                        // Node reconnected, restore to Active
-                        node_health.status = NodeStatus::Active;
-                        node_health.consecutive_misses = 0;
-                        node_health.status_changed_at = chrono::Utc::now().timestamp();
-                    }
-                } else {
-                    // New node, initialize health tracking
-                    health.insert(peer_ip.clone(), MasternodeHealth::new(peer_ip.clone()));
                 }
             }
         }
