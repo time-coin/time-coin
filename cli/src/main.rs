@@ -1800,8 +1800,13 @@ async fn main() {
                                                                             for (vout, output) in coinbase_tx.outputs.iter().enumerate() {
                                                                                 // Debug: show what we're comparing
                                                                                 if address_index == 0 {
+                                                                                    let addr_preview = if output.address.len() >= 20 {
+                                                                                        &output.address[..20]
+                                                                                    } else {
+                                                                                        &output.address
+                                                                                    };
                                                                                     println!("    🔍 Block {} coinbase output[{}]: address={}, amount={}", 
-                                                                                        block_height, vout, &output.address[..20], output.amount);
+                                                                                        block_height, vout, addr_preview, output.amount);
                                                                                 }
                                                                                 
                                                                                 if output.address == address {
