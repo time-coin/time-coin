@@ -53,8 +53,8 @@ impl PeerManager {
                 network,
             ))),
             last_seen: Arc::new(RwLock::new(HashMap::new())),
-            stale_after: Duration::from_secs(90),
-            reaper_interval: Duration::from_secs(10),
+            stale_after: Duration::from_secs(300), // 5 minutes - less aggressive after fixing TCP keepalive
+            reaper_interval: Duration::from_secs(30), // Check every 30 seconds instead of 10
             recent_peer_broadcasts: Arc::new(RwLock::new(HashMap::new())),
             broadcast_count: Arc::new(RwLock::new(0)),
             broadcast_count_reset: Arc::new(RwLock::new(Instant::now())),
@@ -2071,8 +2071,8 @@ mod tests {
 
         assert_eq!(
             manager.stale_after,
-            Duration::from_secs(90),
-            "Stale timeout should be 90 seconds to allow for 3 missed heartbeats"
+            Duration::from_secs(300),
+            "Stale timeout should be 300 seconds (5 minutes) to allow for slow block processing"
         );
     }
 
@@ -2087,8 +2087,8 @@ mod tests {
 
         assert_eq!(
             manager.reaper_interval,
-            Duration::from_secs(10),
-            "Reaper interval should be 10 seconds"
+            Duration::from_secs(30),
+            "Reaper interval should be 30 seconds"
         );
     }
 
