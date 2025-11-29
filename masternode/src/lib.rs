@@ -353,7 +353,6 @@ pub mod config;
 pub mod registry;
 pub mod rewards;
 pub mod security;
-pub mod start_protocol;
 pub mod types;
 
 // Violation detection modules
