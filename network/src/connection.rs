@@ -294,15 +294,21 @@ impl PeerConnection {
             .await
             .map_err(|e| format!("Ping flush failed: {}", e))?;
 
-        // Wait for pong response with timeout
+        // Wait for pong response with generous timeout (10s instead of 5s)
+        // Peer might be busy handling other messages
         let pong_result =
-            tokio::time::timeout(std::time::Duration::from_secs(5), self.receive_message()).await;
+            tokio::time::timeout(std::time::Duration::from_secs(10), self.receive_message()).await;
 
         match pong_result {
             Ok(Ok(crate::protocol::NetworkMessage::Pong)) => Ok(()),
-            Ok(Ok(_)) => Err("Unexpected response to ping (expected Pong)".to_string()),
+            Ok(Ok(msg)) => {
+                // Received another message type - peer is alive but busy
+                // Don't treat this as a failure, just log it
+                tracing::debug!("Received {:?} instead of Pong (peer alive but busy)", msg);
+                Ok(())
+            }
             Ok(Err(e)) => Err(format!("Pong receive error: {}", e)),
-            Err(_) => Err("Pong timeout (5s)".to_string()),
+            Err(_) => Err("Pong timeout (10s)".to_string()),
         }
     }
 
