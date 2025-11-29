@@ -269,6 +269,7 @@ impl WalletApp {
 
                     // Get xpub BEFORE manager is moved into spawn
                     let wallet_xpub = manager.get_xpub().to_string();
+                    let wallet_network = manager.network(); // Also get network type
 
                     // Spawn network bootstrap task
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
@@ -479,10 +480,37 @@ impl WalletApp {
                                     time_network::protocol::UtxoInfo,
                                 >();
                                 let listener = tcp_protocol_client::TcpProtocolListener::new(
-                                    addr,
-                                    wallet_xpub,
+                                    addr.clone(),
+                                    wallet_xpub.clone(),
                                     utxo_tx,
                                 );
+
+                                // Scan blockchain for existing transactions BEFORE starting listener
+                                log::info!("🔍 Scanning blockchain for wallet transactions...");
+                                let client = protocol_client::ProtocolClient::new(
+                                    addr.clone(),
+                                    wallet_network,
+                                );
+                                match client.request_wallet_transactions(wallet_xpub.clone()) {
+                                    Ok(response) => {
+                                        log::info!("✅ Found {} transactions on blockchain (synced to block {})", 
+                                            response.transactions.len(), response.last_synced_height);
+
+                                        // Save transactions to database would go here
+                                        // For now, just log the total balance
+                                        let total_received: u64 =
+                                            response.transactions.iter().map(|tx| tx.amount).sum();
+                                        log::info!(
+                                            "💰 Total received: {} TIME",
+                                            total_received as f64 / 1_000_000.0
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::warn!("⚠️ Failed to scan blockchain: {}", e);
+                                    }
+                                }
+
+                                // Now start listening for new transactions
                                 listener.start().await;
                             } else {
                                 log::warn!("❌ No peers available for TCP listener");
@@ -3266,6 +3294,77 @@ impl WalletApp {
             log::warn!(
                 "❌ Network manager not initialized - wallet will not receive notifications!"
             );
+        }
+    }
+
+    /// Scan blockchain for wallet transactions on startup
+    fn scan_blockchain_for_wallet(&mut self, xpub: String) {
+        log::info!("🔍 Starting blockchain scan for wallet...");
+
+        if let Some(network_mgr) = &self.network_manager {
+            let peers = {
+                let net = network_mgr.lock().unwrap();
+                net.get_connected_peers()
+            };
+
+            if let Some(peer) = peers.first() {
+                let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                let peer_addr = format!("{}:24100", peer_ip);
+
+                log::info!("📡 Requesting wallet transactions from {}...", peer_addr);
+
+                let wallet_db = self.wallet_db.clone();
+                let network = self.network;
+
+                tokio::spawn(async move {
+                    let client = protocol_client::ProtocolClient::new(peer_addr.clone(), network);
+
+                    match client.request_wallet_transactions(xpub.clone()) {
+                        Ok(response) => {
+                            log::info!(
+                                "✅ Received {} transactions (synced to block {})",
+                                response.transactions.len(),
+                                response.last_synced_height
+                            );
+
+                            if let Some(db) = wallet_db {
+                                // Clear existing UTXOs first
+                                if let Err(e) = db.clear_all_utxos() {
+                                    log::error!("Failed to clear UTXOs: {}", e);
+                                    return;
+                                }
+
+                                // Add all UTXOs from transactions
+                                for tx in &response.transactions {
+                                    // Create UTXO record for each transaction output
+                                    let utxo = crate::wallet_db::UtxoRecord {
+                                        tx_hash: tx.tx_hash.clone(),
+                                        output_index: 0, // Simplified - actual index should come from transaction
+                                        address: tx.to_address.clone(),
+                                        amount: tx.amount,
+                                        block_height: tx.block_height,
+                                        confirmations: tx.confirmations as u64,
+                                    };
+
+                                    if let Err(e) = db.save_utxo(&utxo) {
+                                        log::error!("Failed to save UTXO: {}", e);
+                                    }
+                                }
+
+                                log::info!(
+                                    "💾 Saved {} transactions to wallet database",
+                                    response.transactions.len()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("❌ Failed to request wallet transactions: {}", e);
+                        }
+                    }
+                });
+            } else {
+                log::warn!("⚠️ No peers available - cannot scan blockchain");
+            }
         }
     }
 

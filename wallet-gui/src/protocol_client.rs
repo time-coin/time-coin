@@ -190,6 +190,28 @@ impl ProtocolClient {
         }
     }
 
+    /// Request wallet transactions from masternode
+    pub fn request_wallet_transactions(
+        &self,
+        xpub: String,
+    ) -> ProtocolResult<WalletTransactionsResponse> {
+        let message = NetworkMessage::RequestWalletTransactions { xpub };
+        let response = self.send_message(&message)?;
+
+        match response {
+            NetworkMessage::WalletTransactionsResponse {
+                transactions,
+                last_synced_height,
+            } => Ok(WalletTransactionsResponse {
+                transactions,
+                last_synced_height,
+            }),
+            _ => Err(ProtocolError::InvalidResponse(
+                "Expected WalletTransactionsResponse".to_string(),
+            )),
+        }
+    }
+
     /// Ping peer to check connectivity
     pub fn ping(&self) -> ProtocolResult<()> {
         let message = NetworkMessage::Ping;
@@ -210,4 +232,11 @@ pub struct WalletSyncData {
     pub transactions: Vec<wallet::Transaction>,
     pub current_height: u64,
     pub total_balance: u64,
+}
+
+/// Response containing wallet transactions from masternode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletTransactionsResponse {
+    pub transactions: Vec<time_network::protocol::WalletTransaction>,
+    pub last_synced_height: u64,
 }
