@@ -1062,10 +1062,7 @@ impl ChainSync {
             return Ok(false); // No fork detected at current height
         }
 
-        println!("\n⚠️  FORK DETECTED at height {}!", our_height);
-        println!("   Found {} competing blocks", competing_blocks.len() + 1);
-
-        // Get our current block
+        // Get our current block FIRST to check for identical blocks early
         let our_block = {
             let blockchain = self.blockchain.read().await;
             blockchain
@@ -1077,6 +1074,25 @@ impl ChainSync {
         // Add our block to the competition
         let mut all_blocks = vec![("self".to_string(), our_block.clone())];
         all_blocks.extend(competing_blocks);
+
+        // Check if all blocks are identical BEFORE printing "FORK DETECTED"
+        let all_identical = all_blocks
+            .iter()
+            .all(|(_, block)| block.hash == our_block.hash);
+
+        if all_identical {
+            // No actual fork - all nodes generated the same block (deterministic consensus working)
+            println!(
+                "   ✅ Consensus check: All {} nodes generated identical block at height {}",
+                all_blocks.len(),
+                our_height
+            );
+            return Ok(false); // Not a real fork, just detection artifact
+        }
+
+        // Real fork detected - announce it
+        println!("\n⚠️  FORK DETECTED at height {}!", our_height);
+        println!("   Found {} competing blocks", all_blocks.len());
 
         // CRITICAL: Check if majority of nodes have moved beyond this height
         // If so, follow the longest chain (most work) principle
@@ -1187,18 +1203,7 @@ impl ChainSync {
             }
         }
 
-        // Check if all blocks are identical (deterministic consensus worked!)
-        let all_identical = all_blocks
-            .iter()
-            .all(|(_, block)| block.hash == our_block.hash);
-
-        if all_identical {
-            println!("   ✅ All nodes generated identical blocks - true consensus!");
-            println!("   ℹ️  No fork resolution needed");
-            return Ok(false); // Not a real fork, just detection artifact
-        }
-
-        // Otherwise use timestamp-based selection for same-height forks
+        // If we reach here, use timestamp-based selection for same-height forks
         let winner = self.select_winning_block(&all_blocks)?;
 
         println!("   📊 Block comparison:");
