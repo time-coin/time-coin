@@ -24,6 +24,11 @@ struct BlockchainInfo {
 }
 
 #[derive(Debug, Deserialize)]
+struct BalanceResponse {
+    balance: f64,
+}
+
+#[derive(Debug, Deserialize)]
 struct HealthResponse {
     status: String,
 }
@@ -106,6 +111,17 @@ impl Dashboard {
             .map_err(|e| format!("Parse failed: {}", e))
     }
 
+    async fn fetch_balance(&self, address: &str) -> Result<BalanceResponse, String> {
+        self.client
+            .get(format!("{}/balance/{}", self.api_url, address))
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?
+            .json::<BalanceResponse>()
+            .await
+            .map_err(|e| format!("Parse failed: {}", e))
+    }
+
     fn clear_screen(&self) {
         // Use crossterm's proper terminal clearing which works on all platforms
         let mut stdout = io::stdout();
@@ -143,7 +159,7 @@ impl Dashboard {
         println!();
     }
 
-    fn render_blockchain(&self, info: &BlockchainInfo) {
+    fn render_blockchain(&self, info: &BlockchainInfo, balance: Option<f64>) {
         println!(
             "{}",
             "┌─ Blockchain Status ──────────────────────────────────────────┐".blue()
@@ -168,6 +184,22 @@ impl Dashboard {
             "Wallet Address:".bright_black(),
             info.wallet_address.bright_green()
         );
+
+        // Display balance if available
+        if let Some(bal) = balance {
+            println!(
+                "│ {:<20} {} TIME",
+                "Wallet Balance:".bright_black(),
+                format!("{:.8}", bal).bright_yellow().bold()
+            );
+        } else {
+            println!(
+                "│ {:<20} {}",
+                "Wallet Balance:".bright_black(),
+                "Loading...".bright_black()
+            );
+        }
+
         println!(
             "{}",
             "└──────────────────────────────────────────────────────────────┘".blue()
@@ -270,9 +302,17 @@ impl Dashboard {
             }
         }
 
-        // Fetch and render blockchain info
+        // Fetch and render blockchain info with balance
         match self.fetch_blockchain_info().await {
-            Ok(info) => self.render_blockchain(&info),
+            Ok(info) => {
+                // Fetch balance for the wallet address
+                let balance = self
+                    .fetch_balance(&info.wallet_address)
+                    .await
+                    .ok()
+                    .map(|b| b.balance);
+                self.render_blockchain(&info, balance);
+            }
             Err(e) => self.render_error(&format!("Blockchain info error: {}", e)),
         }
 
