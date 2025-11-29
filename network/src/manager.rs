@@ -1349,11 +1349,11 @@ impl PeerManager {
             match conn.send_message(message.clone()).await {
                 Ok(_) => Ok(()),
                 Err(e) => {
-                    // Check if this is a broken pipe error - handle gracefully
+                    // Check if this is a broken pipe error - handle gracefully with retry
                     if e.contains("Broken pipe") || e.contains("Connection reset") {
-                        println!(
-                            "   🔄 Broken connection detected to {}, removing from pool",
-                            peer_ip
+                        debug!(
+                            peer = %peer_ip,
+                            "Connection broken during send, will attempt immediate reconnect"
                         );
                         drop(conn); // Release lock before removing
 
@@ -1361,8 +1361,9 @@ impl PeerManager {
                         self.connections.write().await.remove(&peer_ip);
                         self.remove_connected_peer(&peer_ip).await;
 
-                        // Return a more specific error for logging but don't crash
-                        return Err(format!("Connection lost to {} (will reconnect)", peer_ip));
+                        // Don't log to stdout - too noisy, use debug logging instead
+                        // The reconnection task will pick this up within 15s
+                        return Err("Connection broken (auto-reconnect scheduled)".to_string());
                     }
                     Err(e)
                 }
@@ -1396,7 +1397,6 @@ impl PeerManager {
         let my_ip = self.public_addr.ip();
 
         println!("📤 Broadcasting proposal to {} peers", peers.len());
-        println!("   Available TCP connections: {}", connections.len());
 
         let mut send_tasks = vec![];
 
@@ -1405,16 +1405,14 @@ impl PeerManager {
 
             // Skip self
             if peer_ip == my_ip {
-                println!("   Peer {}: skipping (self)", peer_ip);
+                debug!(peer = %peer_ip, "Skipping self");
                 continue;
             }
 
             let has_connection = connections.contains_key(&peer_ip);
 
-            println!("   Peer {}: connection={}", peer_ip, has_connection);
-
             if !has_connection {
-                println!("   ⚠️  No TCP connection to peer {}", peer_ip);
+                debug!(peer = %peer_ip, "No TCP connection available");
                 continue;
             }
 
@@ -1428,7 +1426,7 @@ impl PeerManager {
                         true
                     }
                     Err(e) => {
-                        println!("   ✗ Failed to send proposal to {}: {}", peer_ip, e);
+                        debug!(peer = %peer_ip, error = %e, "Failed to send proposal");
                         false
                     }
                 }
@@ -1466,7 +1464,6 @@ impl PeerManager {
         let my_ip = self.public_addr.ip();
 
         println!("📤 Broadcasting vote to {} peers", peers.len());
-        println!("   Available TCP connections: {}", connections.len());
 
         let mut send_tasks = vec![];
 
@@ -1475,16 +1472,14 @@ impl PeerManager {
 
             // Skip self
             if peer_ip == my_ip {
-                println!("   Peer {}: skipping (self)", peer_ip);
+                debug!(peer = %peer_ip, "Skipping self");
                 continue;
             }
 
             let has_connection = connections.contains_key(&peer_ip);
 
-            println!("   Peer {}: connection={}", peer_ip, has_connection);
-
             if !has_connection {
-                println!("   ⚠️  No TCP connection to peer {}", peer_ip);
+                debug!(peer = %peer_ip, "No TCP connection available");
                 continue;
             }
 
@@ -1502,7 +1497,7 @@ impl PeerManager {
                         true
                     }
                     Err(e) => {
-                        println!("   ✗ Failed to send vote to {}: {}", peer_ip, e);
+                        debug!(peer = %peer_ip, error = %e, "Failed to send vote");
                         false
                     }
                 }
@@ -1675,7 +1670,7 @@ impl PeerManager {
             // Wait 10 seconds before the first reconnection attempt to allow initial connections
             time::sleep(Duration::from_secs(10)).await;
 
-            let mut ticker = time::interval(Duration::from_secs(30)); // Check every 30 seconds
+            let mut ticker = time::interval(Duration::from_secs(15)); // Check every 15 seconds (faster recovery)
             loop {
                 ticker.tick().await;
 
