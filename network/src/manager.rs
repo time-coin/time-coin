@@ -297,6 +297,68 @@ impl PeerManager {
         }
     }
 
+    /// Connect to seed nodes - critical for network recovery
+    pub async fn connect_to_seed_nodes(&self) -> Result<(), String> {
+        use crate::discovery::{DnsDiscovery, HttpDiscovery, SeedNodes};
+
+        let mut discovered_peers = Vec::new();
+
+        // 1. Try HTTP discovery (time-coin.io API)
+        let http_discovery = HttpDiscovery::new(self.network);
+        match http_discovery.fetch_peers().await {
+            Ok(peers) => {
+                info!(count = peers.len(), "Discovered peers via HTTP");
+                discovered_peers.extend(peers);
+            }
+            Err(e) => {
+                warn!(error = %e, "HTTP discovery failed");
+            }
+        }
+
+        // 2. Try DNS seeds
+        let dns_discovery = DnsDiscovery::new(self.network);
+        match dns_discovery.resolve_peers().await {
+            Ok(addrs) => {
+                info!(count = addrs.len(), "Discovered peers via DNS");
+                for addr in addrs {
+                    discovered_peers.push(PeerInfo::new(addr, self.network));
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "DNS discovery failed");
+            }
+        }
+
+        // 3. Try environment seeds
+        let env_seeds = SeedNodes::from_env();
+        if !env_seeds.is_empty() {
+            info!(count = env_seeds.len(), "Found environment seed nodes");
+            for seed in env_seeds {
+                if let Ok(addr) = seed.parse::<SocketAddr>() {
+                    discovered_peers.push(PeerInfo::new(addr, self.network));
+                }
+            }
+        }
+
+        if discovered_peers.is_empty() {
+            return Err("No seed nodes discovered from any source".to_string());
+        }
+
+        // Deduplicate by IP
+        let mut seen_ips = std::collections::HashSet::new();
+        discovered_peers.retain(|p| seen_ips.insert(p.address.ip()));
+
+        info!(
+            count = discovered_peers.len(),
+            "Connecting to discovered seed nodes"
+        );
+
+        // Connect to all seeds concurrently
+        self.connect_to_peers(discovered_peers).await;
+
+        Ok(())
+    }
+
     /// Return a vector of active PeerInfo entries (live connections).
     /// Only returns peers that have an active TCP connection stored.
     pub async fn get_connected_peers(&self) -> Vec<PeerInfo> {
@@ -1670,9 +1732,22 @@ impl PeerManager {
             // Wait 10 seconds before the first reconnection attempt to allow initial connections
             time::sleep(Duration::from_secs(10)).await;
 
-            let mut ticker = time::interval(Duration::from_secs(15)); // Check every 15 seconds (faster recovery)
+            const MIN_CONNECTIONS: usize = 5;
+            const TARGET_CONNECTIONS: usize = 8;
+
             loop {
-                ticker.tick().await;
+                let current_count = manager.peers.read().await.len();
+
+                // Adaptive interval: aggressive when below threshold, relaxed when healthy
+                let check_interval = if current_count < MIN_CONNECTIONS {
+                    Duration::from_secs(5) // CRITICAL: Check every 5s when below minimum
+                } else if current_count < TARGET_CONNECTIONS {
+                    Duration::from_secs(10) // Moderate: Check every 10s when below target
+                } else {
+                    Duration::from_secs(30) // Relaxed: Check every 30s when healthy
+                };
+
+                time::sleep(check_interval).await;
 
                 // Get currently connected peer IP addresses
                 let connected_ips: std::collections::HashSet<IpAddr> = {
@@ -1680,8 +1755,36 @@ impl PeerManager {
                     peers.keys().copied().collect()
                 };
 
+                if current_count < MIN_CONNECTIONS {
+                    warn!(
+                        current = current_count,
+                        minimum = MIN_CONNECTIONS,
+                        "🚨 Below minimum connections - aggressive reconnection"
+                    );
+
+                    // CRITICAL: Try seed nodes immediately
+                    info!("Attempting to connect to seed nodes");
+                    if let Err(e) = manager.connect_to_seed_nodes().await {
+                        warn!(error = %e, "Failed to connect to seed nodes");
+                    }
+                } else if current_count < TARGET_CONNECTIONS {
+                    debug!(
+                        current = current_count,
+                        target = TARGET_CONNECTIONS,
+                        "Below target connections - opportunistic reconnection"
+                    );
+                }
+
                 // Get best known peers from peer exchange
-                let best_peers = manager.get_best_peers(10).await;
+                let peer_count = if current_count < MIN_CONNECTIONS {
+                    20 // Aggressive: Try many peers when critical
+                } else if current_count < TARGET_CONNECTIONS {
+                    10 // Moderate: Try some peers
+                } else {
+                    5 // Relaxed: Try a few peers
+                };
+
+                let best_peers = manager.get_best_peers(peer_count).await;
 
                 // Filter to only peers that aren't currently connected (by IP)
                 let disconnected_peers: Vec<_> = best_peers
