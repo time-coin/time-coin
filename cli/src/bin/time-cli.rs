@@ -1082,7 +1082,21 @@ async fn handle_wallet_command(
                 .await?;
 
             if response.status().is_success() {
-                let balance: u64 = response.json().await?;
+                // Try to parse as JSON object first, fallback to plain number
+                let balance: u64 = match response.json::<serde_json::Value>().await {
+                    Ok(json_val) => {
+                        // Try as object with "balance" field
+                        if let Some(bal) = json_val.get("balance").and_then(|v| v.as_u64()) {
+                            bal
+                        } else if let Some(bal) = json_val.as_u64() {
+                            // Try as plain number
+                            bal
+                        } else {
+                            0
+                        }
+                    }
+                    Err(_) => 0,
+                };
                 let balance_time = balance as f64 / 100_000_000.0;
 
                 if json_output {
@@ -1340,7 +1354,21 @@ async fn handle_wallet_command(
                 .await?;
 
             let balance = if balance_response.status().is_success() {
-                balance_response.json::<u64>().await.unwrap_or(0)
+                // Try to parse as JSON object first, fallback to plain number
+                match balance_response.json::<serde_json::Value>().await {
+                    Ok(json_val) => {
+                        // Try as object with "balance" field
+                        if let Some(bal) = json_val.get("balance").and_then(|v| v.as_u64()) {
+                            bal
+                        } else if let Some(bal) = json_val.as_u64() {
+                            // Try as plain number
+                            bal
+                        } else {
+                            0
+                        }
+                    }
+                    Err(_) => 0,
+                }
             } else {
                 0
             };
