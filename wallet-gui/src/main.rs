@@ -264,6 +264,13 @@ impl WalletApp {
                     let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
                         main_config.api_endpoint.clone(),
                     )));
+
+                    // Connect network manager to peer manager
+                    {
+                        let mut net = network_mgr.lock().unwrap();
+                        net.set_peer_manager(peer_mgr.clone());
+                    }
+
                     self.network_manager = Some(network_mgr.clone());
                     self.network_status = "Connecting...".to_string();
 
@@ -668,6 +675,13 @@ impl WalletApp {
                                     self.peer_manager = Some(peer_mgr.clone());
 
                                     let network_mgr = Arc::new(std::sync::Mutex::new(NetworkManager::new(main_config.api_endpoint.clone())));
+
+                                    // Connect network manager to peer manager
+                                    {
+                                        let mut net = network_mgr.lock().unwrap();
+                                        net.set_peer_manager(peer_mgr.clone());
+                                    }
+
                                     self.network_manager = Some(network_mgr.clone());
                                     self.network_status = "Connecting...".to_string();
 
@@ -1061,6 +1075,13 @@ impl WalletApp {
                     let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
                         main_config.api_endpoint.clone(),
                     )));
+
+                    // Connect network manager to peer manager
+                    {
+                        let mut net = network_mgr.lock().unwrap();
+                        net.set_peer_manager(peer_mgr.clone());
+                    }
+
                     self.network_manager = Some(network_mgr.clone());
                     self.network_status = "Connecting...".to_string();
 

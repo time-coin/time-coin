@@ -58,7 +58,7 @@ pub enum TransactionStatus {
 }
 
 /// Wallet metadata database
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WalletDb {
     db: Db,
 }

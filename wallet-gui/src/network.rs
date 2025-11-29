@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +81,7 @@ pub struct NetworkManager {
     sync_progress: f32,
     current_block_height: u64,
     network_block_height: u64,
+    peer_manager: Option<Arc<crate::peer_manager::PeerManager>>,
 }
 
 impl NetworkManager {
@@ -91,7 +93,13 @@ impl NetworkManager {
             sync_progress: 0.0,
             current_block_height: 0,
             network_block_height: 0,
+            peer_manager: None,
         }
+    }
+
+    /// Set the peer manager (called after initialization)
+    pub fn set_peer_manager(&mut self, peer_manager: Arc<crate::peer_manager::PeerManager>) {
+        self.peer_manager = Some(peer_manager);
     }
 
     pub fn api_endpoint(&self) -> &str {
@@ -299,6 +307,7 @@ impl NetworkManager {
 
         // Process results
         let mut responsive_count = 0;
+        let mut unreachable_peers = Vec::new();
 
         for (i, result) in results.into_iter().enumerate() {
             if let Ok(Some((peer_address, latency_ms, peer_version))) = result {
@@ -313,15 +322,34 @@ impl NetworkManager {
                         latency_ms,
                         peer.version.as_deref().unwrap_or("unknown")
                     );
+
+                    // Record success with peer manager
+                    if let Some(pm) = &self.peer_manager {
+                        pm.record_success(&peer.address, peer.port).await;
+                    }
                 }
             } else if let Some(peer) = self.connected_peers.get(i) {
-                log::warn!("  ✗ Peer {} unreachable via TCP", peer.address);
-                // Mark as slow
-                if let Some(peer_mut) = self.connected_peers.get_mut(i) {
-                    peer_mut.latency_ms = 9999;
-                }
+                log::warn!(
+                    "  ✗ Peer {} unreachable via TCP - will be removed",
+                    peer.address
+                );
+                unreachable_peers.push((peer.address.clone(), peer.port));
             }
         }
+
+        // Record failures and remove unreachable peers from the database
+        if let Some(pm) = &self.peer_manager {
+            for (address, port) in &unreachable_peers {
+                pm.record_failure(address, *port).await;
+            }
+        }
+
+        // Remove unreachable peers from the list
+        self.connected_peers.retain(|peer| {
+            !unreachable_peers
+                .iter()
+                .any(|(addr, port)| addr == &peer.address && port == &peer.port)
+        });
 
         if responsive_count == 0 {
             log::error!("❌ No peers responded via TCP. Check if masternodes are running on the correct ports.");
@@ -975,7 +1003,13 @@ impl NetworkManager {
     /// Discover and connect to peers recursively
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
         // Don't log every call - this is called frequently
-        let mut sorted_peers = self.connected_peers.clone();
+        // Filter out unreachable peers (9999ms latency)
+        let mut sorted_peers: Vec<PeerInfo> = self
+            .connected_peers
+            .iter()
+            .filter(|p| p.latency_ms < 9999)
+            .cloned()
+            .collect();
         sorted_peers.sort_by_key(|p| p.latency_ms);
         sorted_peers
     }

@@ -551,15 +551,19 @@ impl Mempool {
     }
 
     /// Finalize a transaction (mark as confirmed by BFT consensus)
+    /// After finalization, the transaction is removed from mempool
     pub async fn finalize_transaction(&self, txid: &str) -> Result<(), MempoolError> {
         let mut pool = self.transactions.write().await;
 
-        if let Some(entry) = pool.get_mut(txid) {
-            entry.finalized = true;
-            entry.finalized_at = Some(chrono::Utc::now().timestamp());
+        if let Some(entry) = pool.remove(txid) {
+            // Also remove from spent_utxos tracking
+            let mut spent = self.spent_utxos.write().await;
+            for input in &entry.transaction.inputs {
+                spent.remove(&input.previous_output);
+            }
 
             println!(
-                "✅ Transaction {} finalized by BFT consensus",
+                "✅ Transaction {} finalized and removed from mempool",
                 &txid[..std::cmp::min(16, txid.len())]
             );
 

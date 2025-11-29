@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 
+#[derive(Debug)]
 pub struct PeerManager {
     wallet_db: Arc<RwLock<Option<WalletDb>>>,
     network: wallet::NetworkType,
