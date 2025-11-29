@@ -193,18 +193,19 @@ async fn get_network_height(peer_manager: &Arc<PeerManager>) -> Option<u64> {
     for peer in peers.iter().take(3) {
         // Query up to 3 peers
         match peer_manager.request_blockchain_info(peer).await {
-            Ok((height, has_genesis)) => {
+            Ok(Some(height)) => {
                 successful_queries += 1;
                 if height > max_height {
                     max_height = height;
                 }
-                let genesis_status = if has_genesis { "✓" } else { "✗" };
                 println!(
-                    "   {} reports height: {} [genesis: {}]",
+                    "   {} reports height: {}",
                     peer.bright_black(),
-                    height.to_string().yellow(),
-                    genesis_status
+                    height.to_string().yellow()
                 );
+            }
+            Ok(None) => {
+                println!("   {} has no genesis yet", peer.bright_black());
             }
             Err(_) => {
                 // Silently skip peers that dont respond
@@ -1848,29 +1849,40 @@ async fn main() {
                                                     println!("📊 Received GetBlockchainInfo request from {}", peer_ip_listen);
 
                                                     let blockchain_guard = blockchain_listen.read().await;
-                                                    let height = blockchain_guard.chain_tip_height();
-                                                    let best_block_hash = blockchain_guard
-                                                        .get_block_by_height(height)
-                                                        .map(|b| hex::encode(&b.hash))
-                                                        .unwrap_or_else(|| "unknown".to_string());
+                                                    let chain_height = blockchain_guard.chain_tip_height();
+
+                                                    // Check if we have genesis block
                                                     let has_genesis = blockchain_guard.get_block_by_height(0).is_some();
-                                                    println!("   🔍 Our state: height={}, has_genesis={}", height, has_genesis);
-                                                    if !has_genesis && height == 0 {
-                                                        println!("   ⚠️  We have height 0 but NO genesis block in memory!");
-                                                    }
+
+                                                    // height is None if no genesis, otherwise it's the actual chain height
+                                                    let height = if has_genesis {
+                                                        Some(chain_height)
+                                                    } else {
+                                                        None
+                                                    };
+
+                                                    let best_block_hash = if has_genesis {
+                                                        blockchain_guard
+                                                            .get_block_by_height(chain_height)
+                                                            .map(|b| hex::encode(&b.hash))
+                                                            .unwrap_or_else(|| "unknown".to_string())
+                                                    } else {
+                                                        "no_genesis".to_string()
+                                                    };
+
+                                                    println!("   🔍 Our state: height={:?}", height);
                                                     drop(blockchain_guard);
 
                                                     let response = time_network::protocol::NetworkMessage::BlockchainInfo {
                                                         height,
                                                         best_block_hash,
-                                                        has_genesis,
                                                     };
 
-                                                    println!("   📤 Sending response: height={}, has_genesis={}", height, has_genesis);
+                                                    println!("   📤 Sending response: height={:?}", height);
                                                     let mut conn = conn_arc_clone.lock().await;
                                                     match conn.send_message(response).await {
                                                         Ok(_) => {
-                                                            println!("✅ Sent BlockchainInfo (height {}, has_genesis: {}) to {}", height, has_genesis, peer_ip_listen);
+                                                            println!("✅ Sent BlockchainInfo (height {:?}) to {}", height, peer_ip_listen);
                                                         }
                                                         Err(e) => {
                                                             println!("❌ Failed to send BlockchainInfo to {}: {:?}", peer_ip_listen, e);
@@ -1934,7 +1946,7 @@ async fn main() {
                                                     let blockchain_guard = blockchain_listen.read().await;
                                                     let chain_height = blockchain_guard.chain_tip_height();
                                                     let has_genesis = !blockchain_guard.genesis_hash().is_empty();
-                                                    println!("   🔍 Our blockchain: height={}, has_genesis={}", chain_height, has_genesis);
+                                                    println!("   🔍 Our blockchain: height={}", if has_genesis { chain_height.to_string() } else { "no genesis".to_string() });
                                                     let mut blocks = Vec::new();
 
                                                     // Limit the range to prevent abuse

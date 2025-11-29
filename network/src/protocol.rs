@@ -721,9 +721,8 @@ pub enum NetworkMessage {
     GetMempool,
     GetBlockchainInfo,
     BlockchainInfo {
-        height: u64,
+        height: Option<u64>, // None = no genesis yet, Some(0) = genesis exists
         best_block_hash: String,
-        has_genesis: bool,
     },
     GetPeerList,
     PeerList(Vec<PeerAddress>),

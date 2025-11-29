@@ -982,7 +982,7 @@ impl PeerManager {
     pub async fn request_blockchain_info(
         &self,
         peer_addr: &str,
-    ) -> Result<(u64, bool), Box<dyn std::error::Error + Send>> {
+    ) -> Result<Option<u64>, Box<dyn std::error::Error + Send>> {
         // Parse peer address to get IP and full SocketAddr
         let peer_socket_addr: SocketAddr = peer_addr
             .parse()
@@ -999,7 +999,7 @@ impl PeerManager {
             let mut conn = conn_arc.lock().await;
 
             // Try to use stored connection, but fall back to new connection if it fails
-            let result: Result<(u64, bool), Box<dyn std::error::Error + Send>> = async {
+            let result: Result<Option<u64>, Box<dyn std::error::Error + Send>> = async {
                 // Send request
                 conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
                     .await
@@ -1017,11 +1017,7 @@ impl PeerManager {
                         })?;
 
                 match response {
-                    crate::protocol::NetworkMessage::BlockchainInfo {
-                        height,
-                        has_genesis,
-                        ..
-                    } => Ok((height, has_genesis)),
+                    crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => Ok(height),
                     _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
                         as Box<dyn std::error::Error + Send>),
                 }
@@ -1047,11 +1043,7 @@ impl PeerManager {
             .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>)?;
 
         match response {
-            Some(crate::protocol::NetworkMessage::BlockchainInfo {
-                height,
-                has_genesis,
-                ..
-            }) => Ok((height, has_genesis)),
+            Some(crate::protocol::NetworkMessage::BlockchainInfo { height, .. }) => Ok(height),
             Some(_) => Err(Box::new(std::io::Error::other("Unexpected response type"))),
             None => Err(Box::new(std::io::Error::other("No response received"))),
         }
