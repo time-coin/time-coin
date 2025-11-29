@@ -1151,12 +1151,17 @@ impl BlockchainState {
         self.masternodes.get(address)
     }
 
-    /// Get all active masternodes
+    /// Get all active masternodes (sorted by wallet address for determinism)
     pub fn get_active_masternodes(&self) -> Vec<&MasternodeInfo> {
-        self.masternodes
+        let mut active: Vec<&MasternodeInfo> = self
+            .masternodes
             .values()
             .filter(|mn| mn.is_active)
-            .collect()
+            .collect();
+
+        // Sort by wallet address to ensure deterministic ordering across all nodes
+        active.sort_by(|a, b| a.wallet_address.cmp(&b.wallet_address));
+        active
     }
 
     /// Get masternodes by tier

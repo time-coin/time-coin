@@ -1329,13 +1329,13 @@ impl PeerManager {
 
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
-            match conn.send_message(message).await {
+            match conn.send_message(message.clone()).await {
                 Ok(_) => Ok(()),
                 Err(e) => {
-                    // Check if this is a broken pipe error
+                    // Check if this is a broken pipe error - try immediate reconnect
                     if e.contains("Broken pipe") || e.contains("Connection reset") {
                         println!(
-                            "   🔄 Broken connection detected to {}, removing from pool",
+                            "   🔄 Broken connection detected to {}, attempting immediate reconnect",
                             peer_ip
                         );
                         drop(conn); // Release lock before removing
@@ -1345,8 +1345,19 @@ impl PeerManager {
                         connections.remove(&peer_ip);
                         drop(connections);
 
-                        // Mark peer for reconnection
-                        self.remove_connected_peer(&peer_ip).await;
+                        // Try immediate reconnection
+                        let peer_addr = SocketAddr::new(peer_ip, 24100);
+                        let peer_info = PeerInfo::new(peer_addr, self.network);
+
+                        if let Ok(()) = Box::pin(self.connect_to_peer(peer_info)).await {
+                            println!("   ✅ Immediate reconnection successful, retrying message");
+                            // Retry the message with the new connection
+                            return Box::pin(self.send_to_peer_tcp(peer_ip, message)).await;
+                        } else {
+                            println!("   ⚠️  Immediate reconnection failed, will retry later");
+                            // Mark peer for background reconnection
+                            self.remove_connected_peer(&peer_ip).await;
+                        }
                     }
                     Err(e)
                 }
@@ -1565,29 +1576,23 @@ impl PeerManager {
                 continue;
             }
 
-            let new_peer_addr_clone = new_peer_addr.clone();
-            let peer_address_clone = peer_address.clone();
-            let manager_clone = self.clone();
+            // Send peer list containing the new peer via TCP (fire and forget)
+            let message = crate::protocol::NetworkMessage::PeerList(vec![peer_address.clone()]);
 
-            tokio::spawn(async move {
-                // Send peer list containing the new peer via TCP
-                let message = crate::protocol::NetworkMessage::PeerList(vec![peer_address_clone]);
-
-                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, message).await {
-                    debug!(
-                        target_peer = %peer_ip,
-                        new_peer = %new_peer_addr_clone,
-                        error = %e,
-                        "Failed to notify peer about new connection via TCP"
-                    );
-                } else {
-                    debug!(
-                        target_peer = %peer_ip,
-                        new_peer = %new_peer_addr_clone,
-                        "Successfully notified peer about new connection via TCP"
-                    );
-                }
-            });
+            if let Err(e) = self.send_to_peer_tcp(peer_ip, message).await {
+                debug!(
+                    target_peer = %peer_ip,
+                    new_peer = %new_peer_addr,
+                    error = %e,
+                    "Failed to notify peer about new connection via TCP"
+                );
+            } else {
+                debug!(
+                    target_peer = %peer_ip,
+                    new_peer = %new_peer_addr,
+                    "Successfully notified peer about new connection via TCP"
+                );
+            }
         }
     }
 
@@ -1637,10 +1642,10 @@ impl PeerManager {
         let manager = self.clone();
 
         tokio::spawn(async move {
-            // Wait 60 seconds before the first reconnection attempt to allow initial connections
-            time::sleep(Duration::from_secs(60)).await;
+            // Wait 10 seconds before the first reconnection attempt to allow initial connections
+            time::sleep(Duration::from_secs(10)).await;
 
-            let mut ticker = time::interval(Duration::from_secs(120)); // Check every 2 minutes
+            let mut ticker = time::interval(Duration::from_secs(30)); // Check every 30 seconds
             loop {
                 ticker.tick().await;
 
