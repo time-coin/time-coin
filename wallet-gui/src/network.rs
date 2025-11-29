@@ -1312,6 +1312,18 @@ impl NetworkManager {
             }
         }
 
+        // Remove unreachable peers (9999 latency)
+        let before_count = self.connected_peers.len();
+        self.connected_peers.retain(|p| p.latency_ms < 9999);
+        let removed = before_count - self.connected_peers.len();
+
+        if removed > 0 {
+            log::info!(
+                "🗑️  Removed {} unreachable peer(s) (9999ms latency)",
+                removed
+            );
+        }
+
         log::info!("TCP latency refresh complete");
     }
 
