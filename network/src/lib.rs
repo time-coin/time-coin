@@ -4,6 +4,7 @@ pub mod discovery;
 pub mod heartbeat;
 pub mod manager;
 pub mod message_auth;
+pub mod message_handler;
 pub mod protocol;
 pub mod quarantine;
 pub mod rate_limiter;
@@ -16,6 +17,7 @@ pub use connection::{PeerConnection, PeerListener};
 pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
 pub use manager::PeerManager;
 pub use message_auth::{AuthError, AuthenticatedMessage, NonceTracker};
+pub use message_handler::MessageHandler;
 pub use protocol::{HandshakeMessage, NetworkMessage, ProtocolVersion, TransactionMessage};
 pub use protocol::{TransactionValidation, PROTOCOL_VERSION, VERSION};
 pub use quarantine::{
