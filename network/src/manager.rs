@@ -843,18 +843,35 @@ impl PeerManager {
 
     /// Broadcast chain tip update to all connected peers
     pub async fn broadcast_tip_update(&self, height: u64, hash: String) {
-        let connections = self.connections.read().await;
+        // CRITICAL FIX: Clone connection handles and release lock before sending
+        // Holding read lock during sends causes reaper deadlock
+        let connection_handles: Vec<(IpAddr, Arc<tokio::sync::Mutex<PeerConnection>>)> = {
+            let connections = self.connections.read().await;
+            connections
+                .iter()
+                .map(|(ip, conn)| (*ip, conn.clone()))
+                .collect()
+        }; // Lock dropped here
 
-        for (ip, conn_arc) in connections.iter() {
+        for (ip, conn_arc) in connection_handles {
             let mut conn = conn_arc.lock().await;
-            if let Err(e) = conn
+            match conn
                 .send_message(crate::protocol::NetworkMessage::UpdateTip {
                     height,
                     hash: hash.clone(),
                 })
                 .await
             {
-                debug!(peer = %ip, error = %e, "Failed to send tip update");
+                Ok(_) => {
+                    // CRITICAL FIX: Mark peer as seen on successful send
+                    self.peer_seen(ip).await;
+                }
+                Err(e) => {
+                    debug!(peer = %ip, error = %e, "Failed to send tip update");
+                    // CRITICAL FIX: Remove dead connection on ANY error
+                    drop(conn);
+                    self.remove_dead_connection(ip).await;
+                }
             }
         }
     }
@@ -1008,6 +1025,9 @@ impl PeerManager {
             match response {
                 crate::protocol::NetworkMessage::GenesisBlock(json_str) => {
                     let genesis: serde_json::Value = serde_json::from_str(&json_str)?;
+                    // CRITICAL FIX: Mark peer as seen on successful response
+                    drop(conn);
+                    self.peer_seen(peer_ip).await;
                     return Ok(genesis);
                 }
                 _ => return Err("Unexpected response type".into()),
@@ -1106,6 +1126,9 @@ impl PeerManager {
 
                     match response {
                         crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => {
+                            // CRITICAL FIX: Mark peer as seen on successful response
+                            drop(conn);
+                            self.peer_seen(peer_ip).await;
                             Ok(height)
                         }
                         _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
@@ -1421,25 +1444,29 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
             match conn.send_message(message.clone()).await {
-                Ok(_) => Ok(()),
+                Ok(_) => {
+                    // CRITICAL FIX: Mark peer as seen on successful send
+                    drop(conn); // Release connection lock before acquiring last_seen lock
+                    self.peer_seen(peer_ip).await;
+                    Ok(())
+                }
                 Err(e) => {
-                    // Check if this is a broken pipe error - handle gracefully with retry
-                    if e.contains("Broken pipe") || e.contains("Connection reset") {
-                        debug!(
-                            peer = %peer_ip,
-                            "Connection broken during send, will attempt immediate reconnect"
-                        );
-                        drop(conn); // Release lock before removing
+                    // CRITICAL FIX: Remove dead connection on ANY send error, not just broken pipe
+                    debug!(
+                        peer = %peer_ip,
+                        error = %e,
+                        "Connection failed during send, removing from pool"
+                    );
+                    drop(conn); // Release lock before removing
 
-                        // Remove the stale connection
-                        self.connections.write().await.remove(&peer_ip);
-                        self.remove_connected_peer(&peer_ip).await;
+                    // Remove the stale connection
+                    self.connections.write().await.remove(&peer_ip);
+                    self.remove_connected_peer(&peer_ip).await;
 
-                        // Don't log to stdout - too noisy, use debug logging instead
-                        // The reconnection task will pick this up within 15s
-                        return Err("Connection broken (auto-reconnect scheduled)".to_string());
-                    }
-                    Err(e)
+                    Err(format!(
+                        "Connection failed: {} (auto-reconnect scheduled)",
+                        e
+                    ))
                 }
             }
         } else {
