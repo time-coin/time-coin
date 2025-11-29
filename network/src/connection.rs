@@ -33,16 +33,16 @@ impl PeerConnection {
             eprintln!("⚠️  Failed to set TCP_NODELAY: {}", e);
         }
 
-        // AGGRESSIVE TCP keep-alive to prevent connection drops
-        // Connection resets observed after 3-5 seconds of inactivity
-        // Strategy: Very frequent probes to keep NAT/firewall tables alive
+        // TCP keep-alive to prevent connection drops from idle timeout
+        // Using reasonable intervals to avoid triggering firewall/NAT resets
+        // 5-second probes are too aggressive and can actually cause disconnections
         let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
 
-        // Extremely aggressive keepalive: probe every 5 seconds
-        // This prevents silent connection drops from firewalls/NAT
+        // Reasonable keepalive: probe after 60s idle, then every 30s
+        // Most networks handle this well, avoiding premature connection resets
         let ka = socket2::TcpKeepalive::new()
-            .with_time(std::time::Duration::from_secs(5)) // First probe after 5s idle
-            .with_interval(std::time::Duration::from_secs(5)); // 5s between probes
+            .with_time(std::time::Duration::from_secs(60)) // First probe after 60s idle
+            .with_interval(std::time::Duration::from_secs(30)); // 30s between probes
 
         if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
             eprintln!("⚠️  Failed to set TCP keep-alive: {}", e);
@@ -278,25 +278,32 @@ impl PeerConnection {
         Ok(())
     }
 
-    /// Receive a network message from the TCP connection
+    /// Receive a network message from the TCP connection with timeout
     pub async fn receive_message(&mut self) -> Result<crate::protocol::NetworkMessage, String> {
-        let mut len_bytes = [0u8; 4];
-        self.stream
-            .read_exact(&mut len_bytes)
-            .await
-            .map_err(|e| format!("Failed to read length: {}", e))?;
-        let len = u32::from_be_bytes(len_bytes) as usize;
+        // Add timeout to prevent indefinite blocking on dead connections
+        let timeout_duration = std::time::Duration::from_secs(60);
 
-        if len > 10 * 1024 * 1024 {
-            return Err("Message too large (>10MB)".into());
-        }
+        tokio::time::timeout(timeout_duration, async {
+            let mut len_bytes = [0u8; 4];
+            self.stream
+                .read_exact(&mut len_bytes)
+                .await
+                .map_err(|e| format!("Failed to read length: {}", e))?;
+            let len = u32::from_be_bytes(len_bytes) as usize;
 
-        let mut buf = vec![0u8; len];
-        self.stream
-            .read_exact(&mut buf)
-            .await
-            .map_err(|e| format!("Failed to read message: {}", e))?;
-        crate::protocol::NetworkMessage::deserialize(&buf)
+            if len > 10 * 1024 * 1024 {
+                return Err("Message too large (>10MB)".into());
+            }
+
+            let mut buf = vec![0u8; len];
+            self.stream
+                .read_exact(&mut buf)
+                .await
+                .map_err(|e| format!("Failed to read message: {}", e))?;
+            crate::protocol::NetworkMessage::deserialize(&buf)
+        })
+        .await
+        .map_err(|_| "Receive timeout after 60s".to_string())?
     }
 
     pub async fn ping(&mut self) -> Result<(), String> {
@@ -330,12 +337,15 @@ impl PeerConnection {
             tokio::time::timeout(std::time::Duration::from_secs(10), self.receive_message()).await;
 
         match pong_result {
-            Ok(Ok(crate::protocol::NetworkMessage::Pong)) => Ok(()),
-            Ok(Ok(msg)) => {
-                // Received another message type - peer is alive but busy
-                // Don't treat this as a failure, just log it
-                tracing::debug!("Received {:?} instead of Pong (peer alive but busy)", msg);
+            Ok(Ok(crate::protocol::NetworkMessage::Pong)) => {
+                tracing::trace!("Received Pong response");
                 Ok(())
+            }
+            Ok(Ok(msg)) => {
+                // Received wrong message type - this is a protocol violation
+                // The peer should respond with Pong, not other messages
+                tracing::warn!("Expected Pong but received {:?} - protocol mismatch", msg);
+                Err(format!("Protocol error: expected Pong, got {:?}", msg))
             }
             Ok(Err(e)) => Err(format!("Pong receive error: {}", e)),
             Err(_) => Err("Pong timeout (10s)".to_string()),

@@ -40,6 +40,7 @@ impl MessageHandler {
             stream.clone(),
             pending_responses.clone(),
             broadcast_handler.clone(),
+            tx_sender.clone(),
         );
 
         Self {
@@ -138,6 +139,7 @@ impl MessageHandler {
         stream: Arc<Mutex<TcpStream>>,
         pending_responses: Arc<RwLock<HashMap<RequestId, ResponseSender>>>,
         handler: Arc<dyn Fn(NetworkMessage) + Send + Sync>,
+        tx_sender: mpsc::UnboundedSender<(NetworkMessage, Option<RequestId>)>,
     ) {
         tokio::spawn(async move {
             loop {
@@ -182,8 +184,11 @@ impl MessageHandler {
                     // Auto-respond to Ping with Pong
                     NetworkMessage::Ping => {
                         debug!("Received Ping, auto-responding with Pong");
-                        // This would need access to tx_sender to auto-respond
-                        // For now, let the handler deal with it
+                        // Send Pong response immediately
+                        if let Err(e) = tx_sender.send((NetworkMessage::Pong, None)) {
+                            warn!("Failed to send Pong response: {}", e);
+                        }
+                        // Also notify handler for logging/stats
                         handler(msg);
                     }
                     // Check if this is a response to a pending request
