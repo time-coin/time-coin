@@ -528,15 +528,26 @@ impl ChainSync {
 
         // Validate that the height is reasonable based on time elapsed
         let now = chrono::Utc::now().timestamp();
-        let elapsed_days = (now - genesis_time) / 86400; // seconds per day
-        let max_expected_height = elapsed_days as u64 + 10; // Allow some tolerance
+        let elapsed_seconds = now - genesis_time;
+
+        // TIME Coin uses 10-minute blocks (600 seconds per block)
+        // Calculate maximum possible blocks based on time since genesis
+        let max_possible_blocks = (elapsed_seconds / 600) as u64;
+
+        // Add tolerance: allow up to 20% more blocks than theoretical maximum
+        // This accounts for clock drift, faster block production during testing, etc.
+        let max_expected_height = max_possible_blocks + (max_possible_blocks / 5);
 
         if max_height > max_expected_height {
             println!(
                 "   ⚠️  Peer height {} exceeds expected maximum {} (based on time since genesis)",
                 max_height, max_expected_height
             );
-            println!("      Days since genesis: {}", elapsed_days);
+            println!("      Seconds since genesis: {}", elapsed_seconds);
+            println!(
+                "      Theoretical max blocks (10min each): {}",
+                max_possible_blocks
+            );
             println!("      This may indicate a fork or imposter chain");
 
             // Quarantine the peer with suspicious height
