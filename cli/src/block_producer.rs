@@ -277,28 +277,35 @@ impl BlockProducer {
         };
         drop(blockchain);
 
-        let genesis_timestamp = genesis_block.header.timestamp.timestamp();
-        let genesis_date = genesis_block.header.timestamp.date_naive();
-
-        // Calculate expected height based on mode
-        let expected_height = if IS_TESTING_MODE {
-            // Testing: blocks every 10 minutes
-            let elapsed_seconds = now.timestamp() - genesis_timestamp;
-            (elapsed_seconds / BLOCK_INTERVAL_SECONDS as i64) as u64
-        } else {
-            // Production: blocks every 24 hours
-            let current_date = now.date_naive();
-            let days_since_genesis = (current_date - genesis_date).num_days();
-            days_since_genesis as u64
-        };
+        let _genesis_timestamp = genesis_block.header.timestamp.timestamp();
+        let _genesis_date = genesis_block.header.timestamp.date_naive();
 
         let actual_height = self.load_block_height().await;
 
+        // CRITICAL FIX: Use network consensus height, not time-based calculation
+        // Time-based fails when network is offline (testnet scenario)
+        let network_max_height = {
+            let peer_heights = self.peer_manager.get_peer_ips().await;
+            let mut max_height = actual_height;
+
+            for peer_ip in peer_heights {
+                if let Ok(Some(height)) = self.peer_manager.request_blockchain_info(&peer_ip).await
+                {
+                    max_height = max_height.max(height);
+                }
+            }
+            max_height
+        };
+
+        // Use network consensus as expected height
+        let expected_height = network_max_height;
+
         println!("🔍 Catch-up check:");
         println!("   Current height: {}", actual_height);
-        println!("   Expected height: {}", expected_height);
+        println!("   Network consensus height: {}", expected_height);
 
         if actual_height >= expected_height {
+            println!("   ✅ Node is synced with network");
             return;
         }
 

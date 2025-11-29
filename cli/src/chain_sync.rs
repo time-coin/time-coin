@@ -1315,21 +1315,35 @@ impl ChainSync {
         };
 
         let now = Utc::now();
-        let current_date = now.date_naive();
+        let _current_date = now.date_naive();
         let genesis_date = genesis_block.header.timestamp.date_naive();
 
-        let days_since_genesis = (current_date - genesis_date).num_days();
-        let expected_height = days_since_genesis as u64;
+        // CRITICAL FIX: Use network consensus height, not time-based calculation
+        // Query all peers to find actual network height
+        let network_max_height = {
+            let peer_heights = self.query_peer_heights().await;
+            peer_heights
+                .iter()
+                .map(|(_, h, _)| *h)
+                .max()
+                .unwrap_or(current_height)
+        };
+
+        // Use network consensus as expected height
+        let expected_height = network_max_height;
 
         if current_height >= expected_height {
-            println!("   ℹ️  No catchup needed - chain is current");
+            println!(
+                "   ℹ️  No catchup needed - chain is synced with network (height {})",
+                current_height
+            );
             return Ok(());
         }
 
         let missing_blocks = expected_height - current_height;
-        println!("   📊 Need to create {} catchup blocks", missing_blocks);
+        println!("   📊 Need to sync {} blocks from network", missing_blocks);
         println!(
-            "   ℹ️  Current height: {}, Expected height: {}",
+            "   ℹ️  Current height: {}, Network height: {}",
             current_height, expected_height
         );
 
