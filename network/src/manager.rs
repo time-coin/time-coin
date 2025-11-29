@@ -846,13 +846,15 @@ impl PeerManager {
 
         for (ip, conn_arc) in connection_handles {
             let mut conn = conn_arc.lock().await;
-            match conn
+            let result = conn
                 .send_message(crate::protocol::NetworkMessage::UpdateTip {
                     height,
                     hash: hash.clone(),
                 })
-                .await
-            {
+                .await;
+            drop(conn); // Release lock before peer_seen/remove_dead_connection
+
+            match result {
                 Ok(_) => {
                     // CRITICAL FIX: Mark peer as seen on successful send
                     self.peer_seen(ip).await;
@@ -860,7 +862,6 @@ impl PeerManager {
                 Err(e) => {
                     debug!(peer = %ip, error = %e, "Failed to send tip update");
                     // CRITICAL FIX: Remove dead connection on ANY error
-                    drop(conn);
                     self.remove_dead_connection(ip).await;
                 }
             }
