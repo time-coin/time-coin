@@ -1019,10 +1019,6 @@ impl BlockProducer {
                     println!("   ❌ Reconciliation failed - will retry next block");
                 }
             }
-            ConsensusResult::InsufficientPeers => {
-                println!("   ⚠️  Insufficient peers - creating block locally");
-                // In single-node or bootstrap scenarios, proceed anyway
-            }
         }
     }
 
