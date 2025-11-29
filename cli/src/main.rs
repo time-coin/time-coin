@@ -2377,6 +2377,14 @@ async fn main() {
             time_consensus::ConsensusMode::BFT => "BFT",
         };
 
+        // TCP keepalive ping - send to all connected peers every heartbeat to maintain connections
+        for peer in peers.iter() {
+            // Send Ping message via TCP to keep connection alive (fire and forget - don't wait for response)
+            let _ = peer_mgr_heartbeat
+                .send_message_to_peer(peer.address, time_network::protocol::NetworkMessage::Ping)
+                .await;
+        }
+
         // Detailed heartbeat output
         if is_testnet {
             println!(
@@ -2435,49 +2443,6 @@ async fn main() {
                     }
                 }
             });
-        }
-
-        // Test TCP connectivity by pinging connected peers every 5 heartbeats
-        if counter % 5 == 0 {
-            println!("   🔍 Testing TCP peer connectivity...");
-            for peer in peers.iter() {
-                // Send Ping message via TCP
-                match peer_mgr_heartbeat
-                    .send_message_to_peer(
-                        peer.address,
-                        time_network::protocol::NetworkMessage::Ping,
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        println!("      ✓ {} responded to TCP ping", peer.address.ip());
-                    }
-                    Err(e) => {
-                        println!(
-                            "      ✗ {} did NOT respond to TCP ping: {}",
-                            peer.address.ip(),
-                            e
-                        );
-                        // Dead connection will be automatically removed by send_ping()
-                        // Try to reconnect
-                        println!("      🔄 Attempting to reconnect to {}...", peer.address);
-                        let peer_mgr_reconnect = peer_mgr_heartbeat.clone();
-                        let peer_info = peer.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                peer_mgr_reconnect.connect_to_peer(peer_info.clone()).await
-                            {
-                                eprintln!(
-                                    "      ✗ Failed to reconnect to {}: {}",
-                                    peer_info.address, e
-                                );
-                            } else {
-                                println!("      ✓ Reconnected to {}", peer_info.address);
-                            }
-                        });
-                    }
-                }
-            }
         }
 
         // Check for version updates every 10 minutes (every 10 heartbeats)
