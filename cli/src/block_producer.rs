@@ -1841,7 +1841,7 @@ impl BlockProducer {
         };
 
         println!(
-            "      💰 Catch-up block will reward {} masternodes",
+            "      💰 Catch-up block will reward all {} active masternodes",
             active_masternodes.len()
         );
         println!(
