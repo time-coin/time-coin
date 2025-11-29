@@ -59,6 +59,10 @@ impl TcpProtocolClient {
             .await
             .map_err(|e| format!("TCP connection failed: {}", e))?;
 
+        // Apply production-grade TCP settings
+        Self::configure_tcp_socket(&stream)
+            .map_err(|e| format!("Failed to configure TCP: {}", e))?;
+
         *self.active.write().await = true;
 
         // Register xpub if available
@@ -198,6 +202,29 @@ impl TcpProtocolClient {
     pub async fn disconnect(&self) {
         *self.active.write().await = false;
     }
+
+    /// Configure TCP socket with production-grade settings
+    fn configure_tcp_socket(stream: &TcpStream) -> std::io::Result<()> {
+        use socket2::{Socket, TcpKeepalive};
+        use std::os::windows::io::{AsRawSocket, FromRawSocket};
+        use std::time::Duration;
+
+        let socket = unsafe { Socket::from_raw_socket(stream.as_raw_socket()) };
+
+        // TCP keepalive - Production settings (60s idle, 30s interval, 9 probes = 4.5min total)
+        let keepalive = TcpKeepalive::new()
+            .with_time(Duration::from_secs(60))
+            .with_interval(Duration::from_secs(30));
+
+        socket.set_tcp_keepalive(&keepalive)?;
+        socket.set_nodelay(true)?; // Disable Nagle's algorithm for low latency
+        socket.set_read_timeout(Some(Duration::from_secs(30)))?;
+        socket.set_write_timeout(Some(Duration::from_secs(30)))?;
+
+        // Prevent socket from being dropped
+        std::mem::forget(socket);
+        Ok(())
+    }
 }
 
 /// TCP Protocol Listener - maintains persistent connection and listens for push notifications
@@ -246,6 +273,9 @@ impl TcpProtocolListener {
         // Connect to masternode
         log::debug!("Connecting to {}", self.peer_addr);
         let mut stream = TcpStream::connect(&self.peer_addr).await?;
+
+        // Apply production-grade TCP settings
+        Self::configure_tcp_socket(&stream)?;
 
         log::debug!("Connected to {}", self.peer_addr);
 
@@ -451,5 +481,28 @@ impl TcpProtocolListener {
             }
             _ => Ok(()), // Ignore other messages
         }
+    }
+
+    /// Configure TCP socket with production-grade settings
+    fn configure_tcp_socket(stream: &TcpStream) -> std::io::Result<()> {
+        use socket2::{Socket, TcpKeepalive};
+        use std::os::windows::io::{AsRawSocket, FromRawSocket};
+        use std::time::Duration;
+
+        let socket = unsafe { Socket::from_raw_socket(stream.as_raw_socket()) };
+
+        // TCP keepalive - Production settings (60s idle, 30s interval, 9 probes = 4.5min total)
+        let keepalive = TcpKeepalive::new()
+            .with_time(Duration::from_secs(60))
+            .with_interval(Duration::from_secs(30));
+
+        socket.set_tcp_keepalive(&keepalive)?;
+        socket.set_nodelay(true)?; // Disable Nagle's algorithm for low latency
+        socket.set_read_timeout(Some(Duration::from_secs(30)))?;
+        socket.set_write_timeout(Some(Duration::from_secs(30)))?;
+
+        // Prevent socket from being dropped
+        std::mem::forget(socket);
+        Ok(())
     }
 }
