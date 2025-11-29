@@ -2003,12 +2003,27 @@ async fn main() {
                                                     // Parse and record block vote
                                                     match serde_json::from_str::<time_consensus::block_consensus::BlockVote>(&vote_json) {
                                                         Ok(vote) => {
-                                                            println!("🗳️  Received block vote from {} for block #{} (hash: {}..., voter: {})", 
+                                                            println!("🗳️  Received block vote from {} for block #{} (hash: {}..., voter: {})",
                                                                 peer_ip_listen, vote.block_height, truncate_str(&vote.block_hash, 16), vote.voter);
-                                                            match block_consensus_listen.vote_on_block(vote.clone()).await {
+
+                                                            let vote_result = block_consensus_listen.vote_on_block(vote.clone()).await;
+                                                            match vote_result {
                                                                 Ok(_) => println!("   ✅ Vote recorded successfully"),
                                                                 Err(e) => println!("   ⚠️  Failed to record vote: {}", e),
                                                             }
+
+                                                            // Send acknowledgment back to sender
+                                                            let ack = time_network::protocol::NetworkMessage::ConsensusVoteAck {
+                                                                block_hash: vote.block_hash.clone(),
+                                                                voter: vote.voter.clone(),
+                                                                received_at: chrono::Utc::now().timestamp() as u64,
+                                                            };
+
+                                                            let mut conn_guard = conn_arc_clone.lock().await;
+                                                            if let Err(e) = conn_guard.send_message(ack).await {
+                                                                println!("   ⚠️  Failed to send vote ACK: {}", e);
+                                                            }
+                                                            drop(conn_guard); // Release lock
                                                         }
                                                         Err(e) => {
                                                             println!("   ⚠️  Failed to parse vote from {}: {}", peer_ip_listen, e);

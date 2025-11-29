@@ -1355,6 +1355,87 @@ impl PeerManager {
         }
     }
 
+    /// Send a vote to a peer and wait for acknowledgment
+    /// Returns Ok if vote was successfully received, Err if timeout or connection failure
+    pub async fn send_vote_with_ack(
+        &self,
+        peer_ip: IpAddr,
+        message: crate::protocol::NetworkMessage,
+        expected_block_hash: String,
+    ) -> Result<(), String> {
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).cloned()
+        };
+
+        if let Some(conn_arc) = conn_arc {
+            let mut conn = conn_arc.lock().await;
+
+            // Send the vote message
+            match conn.send_message(message.clone()).await {
+                Ok(_) => {
+                    // Wait for acknowledgment with 5 second timeout
+                    match tokio::time::timeout(
+                        tokio::time::Duration::from_secs(5),
+                        conn.receive_message(),
+                    )
+                    .await
+                    {
+                        Ok(Ok(crate::protocol::NetworkMessage::ConsensusVoteAck {
+                            block_hash,
+                            ..
+                        })) if block_hash == expected_block_hash => {
+                            // ACK received successfully
+                            Ok(())
+                        }
+                        Ok(Ok(msg)) => {
+                            // Received something else - unexpected
+                            Err(format!("Unexpected message type instead of ACK: {:?}", msg))
+                        }
+                        Ok(Err(e)) => {
+                            // Error receiving message
+                            println!(
+                                "   🔄 Broken connection detected to {} (no ACK), removing from pool",
+                                peer_ip
+                            );
+                            drop(conn);
+                            self.connections.write().await.remove(&peer_ip);
+                            self.remove_connected_peer(&peer_ip).await;
+                            Err(format!("Connection error waiting for ACK: {}", e))
+                        }
+                        Err(_) => {
+                            // Timeout waiting for ACK
+                            println!(
+                                "   ⏱️  Timeout waiting for ACK from {}, removing from pool",
+                                peer_ip
+                            );
+                            drop(conn);
+                            self.connections.write().await.remove(&peer_ip);
+                            self.remove_connected_peer(&peer_ip).await;
+                            Err(format!("Timeout waiting for ACK from {}", peer_ip))
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Check if this is a broken pipe error
+                    if e.contains("Broken pipe") || e.contains("Connection reset") {
+                        println!(
+                            "   🔄 Broken connection detected to {}, removing from pool",
+                            peer_ip
+                        );
+                        drop(conn);
+                        self.connections.write().await.remove(&peer_ip);
+                        self.remove_connected_peer(&peer_ip).await;
+                        return Err(format!("Connection lost to {} (will reconnect)", peer_ip));
+                    }
+                    Err(e)
+                }
+            }
+        } else {
+            Err("No TCP connection available".to_string())
+        }
+    }
+
     pub async fn broadcast_block_proposal(&self, proposal: serde_json::Value) {
         let proposal_json = proposal.to_string();
         let message =
@@ -1423,6 +1504,13 @@ impl PeerManager {
         let vote_json = vote.to_string();
         let message = crate::protocol::NetworkMessage::ConsensusBlockVote(vote_json.clone());
 
+        // Extract block hash for ACK verification
+        let block_hash = vote
+            .get("block_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         let peers = self.peers.read().await.clone();
         let connections = self.connections.read().await;
         let my_ip = self.public_addr.ip();
@@ -1451,12 +1539,16 @@ impl PeerManager {
             }
 
             let msg_clone = message.clone();
+            let hash_clone = block_hash.clone();
             let manager_clone = self.clone();
 
             let task = tokio::spawn(async move {
-                match manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                match manager_clone
+                    .send_vote_with_ack(peer_ip, msg_clone, hash_clone)
+                    .await
+                {
                     Ok(_) => {
-                        println!("   ✓ Vote sent to {}", peer_ip);
+                        println!("   ✓ Vote sent and ACKed by {}", peer_ip);
                         true
                     }
                     Err(e) => {
@@ -1476,7 +1568,7 @@ impl PeerManager {
             .filter(|r| r.as_ref().ok() == Some(&true))
             .count();
         println!(
-            "   📊 Vote broadcast: {} successful, {} failed",
+            "   📊 Vote broadcast: {} successful, {} ACKed",
             successful,
             results.len() - successful
         );
