@@ -1467,29 +1467,26 @@ impl PeerManager {
             crate::protocol::NetworkMessage::ConsensusBlockProposal(proposal_json.clone());
 
         let peers = self.peers.read().await.clone();
-        let connections = self.connections.read().await;
-        let my_ip = self.public_addr.ip();
+        // CRITICAL FIX: Don't hold connections lock while spawning tasks!
+        // Collect peer IPs that have connections, then drop the lock
+        let peer_ips_with_connections: Vec<IpAddr> = {
+            let connections = self.connections.read().await;
+            let my_ip = self.public_addr.ip();
+            peers
+                .values()
+                .map(|p| p.address.ip())
+                .filter(|ip| *ip != my_ip && connections.contains_key(ip))
+                .collect()
+        }; // Lock dropped here
 
-        println!("📤 Broadcasting proposal to {} peers", peers.len());
+        println!(
+            "📤 Broadcasting proposal to {} peers",
+            peer_ips_with_connections.len()
+        );
 
         let mut send_tasks = vec![];
 
-        for (_key, peer_info) in peers {
-            let peer_ip = peer_info.address.ip();
-
-            // Skip self
-            if peer_ip == my_ip {
-                debug!(peer = %peer_ip, "Skipping self");
-                continue;
-            }
-
-            let has_connection = connections.contains_key(&peer_ip);
-
-            if !has_connection {
-                debug!(peer = %peer_ip, "No TCP connection available");
-                continue;
-            }
-
+        for peer_ip in peer_ips_with_connections {
             let msg_clone = message.clone();
             let manager_clone = self.clone();
 
@@ -1534,29 +1531,26 @@ impl PeerManager {
             .to_string();
 
         let peers = self.peers.read().await.clone();
-        let connections = self.connections.read().await;
-        let my_ip = self.public_addr.ip();
+        // CRITICAL FIX: Don't hold connections lock while spawning tasks!
+        // Collect peer IPs that have connections, then drop the lock
+        let peer_ips_with_connections: Vec<IpAddr> = {
+            let connections = self.connections.read().await;
+            let my_ip = self.public_addr.ip();
+            peers
+                .values()
+                .map(|p| p.address.ip())
+                .filter(|ip| *ip != my_ip && connections.contains_key(ip))
+                .collect()
+        }; // Lock dropped here
 
-        println!("📤 Broadcasting vote to {} peers", peers.len());
+        println!(
+            "📤 Broadcasting vote to {} peers",
+            peer_ips_with_connections.len()
+        );
 
         let mut send_tasks = vec![];
 
-        for (_key, peer_info) in peers {
-            let peer_ip = peer_info.address.ip();
-
-            // Skip self
-            if peer_ip == my_ip {
-                debug!(peer = %peer_ip, "Skipping self");
-                continue;
-            }
-
-            let has_connection = connections.contains_key(&peer_ip);
-
-            if !has_connection {
-                debug!(peer = %peer_ip, "No TCP connection available");
-                continue;
-            }
-
+        for peer_ip in peer_ips_with_connections {
             let msg_clone = message.clone();
             let hash_clone = block_hash.clone();
             let manager_clone = self.clone();
