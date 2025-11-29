@@ -198,6 +198,25 @@ impl DeterministicConsensus {
         // Sort by wallet address to ensure all nodes have same order
         active_masternodes.sort_by(|a, b| a.0.cmp(&b.0));
 
+        // DEBUG: Print deterministic inputs
+        println!("   🔍 Deterministic inputs for block #{}:", block_num);
+        println!(
+            "      Previous hash: {}...",
+            &previous_hash[..16.min(previous_hash.len())]
+        );
+        println!("      Timestamp: {}", timestamp);
+        println!("      Active masternodes: {}", active_masternodes.len());
+        for (i, (addr, tier)) in active_masternodes.iter().enumerate().take(3) {
+            println!(
+                "         {}. {} ({:?})",
+                i + 1,
+                &addr[..20.min(addr.len())],
+                tier
+            );
+        }
+        println!("      Transactions: {}", transactions.len());
+        println!("      Total fees: {}", total_fees);
+
         drop(blockchain);
 
         // Create deterministic coinbase transaction

@@ -1176,6 +1176,17 @@ impl ChainSync {
             }
         }
 
+        // Check if all blocks are identical (deterministic consensus worked!)
+        let all_identical = all_blocks
+            .iter()
+            .all(|(_, block)| block.hash == our_block.hash);
+
+        if all_identical {
+            println!("   ✅ All nodes generated identical blocks - true consensus!");
+            println!("   ℹ️  No fork resolution needed");
+            return Ok(false); // Not a real fork, just detection artifact
+        }
+
         // Otherwise use timestamp-based selection for same-height forks
         let winner = self.select_winning_block(&all_blocks)?;
 

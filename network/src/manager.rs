@@ -1332,32 +1332,20 @@ impl PeerManager {
             match conn.send_message(message.clone()).await {
                 Ok(_) => Ok(()),
                 Err(e) => {
-                    // Check if this is a broken pipe error - try immediate reconnect
+                    // Check if this is a broken pipe error - handle gracefully
                     if e.contains("Broken pipe") || e.contains("Connection reset") {
                         println!(
-                            "   🔄 Broken connection detected to {}, attempting immediate reconnect",
+                            "   🔄 Broken connection detected to {}, removing from pool",
                             peer_ip
                         );
                         drop(conn); // Release lock before removing
 
                         // Remove the stale connection
-                        let mut connections = self.connections.write().await;
-                        connections.remove(&peer_ip);
-                        drop(connections);
+                        self.connections.write().await.remove(&peer_ip);
+                        self.remove_connected_peer(&peer_ip).await;
 
-                        // Try immediate reconnection
-                        let peer_addr = SocketAddr::new(peer_ip, 24100);
-                        let peer_info = PeerInfo::new(peer_addr, self.network);
-
-                        if let Ok(()) = Box::pin(self.connect_to_peer(peer_info)).await {
-                            println!("   ✅ Immediate reconnection successful, retrying message");
-                            // Retry the message with the new connection
-                            return Box::pin(self.send_to_peer_tcp(peer_ip, message)).await;
-                        } else {
-                            println!("   ⚠️  Immediate reconnection failed, will retry later");
-                            // Mark peer for background reconnection
-                            self.remove_connected_peer(&peer_ip).await;
-                        }
+                        // Return a more specific error for logging but don't crash
+                        return Err(format!("Connection lost to {} (will reconnect)", peer_ip));
                     }
                     Err(e)
                 }
