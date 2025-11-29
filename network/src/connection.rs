@@ -353,12 +353,37 @@ impl PeerListener {
     }
 
     pub async fn accept(&self) -> Result<PeerConnection, String> {
-        let (mut stream, _addr) = self
+        let (stream, _addr) = self
             .listener
             .accept()
             .await
             .map_err(|e| format!("Accept failed: {}", e))?;
         // Silently accept connection (reduce log verbosity)
+
+        // Enable TCP keep-alive on incoming connections to prevent timeout
+        if let Err(e) = stream.set_nodelay(true) {
+            eprintln!(
+                "⚠️  Failed to set TCP_NODELAY on incoming connection: {}",
+                e
+            );
+        }
+
+        // Set keep-alive parameters (30 second interval)
+        let socket2_sock = socket2::Socket::from(stream.into_std().map_err(|e| e.to_string())?);
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(std::time::Duration::from_secs(30))
+            .with_interval(std::time::Duration::from_secs(30));
+
+        if let Err(e) = socket2_sock.set_tcp_keepalive(&ka) {
+            eprintln!(
+                "⚠️  Failed to set TCP keep-alive on incoming connection: {}",
+                e
+            );
+        }
+
+        // Convert back to tokio TcpStream
+        let mut stream = TcpStream::from_std(socket2_sock.into())
+            .map_err(|e| format!("Failed to convert socket: {}", e))?;
 
         let their_handshake = PeerConnection::receive_handshake(&mut stream, &self.network).await?;
         their_handshake.validate(&self.network)?;
