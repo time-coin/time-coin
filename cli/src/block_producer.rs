@@ -262,7 +262,7 @@ impl BlockProducer {
 
     #[allow(dead_code)]
     async fn catch_up_missed_blocks(&self) {
-        let now = Utc::now();
+        let _now = Utc::now();
 
         // Get genesis date from blockchain state
         let blockchain = self.blockchain.read().await;
