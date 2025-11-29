@@ -2404,13 +2404,34 @@ async fn main() {
             time_consensus::ConsensusMode::BFT => "BFT",
         };
 
-        // TCP keepalive ping - send to all connected peers every heartbeat to maintain connections
-        for peer in peers.iter() {
-            // Send Ping message via TCP to keep connection alive (fire and forget - don't wait for response)
-            let _ = peer_mgr_heartbeat
-                .send_message_to_peer(peer.address, time_network::protocol::NetworkMessage::Ping)
-                .await;
-        }
+        // TCP keepalive ping - send to all connected peers in parallel with timeout
+        // This prevents slow peers from blocking the heartbeat
+        let ping_tasks: Vec<_> = peers
+            .iter()
+            .map(|peer| {
+                let mgr = peer_mgr_heartbeat.clone();
+                let peer_addr = peer.address;
+                tokio::spawn(async move {
+                    // 2 second timeout per ping
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        mgr.send_message_to_peer(
+                            peer_addr,
+                            time_network::protocol::NetworkMessage::Ping,
+                        ),
+                    )
+                    .await;
+                })
+            })
+            .collect();
+
+        // Wait for all pings with overall 5 second timeout
+        // If any peer is slow, it won't block the others
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            futures::future::join_all(ping_tasks),
+        )
+        .await;
 
         // Detailed heartbeat output
         if is_testnet {

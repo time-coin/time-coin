@@ -245,18 +245,28 @@ impl PeerConnection {
             return Err("Message too large (>10MB)".into());
         }
 
-        self.stream
-            .write_all(&len.to_be_bytes())
-            .await
-            .map_err(|e| format!("Failed to write length: {}", e))?;
-        self.stream
-            .write_all(&json)
-            .await
-            .map_err(|e| format!("Failed to write message: {}", e))?;
-        self.stream
-            .flush()
-            .await
-            .map_err(|e| format!("Failed to flush: {}", e))?;
+        // Wrap all I/O operations in a timeout to prevent indefinite blocking
+        // This prevents "Broken pipe" errors caused by slow/stuck peers
+        let timeout_duration = std::time::Duration::from_secs(5);
+
+        tokio::time::timeout(timeout_duration, async {
+            self.stream
+                .write_all(&len.to_be_bytes())
+                .await
+                .map_err(|e| format!("Failed to write length: {}", e))?;
+            self.stream
+                .write_all(&json)
+                .await
+                .map_err(|e| format!("Failed to write message: {}", e))?;
+            self.stream
+                .flush()
+                .await
+                .map_err(|e| format!("Failed to flush: {}", e))?;
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|_| "Send timeout after 5s".to_string())??;
+
         Ok(())
     }
 
@@ -282,22 +292,29 @@ impl PeerConnection {
     }
 
     pub async fn ping(&mut self) -> Result<(), String> {
-        // Send ping
+        // Send ping with timeout to prevent blocking
         let msg = crate::protocol::NetworkMessage::Ping;
         let json = serde_json::to_vec(&msg).map_err(|e| e.to_string())?;
         let len = json.len() as u32;
-        self.stream
-            .write_all(&len.to_be_bytes())
-            .await
-            .map_err(|e| format!("Ping write failed: {}", e))?;
-        self.stream
-            .write_all(&json)
-            .await
-            .map_err(|e| format!("Ping write failed: {}", e))?;
-        self.stream
-            .flush()
-            .await
-            .map_err(|e| format!("Ping flush failed: {}", e))?;
+
+        // Wrap ping send in timeout (5 seconds)
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            self.stream
+                .write_all(&len.to_be_bytes())
+                .await
+                .map_err(|e| format!("Ping write failed: {}", e))?;
+            self.stream
+                .write_all(&json)
+                .await
+                .map_err(|e| format!("Ping write failed: {}", e))?;
+            self.stream
+                .flush()
+                .await
+                .map_err(|e| format!("Ping flush failed: {}", e))?;
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|_| "Ping send timeout after 5s".to_string())??;
 
         // Wait for pong response with generous timeout (10s instead of 5s)
         // Peer might be busy handling other messages
