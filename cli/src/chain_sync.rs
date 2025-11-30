@@ -740,19 +740,29 @@ impl ChainSync {
                                     // This likely means we're on a different chain branch
                                     println!("   ⚠️  Block {} already exists locally with different hash", height);
                                     println!("      Local chain may have diverged - this is a fork situation");
-                                    println!(
-                                        "      Peer's block hash: {}",
+
+                                    // Safe hash display - handle empty hashes
+                                    let peer_hash_display = if block_hash_for_comparison.len() >= 16
+                                    {
                                         &block_hash_for_comparison[..16]
-                                    );
+                                    } else {
+                                        &block_hash_for_comparison
+                                    };
+                                    println!("      Peer's block hash: {}...", peer_hash_display);
 
                                     let our_block_hash = blockchain
                                         .get_block_by_height(height)
                                         .map(|b| b.hash.clone())
                                         .unwrap_or_default();
-                                    println!(
-                                        "      Our block hash:    {}...",
+
+                                    let our_hash_display = if our_block_hash.len() >= 16 {
                                         &our_block_hash[..16]
-                                    );
+                                    } else if !our_block_hash.is_empty() {
+                                        &our_block_hash
+                                    } else {
+                                        "<none>"
+                                    };
+                                    println!("      Our block hash:    {}...", our_hash_display);
 
                                     // CRITICAL FIX: Immediately rollback to resolve the fork
                                     // We need to rewind to one block before the fork point
