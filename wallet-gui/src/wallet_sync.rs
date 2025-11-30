@@ -207,7 +207,11 @@ impl WalletSync {
             }
         }
 
-        log::info!("📊 Queried {}/{} peers successfully", peer_infos.len(), peers.len());
+        log::info!(
+            "📊 Queried {}/{} peers successfully",
+            peer_infos.len(),
+            peers.len()
+        );
 
         Ok(peer_infos)
     }
@@ -281,26 +285,19 @@ impl WalletSync {
         while current_height <= end_height {
             let batch_end = (current_height + BATCH_SIZE - 1).min(end_height);
 
-            log::debug!(
-                "📥 Downloading blocks {}-{}...",
-                current_height,
-                batch_end
-            );
+            log::debug!("📥 Downloading blocks {}-{}...", current_height, batch_end);
 
             // Try each peer until one succeeds
             let mut downloaded = false;
             for peer_addr in peers {
                 let net = self.network_manager.lock().await;
-                match net
-                    .get_blocks(peer_addr, current_height, batch_end)
-                    .await
-                {
+                match net.get_blocks(peer_addr, current_height, batch_end).await {
                     Ok(blocks) => {
                         log::debug!("✅ Downloaded {} blocks from {}", blocks.len(), peer_addr);
-                        
+
                         // TODO: Validate and store blocks
                         // For now, just update progress
-                        
+
                         current_height = batch_end + 1;
                         downloaded = true;
 
@@ -379,7 +376,7 @@ mod tests {
         // 67% of 5 peers = ceil(3.35) = 4 peers minimum
         let required = (5.0 * CONSENSUS_THRESHOLD).ceil() as usize;
         assert_eq!(required, 4);
-        
+
         // 67% of 10 peers = ceil(6.7) = 7 peers minimum
         let required = (10.0 * CONSENSUS_THRESHOLD).ceil() as usize;
         assert_eq!(required, 7);

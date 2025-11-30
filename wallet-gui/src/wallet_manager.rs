@@ -105,7 +105,10 @@ impl WalletManager {
         // Create encrypted wallet_dat from mnemonic with password
         let wallet_dat = WalletDat::from_mnemonic_encrypted(mnemonic, network, password)?;
 
-        log::info!("Created encrypted wallet with xpub: {}", wallet_dat.get_xpub());
+        log::info!(
+            "Created encrypted wallet with xpub: {}",
+            wallet_dat.get_xpub()
+        );
 
         // Save immediately
         wallet_dat.save()?;

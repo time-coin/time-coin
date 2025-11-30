@@ -173,7 +173,10 @@ pub fn decrypt_with_password(
 }
 
 /// Verify password against stored hash
-pub fn verify_password(password: &SecurePassword, password_hash_str: &str) -> Result<(), EncryptionError> {
+pub fn verify_password(
+    password: &SecurePassword,
+    password_hash_str: &str,
+) -> Result<(), EncryptionError> {
     let parsed_hash = PasswordHash::new(password_hash_str)
         .map_err(|e| EncryptionError::KeyDerivationFailed(e.to_string()))?;
 
@@ -211,7 +214,10 @@ mod tests {
         let result = decrypt_with_password(&encrypted, &nonce, &wrong_password, &kdf_params);
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), EncryptionError::InvalidPassword));
+        assert!(matches!(
+            result.unwrap_err(),
+            EncryptionError::InvalidPassword
+        ));
     }
 
     #[test]

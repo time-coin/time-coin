@@ -235,7 +235,10 @@ impl PasswordPrompt {
                             && self.password.len() >= 8
                     };
 
-                    if ui.add_enabled(ok_enabled, egui::Button::new("OK")).clicked() {
+                    if ui
+                        .add_enabled(ok_enabled, egui::Button::new("OK"))
+                        .clicked()
+                    {
                         if self.is_confirmation_only {
                             // Just confirm password
                             self.confirmed = true;
@@ -327,15 +330,15 @@ mod tests {
         );
         assert_eq!(
             PasswordStrength::calculate("Password1"),
-            PasswordStrength::Strong  // 9 chars, upper, lower, digit = 4 points
+            PasswordStrength::Strong // 9 chars, upper, lower, digit = 4 points
         );
         assert_eq!(
             PasswordStrength::calculate("Password123"),
-            PasswordStrength::Strong  // 11 chars, upper, lower, digit = 4 points
+            PasswordStrength::Strong // 11 chars, upper, lower, digit = 4 points
         );
         assert_eq!(
             PasswordStrength::calculate("P@ssw0rd123!"),
-            PasswordStrength::VeryStrong  // 12+ chars, upper, lower, digit, special = 6 points
+            PasswordStrength::VeryStrong // 12+ chars, upper, lower, digit, special = 6 points
         );
     }
 

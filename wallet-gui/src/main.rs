@@ -15,11 +15,13 @@ use wallet::NetworkType;
 
 mod config;
 mod encryption;
+mod message_validator;
 mod mnemonic_ui;
-mod password_ui;
 mod network;
+mod password_ui;
 mod peer_manager;
 mod protocol_client;
+mod rate_limiter;
 mod tcp_protocol_client;
 mod wallet_dat;
 mod wallet_db;
@@ -297,7 +299,7 @@ impl WalletApp {
                     // Get xpub BEFORE manager is moved
                     let wallet_xpub = manager.get_xpub().to_string();
                     let wallet_network = manager.network(); // Also get network type
-                    
+
                     // Store manager first
                     self.wallet_manager = Some(manager);
                     log::info!("Wallet auto-loaded successfully");
@@ -519,7 +521,7 @@ impl WalletApp {
                                 // TODO: Refactor UTXO notification handling
                                 // Currently disabled because wallet_manager is owned by self
                                 // and can't be shared with async tasks
-                                /* 
+                                /*
                                 // Spawn task to handle incoming UTXO notifications
                                 let wallet_for_utxo = wallet_mgr_clone.clone();
                                 tokio::spawn(async move {
@@ -573,7 +575,7 @@ impl WalletApp {
                                 );
                                 match client.request_wallet_transactions(wallet_xpub.clone()) {
                                     Ok(response) => {
-                                        log::info!("✅ Found {} transactions on blockchain (synced to block {})", 
+                                        log::info!("✅ Found {} transactions on blockchain (synced to block {})",
                                             response.transactions.len(), response.last_synced_height);
 
                                         // Save transactions to wallet manager
@@ -621,8 +623,10 @@ impl WalletApp {
                                 // Now start listening for new transactions
                                 listener.start().await;
                                 */
-                                
-                                log::info!("💡 UTXO notifications temporarily disabled pending refactor");
+
+                                log::info!(
+                                    "💡 UTXO notifications temporarily disabled pending refactor"
+                                );
                             } else {
                                 log::warn!("❌ No peers available for TCP listener");
                             }
@@ -1040,14 +1044,14 @@ impl WalletApp {
                         }
                     }
                     } // Close unencrypted wallet else block
-                    
+
                     // Handle password prompt for encrypted wallet unlock
                     if let Some(prompt) = &mut self.password_prompt {
                         prompt.show(ctx);
-                        
+
                         if prompt.is_confirmed() && !prompt.is_open() {
                             let password = prompt.take_password();
-                            
+
                             // Attempt to unlock wallet with password
                             match WalletManager::load_with_password(self.network, &password) {
                                 Ok(mut manager) => {
@@ -1094,7 +1098,7 @@ impl WalletApp {
                                     ));
                                 }
                             }
-                            
+
                             // Clear password prompt if not retrying
                             if !matches!(self.password_prompt.as_ref().map(|p| p.is_open()), Some(true)) {
                                 self.password_prompt = None;
@@ -1158,7 +1162,7 @@ impl WalletApp {
                             // Store mnemonic and show password prompt
                             self.pending_mnemonic = Some(phrase.clone());
                             self.password_prompt = Some(password_ui::PasswordPrompt::new(
-                                "Encrypt Wallet with Password"
+                                "Encrypt Wallet with Password",
                             ));
                         }
                         MnemonicAction::Cancel => {
@@ -1167,19 +1171,21 @@ impl WalletApp {
                         }
                     }
                 }
-                
+
                 // Show password prompt if active
                 if let Some(prompt) = &mut self.password_prompt {
                     prompt.show(ctx);
-                    
+
                     // Check if password was confirmed
                     if prompt.is_confirmed() && !prompt.is_open() {
                         let password = prompt.take_password();
-                        
+
                         if let Some(phrase) = self.pending_mnemonic.take() {
                             // If wallet exists, backup first
                             if wallet_exists {
-                                match self.backup_and_create_new_wallet_encrypted(&phrase, &password) {
+                                match self
+                                    .backup_and_create_new_wallet_encrypted(&phrase, &password)
+                                {
                                     Ok(_) => {
                                         self.mnemonic_interface.wallet_created = true;
                                         self.current_screen = Screen::Overview;
@@ -1193,7 +1199,7 @@ impl WalletApp {
                                 self.create_wallet_from_mnemonic_encrypted(&phrase, &password, ctx);
                             }
                         }
-                        
+
                         // Clear password prompt
                         self.password_prompt = None;
                     } else if !prompt.is_open() {
@@ -1393,7 +1399,12 @@ impl WalletApp {
         }
     }
 
-    fn create_wallet_from_mnemonic_encrypted(&mut self, phrase: &str, password: &str, ctx: &egui::Context) {
+    fn create_wallet_from_mnemonic_encrypted(
+        &mut self,
+        phrase: &str,
+        password: &str,
+        ctx: &egui::Context,
+    ) {
         log::info!("Creating encrypted wallet from mnemonic phrase...");
 
         match WalletManager::create_from_mnemonic_encrypted(self.network, phrase, password) {
@@ -1468,7 +1479,11 @@ impl WalletApp {
         }
     }
 
-    fn backup_and_create_new_wallet_encrypted(&mut self, new_phrase: &str, password: &str) -> Result<(), String> {
+    fn backup_and_create_new_wallet_encrypted(
+        &mut self,
+        new_phrase: &str,
+        password: &str,
+    ) -> Result<(), String> {
         // First, backup the existing wallet
         let backup_path = self.backup_current_wallet()?;
         log::info!("Wallet backed up to: {}", backup_path);

@@ -1,5 +1,7 @@
+use crate::rate_limiter::RateLimiter;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -82,6 +84,7 @@ pub struct NetworkManager {
     current_block_height: u64,
     network_block_height: u64,
     peer_manager: Option<Arc<crate::peer_manager::PeerManager>>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl NetworkManager {
@@ -94,6 +97,7 @@ impl NetworkManager {
             current_block_height: 0,
             network_block_height: 0,
             peer_manager: None,
+            rate_limiter: Arc::new(RateLimiter::new()),
         }
     }
 
@@ -1522,10 +1526,11 @@ impl NetworkManager {
         let tcp_addr = format!("{}:{}", peer_ip, peer_port);
 
         // Connect via TCP with timeout
-        let mut stream = tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr))
-            .await
-            .map_err(|_| format!("Connection timeout to {}", tcp_addr))?
-            .map_err(|e| format!("Connection failed to {}: {}", tcp_addr, e))?;
+        let mut stream =
+            tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr))
+                .await
+                .map_err(|_| format!("Connection timeout to {}", tcp_addr))?
+                .map_err(|e| format!("Connection failed to {}: {}", tcp_addr, e))?;
 
         // Determine network from peer port
         let network_type = if peer_port == 24100 {
@@ -1538,7 +1543,7 @@ impl NetworkManager {
         let our_addr = "0.0.0.0:0".parse().unwrap();
         let handshake = HandshakeMessage::new(network_type, our_addr);
         let magic = network_type.magic_bytes();
-        
+
         let handshake_json = serde_json::to_vec(&handshake)
             .map_err(|e| format!("Handshake serialization error: {}", e))?;
         let handshake_len = handshake_json.len() as u32;
@@ -1563,7 +1568,7 @@ impl NetworkManager {
         let mut their_len_bytes = [0u8; 4];
         stream.read_exact(&mut their_magic).await.ok();
         stream.read_exact(&mut their_len_bytes).await.ok();
-        
+
         let their_len = u32::from_be_bytes(their_len_bytes) as usize;
         if their_len < 10 * 1024 {
             let mut their_handshake_bytes = vec![0u8; their_len];
@@ -1613,7 +1618,12 @@ impl NetworkManager {
                 height,
                 best_block_hash,
             } => Ok(BlockchainInfo {
-                network: if peer_port == 24100 { "testnet" } else { "mainnet" }.to_string(),
+                network: if peer_port == 24100 {
+                    "testnet"
+                } else {
+                    "mainnet"
+                }
+                .to_string(),
                 height: height.unwrap_or(0),
                 best_block_hash,
                 total_supply: 0,
@@ -1648,10 +1658,11 @@ impl NetworkManager {
         let tcp_addr = format!("{}:{}", peer_ip, peer_port);
 
         // Connect
-        let mut stream = tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr))
-            .await
-            .map_err(|_| format!("Connection timeout to {}", tcp_addr))?
-            .map_err(|e| format!("Connection failed to {}: {}", tcp_addr, e))?;
+        let mut stream =
+            tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr))
+                .await
+                .map_err(|_| format!("Connection timeout to {}", tcp_addr))?
+                .map_err(|e| format!("Connection failed to {}: {}", tcp_addr, e))?;
 
         // Network type
         let network_type = if peer_port == 24100 {
@@ -1664,7 +1675,7 @@ impl NetworkManager {
         let our_addr = "0.0.0.0:0".parse().unwrap();
         let handshake = HandshakeMessage::new(network_type, our_addr);
         let magic = network_type.magic_bytes();
-        
+
         let handshake_json = serde_json::to_vec(&handshake)
             .map_err(|e| format!("Handshake serialization error: {}", e))?;
         let handshake_len = handshake_json.len() as u32;
@@ -1679,7 +1690,7 @@ impl NetworkManager {
         let mut their_len_bytes = [0u8; 4];
         stream.read_exact(&mut their_magic).await.ok();
         stream.read_exact(&mut their_len_bytes).await.ok();
-        
+
         let their_len = u32::from_be_bytes(their_len_bytes) as usize;
         if their_len < 10 * 1024 {
             let mut their_handshake_bytes = vec![0u8; their_len];
@@ -1719,5 +1730,35 @@ impl NetworkManager {
             NetworkMessage::Blocks { blocks } => Ok(blocks),
             _ => Err(format!("Unexpected response type")),
         }
+    }
+
+    /// Check if peer is rate limited
+    pub async fn check_rate_limit(&self, peer: SocketAddr) -> bool {
+        self.rate_limiter.check_rate_limit(peer).await
+    }
+
+    /// Check if peer is banned
+    pub async fn is_peer_banned(&self, peer: SocketAddr) -> bool {
+        self.rate_limiter.is_banned(peer).await
+    }
+
+    /// Record a violation for a peer
+    pub async fn record_peer_violation(&self, peer: SocketAddr) {
+        self.rate_limiter.record_violation(peer).await;
+    }
+
+    /// Get rate limiter stats
+    pub async fn get_rate_limiter_stats(&self) -> crate::rate_limiter::RateLimiterStats {
+        self.rate_limiter.get_stats().await
+    }
+
+    /// Cleanup old rate limiter entries (call periodically)
+    pub async fn cleanup_rate_limiter(&self) {
+        self.rate_limiter.cleanup_old_entries().await;
+    }
+
+    /// Get rate limiter instance
+    pub fn rate_limiter(&self) -> Arc<RateLimiter> {
+        Arc::clone(&self.rate_limiter)
     }
 }
