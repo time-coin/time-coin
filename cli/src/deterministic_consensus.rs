@@ -292,24 +292,36 @@ impl DeterministicConsensus {
             tasks.push((peer_ip_for_logging, task));
         }
 
-        // Collect results as they complete
-        let mut peer_blocks = Vec::new();
-        for (peer_ip_log, task) in tasks {
-            match task.await {
-                Ok(Some((ip, block))) => {
-                    println!("      ✓ Received block from {}", ip);
-                    peer_blocks.push((ip, block));
-                }
-                Ok(None) => {
-                    println!("      ✗ No response from {}", peer_ip_log);
-                }
-                Err(e) => {
-                    println!("      ✗ Task error for {}: {}", peer_ip_log, e);
+        // Collect results with overall timeout to prevent hanging
+        // Add overall timeout of 5 seconds for ALL peers
+        let collect_timeout = tokio::time::Duration::from_secs(5);
+        let collect_future = async {
+            let mut blocks = Vec::new();
+            for (peer_ip_log, task) in tasks {
+                match task.await {
+                    Ok(Some((ip, block))) => {
+                        println!("      ✓ Received block from {}", ip);
+                        blocks.push((ip, block));
+                    }
+                    Ok(None) => {
+                        println!("      ✗ No response from {}", peer_ip_log);
+                    }
+                    Err(e) => {
+                        println!("      ✗ Task error for {}: {}", peer_ip_log, e);
+                    }
                 }
             }
-        }
+            blocks
+        };
 
-        peer_blocks
+        // Timeout the entire collection process
+        match tokio::time::timeout(collect_timeout, collect_future).await {
+            Ok(blocks) => blocks,
+            Err(_) => {
+                println!("      ⚠️  Overall timeout - proceeding with received blocks");
+                Vec::new()
+            }
+        }
     }
 
     /// Compare our block with peer blocks

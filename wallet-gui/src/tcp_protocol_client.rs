@@ -467,7 +467,11 @@ impl TcpProtocolListener {
                 let _ = self.utxo_tx.send(utxo);
                 Ok(())
             }
-            NetworkMessage::TransactionApproved { txid, timestamp } => {
+            NetworkMessage::TransactionApproved {
+                txid,
+                approver: _,
+                timestamp,
+            } => {
                 log::info!(
                     "✅ Transaction APPROVED: {} at {}",
                     &txid[..std::cmp::min(16, txid.len())],
@@ -479,7 +483,12 @@ impl TcpProtocolListener {
                     .send(TransactionNotification::Approved { txid, timestamp });
                 Ok(())
             }
-            NetworkMessage::TransactionRejected { txid, reason } => {
+            NetworkMessage::TransactionRejected {
+                txid,
+                reason,
+                rejector: _,
+                timestamp: _,
+            } => {
                 log::warn!(
                     "❌ Transaction REJECTED: {} - Reason: {}",
                     &txid[..std::cmp::min(16, txid.len())],

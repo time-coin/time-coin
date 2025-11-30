@@ -162,11 +162,8 @@ struct WalletApp {
     tx_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<TransactionNotification>>,
 }
 
-#[derive(Debug, Clone)]
-enum TransactionNotification {
-    Approved { txid: String, timestamp: i64 },
-    Rejected { txid: String, reason: String },
-}
+// Use the TransactionNotification from tcp_protocol_client module
+use tcp_protocol_client::TransactionNotification;
 
 impl Default for WalletApp {
     fn default() -> Self {
@@ -4210,7 +4207,10 @@ impl WalletApp {
         if let Some(rx) = &mut self.tx_notification_rx {
             while let Ok(notification) = rx.try_recv() {
                 match notification {
-                    tcp_protocol_client::TransactionNotification::Approved { txid, timestamp } => {
+                    TransactionNotification::Approved {
+                        txid,
+                        timestamp,
+                    } => {
                         let short_txid = &txid[..std::cmp::min(16, txid.len())];
                         self.success_message = Some(format!(
                             "✅ Transaction {} approved by network!",
@@ -4219,7 +4219,10 @@ impl WalletApp {
                         self.success_message_time = Some(std::time::Instant::now());
                         log::info!("✅ Transaction {} approved at {}", short_txid, timestamp);
                     }
-                    tcp_protocol_client::TransactionNotification::Rejected { txid, reason } => {
+                    TransactionNotification::Rejected {
+                        txid,
+                        reason,
+                    } => {
                         let short_txid = &txid[..std::cmp::min(16, txid.len())];
                         self.error_message = Some(format!(
                             "❌ Transaction {} rejected: {}",
