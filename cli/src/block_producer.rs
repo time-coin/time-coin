@@ -169,11 +169,15 @@ impl BlockProducer {
         for peer_ip in peer_ips {
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
 
-            if let Ok(Some(height)) = self
-                .peer_manager
-                .request_blockchain_info(&peer_addr_with_port)
-                .await
-            {
+            // Add 2-second timeout per peer to prevent block production hang
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                self.peer_manager
+                    .request_blockchain_info(&peer_addr_with_port),
+            )
+            .await;
+
+            if let Ok(Ok(Some(height))) = result {
                 peer_heights.push((peer_ip, height, String::new()));
             }
         }
