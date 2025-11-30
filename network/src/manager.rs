@@ -67,6 +67,7 @@ impl PeerManager {
         manager.spawn_reaper();
         manager.spawn_reconnection_task();
         manager.spawn_broadcast_cleanup_task();
+        manager.spawn_peer_exchange_cleanup_task();
         manager
     }
 
@@ -1945,6 +1946,26 @@ impl PeerManager {
                         *count = 0;
                         *reset_time = now;
                     }
+                }
+            }
+        });
+    }
+
+    /// CRITICAL FIX (Issue #8): Spawn periodic peer exchange cleanup task
+    /// Removes stale peers older than 7 days to prevent unbounded growth
+    fn spawn_peer_exchange_cleanup_task(&self) {
+        let peer_exchange = self.peer_exchange.clone();
+
+        tokio::spawn(async move {
+            let mut ticker = time::interval(Duration::from_secs(3600)); // Run every hour
+            loop {
+                ticker.tick().await;
+
+                // Remove peers not seen in 7 days (7 * 24 * 3600 = 604800 seconds)
+                let mut exchange = peer_exchange.write().await;
+                let removed = exchange.cleanup_stale_peers(604800);
+                if removed > 0 {
+                    info!(removed, "Cleaned up stale peers from exchange");
                 }
             }
         });

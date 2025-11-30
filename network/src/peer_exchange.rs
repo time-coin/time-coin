@@ -195,6 +195,22 @@ impl PeerExchange {
     pub fn peer_count(&self) -> usize {
         self.peers.len()
     }
+
+    /// CRITICAL FIX (Issue #8): Clean up stale peers (older than max_age_seconds)
+    /// Returns the number of peers removed
+    pub fn cleanup_stale_peers(&mut self, max_age_seconds: i64) -> usize {
+        let cutoff = Utc::now().timestamp() - max_age_seconds;
+        let initial_count = self.peers.len();
+
+        self.peers.retain(|_, peer| peer.last_seen > cutoff);
+
+        let removed = initial_count - self.peers.len();
+        if removed > 0 {
+            self.save_to_disk();
+        }
+
+        removed
+    }
 }
 
 #[cfg(test)]

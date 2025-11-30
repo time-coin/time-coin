@@ -1,6 +1,7 @@
 //! TIME Coin Network Module - P2P Networking Layer
 pub mod connection;
 pub mod discovery;
+pub mod error;
 pub mod heartbeat;
 pub mod manager;
 pub mod message_auth;
@@ -15,6 +16,7 @@ pub mod voting;
 
 pub use connection::{PeerConnection, PeerListener};
 pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
+pub use error::{NetworkError, NetworkResult};
 pub use manager::PeerManager;
 pub use message_auth::{AuthError, AuthenticatedMessage, NonceTracker};
 pub use message_handler::MessageHandler;

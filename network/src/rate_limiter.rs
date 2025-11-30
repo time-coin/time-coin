@@ -138,6 +138,26 @@ impl RateLimiter {
             .map(|h| h.requests.len() as u32)
             .unwrap_or(0)
     }
+
+    /// CRITICAL FIX (Issue #9): Clean up stale IP entries from history
+    /// Removes IPs with no recent requests (older than max_age)
+    /// Returns the number of entries removed
+    pub async fn cleanup_stale_entries(&self, max_age: Duration) -> usize {
+        let mut history = self.history.write().await;
+        let now = Instant::now();
+        let initial_count = history.len();
+
+        history.retain(|_, entry| {
+            // Keep entry if it has recent requests
+            entry
+                .requests
+                .last()
+                .map(|&last_req| now.duration_since(last_req) < max_age)
+                .unwrap_or(false)
+        });
+
+        initial_count - history.len()
+    }
 }
 
 impl Default for RateLimiter {
