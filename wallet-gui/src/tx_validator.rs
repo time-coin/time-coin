@@ -230,10 +230,13 @@ impl TransactionValidator {
             return false;
         }
 
-        // Basic character set validation (base58: no 0, O, I, l)
-        address
+        // Basic character set validation (base58: no O, I, l - but '0' is valid!)
+        // Base58 alphabet: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
+        // Only validate the part AFTER "TIME" prefix for base58 compliance
+        let address_part = &address[4..]; // Skip "TIME" prefix
+        address_part
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
+            .all(|c| c.is_ascii_alphanumeric() && !matches!(c, 'O' | 'I' | 'l'))
     }
 
     /// Estimate confirmation time based on fee rate
@@ -316,16 +319,19 @@ pub struct SimulationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wallet::{TxInput, TxOutput};
+    use crate::wallet_dat::WalletDat;
+    use wallet::{NetworkType, TxInput, TxOutput};
 
     fn create_test_transaction() -> Transaction {
+        // Create a wallet to get a valid address
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let wallet_dat = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
+        let valid_address_str = wallet_dat.derive_address(0).unwrap();
+        let valid_address = wallet::Address::from_string(&valid_address_str).unwrap();
+
         let mut tx = Transaction::new();
         tx.add_input(TxInput::new([0; 32], 0));
-        tx.add_output(TxOutput::new(
-            99_000,
-            wallet::Address::from_string("TIME1234567890abcdefghijklmnop").unwrap(),
-        ))
-        .unwrap();
+        tx.add_output(TxOutput::new(99_000, valid_address)).unwrap();
         tx
     }
 
@@ -340,13 +346,16 @@ mod tests {
     #[test]
     fn test_dust_threshold() {
         let validator = TransactionValidator::new();
+
+        // Create a wallet to get a valid address
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let wallet_dat = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
+        let valid_address_str = wallet_dat.derive_address(0).unwrap();
+        let valid_address = wallet::Address::from_string(&valid_address_str).unwrap();
+
         let mut tx = Transaction::new();
         tx.add_input(TxInput::new([0; 32], 0));
-        tx.add_output(TxOutput::new(
-            100,
-            wallet::Address::from_string("TIME1234567890abcdefghijklmnop").unwrap(),
-        ))
-        .unwrap(); // Below dust threshold
+        tx.add_output(TxOutput::new(100, valid_address)).unwrap(); // Below dust threshold
 
         let result = validator.validate_transaction(&tx, 250);
         assert!(matches!(
@@ -367,7 +376,24 @@ mod tests {
         let validator = TransactionValidator::new();
         assert!(!validator.validate_address("BTC1234")); // Wrong prefix
         assert!(!validator.validate_address("TIME")); // Too short
-        assert!(!validator.validate_address("TIME0Il")); // Contains invalid chars
-        assert!(validator.validate_address("TIME1234567890abcdefghijklmnop"));
+        assert!(!validator.validate_address("TIMEIl0")); // Contains invalid chars (I, l, O)
+
+        // Get a real valid address from wallet
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let wallet_dat = WalletDat::from_mnemonic(mnemonic, NetworkType::Testnet).unwrap();
+        let valid_address = wallet_dat.derive_address(0).unwrap();
+        println!("Generated address: {}", valid_address);
+        println!("Address length: {}", valid_address.len());
+        // Check if address contains invalid base58 chars
+        for (i, c) in valid_address.chars().enumerate() {
+            if matches!(c, 'O' | 'I' | 'l') {
+                println!("Invalid char '{}' at position {}", c, i);
+            }
+        }
+        assert!(
+            validator.validate_address(&valid_address),
+            "Address should be valid: {}",
+            valid_address
+        );
     }
 }

@@ -440,6 +440,7 @@ mod tests {
     async fn test_consensus_threshold() {
         let consensus = PeerConsensus::new();
 
+        // Test with 3 peers, all agreeing (100% consensus - above 67% threshold)
         let responses = vec![
             PeerResponse {
                 peer_addr: "peer1".to_string(),
@@ -453,17 +454,54 @@ mod tests {
             },
             PeerResponse {
                 peer_addr: "peer3".to_string(),
-                data: 99u64,
+                data: 100u64,
                 latency_ms: 70,
             },
         ];
 
         let result = consensus.find_consensus_height(responses);
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok(),
+            "Consensus should succeed with 3/3 peers agreeing (100% > 67%)"
+        );
 
         let consensus_result = result.unwrap();
         assert_eq!(consensus_result.consensus_value, 100);
-        assert_eq!(consensus_result.agreement_count, 2);
+        assert_eq!(consensus_result.agreement_count, 3);
+
+        // Test with 4 peers, 3 agreeing (75% consensus - above 67% threshold)
+        let responses2 = vec![
+            PeerResponse {
+                peer_addr: "peer1".to_string(),
+                data: 100u64,
+                latency_ms: 50,
+            },
+            PeerResponse {
+                peer_addr: "peer2".to_string(),
+                data: 100u64,
+                latency_ms: 60,
+            },
+            PeerResponse {
+                peer_addr: "peer3".to_string(),
+                data: 100u64,
+                latency_ms: 70,
+            },
+            PeerResponse {
+                peer_addr: "peer4".to_string(),
+                data: 99u64,
+                latency_ms: 80,
+            },
+        ];
+
+        let result2 = consensus.find_consensus_height(responses2);
+        assert!(
+            result2.is_ok(),
+            "Consensus should succeed with 3/4 peers agreeing (75% > 67%)"
+        );
+
+        let consensus_result2 = result2.unwrap();
+        assert_eq!(consensus_result2.consensus_value, 100);
+        assert_eq!(consensus_result2.agreement_count, 3);
     }
 
     #[tokio::test]

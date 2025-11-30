@@ -216,7 +216,7 @@ impl NetworkManager {
 
                 log::info!("Testing TCP connection to {}...", tcp_addr);
 
-                // Just measure TCP connection time - simple and fast
+                // Measure TCP connection time separately from handshake
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(2),
                     tokio::net::TcpStream::connect(&tcp_addr),
@@ -224,8 +224,8 @@ impl NetworkManager {
                 .await
                 {
                     Ok(Ok(mut stream)) => {
-                        let latency_ms = start.elapsed().as_millis() as u64;
-                        log::info!("  ✓ Connected to {} ({}ms)", tcp_addr, latency_ms);
+                        let tcp_latency_ms = start.elapsed().as_millis() as u64;
+                        log::info!("  ✓ TCP connected to {} ({}ms)", tcp_addr, tcp_latency_ms);
 
                         // Quickly grab version via handshake (non-blocking)
                         let peer_version =
@@ -287,7 +287,15 @@ impl NetworkManager {
                             .ok()
                             .flatten();
 
-                        Some((peer_address, latency_ms, peer_version))
+                        let total_time_ms = start.elapsed().as_millis() as u64;
+                        log::info!(
+                            "  ✓ Handshake complete: TCP {}ms, Total {}ms",
+                            tcp_latency_ms,
+                            total_time_ms
+                        );
+
+                        // Use TCP latency for display (more accurate for ongoing comms)
+                        Some((peer_address, tcp_latency_ms, peer_version))
                     }
                     Ok(Err(e)) => {
                         log::warn!("Failed to connect to {}: {}", tcp_addr, e);
