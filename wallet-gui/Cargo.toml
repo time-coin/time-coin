@@ -47,7 +47,7 @@ sled = { workspace = true }
 thiserror = { workspace = true }
 
 # File system utilities
-dirs = "5.0"
+dirs = "6.0"
 
 # Encoding
 base64 = "0.22"
