@@ -745,13 +745,10 @@ impl ChainSync {
                                         &block_hash_for_comparison[..16]
                                     );
 
-                                    let our_block_hash = {
-                                        let blockchain = self.blockchain.read().await;
-                                        blockchain
-                                            .get_block_by_height(height)
-                                            .map(|b| b.hash.clone())
-                                            .unwrap_or_default()
-                                    };
+                                    let our_block_hash = blockchain
+                                        .get_block_by_height(height)
+                                        .map(|b| b.hash.clone())
+                                        .unwrap_or_default();
                                     println!(
                                         "      Our block hash:    {}...",
                                         &our_block_hash[..16]
@@ -761,12 +758,10 @@ impl ChainSync {
                                     // We need to rewind to one block before the fork point
                                     if height > 0 {
                                         println!("   🔄 Triggering immediate rollback to resolve fork...");
-                                        drop(blockchain); // Release lock before rollback
 
                                         // Rollback to the block before the fork
                                         let rollback_to = height - 1;
-                                        let mut blockchain_write = self.blockchain.write().await;
-                                        match blockchain_write.rollback_to_height(rollback_to) {
+                                        match blockchain.rollback_to_height(rollback_to) {
                                             Ok(_) => {
                                                 println!(
                                                     "   ✅ Rolled back to block {}",
@@ -778,7 +773,6 @@ impl ChainSync {
                                                 println!("   ❌ Rollback failed: {:?}", e);
                                             }
                                         }
-                                        drop(blockchain_write);
                                     }
 
                                     // Don't quarantine - this is a fork, not a bad peer
