@@ -2025,7 +2025,14 @@ impl PeerManager {
         // Note: In practice, you'd derive addresses from each xpub and check matches
         // For now, we'll notify all subscribed wallets as a placeholder
 
+        info!(
+            "📬 Checking wallet subscriptions for transaction {}",
+            &transaction.tx_hash[..16]
+        );
+        info!("   Total subscriptions: {}", subscriptions.len());
+
         if subscriptions.is_empty() {
+            warn!("   ⚠️  No wallet subscriptions registered!");
             return;
         }
 

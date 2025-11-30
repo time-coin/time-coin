@@ -1757,10 +1757,15 @@ async fn main() {
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::RegisterXpub { xpub } => {
-                                                    println!("📝 Received RegisterXpub from {} for xpub: {}...", peer_ip_listen, &xpub[..20]);
+                                                    println!("🔔 ========================================");
+                                                    println!("🔔 WALLET REGISTRATION RECEIVED");
+                                                    println!("🔔 From IP: {}", peer_ip_listen);
+                                                    println!("🔔 xPub: {}...", &xpub[..20]);
+                                                    println!("🔔 ========================================");
 
                                                     // Subscribe this peer to transaction notifications
                                                     peer_manager_listen.subscribe_wallet(&xpub, peer_ip_listen).await;
+                                                    println!("✅ Wallet subscribed - will receive transaction notifications");
 
                                                     // Send success response directly on this connection
                                                     let response = time_network::protocol::NetworkMessage::XpubRegistered {
