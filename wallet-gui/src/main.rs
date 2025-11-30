@@ -360,11 +360,16 @@ impl WalletApp {
                             }
                         }
 
-                        // Bootstrap PeerManager to discover peers from network
+                        // Bootstrap PeerManager to discover peers from network (don't block)
                         log::info!("🔍 Bootstrapping PeerManager...");
-                        if let Err(e) = peer_mgr.bootstrap().await {
-                            log::warn!("⚠️ PeerManager bootstrap failed: {}", e);
-                        }
+                        let peer_mgr_for_bootstrap = peer_mgr.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = peer_mgr_for_bootstrap.bootstrap().await {
+                                log::warn!("⚠️ PeerManager bootstrap failed: {}", e);
+                            } else {
+                                log::info!("✅ PeerManager bootstrap completed");
+                            }
+                        });
 
                         // ✅ CRITICAL FIX: Actually connect NetworkManager to peers!
                         log::info!("🔗 Connecting NetworkManager to discovered peers...");
@@ -1502,7 +1507,7 @@ impl WalletApp {
                     let addnodes = main_config.addnode.clone();
                     let api_endpoint_str = main_config.api_endpoint.clone();
                     let network_mgr_clone = network_mgr.clone();
-                    
+
                     tokio::spawn(async move {
                         let db_peer_count = peer_mgr.peer_count().await;
                         log::info!("📂 Found {} peers in database", db_peer_count);
@@ -1510,7 +1515,8 @@ impl WalletApp {
                         if !addnodes.is_empty() {
                             log::info!("📝 Adding {} nodes from config", addnodes.len());
                             for node in addnodes {
-                                let (ip, port) = if let Some((ip, port_str)) = node.split_once(':') {
+                                let (ip, port) = if let Some((ip, port_str)) = node.split_once(':')
+                                {
                                     (ip.to_string(), port_str.parse().unwrap_or(24100))
                                 } else {
                                     (node.clone(), 24100)
@@ -1521,7 +1527,10 @@ impl WalletApp {
 
                         let total_peer_count = peer_mgr.peer_count().await;
                         if total_peer_count == 0 {
-                            log::info!("🌐 No peers found, fetching from API: {}", api_endpoint_str);
+                            log::info!(
+                                "🌐 No peers found, fetching from API: {}",
+                                api_endpoint_str
+                            );
                             if let Ok(client) = reqwest::Client::builder()
                                 .timeout(std::time::Duration::from_secs(10))
                                 .build()
@@ -1530,7 +1539,9 @@ impl WalletApp {
                                     if let Ok(peers) = response.json::<Vec<String>>().await {
                                         log::info!("✓ Fetched {} peers from API", peers.len());
                                         for peer_str in peers {
-                                            let (ip, port) = if let Some((ip, port_str)) = peer_str.split_once(':') {
+                                            let (ip, port) = if let Some((ip, port_str)) =
+                                                peer_str.split_once(':')
+                                            {
                                                 (ip.to_string(), port_str.parse().unwrap_or(24100))
                                             } else {
                                                 (peer_str, 24100)
@@ -1542,13 +1553,17 @@ impl WalletApp {
                             }
                         }
 
-                        // Bootstrap PeerManager
+                        // Bootstrap PeerManager (don't wait for completion)
                         log::info!("🔍 Bootstrapping PeerManager...");
-                        if let Err(e) = peer_mgr.bootstrap().await {
-                            log::warn!("⚠️ PeerManager bootstrap failed: {}", e);
-                        }
+                        tokio::spawn(async move {
+                            if let Err(e) = peer_mgr.bootstrap().await {
+                                log::warn!("⚠️ PeerManager bootstrap failed: {}", e);
+                            } else {
+                                log::info!("✅ PeerManager bootstrap completed");
+                            }
+                        });
 
-                        // Connect NetworkManager to peers
+                        // Connect NetworkManager to peers immediately (don't wait for bootstrap)
                         log::info!("🔗 Connecting NetworkManager to discovered peers...");
                         let peer_list = peer_mgr.get_healthy_peers().await;
                         log::info!("📋 Attempting to connect to {} peers", peer_list.len());
@@ -1581,7 +1596,9 @@ impl WalletApp {
                                         log::info!("✅ Successfully connected to network peers");
                                     }
                                 });
-                            }).await.ok();
+                            })
+                            .await
+                            .ok();
                         }
                     });
                 }
