@@ -266,29 +266,45 @@ impl DeterministicConsensus {
         block_num: u64,
     ) -> Vec<(String, Block)> {
         let p2p_port = self.get_p2p_port();
-        let mut peer_blocks = Vec::new();
+
+        // Request blocks from all peers IN PARALLEL
+        let mut tasks = Vec::new();
 
         for peer_ip in peer_ips {
+            let peer_ip_for_logging = peer_ip.clone();
+            let peer_ip_for_task = peer_ip.clone();
             let peer_addr = format!("{}:{}", peer_ip, p2p_port);
+            let peer_manager = self.peer_manager.clone();
 
-            // Try to get the block from this peer
-            // Use longer timeout (20s) since peer might be busy creating their own block
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(20),
-                self.peer_manager
-                    .request_block_by_height(&peer_addr, block_num),
-            )
-            .await
-            {
-                Ok(Ok(block)) => {
-                    println!("      ✓ Received block from {}", peer_ip);
-                    peer_blocks.push((peer_ip.clone(), block));
+            let task = tokio::spawn(async move {
+                // Reduced timeout to 10s for faster consensus
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(10),
+                    peer_manager.request_block_by_height(&peer_addr, block_num),
+                )
+                .await
+                {
+                    Ok(Ok(block)) => Some((peer_ip_for_task, block)),
+                    Ok(Err(_)) => None,
+                    Err(_) => None,
                 }
-                Ok(Err(e)) => {
-                    println!("      ✗ Error from {}: {}", peer_ip, e);
+            });
+            tasks.push((peer_ip_for_logging, task));
+        }
+
+        // Collect results as they complete
+        let mut peer_blocks = Vec::new();
+        for (peer_ip_log, task) in tasks {
+            match task.await {
+                Ok(Some((ip, block))) => {
+                    println!("      ✓ Received block from {}", ip);
+                    peer_blocks.push((ip, block));
                 }
-                Err(_) => {
-                    println!("      ✗ Timeout from {}", peer_ip);
+                Ok(None) => {
+                    println!("      ✗ No response from {}", peer_ip_log);
+                }
+                Err(e) => {
+                    println!("      ✗ Task error for {}: {}", peer_ip_log, e);
                 }
             }
         }
