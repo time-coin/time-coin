@@ -1555,8 +1555,9 @@ impl WalletApp {
 
                         // Bootstrap PeerManager (don't wait for completion)
                         log::info!("🔍 Bootstrapping PeerManager...");
+                        let peer_mgr_for_bootstrap = peer_mgr.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = peer_mgr.bootstrap().await {
+                            if let Err(e) = peer_mgr_for_bootstrap.bootstrap().await {
                                 log::warn!("⚠️ PeerManager bootstrap failed: {}", e);
                             } else {
                                 log::info!("✅ PeerManager bootstrap completed");
