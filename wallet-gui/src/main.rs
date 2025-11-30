@@ -4,6 +4,7 @@
 #![allow(clippy::get_first)]
 #![allow(clippy::manual_while_let_some)]
 #![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::await_holding_lock)] // Safe in spawn_blocking contexts
 #![allow(unused_variables)]
 #![allow(non_snake_case)]
 use chrono::Timelike;
@@ -14,15 +15,19 @@ use tokio::net::TcpStream;
 use wallet::NetworkType;
 
 mod config;
+mod debug_endpoints;
 mod encryption;
 mod message_validator;
 mod mnemonic_ui;
+mod monitoring;
 mod network;
 mod password_ui;
 mod peer_manager;
 mod protocol_client;
 mod rate_limiter;
 mod tcp_protocol_client;
+mod transaction_validator;
+mod ui_components;
 mod wallet_dat;
 mod wallet_db;
 mod wallet_manager;
@@ -387,23 +392,39 @@ impl WalletApp {
                         std::thread::spawn(move || {
                             let rt = tokio::runtime::Runtime::new().unwrap();
                             rt.block_on(async move {
-                                let mut net = network_mgr_for_connect.lock().unwrap();
-                                match net.connect_to_peers(peer_infos).await {
-                                    Ok(_) => {
-                                        log::info!(
-                                            "✅ NetworkManager connected to peers successfully"
-                                        );
+                                // Scope the lock to avoid holding across await
+                                // Safe in spawn_blocking/block_on context
+                                #[allow(clippy::await_holding_lock)]
+                                {
+                                    let mut net = network_mgr_for_connect.lock().unwrap();
+                                    let result = net.connect_to_peers(peer_infos).await;
+                                    drop(net);
 
-                                        // Now discover more peers from the connected ones
-                                        log::info!("🔍 Starting peer discovery...");
-                                        if let Err(e) = net.discover_and_connect_peers().await {
-                                            log::warn!("⚠️ Peer discovery had issues: {}", e);
-                                        } else {
-                                            log::info!("✅ Peer discovery completed");
+                                    match result {
+                                        Ok(_) => {
+                                            log::info!(
+                                                "✅ NetworkManager connected to peers successfully"
+                                            );
+
+                                            // Now discover more peers from the connected ones
+                                            log::info!("🔍 Starting peer discovery...");
+                                            let mut net = network_mgr_for_connect.lock().unwrap();
+                                            let discover_result =
+                                                net.discover_and_connect_peers().await;
+                                            drop(net);
+
+                                            if let Err(e) = discover_result {
+                                                log::warn!("⚠️ Peer discovery had issues: {}", e);
+                                            } else {
+                                                log::info!("✅ Peer discovery completed");
+                                            }
                                         }
-                                    }
-                                    Err(e) => {
-                                        log::error!("❌ Failed to connect NetworkManager: {}", e);
+                                        Err(e) => {
+                                            log::error!(
+                                                "❌ Failed to connect NetworkManager: {}",
+                                                e
+                                            );
+                                        }
                                     }
                                 }
                             });
@@ -658,8 +679,11 @@ impl WalletApp {
                                 tokio::task::spawn_blocking(move || {
                                     let rt = tokio::runtime::Runtime::new().unwrap();
                                     rt.block_on(async move {
-                                        let mut manager = network_clone.lock().unwrap();
-                                        manager.periodic_refresh().await;
+                                        #[allow(clippy::await_holding_lock)]
+                                        {
+                                            let mut manager = network_clone.lock().unwrap();
+                                            manager.periodic_refresh().await
+                                        }
                                     });
                                 })
                                 .await
@@ -1020,8 +1044,11 @@ impl WalletApp {
                                                         tokio::task::spawn_blocking(move || {
                                                             let rt = tokio::runtime::Runtime::new().unwrap();
                                                             rt.block_on(async move {
-                                                                let mut manager = network_clone.lock().unwrap();
-                                                                manager.periodic_refresh().await;
+                                                                #[allow(clippy::await_holding_lock)]
+                                                                {
+                                                                    let mut manager = network_clone.lock().unwrap();
+                                                                    manager.periodic_refresh().await
+                                                                }
                                                             });
                                                         }).await.ok();
 
@@ -1368,8 +1395,11 @@ impl WalletApp {
                                         tokio::task::spawn_blocking(move || {
                                             let rt = tokio::runtime::Runtime::new().unwrap();
                                             rt.block_on(async move {
-                                                let mut manager = network_clone.lock().unwrap();
-                                                manager.periodic_refresh().await;
+                                                #[allow(clippy::await_holding_lock)]
+                                                {
+                                                    let mut manager = network_clone.lock().unwrap();
+                                                    manager.periodic_refresh().await
+                                                }
                                             });
                                         })
                                         .await
@@ -2325,8 +2355,13 @@ impl WalletApp {
                                                 std::thread::spawn(move || {
                                                     let rt = tokio::runtime::Runtime::new().unwrap();
                                                     rt.block_on(async move {
-                                                        let network_mgr = network_mgr_clone.lock().unwrap();
-                                                        match network_mgr.submit_transaction(tx_json).await {
+                                                        #[allow(clippy::await_holding_lock)]
+                                                        let result = {
+                                                            let network_mgr = network_mgr_clone.lock().unwrap();
+                                                            network_mgr.submit_transaction(tx_json).await
+                                                        };
+
+                                                        match result {
                                                             Ok(txid) => {
                                                                 log::info!("✅ Transaction sent successfully: {}", txid);
                                                                 log::info!("⚡ Instant finality - transaction confirmed in <1 second!");
@@ -3322,27 +3357,26 @@ impl WalletApp {
                                                             if response_len < 10 * 1024 * 1024 {
                                                                 let mut response_data = vec![0u8; response_len];
                                                                 if stream.read_exact(&mut response_data).await.is_ok() {
-                                                                    if let Ok(response) = serde_json::from_slice::<NetworkMessage>(&response_data) {
-                                                                        if let NetworkMessage::MempoolResponse(transactions) = response {
-                                                                            log::info!("📥 Received {} transactions from mempool", transactions.len());
+                                                                    if let Ok(NetworkMessage::MempoolResponse(transactions)) = serde_json::from_slice::<NetworkMessage>(&response_data) {
+                                                                        log::info!("📥 Received {} transactions from mempool", transactions.len());
 
-                                                                            // Check each transaction for our addresses
-                                                                            for tx in transactions {
-                                                                                for output in &tx.outputs {
-                                                                                    if addresses.contains(&output.address) {
-                                                                                        log::info!("💰 Found pending transaction for address: {}", &output.address[..20]);
+                                                                        // Check each transaction for our addresses
+                                                                        for tx in transactions {
+                                                                            for output in &tx.outputs {
+                                                                                if addresses.contains(&output.address) {
+                                                                                    log::info!("💰 Found pending transaction for address: {}", &output.address[..20]);
 
-                                                                                        // Save to database as pending
-                                                                                        if let Some(db) = &wallet_db {
-                                                                                            use crate::wallet_db::{TransactionRecord, TransactionStatus};
+                                                                                    // Save to database as pending
+                                                                                    if let Some(db) = &wallet_db {
+                                                                                        use crate::wallet_db::{TransactionRecord, TransactionStatus};
 
-                                                                                            let tx_record = TransactionRecord {
-                                                                                                tx_hash: tx.txid.clone(),
-                                                                                                timestamp: tx.timestamp,
-                                                                                                from_address: None,
-                                                                                                to_address: output.address.clone(),
-                                                                                                amount: output.amount,
-                                                                                                status: TransactionStatus::Pending,
+                                                                                        let tx_record = TransactionRecord {
+                                                                                            tx_hash: tx.txid.clone(),
+                                                                                            timestamp: tx.timestamp,
+                                                                                            from_address: None,
+                                                                                            to_address: output.address.clone(),
+                                                                                            amount: output.amount,
+                                                                                            status: TransactionStatus::Pending,
                                                                                                 block_height: None,
                                                                                                 notes: Some("From mempool".to_string()),
                                                                                             };
@@ -3355,9 +3389,8 @@ impl WalletApp {
                                                                                         }
                                                                                     }
                                                                                 }
-                                                                            }
-                                                                            return; // Success
                                                                         }
+                                                                        return; // Success
                                                                     }
                                                                 }
                                                             }

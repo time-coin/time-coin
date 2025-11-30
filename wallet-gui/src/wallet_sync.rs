@@ -59,6 +59,8 @@ pub struct WalletSync {
     network_manager: Arc<Mutex<NetworkManager>>,
     state: Arc<Mutex<SyncState>>,
     last_sync: Arc<Mutex<Option<std::time::Instant>>>,
+    current_height: Arc<Mutex<u64>>,
+    network_height: Arc<Mutex<u64>>,
 }
 
 impl WalletSync {
@@ -72,6 +74,8 @@ impl WalletSync {
             network_manager,
             state: Arc::new(Mutex::new(SyncState::Idle)),
             last_sync: Arc::new(Mutex::new(None)),
+            current_height: Arc::new(Mutex::new(0)),
+            network_height: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -83,6 +87,53 @@ impl WalletSync {
     /// Get last successful sync time
     pub async fn last_sync(&self) -> Option<std::time::Instant> {
         *self.last_sync.lock().await
+    }
+
+    /// Get sync progress as percentage (0-100)
+    pub fn get_sync_progress(&self) -> f64 {
+        let current =
+            tokio::runtime::Handle::current().block_on(async { *self.current_height.lock().await });
+        let network =
+            tokio::runtime::Handle::current().block_on(async { *self.network_height.lock().await });
+
+        if network == 0 {
+            return 0.0;
+        }
+
+        (current as f64 / network as f64 * 100.0).min(100.0)
+    }
+
+    /// Get current blockchain height
+    pub fn get_current_height(&self) -> u64 {
+        tokio::runtime::Handle::current().block_on(async { *self.current_height.lock().await })
+    }
+
+    /// Get network blockchain height
+    pub fn get_network_height(&self) -> u64 {
+        tokio::runtime::Handle::current().block_on(async { *self.network_height.lock().await })
+    }
+
+    /// Get estimated time to completion in seconds
+    pub fn get_estimated_completion(&self) -> Option<u64> {
+        let current = self.get_current_height();
+        let network = self.get_network_height();
+
+        if network <= current {
+            return None;
+        }
+
+        let remaining = network - current;
+
+        // Estimate 100 blocks per minute
+        let estimated_secs = (remaining / 100) * 60;
+
+        Some(estimated_secs)
+    }
+
+    /// Update heights for UI display
+    async fn update_heights(&self, current: u64, network: u64) {
+        *self.current_height.lock().await = current;
+        *self.network_height.lock().await = network;
     }
 
     /// Perform multi-peer consensus sync
@@ -113,6 +164,9 @@ impl WalletSync {
                 return Err(e);
             }
         };
+
+        // Update heights for UI
+        self.update_heights(local_height, consensus.height).await;
 
         log::info!(
             "✅ Consensus reached: height {} with {}/{} peers",
@@ -232,7 +286,7 @@ impl WalletSync {
             let key = (info.height, info.tip_hash.clone());
             height_groups
                 .entry(key)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(info.peer_address.clone());
         }
 

@@ -7,6 +7,15 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 
+#[derive(Debug, Clone)]
+pub struct PeerInfo {
+    pub address: String,
+    pub latency_ms: f64,
+    pub success_rate: f64,
+    pub request_count: u32,
+    pub failure_count: u32,
+}
+
 #[derive(Debug)]
 pub struct PeerManager {
     wallet_db: Arc<RwLock<Option<WalletDb>>>,
@@ -33,16 +42,62 @@ impl PeerManager {
         (peer.address.clone(), peer.port, peer.last_seen as i64)
     }
 
-    /// Helper to calculate peer score
+    /// Helper to calculate peer score with enhanced metrics
+    /// Returns higher score for better peers
     fn calculate_score(peer: &PeerRecord) -> i64 {
+        // Base score from successful connections
         let base_score = peer.successful_connections as i64 * 10;
-        let penalty = peer.failed_connections as i64 * 20;
+
+        // Heavy penalty for failures
+        let failure_penalty = peer.failed_connections as i64 * 20;
+
+        // Latency bonus (lower is better)
+        let latency_bonus = if peer.latency_ms > 0 && peer.latency_ms < 100 {
+            50 // Fast peer bonus
+        } else if peer.latency_ms >= 100 && peer.latency_ms < 500 {
+            10 // Moderate peer
+        } else {
+            0 // Slow or unknown
+        };
+
+        // Age penalty (prefer recently seen peers)
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let age_penalty = (now as i64 - peer.last_seen as i64) / 3600;
-        base_score - penalty - age_penalty
+        let hours_since_seen = (now as i64 - peer.last_seen as i64) / 3600;
+        let age_penalty = hours_since_seen.min(24); // Max 24 point penalty
+
+        // Calculate final score
+        let score = base_score - failure_penalty + latency_bonus - age_penalty;
+
+        // Ensure minimum viable peers aren't completely excluded
+        if peer.successful_connections > 0 && peer.failed_connections < 3 {
+            score.max(10) // Minimum score for potentially good peers
+        } else {
+            score
+        }
+    }
+
+    /// Get peer health status
+    pub fn get_peer_health(peer: &PeerRecord) -> &'static str {
+        let success_rate = if peer.successful_connections + peer.failed_connections > 0 {
+            (peer.successful_connections as f32
+                / (peer.successful_connections + peer.failed_connections) as f32)
+                * 100.0
+        } else {
+            0.0
+        };
+
+        if success_rate >= 80.0 && peer.latency_ms < 200 {
+            "Excellent"
+        } else if success_rate >= 60.0 && peer.latency_ms < 500 {
+            "Good"
+        } else if success_rate >= 40.0 {
+            "Fair"
+        } else {
+            "Poor"
+        }
     }
 
     /// Add a peer
@@ -108,8 +163,13 @@ impl PeerManager {
         }
     }
 
-    /// Record successful connection
+    /// Record successful connection with latency
     pub async fn record_success(&self, address: &str, port: u16) {
+        self.record_success_with_latency(address, port, 0).await;
+    }
+
+    /// Record successful connection with measured latency
+    pub async fn record_success_with_latency(&self, address: &str, port: u16, latency_ms: u64) {
         let db_guard = self.wallet_db.read().await;
         if let Some(db) = db_guard.as_ref() {
             if let Ok(peers) = db.get_all_peers() {
@@ -118,12 +178,31 @@ impl PeerManager {
                     .find(|p| p.address == address && p.port == port)
                 {
                     peer.successful_connections += 1;
-                    peer.failed_connections = 0;
+                    peer.failed_connections = 0; // Reset failures on success
                     peer.last_seen = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs();
+
+                    // Update latency with exponential moving average
+                    if latency_ms > 0 {
+                        if peer.latency_ms == 0 {
+                            peer.latency_ms = latency_ms;
+                        } else {
+                            // EMA: new = 0.3 * current + 0.7 * old
+                            peer.latency_ms =
+                                ((latency_ms as f32 * 0.3) + (peer.latency_ms as f32 * 0.7)) as u64;
+                        }
+                    }
+
                     let _ = db.save_peer(&peer);
+                    log::debug!(
+                        "✓ Updated peer {}:{} - latency: {}ms, health: {}",
+                        address,
+                        port,
+                        peer.latency_ms,
+                        Self::get_peer_health(&peer)
+                    );
                 }
             }
         }
@@ -152,22 +231,48 @@ impl PeerManager {
 
     /// Get all healthy peers sorted by score
     pub async fn get_healthy_peers(&self) -> Vec<PeerRecord> {
+        self.get_healthy_peers_with_min_count(5).await
+    }
+
+    /// Get healthy peers with minimum required count
+    /// If not enough excellent peers, includes fair peers to meet minimum
+    pub async fn get_healthy_peers_with_min_count(&self, min_count: usize) -> Vec<PeerRecord> {
         let db_guard = self.wallet_db.read().await;
         if let Some(db) = db_guard.as_ref() {
             if let Ok(peers) = db.get_all_peers() {
-                let mut healthy: Vec<_> = peers
+                // First try to get only good peers
+                let mut excellent: Vec<_> = peers
+                    .iter()
+                    .filter(|p| p.failed_connections < 3)
+                    .cloned()
+                    .collect();
+                excellent.sort_by_key(|p| -Self::calculate_score(p));
+
+                if excellent.len() >= min_count {
+                    return excellent;
+                }
+
+                // If not enough good peers, include marginal ones
+                let mut all_viable: Vec<_> = peers
                     .into_iter()
                     .filter(|p| p.failed_connections < 5)
                     .collect();
-                healthy.sort_by_key(|p| -Self::calculate_score(p));
-                return healthy;
+                all_viable.sort_by_key(|p| -Self::calculate_score(p));
+
+                log::warn!(
+                    "⚠️ Only {} excellent peers found, including {} total viable peers",
+                    excellent.len(),
+                    all_viable.len()
+                );
+
+                return all_viable;
             }
         }
         Vec::new()
     }
 
-    /// Get best peer to connect to
-    pub async fn get_best_peer(&self) -> Option<PeerRecord> {
+    /// Get best peer to connect to (async version)
+    pub async fn get_best_peer_async(&self) -> Option<PeerRecord> {
         self.get_healthy_peers().await.into_iter().next()
     }
 
@@ -180,6 +285,113 @@ impl PeerManager {
             }
         }
         0
+    }
+
+    /// Get connected peer count for UI
+    pub fn connected_peer_count(&self) -> usize {
+        // This is sync - use runtime block_on
+        tokio::runtime::Handle::current().block_on(async { self.peer_count().await })
+    }
+
+    /// Get average latency across all peers
+    pub fn get_average_latency(&self) -> f64 {
+        tokio::runtime::Handle::current().block_on(async {
+            let db_guard = self.wallet_db.read().await;
+            if let Some(db) = db_guard.as_ref() {
+                if let Ok(peers) = db.get_all_peers() {
+                    let valid_peers: Vec<_> = peers.iter().filter(|p| p.latency_ms > 0).collect();
+
+                    if !valid_peers.is_empty() {
+                        let total: u64 = valid_peers.iter().map(|p| p.latency_ms).sum();
+                        return total as f64 / valid_peers.len() as f64;
+                    }
+                }
+            }
+            0.0
+        })
+    }
+
+    /// Get best peer (lowest latency with good success rate) for UI
+    pub fn get_best_peer(&self) -> Option<PeerInfo> {
+        tokio::runtime::Handle::current().block_on(async {
+            let db_guard = self.wallet_db.read().await;
+            if let Some(db) = db_guard.as_ref() {
+                if let Ok(peers) = db.get_all_peers() {
+                    let mut best_peer: Option<&PeerRecord> = None;
+                    let mut best_score = 0i64;
+
+                    for peer in &peers {
+                        let score = Self::calculate_score(peer);
+                        if score > best_score {
+                            best_score = score;
+                            best_peer = Some(peer);
+                        }
+                    }
+
+                    return best_peer.map(|p| {
+                        let total = p.successful_connections + p.failed_connections;
+                        let success_rate = if total > 0 {
+                            p.successful_connections as f64 / total as f64
+                        } else {
+                            0.0
+                        };
+
+                        PeerInfo {
+                            address: format!("{}:{}", p.address, p.port),
+                            latency_ms: p.latency_ms as f64,
+                            success_rate,
+                            request_count: p.successful_connections,
+                            failure_count: p.failed_connections,
+                        }
+                    });
+                }
+            }
+            None
+        })
+    }
+
+    /// Get connected peers for UI display
+    pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
+        tokio::runtime::Handle::current().block_on(async {
+            let db_guard = self.wallet_db.read().await;
+            if let Some(db) = db_guard.as_ref() {
+                if let Ok(peers) = db.get_all_peers() {
+                    return peers
+                        .iter()
+                        .map(|p| {
+                            let total = p.successful_connections + p.failed_connections;
+                            let success_rate = if total > 0 {
+                                p.successful_connections as f64 / total as f64
+                            } else {
+                                0.0
+                            };
+
+                            PeerInfo {
+                                address: format!("{}:{}", p.address, p.port),
+                                latency_ms: p.latency_ms as f64,
+                                success_rate,
+                                request_count: p.successful_connections,
+                                failure_count: p.failed_connections,
+                            }
+                        })
+                        .collect();
+                }
+            }
+            Vec::new()
+        })
+    }
+
+    /// Get failed connection count
+    pub fn get_failed_connection_count(&self) -> u32 {
+        tokio::runtime::Handle::current().block_on(async {
+            let db_guard = self.wallet_db.read().await;
+            if let Some(db) = db_guard.as_ref() {
+                if let Ok(peers) = db.get_all_peers() {
+                    return peers.iter().map(|p| p.failed_connections).sum();
+                }
+            }
+            0
+        })
     }
 
     /// Clean up peers with ephemeral ports and normalize to port 24100
@@ -466,4 +678,70 @@ impl PeerManager {
             }
         });
     }
+
+    /// Get peer statistics for monitoring
+    pub async fn get_peer_statistics(&self) -> PeerStatistics {
+        let peers = self.get_healthy_peers_with_min_count(0).await;
+
+        let total_peers = peers.len();
+        let excellent = peers
+            .iter()
+            .filter(|p| Self::get_peer_health(p) == "Excellent")
+            .count();
+        let good = peers
+            .iter()
+            .filter(|p| Self::get_peer_health(p) == "Good")
+            .count();
+        let fair = peers
+            .iter()
+            .filter(|p| Self::get_peer_health(p) == "Fair")
+            .count();
+        let poor = peers
+            .iter()
+            .filter(|p| Self::get_peer_health(p) == "Poor")
+            .count();
+
+        let avg_latency = if !peers.is_empty() {
+            let sum: u64 = peers.iter().map(|p| p.latency_ms).sum();
+            sum / peers.len() as u64
+        } else {
+            0
+        };
+
+        let best_latency = peers
+            .iter()
+            .map(|p| p.latency_ms)
+            .filter(|&l| l > 0)
+            .min()
+            .unwrap_or(0);
+
+        PeerStatistics {
+            total_peers,
+            excellent_peers: excellent,
+            good_peers: good,
+            fair_peers: fair,
+            poor_peers: poor,
+            avg_latency_ms: avg_latency,
+            best_latency_ms: best_latency,
+        }
+    }
+
+    /// Get diverse set of peers for consensus validation
+    /// Returns up to `count` peers with best scores
+    pub async fn get_diverse_peers(&self, count: usize) -> Vec<PeerRecord> {
+        let mut peers = self.get_healthy_peers().await;
+        peers.truncate(count);
+        peers
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PeerStatistics {
+    pub total_peers: usize,
+    pub excellent_peers: usize,
+    pub good_peers: usize,
+    pub fair_peers: usize,
+    pub poor_peers: usize,
+    pub avg_latency_ms: u64,
+    pub best_latency_ms: u64,
 }

@@ -506,90 +506,85 @@ impl NetworkManager {
                                 let their_len = u32::from_be_bytes(their_len_bytes) as usize;
                                 if their_len < 10 * 1024 {
                                     let mut their_handshake_bytes = vec![0u8; their_len];
-                                    if stream.read_exact(&mut their_handshake_bytes).await.is_ok() {
-                                        if serde_json::from_slice::<HandshakeMessage>(
+                                    if stream.read_exact(&mut their_handshake_bytes).await.is_ok()
+                                        && serde_json::from_slice::<HandshakeMessage>(
                                             &their_handshake_bytes,
                                         )
                                         .is_ok()
-                                        {
-                                            log::debug!("🤝 Handshake completed with {}", tcp_addr);
+                                    {
+                                        log::debug!("🤝 Handshake completed with {}", tcp_addr);
 
-                                            // Now send GetBlockchainInfo message
-                                            let message = NetworkMessage::GetBlockchainInfo;
-                                            if let Ok(data) = serde_json::to_vec(&message) {
-                                                let len = data.len() as u32;
+                                        // Now send GetBlockchainInfo message
+                                        let message = NetworkMessage::GetBlockchainInfo;
+                                        if let Ok(data) = serde_json::to_vec(&message) {
+                                            let len = data.len() as u32;
 
-                                                if stream
-                                                    .write_all(&len.to_be_bytes())
-                                                    .await
-                                                    .is_ok()
-                                                    && stream.write_all(&data).await.is_ok()
-                                                    && stream.flush().await.is_ok()
-                                                {
-                                                    // Read response with timeout
-                                                    let read_result = tokio::time::timeout(
-                                                        Duration::from_secs(5),
-                                                        async {
-                                                            let mut len_bytes = [0u8; 4];
+                                            if stream.write_all(&len.to_be_bytes()).await.is_ok()
+                                                && stream.write_all(&data).await.is_ok()
+                                                && stream.flush().await.is_ok()
+                                            {
+                                                // Read response with timeout
+                                                let read_result = tokio::time::timeout(
+                                                    Duration::from_secs(5),
+                                                    async {
+                                                        let mut len_bytes = [0u8; 4];
+                                                        stream.read_exact(&mut len_bytes).await?;
+                                                        let response_len =
+                                                            u32::from_be_bytes(len_bytes) as usize;
+
+                                                        if response_len < 1024 * 1024 {
+                                                            let mut response_data =
+                                                                vec![0u8; response_len];
                                                             stream
-                                                                .read_exact(&mut len_bytes)
+                                                                .read_exact(&mut response_data)
                                                                 .await?;
-                                                            let response_len =
-                                                                u32::from_be_bytes(len_bytes)
-                                                                    as usize;
-
-                                                            if response_len < 1024 * 1024 {
-                                                                let mut response_data =
-                                                                    vec![0u8; response_len];
-                                                                stream
-                                                                    .read_exact(&mut response_data)
-                                                                    .await?;
-                                                                Ok((response_len, response_data))
-                                                            } else {
-                                                                Err(std::io::Error::new(
-                                                                    std::io::ErrorKind::InvalidData,
-                                                                    "Response too large",
-                                                                ))
-                                                            }
-                                                        },
-                                                    )
-                                                    .await;
-
-                                                    if let Ok(Ok((_, response_data))) = read_result
-                                                    {
-                                                        if let Ok(response) = serde_json::from_slice::<
-                                                            NetworkMessage,
-                                                        >(
-                                                            &response_data
-                                                        ) {
-                                                            log::trace!(
-                                                                "  Parsing response from {}",
-                                                                tcp_addr
-                                                            );
-                                                            if let NetworkMessage::BlockchainInfo {
-                                                                height,
-                                                                best_block_hash,
-                                                                } = response
-                                                            {
-                                                                log::debug!(
-                                                                    "Got blockchain height {} from peer {}",
-                                                                    height.unwrap_or(0), tcp_addr );
-                                                                return Ok(BlockchainInfo {
-                                                                    network: "mainnet".to_string(),
-                                                                    height: height.unwrap_or(0),
-                                                                    best_block_hash,
-                                                                    total_supply: 0,
-                                                                    timestamp: 0,
-                                                                });
-                                                            } else {
-                                                                log::trace!("  ⚠️ Unexpected response type from {}", tcp_addr);
-                                                            }
+                                                            Ok((response_len, response_data))
                                                         } else {
-                                                            log::trace!("  ⚠️ Failed to parse response from {}", tcp_addr);
+                                                            Err(std::io::Error::new(
+                                                                std::io::ErrorKind::InvalidData,
+                                                                "Response too large",
+                                                            ))
+                                                        }
+                                                    },
+                                                )
+                                                .await;
+
+                                                if let Ok(Ok((_, response_data))) = read_result {
+                                                    if let Ok(response) =
+                                                        serde_json::from_slice::<NetworkMessage>(
+                                                            &response_data,
+                                                        )
+                                                    {
+                                                        log::trace!(
+                                                            "  Parsing response from {}",
+                                                            tcp_addr
+                                                        );
+                                                        if let NetworkMessage::BlockchainInfo {
+                                                            height,
+                                                            best_block_hash,
+                                                        } = response
+                                                        {
+                                                            log::debug!(
+                                                                "Got blockchain height {} from peer {}",
+                                                                height.unwrap_or(0), tcp_addr );
+                                                            return Ok(BlockchainInfo {
+                                                                network: "mainnet".to_string(),
+                                                                height: height.unwrap_or(0),
+                                                                best_block_hash,
+                                                                total_supply: 0,
+                                                                timestamp: 0,
+                                                            });
+                                                        } else {
+                                                            log::trace!("  ⚠️ Unexpected response type from {}", tcp_addr);
                                                         }
                                                     } else {
-                                                        log::trace!("  ⚠️ Timeout or error reading response from {}", tcp_addr);
+                                                        log::trace!(
+                                                            "  ⚠️ Failed to parse response from {}",
+                                                            tcp_addr
+                                                        );
                                                     }
+                                                } else {
+                                                    log::trace!("  ⚠️ Timeout or error reading response from {}", tcp_addr);
                                                 }
                                             }
                                         }
@@ -943,50 +938,47 @@ impl NetworkManager {
                                                         .await
                                                         .is_ok()
                                                     {
-                                                        if let Ok(response) = serde_json::from_slice::<
+                                                        if let Ok(NetworkMessage::PeerList(
+                                                            peer_addresses,
+                                                        )) = serde_json::from_slice::<
                                                             NetworkMessage,
                                                         >(
                                                             &response_data
                                                         ) {
-                                                            if let NetworkMessage::PeerList(
-                                                                peer_addresses,
-                                                            ) = response
-                                                            {
-                                                                log::info!(
-                                                                    "Discovered {} peers from {}",
-                                                                    peer_addresses.len(),
-                                                                    tcp_addr
-                                                                );
+                                                            log::info!(
+                                                                "Discovered {} peers from {}",
+                                                                peer_addresses.len(),
+                                                                tcp_addr
+                                                            );
 
-                                                                // Convert to PeerInfo
-                                                                let peer_infos: Vec<PeerInfo> = peer_addresses
-                                                                    .into_iter()
-                                                                    .map(|pa| {
-                                                                        log::debug!(
-                                                                            "Peer: {}:{} version: {}",
-                                                                            pa.ip,
-                                                                            pa.port,
-                                                                            pa.version
-                                                                        );
-                                                                        PeerInfo {
-                                                                            address: pa.ip.clone(),
-                                                                            port: pa.port,
-                                                                            version: Some(pa.version.clone()),
-                                                                            last_seen: Some(
-                                                                                std::time::SystemTime::now()
-                                                                                    .duration_since(
-                                                                                        std::time::UNIX_EPOCH,
-                                                                                    )
-                                                                                    .unwrap()
-                                                                                    .as_secs(),
-                                                                            ),
-                                                                            latency_ms: 0,
-                                                                        }
-                                                                    })
-                                                                    .collect();
+                                                            // Convert to PeerInfo
+                                                            let peer_infos: Vec<PeerInfo> = peer_addresses
+                                                                .into_iter()
+                                                                .map(|pa| {
+                                                                    log::debug!(
+                                                                        "Peer: {}:{} version: {}",
+                                                                        pa.ip,
+                                                                        pa.port,
+                                                                        pa.version
+                                                                    );
+                                                                    PeerInfo {
+                                                                        address: pa.ip.clone(),
+                                                                        port: pa.port,
+                                                                        version: Some(pa.version.clone()),
+                                                                        last_seen: Some(
+                                                                            std::time::SystemTime::now()
+                                                                                .duration_since(
+                                                                                    std::time::UNIX_EPOCH,
+                                                                                )
+                                                                                .unwrap()
+                                                                                .as_secs(),
+                                                                        ),
+                                                                        latency_ms: 0,
+                                                                    }
+                                                                })
+                                                                .collect();
 
-                                                                return Ok(peer_infos);
-                                                            }
+                                                            return Ok(peer_infos);
                                                         }
                                                     }
                                                 }
@@ -1728,7 +1720,7 @@ impl NetworkManager {
 
         match message {
             NetworkMessage::Blocks { blocks } => Ok(blocks),
-            _ => Err(format!("Unexpected response type")),
+            _ => Err("Unexpected response type".to_string()),
         }
     }
 

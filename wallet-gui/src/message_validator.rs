@@ -247,10 +247,7 @@ impl ViolationTracker {
             reason: reason.clone(),
         };
 
-        self.violations
-            .entry(peer)
-            .or_insert_with(Vec::new)
-            .push(violation);
+        self.violations.entry(peer).or_default().push(violation);
 
         println!("📋 Recorded violation from {}: {}", peer, reason);
     }

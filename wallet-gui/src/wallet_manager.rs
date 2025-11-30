@@ -7,6 +7,7 @@
 //! - Addresses are derived on-demand from xpub
 //! - Contact info and metadata stored separately in wallet.db
 
+use crate::transaction_validator::{TransactionValidator, ValidationError};
 use crate::wallet_dat::{WalletDat, WalletDatError};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -39,6 +40,8 @@ pub struct WalletManager {
     active_wallet: Wallet,
     // Next address index to derive
     next_address_index: u32,
+    // Transaction validator for network rules
+    transaction_validator: TransactionValidator,
 }
 
 impl WalletManager {
@@ -76,6 +79,7 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
+            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -117,6 +121,7 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
+            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -149,6 +154,7 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
+            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -167,6 +173,7 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
+            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -220,6 +227,7 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
+            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -309,6 +317,36 @@ impl WalletManager {
             .create_transaction(to_address, amount, fee)
             .map_err(|e| e.to_string())
     }
+
+    /// Validate a transaction before broadcasting
+    pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), ValidationError> {
+        self.transaction_validator.validate_transaction(tx)
+    }
+
+    /// Estimate transaction fees
+    pub fn estimate_fee(
+        &self,
+        num_inputs: usize,
+        num_outputs: usize,
+    ) -> crate::transaction_validator::FeeEstimate {
+        self.transaction_validator
+            .estimate_fee(num_inputs, num_outputs)
+    }
+
+    /// Update mempool state for double-spend detection
+    pub fn update_mempool(&mut self, txids: Vec<String>) {
+        self.transaction_validator.update_mempool(txids);
+    }
+
+    /// Update network fee rate
+    pub fn update_fee_rate(&mut self, fee_per_byte: u64) {
+        self.transaction_validator.update_fee_rate(fee_per_byte);
+    }
+
+    /// Check if transaction will likely be accepted by network
+    pub fn check_network_acceptance(&self, tx: &Transaction) -> Result<String, ValidationError> {
+        self.transaction_validator.check_network_acceptance(tx)
+    }
 }
 
 #[cfg(test)]
@@ -343,6 +381,7 @@ mod tests {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
+            transaction_validator: TransactionValidator::new(),
         };
 
         assert!(!manager.get_xpub().is_empty());
@@ -367,6 +406,7 @@ mod tests {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
+            transaction_validator: TransactionValidator::new(),
         };
 
         assert_eq!(manager.get_balance(), 0);
