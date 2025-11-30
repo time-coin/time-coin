@@ -14,6 +14,7 @@ use tokio::net::TcpStream;
 use wallet::NetworkType;
 
 mod config;
+mod encryption;
 mod mnemonic_ui;
 mod network;
 mod peer_manager;
@@ -274,13 +275,16 @@ impl WalletApp {
                     self.network_manager = Some(network_mgr.clone());
                     self.network_status = "Connecting...".to_string();
 
-                    // Get xpub BEFORE manager is moved into spawn
+                    // Get xpub BEFORE manager is moved
                     let wallet_xpub = manager.get_xpub().to_string();
                     let wallet_network = manager.network(); // Also get network type
-
-                    // Wrap manager in Arc<Mutex> for shared access
-                    let wallet_mgr_shared = Arc::new(Mutex::new(manager));
-                    let wallet_mgr_clone = wallet_mgr_shared.clone();
+                    
+                    // Store manager first
+                    self.wallet_manager = Some(manager);
+                    log::info!("Wallet auto-loaded successfully");
+                    
+                    // Clone the manager for async tasks (they won't modify it)
+                    let wallet_mgr_for_tasks = self.wallet_manager.clone();
 
                     // Spawn network bootstrap task
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();

@@ -1,14 +1,15 @@
 //! time-wallet.dat File Format
 //!
-//! Similar to Bitcoin's wallet.dat, this file stores all keys and wallet metadata.
-//! Currently uses unencrypted bincode serialization, with structure ready for future encryption.
+//! SECURITY: Implements AES-256-GCM encryption for wallet storage
+//! Uses Argon2id for key derivation from password
 
-use base64::{engine::general_purpose, Engine as _};
+use crate::encryption::{self, KdfParams, SecurePassword};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;
 use wallet::{Keypair, NetworkType};
+use zeroize::Zeroize;
 
 #[derive(Debug, Error)]
 pub enum WalletDatError {
@@ -32,14 +33,22 @@ pub enum WalletDatError {
 
     #[error("Wallet error: {0}")]
     WalletError(#[from] wallet::WalletError),
+
+    #[error("Encryption error: {0}")]
+    EncryptionError(#[from] encryption::EncryptionError),
+
+    #[error("Password required for encrypted wallet")]
+    PasswordRequired,
+
+    #[error("Wallet is not encrypted")]
+    NotEncrypted,
 }
 
 /// time-wallet.dat file format
-/// This structure will be encrypted in future versions
-/// Stores ONLY cryptographic material - no addresses or metadata
+/// SECURITY: Stores encrypted mnemonic using AES-256-GCM
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WalletDat {
-    /// Format version for future compatibility
+    /// Format version for future compatibility (VERSION 3 = encrypted)
     pub version: u32,
     /// Network type (mainnet/testnet)
     pub network: NetworkType,
@@ -47,29 +56,52 @@ pub struct WalletDat {
     pub created_at: i64,
     /// Last modified timestamp
     pub modified_at: i64,
-    /// Future: encryption salt (placeholder for now)
+    /// Encryption nonce for AES-GCM (12 bytes)
     #[serde(default)]
-    pub encryption_salt: Option<Vec<u8>>,
-    /// Future: encrypted flag (placeholder for now)
+    pub nonce: Option<Vec<u8>>,
+    /// KDF parameters for Argon2id
+    #[serde(default)]
+    pub kdf_params: Option<KdfParams>,
+    /// Is wallet encrypted with password
     #[serde(default)]
     pub is_encrypted: bool,
-    /// Encrypted mnemonic phrase for HD wallet
-    /// In future, this will be properly encrypted. For now it's base64 encoded.
-    pub encrypted_mnemonic: String,
+    /// Encrypted mnemonic (AES-256-GCM ciphertext)
+    /// For v2 (legacy): base64-encoded plaintext
+    /// For v3 (current): AES-256-GCM encrypted bytes
+    #[serde(with = "serde_bytes")]
+    pub encrypted_mnemonic: Vec<u8>,
     /// Extended Public Key (xpub) for deterministic address derivation
-    /// Used by masternode to discover all wallet addresses
     pub xpub: String,
-    /// Master private key (encrypted, for signing transactions)
-    /// Derived from mnemonic, stored for quick access
+    /// Master private key (for signing transactions)
+    /// TODO: This should also be encrypted in future version
     pub master_key: [u8; 32],
 }
 
 impl WalletDat {
-    /// Current time-wallet.dat format version
-    pub const VERSION: u32 = 2;
+    /// Current time-wallet.dat format version (v3 = encrypted)
+    pub const VERSION: u32 = 3;
 
-    /// Create a new wallet from mnemonic
+    /// Create a new wallet from mnemonic (unencrypted - for backwards compatibility)
+    /// For new wallets, use from_mnemonic_encrypted() instead
     pub fn from_mnemonic(mnemonic: &str, network: NetworkType) -> Result<Self, WalletDatError> {
+        Self::from_mnemonic_with_password(mnemonic, network, None)
+    }
+
+    /// Create a new encrypted wallet from mnemonic with password protection
+    pub fn from_mnemonic_encrypted(
+        mnemonic: &str,
+        network: NetworkType,
+        password: &str,
+    ) -> Result<Self, WalletDatError> {
+        Self::from_mnemonic_with_password(mnemonic, network, Some(password))
+    }
+
+    /// Internal: Create wallet from mnemonic with optional encryption
+    fn from_mnemonic_with_password(
+        mnemonic: &str,
+        network: NetworkType,
+        password: Option<&str>,
+    ) -> Result<Self, WalletDatError> {
         // Generate xpub from mnemonic
         use wallet::mnemonic::mnemonic_to_xpub;
         let xpub = mnemonic_to_xpub(mnemonic, "", 0)
@@ -81,38 +113,92 @@ impl WalletDat {
             .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
         let master_key = keypair.secret_key_bytes();
 
-        // Store encrypted mnemonic (TODO: proper encryption)
-        let encrypted_mnemonic = general_purpose::STANDARD.encode(mnemonic.as_bytes());
-
         let now = chrono::Utc::now().timestamp();
+
+        // Encrypt mnemonic if password provided
+        let (encrypted_mnemonic, nonce, kdf_params, is_encrypted) = if let Some(pwd) = password {
+            let secure_pwd = SecurePassword::new(pwd.to_string());
+            let (ciphertext, nonce_bytes, kdf) =
+                encryption::encrypt_with_password(mnemonic.as_bytes(), &secure_pwd)?;
+            (ciphertext, Some(nonce_bytes), Some(kdf), true)
+        } else {
+            // Legacy format: base64 encoding (for backwards compatibility)
+            use base64::{engine::general_purpose, Engine as _};
+            let encoded = general_purpose::STANDARD.encode(mnemonic.as_bytes());
+            (encoded.into_bytes(), None, None, false)
+        };
         Ok(Self {
             version: Self::VERSION,
             network,
             created_at: now,
             modified_at: now,
-            encryption_salt: None,
-            is_encrypted: false,
+            nonce,
+            kdf_params,
+            is_encrypted,
             encrypted_mnemonic,
             xpub,
             master_key,
         })
     }
 
+    /// Decrypt mnemonic from wallet (with password if encrypted)
+    fn decrypt_mnemonic(&self, password: Option<&str>) -> Result<String, WalletDatError> {
+        if self.is_encrypted {
+            // Wallet is encrypted - password required
+            let password = password.ok_or(WalletDatError::PasswordRequired)?;
+            let nonce = self.nonce.as_ref().ok_or(WalletDatError::InvalidFormat)?;
+            let kdf_params = self
+                .kdf_params
+                .as_ref()
+                .ok_or(WalletDatError::InvalidFormat)?;
+
+            let secure_pwd = SecurePassword::new(password.to_string());
+            let mnemonic_bytes = encryption::decrypt_with_password(
+                &self.encrypted_mnemonic,
+                nonce,
+                &secure_pwd,
+                kdf_params,
+            )?;
+
+            let mnemonic = String::from_utf8(mnemonic_bytes)
+                .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+
+            // Return mnemonic (will be zeroized by caller)
+            Ok(mnemonic)
+        } else {
+            // Legacy format: base64 decoding
+            use base64::{engine::general_purpose, Engine as _};
+            let mnemonic_bytes = general_purpose::STANDARD
+                .decode(&self.encrypted_mnemonic)
+                .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+            String::from_utf8(mnemonic_bytes)
+                .map_err(|e| WalletDatError::SerializationError(e.to_string()))
+        }
+    }
+
     /// Derive a keypair at the given index
     /// Uses proper BIP-44 derivation: m/44'/0'/0'/0/index
     pub fn derive_keypair(&self, index: u32) -> Result<Keypair, WalletDatError> {
-        // Decrypt mnemonic (TODO: proper decryption)
-        let mnemonic_bytes = general_purpose::STANDARD
-            .decode(&self.encrypted_mnemonic)
-            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
-        let mnemonic = String::from_utf8(mnemonic_bytes)
-            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
+        self.derive_keypair_with_password(index, None)
+    }
 
-        // ✅ FIXED: Use proper BIP-44 derivation with full path
-        // m/44'/0'/0'/0/index (account=0, change=0, address_index=index)
+    /// Derive a keypair with password (for encrypted wallets)
+    pub fn derive_keypair_with_password(
+        &self,
+        index: u32,
+        password: Option<&str>,
+    ) -> Result<Keypair, WalletDatError> {
+        // Decrypt mnemonic
+        let mut mnemonic = self.decrypt_mnemonic(password)?;
+
+        // Derive keypair using BIP-44: m/44'/0'/0'/0/index
         use wallet::mnemonic::mnemonic_to_keypair_bip44;
         let keypair = mnemonic_to_keypair_bip44(&mnemonic, "", 0, 0, index)
             .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+
+        // SECURITY: Zero mnemonic from memory
+        mnemonic.zeroize();
+
         Ok(keypair)
     }
 
@@ -134,15 +220,52 @@ impl WalletDat {
         &self.xpub
     }
 
-    /// Get the mnemonic (decrypted)
+    /// Get the mnemonic (decrypted) - requires password if encrypted
     pub fn get_mnemonic(&self) -> Result<String, WalletDatError> {
-        // Decrypt mnemonic (TODO: proper decryption)
-        let mnemonic_bytes = general_purpose::STANDARD
-            .decode(&self.encrypted_mnemonic)
-            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
-        let mnemonic = String::from_utf8(mnemonic_bytes)
-            .map_err(|e| WalletDatError::SerializationError(e.to_string()))?;
-        Ok(mnemonic)
+        self.get_mnemonic_with_password(None)
+    }
+
+    /// Get the mnemonic with password (for encrypted wallets)
+    pub fn get_mnemonic_with_password(
+        &self,
+        password: Option<&str>,
+    ) -> Result<String, WalletDatError> {
+        self.decrypt_mnemonic(password)
+    }
+
+    /// Check if wallet is encrypted
+    pub fn is_encrypted(&self) -> bool {
+        self.is_encrypted
+    }
+
+    /// Encrypt an existing unencrypted wallet with password
+    pub fn encrypt_with_password(&mut self, password: &str) -> Result<(), WalletDatError> {
+        if self.is_encrypted {
+            return Err(WalletDatError::SerializationError(
+                "Wallet is already encrypted".to_string(),
+            ));
+        }
+
+        // Get current mnemonic (unencrypted)
+        let mut mnemonic = self.decrypt_mnemonic(None)?;
+
+        // Encrypt with password
+        let secure_pwd = SecurePassword::new(password.to_string());
+        let (ciphertext, nonce, kdf_params) =
+            encryption::encrypt_with_password(mnemonic.as_bytes(), &secure_pwd)?;
+
+        // Update wallet data
+        self.encrypted_mnemonic = ciphertext;
+        self.nonce = Some(nonce);
+        self.kdf_params = Some(kdf_params);
+        self.is_encrypted = true;
+        self.version = Self::VERSION;
+        self.modified_at = chrono::Utc::now().timestamp();
+
+        // Zero mnemonic from memory
+        mnemonic.zeroize();
+
+        Ok(())
     }
 
     /// Save wallet to file (called only once during wallet creation)

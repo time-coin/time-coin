@@ -103,7 +103,8 @@ pub fn encrypt_with_password(
         .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
 
     // Generate random nonce (12 bytes for GCM)
-    let nonce = Nonce::from_slice(&rand::random::<[u8; 12]>());
+    let nonce_bytes = rand::random::<[u8; 12]>();
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
     // Encrypt data
     let ciphertext = cipher

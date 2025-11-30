@@ -17,6 +17,7 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 bincode = { workspace = true }
+serde_bytes = "0.11"
 
 # Cryptography
 sha2 = { workspace = true }
