@@ -1785,13 +1785,13 @@ async fn main() {
                                                         let gap_limit = 20;
                                                         let mut consecutive_empty = 0;
                                                         let mut address_index = 0;
-                                                        
+
                                                         while consecutive_empty < gap_limit {
                                                             if let Ok(address) = wallet::xpub_to_address(&xpub, 0, address_index, WalletNetworkType::Testnet) {
                                                                 println!("  📍 Derived address {}: {}", address_index, address);
-                                                                
+
                                                                 let mut found_utxos_for_address = false;
-                                                                
+
                                                                 // Scan all blocks for this address
                                                                 for block_height in 0..=height {
                                                                     if let Some(block) = blockchain_guard.get_block_by_height(block_height) {
@@ -1805,13 +1805,13 @@ async fn main() {
                                                                                     } else {
                                                                                         &output.address
                                                                                     };
-                                                                                    println!("    🔍 Block {} coinbase output[{}]: address={}, amount={}", 
+                                                                                    println!("    🔍 Block {} coinbase output[{}]: address={}, amount={}",
                                                                                         block_height, vout, addr_preview, output.amount);
                                                                                 }
-                                                                                
+
                                                                                 if output.address == address {
                                                                                     found_utxos_for_address = true;
-                                                                                    println!("    ✅ Found UTXO: block {}, vout {}, amount {}", 
+                                                                                    println!("    ✅ Found UTXO: block {}, vout {}, amount {}",
                                                                                         block_height, vout, output.amount);
                                                                                     all_utxos.push(time_network::protocol::UtxoInfo {
                                                                                         txid: coinbase_tx.txid.clone(),
@@ -1829,7 +1829,7 @@ async fn main() {
                                                                             for (vout, output) in tx.outputs.iter().enumerate() {
                                                                                 if output.address == address {
                                                                                     found_utxos_for_address = true;
-                                                                                    println!("    ✅ Found UTXO: block {}, tx {}, vout {}, amount {}", 
+                                                                                    println!("    ✅ Found UTXO: block {}, tx {}, vout {}, amount {}",
                                                                                         block_height, &tx.txid[..16], vout, output.amount);
                                                                                     all_utxos.push(time_network::protocol::UtxoInfo {
                                                                                         txid: tx.txid.clone(),
@@ -1844,20 +1844,20 @@ async fn main() {
                                                                         }
                                                                     }
                                                                 }
-                                                                
+
                                                                 // Update gap counter
                                                                 if found_utxos_for_address {
                                                                     consecutive_empty = 0; // Reset gap counter
                                                                 } else {
                                                                     consecutive_empty += 1;
                                                                 }
-                                                                
+
                                                                 address_index += 1;
                                                             } else {
                                                                 break; // Address derivation failed
                                                             }
                                                         }
-                                                        
+
                                                         println!("  ℹ️  Scanned {} addresses (stopped after {} consecutive unused)", address_index, gap_limit);
 
                                                         drop(blockchain_guard);

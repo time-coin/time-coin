@@ -38,6 +38,8 @@ pub struct PeerManager {
     broadcast_count_reset: Arc<RwLock<Instant>>,
     /// Track connected wallets and their xpubs for push notifications
     wallet_subscriptions: Arc<RwLock<HashMap<String, Vec<IpAddr>>>>, // xpub -> connected peer IPs
+    /// Quarantine system for bad peers
+    quarantine: Arc<crate::quarantine::PeerQuarantine>,
 }
 
 impl PeerManager {
@@ -59,6 +61,7 @@ impl PeerManager {
             broadcast_count: Arc::new(RwLock::new(0)),
             broadcast_count_reset: Arc::new(RwLock::new(Instant::now())),
             wallet_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            quarantine: Arc::new(crate::quarantine::PeerQuarantine::new()),
         };
 
         manager.spawn_reaper();
@@ -113,19 +116,31 @@ impl PeerManager {
 
         let peer_addr = peer.address;
         let peer_ip = peer_addr.ip();
+
+        // CRITICAL FIX (Issue #4): Check quarantine before attempting connection
+        if self.quarantine.is_quarantined(&peer_ip).await {
+            debug!(peer = %peer_ip, "Skipping quarantined peer");
+            return Err(format!("Peer {} is quarantined", peer_ip));
+        }
+
         let peer_arc = Arc::new(tokio::sync::Mutex::new(peer.clone()));
 
-        match PeerConnection::connect(
-            peer_arc.clone(),
-            self.network,
-            self.public_addr,
-            None, // No blockchain for outgoing connections
-            None, // No consensus for outgoing connections
-            None, // No block_consensus for outgoing connections
+        // CRITICAL FIX (Issue #6): Add connection timeout (5 seconds)
+        let connect_result = tokio::time::timeout(
+            Duration::from_secs(5),
+            PeerConnection::connect(
+                peer_arc.clone(),
+                self.network,
+                self.public_addr,
+                None, // No blockchain for outgoing connections
+                None, // No consensus for outgoing connections
+                None, // No block_consensus for outgoing connections
+            ),
         )
-        .await
-        {
-            Ok(conn) => {
+        .await;
+
+        match connect_result {
+            Ok(Ok(conn)) => {
                 // On successful connect, get peer info and record
                 let info = conn.peer_info().await;
                 info!(peer = %info.address, version = %info.version, "connected to peer");
@@ -247,10 +262,15 @@ impl PeerManager {
 
                 Ok(())
             }
-            Err(e) => {
-                // On connect failure, record failure and return error
+            Ok(Err(e)) => {
+                // Connection attempt failed
                 self.record_peer_failure(&peer_addr.ip().to_string()).await;
                 Err(e)
+            }
+            Err(_) => {
+                // Connection timeout
+                self.record_peer_failure(&peer_addr.ip().to_string()).await;
+                Err("Connection timeout after 5 seconds".to_string())
             }
         }
     }
@@ -2071,6 +2091,7 @@ impl Clone for PeerManager {
             broadcast_count: self.broadcast_count.clone(),
             broadcast_count_reset: self.broadcast_count_reset.clone(),
             wallet_subscriptions: self.wallet_subscriptions.clone(),
+            quarantine: self.quarantine.clone(),
         }
     }
 }

@@ -137,14 +137,15 @@ impl AuthenticatedMessage {
 
 /// Nonce tracker to prevent replay attacks
 pub struct NonceTracker {
-    used_nonces: std::sync::Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
+    used_nonces:
+        std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, std::time::Instant>>>,
 }
 
 impl NonceTracker {
     pub fn new() -> Self {
         Self {
             used_nonces: std::sync::Arc::new(tokio::sync::RwLock::new(
-                std::collections::HashSet::new(),
+                std::collections::HashMap::new(),
             )),
         }
     }
@@ -153,24 +154,17 @@ impl NonceTracker {
     pub async fn check_and_mark(&self, nonce: &str) -> Result<(), AuthError> {
         let mut nonces = self.used_nonces.write().await;
 
-        if nonces.contains(nonce) {
+        // CRITICAL FIX (Issue #11): Clean up expired nonces (older than 900 seconds = message expiry)
+        // This prevents memory bloat and uses proper time-based expiry instead of random cleanup
+        let now = std::time::Instant::now();
+        let expiry_duration = std::time::Duration::from_secs(900); // 15 minutes (matches message expiry)
+        nonces.retain(|_, &mut timestamp| now.duration_since(timestamp) < expiry_duration);
+
+        if nonces.contains_key(nonce) {
             return Err(AuthError::ReplayAttack(nonce.to_string()));
         }
 
-        nonces.insert(nonce.to_string());
-
-        // Cleanup old nonces if set is getting large (> 10k entries)
-        if nonces.len() > 10000 {
-            // In production, should track timestamps and remove expired nonces
-            // For now, just clear half of them randomly
-            let to_keep: std::collections::HashSet<_> = nonces
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| i % 2 == 0)
-                .map(|(_, n)| n.clone())
-                .collect();
-            *nonces = to_keep;
-        }
+        nonces.insert(nonce.to_string(), now);
 
         Ok(())
     }
