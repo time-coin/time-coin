@@ -163,9 +163,20 @@ impl Default for WalletApp {
         // Check if wallet exists for this network
         let wallet_exists = WalletManager::exists(network);
 
-        // Start on Overview if wallet exists, otherwise show Welcome screen
+        // Check if wallet is encrypted
+        let wallet_encrypted = if wallet_exists {
+            WalletManager::is_encrypted(network).unwrap_or(false)
+        } else {
+            false
+        };
+
+        // Start on Overview if wallet exists AND is unencrypted, otherwise show appropriate screen
         let initial_screen = if wallet_exists {
-            Screen::Overview
+            if wallet_encrypted {
+                Screen::Welcome // Will show unlock prompt
+            } else {
+                Screen::Overview // Auto-load unencrypted wallet
+            }
         } else {
             Screen::Welcome
         };
@@ -215,8 +226,8 @@ impl Default for WalletApp {
             utxo_rx: None,
         };
 
-        // If wallet exists, auto-load it
-        if wallet_exists {
+        // If wallet exists and is NOT encrypted, auto-load it
+        if wallet_exists && !wallet_encrypted {
             app.auto_load_wallet();
         }
 
@@ -707,11 +718,23 @@ impl WalletApp {
                     ui.heading("Welcome Back!");
                     ui.add_space(20.0);
 
-                    // TODO: Add password protection, fingerprint, or PIN authentication
-                    // For now, auto-load wallet without password
+                    // Check if wallet is encrypted
+                    let is_encrypted = WalletManager::is_encrypted(self.network).unwrap_or(false);
 
-                    if ui.button(egui::RichText::new("Open Wallet").size(16.0)).clicked() {
-                        match WalletManager::load(self.network) {
+                    if is_encrypted {
+                        ui.label("This wallet is encrypted. Please enter your password.");
+                        ui.add_space(10.0);
+
+                        // Show unlock password prompt
+                        if self.password_prompt.is_none() {
+                            self.password_prompt = Some(password_ui::PasswordPrompt::new_unlock(
+                                "Unlock Wallet"
+                            ));
+                        }
+                    } else {
+                        // Unencrypted wallet - direct unlock button
+                        if ui.button(egui::RichText::new("Open Wallet").size(16.0)).clicked() {
+                            match WalletManager::load(self.network) {
                             Ok(mut manager) => {
                                 // IMPORTANT: Set UI network to match the loaded wallet's network
                                 self.network = manager.network();
@@ -1013,6 +1036,71 @@ impl WalletApp {
                             Err(e) => {
                                 self.set_error(format!("Failed to load wallet: {}", e));
                             }
+                        }
+                    }
+                    } // Close unencrypted wallet else block
+                    
+                    // Handle password prompt for encrypted wallet unlock
+                    if let Some(prompt) = &mut self.password_prompt {
+                        prompt.show(ctx);
+                        
+                        if prompt.is_confirmed() && !prompt.is_open() {
+                            let password = prompt.take_password();
+                            
+                            // Attempt to unlock wallet with password
+                            match WalletManager::load_with_password(self.network, &password) {
+                                Ok(mut manager) => {
+                                    // Set UI network to match wallet
+                                    self.network = manager.network();
+
+                                    // Initialize wallet database
+                                    if let Ok(main_config) = Config::load() {
+                                        let wallet_dir = main_config.wallet_dir();
+                                        let db_path = wallet_dir.join("wallet.db");
+                                        match WalletDb::open(&db_path) {
+                                            Ok(db) => {
+                                                // Sync address index
+                                                if let Ok(owned_addresses) = db.get_owned_addresses() {
+                                                    if let Some(max_index) = owned_addresses
+                                                        .iter()
+                                                        .filter_map(|a| a.derivation_index)
+                                                        .max()
+                                                    {
+                                                        manager.sync_address_index(max_index);
+                                                        log::info!("Synced address index to {}", max_index + 1);
+                                                    }
+                                                }
+                                                self.wallet_db = Some(db);
+                                                log::info!("Wallet database initialized");
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to open wallet database: {}", e);
+                                            }
+                                        }
+                                    }
+
+                                    self.wallet_manager = Some(manager);
+                                    self.current_screen = Screen::Overview;
+                                    self.set_success("Wallet unlocked successfully!".to_string());
+                                    log::info!("✅ Wallet unlocked with password");
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to unlock wallet: {}", e);
+                                    self.set_error("Incorrect password or corrupted wallet".to_string());
+                                    // Reopen prompt for retry
+                                    self.password_prompt = Some(password_ui::PasswordPrompt::new_unlock(
+                                        "Unlock Wallet"
+                                    ));
+                                }
+                            }
+                            
+                            // Clear password prompt if not retrying
+                            if !matches!(self.password_prompt.as_ref().map(|p| p.is_open()), Some(true)) {
+                                self.password_prompt = None;
+                            }
+                        } else if !prompt.is_open() {
+                            // User cancelled
+                            self.password_prompt = None;
                         }
                     }
                 } else {

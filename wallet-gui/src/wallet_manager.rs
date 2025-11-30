@@ -133,15 +133,44 @@ impl WalletManager {
     pub fn load(network: NetworkType) -> Result<Self, WalletDatError> {
         let wallet_dat = WalletDat::load(network)?;
 
-        // Recreate wallet from mnemonic
+        // Check if wallet is encrypted
+        if wallet_dat.is_encrypted() {
+            return Err(WalletDatError::PasswordRequired);
+        }
+
+        // Recreate wallet from mnemonic (unencrypted)
         let mnemonic = wallet_dat.get_mnemonic()?;
         let wallet = Wallet::from_mnemonic(&mnemonic, "", network)?;
 
         Ok(Self {
             wallet_dat,
             active_wallet: wallet,
-            next_address_index: 0, // Will be updated when wallet.db is available
+            next_address_index: 0,
         })
+    }
+
+    /// Load existing encrypted wallet with password
+    pub fn load_with_password(
+        network: NetworkType,
+        password: &str,
+    ) -> Result<Self, WalletDatError> {
+        let wallet_dat = WalletDat::load(network)?;
+
+        // Decrypt and get mnemonic
+        let mnemonic = wallet_dat.get_mnemonic_with_password(Some(password))?;
+        let wallet = Wallet::from_mnemonic(&mnemonic, "", network)?;
+
+        Ok(Self {
+            wallet_dat,
+            active_wallet: wallet,
+            next_address_index: 0,
+        })
+    }
+
+    /// Check if existing wallet is encrypted
+    pub fn is_encrypted(network: NetworkType) -> Result<bool, WalletDatError> {
+        let wallet_dat = WalletDat::load(network)?;
+        Ok(wallet_dat.is_encrypted())
     }
 
     /// Update next_address_index based on existing addresses in the database
