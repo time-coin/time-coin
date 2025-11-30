@@ -746,6 +746,25 @@ pub enum NetworkMessage {
     },
     ConsensusTxVote(String), // JSON serialized tx vote
 
+    // Transaction approval/rejection messages
+    TransactionApproved {
+        txid: String,
+        approver: String,
+        timestamp: i64,
+    },
+    TransactionRejected {
+        txid: String,
+        rejector: String,
+        reason: String,
+        timestamp: i64,
+    },
+    TransactionRejectedByNetwork {
+        txid: String,
+        rejections: Vec<String>, // List of rejector addresses
+        reasons: Vec<String>,    // Corresponding rejection reasons
+        timestamp: i64,
+    },
+
     // UTXO State Protocol messages
     UTXOStateQuery {
         outpoints: Vec<String>, // JSON serialized OutPoints
