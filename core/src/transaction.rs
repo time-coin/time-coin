@@ -247,6 +247,74 @@ impl Transaction {
         Ok(())
     }
 
+    /// Verify all input signatures (CRITICAL SECURITY CHECK)
+    ///
+    /// Verifies that:
+    /// 1. Each input's public key derives to the UTXO's address
+    /// 2. Each input's signature is valid for the transaction data
+    ///
+    /// Coinbase and treasury grant transactions have no signatures to verify.
+    pub fn verify_signatures(
+        &self,
+        utxo_set: &std::collections::HashMap<OutPoint, TxOutput>,
+    ) -> Result<(), TransactionError> {
+        // Coinbase and treasury grants have no signatures to verify
+        if self.is_coinbase() || self.is_treasury_grant() {
+            return Ok(());
+        }
+
+        let message = self.serialize_for_signing();
+
+        for input in &self.inputs {
+            // Get the UTXO being spent
+            let utxo = utxo_set
+                .get(&input.previous_output)
+                .ok_or(TransactionError::InvalidInput)?;
+
+            // Derive address from public key
+            let pub_key_hex = hex::encode(&input.public_key);
+
+            // Verify the UTXO address matches the public key's derived address
+            // This ensures the spender owns the UTXO
+            if !pub_key_hex.is_empty() {
+                let derived_address = format!(
+                    "TIME1{}",
+                    &pub_key_hex[..std::cmp::min(40, pub_key_hex.len())]
+                );
+                if derived_address != utxo.address {
+                    return Err(TransactionError::InvalidSignature);
+                }
+            }
+
+            // Verify the Ed25519 signature
+            // This cryptographically proves the spender has the private key
+            if input.signature.len() == 64 {
+                // Convert to arrays for ed25519_dalek
+                let pub_key_bytes: Result<[u8; 32], _> = input.public_key.as_slice().try_into();
+                let sig_bytes: Result<[u8; 64], _> = input.signature.as_slice().try_into();
+
+                match (pub_key_bytes, sig_bytes) {
+                    (Ok(pk), Ok(sig)) => {
+                        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+                        let verifying_key = VerifyingKey::from_bytes(&pk)
+                            .map_err(|_| TransactionError::InvalidSignature)?;
+                        let signature = Signature::from_bytes(&sig);
+
+                        verifying_key
+                            .verify(&message, &signature)
+                            .map_err(|_| TransactionError::InvalidSignature)?;
+                    }
+                    _ => return Err(TransactionError::InvalidSignature),
+                }
+            } else {
+                return Err(TransactionError::InvalidSignature);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Check if this is a coinbase transaction (no inputs, generates new coins)
     /// Note: Treasury grants also have no inputs but are identified differently
     pub fn is_coinbase(&self) -> bool {
