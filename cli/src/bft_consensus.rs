@@ -361,7 +361,7 @@ impl BftConsensus {
         // Note: Signature verification is already done in mempool before transactions enter blocks
         // This is a secondary check that we skip for now due to UTXO lookup complexity
         // The primary defense is mempool validation which rejects unsigned transactions
-        
+
         // All validations passed
         true
     }
@@ -378,11 +378,24 @@ impl BftConsensus {
     async fn finalize_as_leader(&self, block: Block, masternodes: &[String]) -> ConsensusResult {
         println!("      ✔ Leader finalizing block...");
 
-        // Add block to local blockchain
+        // SECURITY FIX: Add block with UTXO consistency check
         let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✅ Block {} finalized", block.header.block_number);
+
+                // SECURITY FIX: UTXO consistency - save snapshot
+                if let Err(e) = blockchain.save_utxo_snapshot() {
+                    println!("      ❌ CRITICAL: Failed to save UTXO snapshot: {}", e);
+                    drop(blockchain);
+                    return ConsensusResult::Failed(ConsensusFailure {
+                        attempts: 1,
+                        last_error: format!("UTXO snapshot save failed: {}", e),
+                        votes_received: 0,
+                        votes_required: 0,
+                    });
+                }
+
                 drop(blockchain);
 
                 // Broadcast finalized block to all peers

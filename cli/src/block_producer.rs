@@ -1090,14 +1090,25 @@ impl BlockProducer {
     async fn finalize_and_broadcast_block(&self, block: Block) {
         let block_num = block.header.block_number;
 
-        // Add block to blockchain
+        // SECURITY FIX: Add block to blockchain with UTXO consistency check
         let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("   💾 Block {} added to blockchain", block_num);
+
+                // SECURITY FIX: UTXO consistency - save snapshot before removing from mempool
+                if let Err(e) = blockchain.save_utxo_snapshot() {
+                    println!("   ❌ CRITICAL: Failed to save UTXO snapshot: {}", e);
+                    println!("   ⚠️  NOT removing transactions from mempool due to save failure");
+                    println!("   ⚠️  This prevents UTXO loss - transactions will be retried");
+                    drop(blockchain);
+                    return; // Critical failure - don't remove from mempool
+                }
+
                 drop(blockchain);
 
                 // Clear processed transactions from mempool
+                // This is ONLY done after successful UTXO snapshot save
                 for tx in &block.transactions {
                     if !tx.inputs.is_empty() {
                         // Skip coinbase (first tx with no inputs)
@@ -1478,15 +1489,17 @@ impl BlockProducer {
     ) -> bool {
         use time_core::block::calculate_tier_reward;
 
-        let mut blockchain = self.blockchain.write().await;
-
-        let previous_hash = if block_num == 0 {
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
-        } else {
-            blockchain.chain_tip_hash().to_string()
+        // SECURITY FIX: Get read-only data first, minimize write lock scope
+        let (previous_hash, masternode_counts) = {
+            let blockchain = self.blockchain.read().await;
+            let previous_hash = if block_num == 0 {
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+            } else {
+                blockchain.chain_tip_hash().to_string()
+            };
+            let masternode_counts = blockchain.masternode_counts().clone();
+            (previous_hash, masternode_counts)
         };
-
-        let masternode_counts = blockchain.masternode_counts().clone();
 
         // Initialize outputs with masternode rewards only (no treasury pre-allocation)
         let mut outputs = vec![];
@@ -1583,21 +1596,27 @@ impl BlockProducer {
         );
         println!("      Block Hash: {}...", truncate_str(&block.hash, 16));
 
+        // SECURITY FIX: Acquire write lock only for the actual write operation
+        let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} created and stored", block_num);
 
-                // Save UTXO snapshot to persist state
+                // SECURITY FIX: UTXO consistency - save snapshot
                 if let Err(e) = blockchain.save_utxo_snapshot() {
                     println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
+                    drop(blockchain);
+                    return false;
                 } else {
                     println!("      💾 UTXO snapshot saved");
                 }
-
+                
+                drop(blockchain);
                 true
             }
             Err(e) => {
                 println!("      ✗ Failed to create block {}: {:?}", block_num, e);
+                drop(blockchain);
                 false
             }
         }
@@ -2015,14 +2034,25 @@ impl BlockProducer {
         _masternodes: &[String],
     ) -> bool {
         let block_num = block.header.block_number;
-        let mut blockchain = self.blockchain.write().await;
 
-        // Check if block already exists at this height
-        if let Some(existing_block) = blockchain.get_block_by_height(block_num) {
+        // SECURITY FIX: Minimize lock scope - check existence with read lock first
+        let block_exists = {
+            let blockchain = self.blockchain.read().await;
+            blockchain.get_block_by_height(block_num).is_some()
+        };
+
+        if block_exists {
+            let existing_hash = {
+                let blockchain = self.blockchain.read().await;
+                blockchain
+                    .get_block_by_height(block_num)
+                    .map(|b| b.hash.clone())
+                    .unwrap_or_default()
+            };
             println!(
                 "      ℹ️  Block #{} already exists (hash: {}...), skipping",
                 block_num,
-                &existing_block.hash[..16]
+                &existing_hash[..16.min(existing_hash.len())]
             );
             return true;
         }
@@ -2030,11 +2060,13 @@ impl BlockProducer {
         println!("      🔧 Finalizing agreed block #{}...", block_num);
         println!("      📋 Block hash: {}...", truncate_str(&block.hash, 16));
 
+        // Now acquire write lock only when actually adding block
+        let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} finalized and stored", block_num);
 
-                // Save UTXO snapshot to persist state
+                // SECURITY FIX: UTXO consistency - save snapshot before removing from mempool
                 if let Err(e) = blockchain.save_utxo_snapshot() {
                     println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
                     println!(
@@ -2082,28 +2114,43 @@ impl BlockProducer {
     ) -> bool {
         use time_core::block::{Block, BlockHeader};
 
-        let mut blockchain = self.blockchain.write().await;
+        // SECURITY FIX: Minimize lock scope - check existence with read lock first
+        let block_exists = {
+            let blockchain = self.blockchain.read().await;
+            blockchain.get_block_by_height(block_num).is_some()
+        };
 
-        // Check if block already exists at this height
-        if let Some(existing_block) = blockchain.get_block_by_height(block_num) {
+        if block_exists {
+            let existing_hash = {
+                let blockchain = self.blockchain.read().await;
+                blockchain
+                    .get_block_by_height(block_num)
+                    .map(|b| b.hash.clone())
+                    .unwrap_or_default()
+            };
             println!(
                 "      ℹ️  Block #{} already exists (hash: {}...), skipping creation",
                 block_num,
-                &existing_block.hash[..16]
+                &existing_hash[..16.min(existing_hash.len())]
             );
             return true; // Not an error, just already done
         }
 
-        let previous_hash = blockchain.chain_tip_hash().to_string();
-        let masternode_counts = blockchain.masternode_counts().clone();
+        // Get necessary data with read lock
+        let (previous_hash, masternode_counts, all_masternodes) = {
+            let blockchain = self.blockchain.read().await;
+            let previous_hash = blockchain.chain_tip_hash().to_string();
+            let masternode_counts = blockchain.masternode_counts().clone();
+            let all_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+                .get_all_masternodes()
+                .iter()
+                .filter(|&mn| mn.is_active)
+                .map(|mn| (mn.wallet_address.clone(), mn.tier))
+                .collect();
+            (previous_hash, masternode_counts, all_masternodes)
+        };
 
         let my_id = self.get_node_id();
-        let all_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
-            .get_all_masternodes()
-            .iter()
-            .filter(|&mn| mn.is_active)
-            .map(|mn| (mn.wallet_address.clone(), mn.tier))
-            .collect();
 
         println!(
             "      💰 Distributing rewards to {} registered masternodes",
@@ -2141,13 +2188,18 @@ impl BlockProducer {
         block.hash = block.calculate_hash();
 
         println!("      🔧 Finalizing block #{}...", block_num);
+        
+        // SECURITY FIX: Acquire write lock only for the actual write operation
+        let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} finalized and stored", block_num);
 
-                // Save UTXO snapshot to persist state
+                // SECURITY FIX: UTXO consistency - save snapshot
                 if let Err(e) = blockchain.save_utxo_snapshot() {
                     println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
+                    drop(blockchain);
+                    return false;
                 } else {
                     println!("      💾 UTXO snapshot saved");
                 }
@@ -2160,6 +2212,7 @@ impl BlockProducer {
             }
             Err(e) => {
                 println!("      ✗ Failed to finalize block: {:?}", e);
+                drop(blockchain);
                 false
             }
         }
