@@ -1527,6 +1527,7 @@ async fn main() {
                 let mempool_clone = mempool.clone();
                 let chain_sync_clone = chain_sync.clone();
                 let network_type_clone = network_type;
+                let approval_manager_clone = approval_manager.clone();
 
                 tokio::spawn(async move {
                     loop {
@@ -1662,6 +1663,7 @@ async fn main() {
                             let wallet_address_listen = wallet_address_clone.clone();
                             let mempool_listen = Arc::clone(&mempool_clone);
                             let chain_sync_listen = Arc::clone(&chain_sync_clone);
+                            let approval_manager_listen = Arc::clone(&approval_manager_clone);
                             tokio::spawn(async move {
                                 loop {
                                     // Use timeout to prevent holding lock indefinitely
@@ -2106,29 +2108,66 @@ async fn main() {
                                                     }
                                                 }
                                                 time_network::protocol::NetworkMessage::InstantFinalityRequest(tx) => {
-                                                    println!("⚡ Received instant finality request from {} for tx {}", peer_ip_listen, truncate_str(&tx.txid, 16));
+                                                    println!("⚡ Received transaction approval request from {} for tx {}", peer_ip_listen, truncate_str(&tx.txid, 16));
 
                                                     // Validate the transaction
                                                     let blockchain_guard = blockchain_listen.read().await;
-                                                    let is_valid = blockchain_guard.validate_transaction(&tx).is_ok();
+                                                    let validation_result = blockchain_guard.validate_transaction(&tx);
                                                     drop(blockchain_guard);
 
-                                                    let vote_result = if is_valid { "APPROVE ✓" } else { "REJECT ✗" };
-                                                    println!("   Voting {} for tx {}", vote_result, truncate_str(&tx.txid, 16));
+                                                    let (approved, rejection_reason) = match validation_result {
+                                                        Ok(_) => (true, None),
+                                                        Err(e) => (false, Some(e.to_string())),
+                                                    };
 
-                                                    // Send vote response back to requester
-                                                    let vote_msg = time_network::protocol::NetworkMessage::InstantFinalityVote {
+                                                    let result_str = if approved { "APPROVED ✓" } else { "REJECTED ✗" };
+                                                    println!("   {} tx {}", result_str, truncate_str(&tx.txid, 16));
+                                                    if let Some(ref reason) = rejection_reason {
+                                                        println!("   Reason: {}", reason);
+                                                    }
+
+                                                    // Record approval decision
+                                                    let decision = if approved {
+                                                        time_consensus::ApprovalDecision::Approved
+                                                    } else {
+                                                        time_consensus::ApprovalDecision::Declined {
+                                                            reason: rejection_reason.clone().unwrap_or_default()
+                                                        }
+                                                    };
+
+                                                    let approval = time_consensus::TransactionApproval {
                                                         txid: tx.txid.clone(),
-                                                        voter: wallet_address_listen.clone(),
-                                                        approve: is_valid,
-                                                        timestamp: chrono::Utc::now().timestamp() as u64,
+                                                        masternode: wallet_address_listen.clone(),
+                                                        decision,
+                                                        timestamp: chrono::Utc::now(),
+                                                        signature: String::new(), // TODO: Add actual signature
+                                                    };
+
+                                                    if let Err(e) = approval_manager_listen.record_approval(approval).await {
+                                                        println!("❌ Failed to record approval: {}", e);
+                                                    }
+
+                                                    // Send approval/rejection response
+                                                    let response_msg = if approved {
+                                                        time_network::protocol::NetworkMessage::TransactionApproved {
+                                                            txid: tx.txid.clone(),
+                                                            approver: wallet_address_listen.clone(),
+                                                            timestamp: chrono::Utc::now().timestamp(),
+                                                        }
+                                                    } else {
+                                                        time_network::protocol::NetworkMessage::TransactionRejected {
+                                                            txid: tx.txid.clone(),
+                                                            rejector: wallet_address_listen.clone(),
+                                                            reason: rejection_reason.unwrap_or_default(),
+                                                            timestamp: chrono::Utc::now().timestamp(),
+                                                        }
                                                     };
 
                                                     let mut conn = conn_arc_clone.lock().await;
-                                                    if let Err(e) = conn.send_message(vote_msg).await {
-                                                        println!("❌ Failed to send instant finality vote: {}", e);
+                                                    if let Err(e) = conn.send_message(response_msg).await {
+                                                        println!("❌ Failed to send approval response: {}", e);
                                                     } else {
-                                                        println!("✅ Sent {} vote for tx {}", vote_result, truncate_str(&tx.txid, 16));
+                                                        println!("✅ Sent {} response for tx {}", result_str, truncate_str(&tx.txid, 16));
                                                     }
                                                 }
                                                 _ => {

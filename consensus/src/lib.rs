@@ -2207,4 +2207,6 @@ mod tests {
 }
 
 // Re-exports
-pub use transaction_approval::TransactionApprovalManager;
+pub use transaction_approval::{
+    ApprovalDecision, TransactionApproval, TransactionApprovalManager, TransactionStatus,
+};
