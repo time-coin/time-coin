@@ -7,7 +7,7 @@
 //! - Addresses are derived on-demand from xpub
 //! - Contact info and metadata stored separately in wallet.db
 
-use crate::transaction_validator::{TransactionValidator, ValidationError};
+use crate::tx_validator::{TransactionValidator, ValidationError};
 use crate::wallet_dat::{WalletDat, WalletDatError};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -306,31 +306,81 @@ impl WalletManager {
         self.active_wallet.utxos().to_vec()
     }
 
-    /// Create a transaction
+    /// Create and validate a transaction
     pub fn create_transaction(
         &mut self,
         to_address: &str,
         amount: u64,
         fee: u64,
     ) -> Result<Transaction, String> {
-        self.active_wallet
+        // Create the transaction
+        let tx = self
+            .active_wallet
             .create_transaction(to_address, amount, fee)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        // Validate before returning
+        let tx_size = self.estimate_transaction_size(&tx);
+        match self
+            .transaction_validator
+            .validate_transaction(&tx, tx_size)
+        {
+            Ok(report) => {
+                // Log warnings if any
+                if !report.warnings.is_empty() {
+                    log::warn!("Transaction validation warnings:");
+                    for warning in &report.warnings {
+                        log::warn!("  - {}", warning);
+                    }
+                }
+                log::info!(
+                    "Transaction validated: {} sat/byte, estimated confirmation: {}",
+                    report.fee_rate,
+                    report.estimated_confirmation_time
+                );
+                Ok(tx)
+            }
+            Err(e) => Err(format!("Transaction validation failed: {}", e)),
+        }
     }
 
-    /// Validate a transaction before broadcasting
-    pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), ValidationError> {
-        self.transaction_validator.validate_transaction(tx)
+    /// Estimate transaction size in bytes
+    fn estimate_transaction_size(&self, tx: &Transaction) -> usize {
+        let base_size = 10;
+        let input_size = tx.inputs.len() * 180;
+        let output_size = tx.outputs.len() * 34;
+        base_size + input_size + output_size
     }
 
-    /// Estimate transaction fees
-    pub fn estimate_fee(
+    /// Validate a transaction before broadcasting (direct validation)
+    pub fn validate_transaction(
         &self,
-        num_inputs: usize,
-        num_outputs: usize,
-    ) -> crate::transaction_validator::FeeEstimate {
+        tx: &Transaction,
+        tx_size: usize,
+    ) -> Result<(), ValidationError> {
         self.transaction_validator
-            .estimate_fee(num_inputs, num_outputs)
+            .validate_transaction(tx, tx_size)
+            .map(|_| ())
+    }
+
+    /// Get transaction validator for fee estimation
+    pub fn get_transaction_validator(&self) -> &TransactionValidator {
+        &self.transaction_validator
+    }
+
+    /// Get mutable transaction validator for updates
+    pub fn get_transaction_validator_mut(&mut self) -> &mut TransactionValidator {
+        &mut self.transaction_validator
+    }
+
+    /// Estimate transaction fees for given priority
+    pub fn estimate_fee_for_priority(
+        &self,
+        tx_size_bytes: usize,
+        priority: crate::tx_validator::FeePriority,
+    ) -> u64 {
+        self.transaction_validator
+            .estimate_fee(tx_size_bytes, priority)
     }
 
     /// Update mempool state for double-spend detection
@@ -338,14 +388,9 @@ impl WalletManager {
         self.transaction_validator.update_mempool(txids);
     }
 
-    /// Update network fee rate
-    pub fn update_fee_rate(&mut self, fee_per_byte: u64) {
-        self.transaction_validator.update_fee_rate(fee_per_byte);
-    }
-
-    /// Check if transaction will likely be accepted by network
-    pub fn check_network_acceptance(&self, tx: &Transaction) -> Result<String, ValidationError> {
-        self.transaction_validator.check_network_acceptance(tx)
+    /// Update network fee market data
+    pub fn update_fee_market(&mut self, fee_market: crate::tx_validator::FeeMarket) {
+        self.transaction_validator.update_fee_market(fee_market);
     }
 }
 

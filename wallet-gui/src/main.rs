@@ -26,7 +26,7 @@ mod peer_manager;
 mod protocol_client;
 mod rate_limiter;
 mod tcp_protocol_client;
-mod transaction_validator;
+mod tx_validator;
 mod ui_components;
 mod wallet_dat;
 mod wallet_db;
@@ -402,13 +402,15 @@ impl WalletApp {
                                 #[allow(clippy::await_holding_lock)]
                                 {
                                     let mut net = network_mgr_for_connect.lock().unwrap();
+                                    log::info!("Acquired NetworkManager lock, calling connect_to_peers");
                                     let result = net.connect_to_peers(peer_infos).await;
+                                    let peer_count = net.peer_count();
                                     drop(net);
 
                                     match result {
                                         Ok(_) => {
                                             log::info!(
-                                                "✅ NetworkManager connected to peers successfully"
+                                                "✅ NetworkManager connected to {} peers successfully", peer_count
                                             );
 
                                             // Now discover more peers from the connected ones
@@ -1586,20 +1588,31 @@ impl WalletApp {
                             .collect();
 
                         if !peer_infos.is_empty() {
+                            log::info!("Starting connection to {} peers...", peer_infos.len());
                             let net_clone = network_mgr_clone.clone();
                             tokio::task::spawn_blocking(move || {
                                 let rt = tokio::runtime::Runtime::new().unwrap();
                                 rt.block_on(async move {
                                     let mut manager = net_clone.lock().unwrap();
+                                    log::info!(
+                                        "Acquired NetworkManager lock, calling connect_to_peers"
+                                    );
                                     if let Err(e) = manager.connect_to_peers(peer_infos).await {
                                         log::error!("Failed to connect to peers: {}", e);
                                     } else {
-                                        log::info!("✅ Successfully connected to network peers");
+                                        let peer_count = manager.peer_count();
+                                        log::info!(
+                                            "✅ Successfully connected to {} network peers",
+                                            peer_count
+                                        );
                                     }
                                 });
                             })
                             .await
                             .ok();
+                            log::info!("Connection task completed");
+                        } else {
+                            log::warn!("No peer info available to connect");
                         }
                     });
                 }
