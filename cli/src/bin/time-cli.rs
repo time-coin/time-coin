@@ -93,6 +93,12 @@ enum Commands {
         #[command(subcommand)]
         command: ProposalCommands,
     },
+
+    /// Instant finality operations
+    InstantFinality {
+        #[command(subcommand)]
+        command: InstantFinalityCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -131,6 +137,32 @@ enum ProposalCommands {
     Get {
         /// Proposal ID
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum InstantFinalityCommands {
+    /// Get transaction finality status
+    Status {
+        /// Transaction ID
+        txid: String,
+        /// RPC endpoint (default: http://127.0.0.1:24101)
+        #[arg(long, default_value = "http://127.0.0.1:24101")]
+        rpc_url: String,
+    },
+
+    /// List approved transactions ready for block inclusion
+    Approved {
+        /// RPC endpoint (default: http://127.0.0.1:24101)
+        #[arg(long, default_value = "http://127.0.0.1:24101")]
+        rpc_url: String,
+    },
+
+    /// Get instant finality statistics
+    Stats {
+        /// RPC endpoint (default: http://127.0.0.1:24101)
+        #[arg(long, default_value = "http://127.0.0.1:24101")]
+        rpc_url: String,
     },
 }
 
@@ -831,6 +863,174 @@ async fn handle_proposal_command(
     Ok(())
 }
 
+async fn handle_instant_finality_command(
+    command: InstantFinalityCommands,
+    client: &Client,
+    api: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        InstantFinalityCommands::Status { txid, rpc_url } => {
+            let api_url = if api != "http://127.0.0.1:24101" {
+                api
+            } else {
+                &rpc_url
+            };
+
+            let response = client
+                .post(format!("{}/instant-finality/status", api_url))
+                .json(&json!({ "txid": txid }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+
+                println!("\n⚡ Transaction Finality Status");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("TXID: {}", txid);
+
+                if let Some(status) = result.get("status") {
+                    if status.is_null() {
+                        println!("Status: ❓ Not found in instant finality system");
+                    } else if status.as_str() == Some("Pending") {
+                        println!("Status: ⏳ Pending validation");
+                    } else if status.as_str() == Some("Validated") {
+                        println!("Status: 🔄 Validated, awaiting quorum");
+                    } else if let Some(approved) = status.get("Approved") {
+                        let votes = approved.get("votes").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let total = approved
+                            .get("total_nodes")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        println!("Status: ✅ APPROVED");
+                        println!(
+                            "Votes: {}/{} ({:.1}%)",
+                            votes,
+                            total,
+                            (votes as f64 / total as f64) * 100.0
+                        );
+                    } else if let Some(rejected) = status.get("Rejected") {
+                        let reason = rejected
+                            .get("reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown");
+                        println!("Status: ❌ REJECTED");
+                        println!("Reason: {}", reason);
+                    } else if let Some(confirmed) = status.get("Confirmed") {
+                        let height = confirmed
+                            .get("block_height")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        println!("Status: 🎉 CONFIRMED in block #{}", height);
+                    }
+                } else {
+                    println!("Status: ❓ Unknown");
+                }
+            } else {
+                eprintln!("❌ Error: {}", response.status());
+            }
+        }
+
+        InstantFinalityCommands::Approved { rpc_url } => {
+            let api_url = if api != "http://127.0.0.1:24101" {
+                api
+            } else {
+                &rpc_url
+            };
+
+            let response = client
+                .get(format!("{}/instant-finality/approved", api_url))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let transactions: Vec<serde_json::Value> = response.json().await?;
+
+                println!("\n⚡ Approved Transactions (Ready for Block)");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                if transactions.is_empty() {
+                    println!("No approved transactions pending block inclusion");
+                } else {
+                    println!("Total: {}", transactions.len());
+                    println!();
+                    for (i, tx) in transactions.iter().enumerate() {
+                        let txid = tx.get("txid").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let amount: u64 = tx
+                            .get("outputs")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| arr.first())
+                            .and_then(|out| out.get("amount"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+
+                        println!(
+                            "{}. {} - {} TIME",
+                            i + 1,
+                            &txid[..16],
+                            amount as f64 / 100_000_000.0
+                        );
+                    }
+                }
+            } else {
+                eprintln!("❌ Error: {}", response.status());
+            }
+        }
+
+        InstantFinalityCommands::Stats { rpc_url } => {
+            let api_url = if api != "http://127.0.0.1:24101" {
+                api
+            } else {
+                &rpc_url
+            };
+
+            let response = client
+                .get(format!("{}/instant-finality/stats", api_url))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let stats: serde_json::Value = response.json().await?;
+
+                println!("\n⚡ Instant Finality Statistics");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!(
+                    "Pending transactions: {}",
+                    stats
+                        .get("pending_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
+                );
+                println!(
+                    "Approved (cached): {}",
+                    stats
+                        .get("approved_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
+                );
+                println!(
+                    "Active masternodes: {}",
+                    stats
+                        .get("active_masternodes")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
+                );
+                println!(
+                    "Quorum threshold: {}%",
+                    stats
+                        .get("quorum_threshold")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(67)
+                );
+            } else {
+                eprintln!("❌ Error: {}", response.status());
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -1000,6 +1200,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Proposal { command } => {
             handle_proposal_command(command, &client, &cli.api, cli.json).await?;
+        }
+
+        Commands::InstantFinality { command } => {
+            handle_instant_finality_command(command, &client, &cli.api).await?;
         }
     }
 
