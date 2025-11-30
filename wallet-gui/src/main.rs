@@ -528,6 +528,7 @@ impl WalletApp {
                         log::info!("🔌 Initializing TCP listener for auto-loaded wallet");
                         let tcp_network_mgr = network_mgr.clone();
                         let wallet_xpub_clone = wallet_xpub.clone();
+                        let wallet_network_clone = wallet_network;
                         tokio::spawn(async move {
                             // Wait a bit for peers to connect
                             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;

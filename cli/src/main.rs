@@ -2263,23 +2263,29 @@ async fn main() {
 
                                                         if existing.is_none() {
                                                             // New masternode - register it
-                                                            blockchain_guard.register_masternode(
+                                                            if let Err(e) = blockchain_guard.register_masternode(
                                                                 mn.node_id.clone(), // address (node IP)
                                                                 tier,
                                                                 String::new(), // collateral_tx (empty for now)
                                                                 mn.wallet_address.clone(),
-                                                            );
-                                                            added += 1;
+                                                            ) {
+                                                                println!("   ⚠️  Failed to register masternode: {}", e);
+                                                            } else {
+                                                                added += 1;
+                                                            }
                                                         } else if let Some(existing_mn) = existing {
                                                             // Update if newer
                                                             if mn.registered_at > existing_mn.last_seen {
-                                                                blockchain_guard.register_masternode(
+                                                                if let Err(e) = blockchain_guard.register_masternode(
                                                                     mn.node_id.clone(),
                                                                     tier,
                                                                     String::new(),
                                                                     mn.wallet_address.clone(),
-                                                                );
-                                                                updated += 1;
+                                                                ) {
+                                                                    println!("   ⚠️  Failed to update masternode: {}", e);
+                                                                } else {
+                                                                    updated += 1;
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -2299,15 +2305,16 @@ async fn main() {
                                                     };
 
                                                     let mut blockchain_guard = blockchain_listen.write().await;
-                                                    blockchain_guard.register_masternode(
+                                                    match blockchain_guard.register_masternode(
                                                         masternode.node_id.clone(),
                                                         tier,
                                                         String::new(),
                                                         masternode.wallet_address.clone(),
-                                                    );
+                                                    ) {
+                                                        Ok(_) => println!("   ✅ Masternode registered from announcement"),
+                                                        Err(e) => println!("   ⚠️  Failed to register masternode: {}", e),
+                                                    }
                                                     drop(blockchain_guard);
-
-                                                    println!("   ✅ Masternode registered from announcement");
 
                                                     //  Gossip to other peers (but not back to sender)
                                                     // TODO: Re-enable gossip after fixing type issues
