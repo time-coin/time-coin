@@ -1614,6 +1614,44 @@ async fn main() {
                             // Call directly to avoid race condition with connection storage
                             chain_sync_clone.clone().on_peer_connected().await;
 
+                            // CRITICAL: Sync masternodes on peer connect
+                            // Send our masternode list to the new peer
+                            {
+                                let blockchain_guard = blockchain_clone.read().await;
+                                let masternodes = blockchain_guard
+                                    .get_all_masternodes()
+                                    .iter()
+                                    .map(|mn| time_network::protocol::MasternodeInfo {
+                                        node_id: mn.address.clone(), // Use address as node_id
+                                        wallet_address: mn.wallet_address.clone(),
+                                        tier: format!("{:?}", mn.tier),
+                                        is_active: mn.is_active,
+                                        registered_at: mn.last_seen, // Use last_seen as timestamp
+                                    })
+                                    .collect::<Vec<_>>();
+                                drop(blockchain_guard);
+
+                                if !masternodes.is_empty() {
+                                    let sync_msg =
+                                        time_network::protocol::NetworkMessage::MasternodeList {
+                                            masternodes: masternodes.clone(),
+                                        };
+                                    let mut conn_guard = conn_arc.lock().await;
+                                    if let Err(e) = conn_guard.send_message(sync_msg).await {
+                                        println!(
+                                            "⚠️  Failed to send masternode list to new peer {}: {}",
+                                            peer_ip, e
+                                        );
+                                    } else {
+                                        println!(
+                                            "✅ Sent {} masternodes to new peer {}",
+                                            masternodes.len(),
+                                            peer_ip
+                                        );
+                                    }
+                                }
+                            }
+
                             let prev_count = consensus_clone.masternode_count().await;
                             consensus_clone
                                 .add_masternode(peer_addr.ip().to_string())
@@ -2169,6 +2207,126 @@ async fn main() {
                                                     } else {
                                                         println!("✅ Sent {} response for tx {}", result_str, truncate_str(&tx.txid, 16));
                                                     }
+                                                }
+                                                time_network::protocol::NetworkMessage::GetMasternodeList => {
+                                                    println!("📋 Received GetMasternodeList request from {}", peer_ip_listen);
+
+                                                    let blockchain_guard = blockchain_listen.read().await;
+                                                    let masternodes = blockchain_guard.get_all_masternodes()
+                                                        .iter()
+                                                        .map(|mn| time_network::protocol::MasternodeInfo {
+                                                            node_id: mn.address.clone(),
+                                                            wallet_address: mn.wallet_address.clone(),
+                                                            tier: format!("{:?}", mn.tier),
+                                                            is_active: mn.is_active,
+                                                            registered_at: mn.last_seen,
+                                                        })
+                                                        .collect::<Vec<_>>();
+
+                                                    println!("   📤 Sending {} masternodes", masternodes.len());
+                                                    drop(blockchain_guard);
+
+                                                    let response = time_network::protocol::NetworkMessage::MasternodeList { masternodes };
+                                                    let mut conn = conn_arc_clone.lock().await;
+                                                    match conn.send_message(response).await {
+                                                        Ok(_) => {
+                                                            println!("✅ Sent masternode list to {}", peer_ip_listen);
+                                                            drop(conn);
+                                                            peer_manager_listen.peer_seen(peer_ip_listen).await;
+                                                        }
+                                                        Err(e) => {
+                                                            println!("❌ Failed to send masternode list to {}: {:?}", peer_ip_listen, e);
+                                                            drop(conn);
+                                                            peer_manager_listen.remove_dead_connection(peer_ip_listen).await;
+                                                        }
+                                                    }
+                                                }
+                                                time_network::protocol::NetworkMessage::MasternodeList { masternodes } => {
+                                                    println!("📥 Received masternode list from {} ({} masternodes)", peer_ip_listen, masternodes.len());
+
+                                                    let mut blockchain_guard = blockchain_listen.write().await;
+                                                    let mut added = 0;
+                                                    let mut updated = 0;
+
+                                                    for mn in masternodes {
+                                                        // Parse tier
+                                                        let tier = match mn.tier.as_str() {
+                                                            "Free" => time_core::MasternodeTier::Free,
+                                                            "Bronze" => time_core::MasternodeTier::Bronze,
+                                                            "Silver" => time_core::MasternodeTier::Silver,
+                                                            "Gold" => time_core::MasternodeTier::Gold,
+                                                            _ => time_core::MasternodeTier::Free,
+                                                        };
+
+                                                        // Check if we already know about this masternode
+                                                        let existing = blockchain_guard.get_masternode_by_address(&mn.wallet_address);
+
+                                                        if existing.is_none() {
+                                                            // New masternode - register it
+                                                            blockchain_guard.register_masternode(
+                                                                mn.node_id.clone(), // address (node IP)
+                                                                tier,
+                                                                String::new(), // collateral_tx (empty for now)
+                                                                mn.wallet_address.clone(),
+                                                            );
+                                                            added += 1;
+                                                        } else if let Some(existing_mn) = existing {
+                                                            // Update if newer
+                                                            if mn.registered_at > existing_mn.last_seen {
+                                                                blockchain_guard.register_masternode(
+                                                                    mn.node_id.clone(),
+                                                                    tier,
+                                                                    String::new(),
+                                                                    mn.wallet_address.clone(),
+                                                                );
+                                                                updated += 1;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    drop(blockchain_guard);
+                                                    println!("   ✅ Masternode sync complete: {} added, {} updated", added, updated);
+                                                }
+                                                time_network::protocol::NetworkMessage::MasternodeAnnouncement { masternode } => {
+                                                    println!("📢 Received masternode announcement from {} for {}", peer_ip_listen, masternode.wallet_address);
+
+                                                    let tier = match masternode.tier.as_str() {
+                                                        "Free" => time_core::MasternodeTier::Free,
+                                                        "Bronze" => time_core::MasternodeTier::Bronze,
+                                                        "Silver" => time_core::MasternodeTier::Silver,
+                                                        "Gold" => time_core::MasternodeTier::Gold,
+                                                        _ => time_core::MasternodeTier::Free,
+                                                    };
+
+                                                    let mut blockchain_guard = blockchain_listen.write().await;
+                                                    blockchain_guard.register_masternode(
+                                                        masternode.node_id.clone(),
+                                                        tier,
+                                                        String::new(),
+                                                        masternode.wallet_address.clone(),
+                                                    );
+                                                    drop(blockchain_guard);
+
+                                                    println!("   ✅ Masternode registered from announcement");
+
+                                                    //  Gossip to other peers (but not back to sender)
+                                                    // TODO: Re-enable gossip after fixing type issues
+                                                    /*
+                                                    let sender_ip: String = peer_ip_listen.to_string();
+                                                    let all_peers = peer_manager_listen.get_peer_ips().await;
+                                                    let gossip_msg = time_network::protocol::NetworkMessage::MasternodeAnnouncement { 
+                                                        masternode: masternode.clone() 
+                                                    };
+                                                    
+                                                    for peer in all_peers.iter() {
+                                                        let peer_str = peer.to_string();
+                                                        if peer_str != sender_ip {
+                                                            if let Err(e) = peer_manager_listen.send_to_peer_tcp(peer.clone(), gossip_msg.clone()).await {
+                                                                println!("   ⚠️  Failed to gossip announcement to {}: {}", peer, e);
+                                                            }
+                                                        }
+                                                    }
+                                                    */
                                                 }
                                                 _ => {
                                                     // Handle other messages if needed

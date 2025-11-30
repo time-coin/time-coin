@@ -526,7 +526,8 @@ impl WalletApp {
 
                         // Initialize TCP listener for transaction notifications
                         log::info!("🔌 Initializing TCP listener for auto-loaded wallet");
-                        let tcp_network_mgr = network_mgr_clone.clone();
+                        let tcp_network_mgr = network_mgr.clone();
+                        let wallet_xpub_clone = wallet_xpub.clone();
                         tokio::spawn(async move {
                             // Wait a bit for peers to connect
                             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -545,22 +546,23 @@ impl WalletApp {
 
                             if let Some(addr) = peer_addr {
                                 log::info!("🔗 Starting TCP listener for {}", addr);
-                                let (utxo_tx, utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
+                                let (utxo_tx, _utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
                                     time_network::protocol::UtxoInfo,
                                 >();
-                                let (tx_notif_tx, tx_notif_rx) =
+                                let (tx_notif_tx, _tx_notif_rx) =
                                     tokio::sync::mpsc::unbounded_channel::<
                                         tcp_protocol_client::TransactionNotification,
                                     >();
                                 let listener = tcp_protocol_client::TcpProtocolListener::new(
                                     addr.clone(),
-                                    wallet_xpub.clone(),
+                                    wallet_xpub_clone.clone(),
                                     utxo_tx,
                                     tx_notif_tx,
                                 );
 
-                                // Store the receiver in the app
-                                self.tx_notification_rx = Some(tx_notif_rx);
+                                // Note: receivers are dropped here since we can't store them in self
+                                // from inside the async task. This is a limitation that should be
+                                // refactored in the future.
 
                                 // TODO: Refactor UTXO notification handling
                                 // Currently disabled because wallet_manager is owned by self
@@ -4207,10 +4209,7 @@ impl WalletApp {
         if let Some(rx) = &mut self.tx_notification_rx {
             while let Ok(notification) = rx.try_recv() {
                 match notification {
-                    TransactionNotification::Approved {
-                        txid,
-                        timestamp,
-                    } => {
+                    TransactionNotification::Approved { txid, timestamp } => {
                         let short_txid = &txid[..std::cmp::min(16, txid.len())];
                         self.success_message = Some(format!(
                             "✅ Transaction {} approved by network!",
@@ -4219,10 +4218,7 @@ impl WalletApp {
                         self.success_message_time = Some(std::time::Instant::now());
                         log::info!("✅ Transaction {} approved at {}", short_txid, timestamp);
                     }
-                    TransactionNotification::Rejected {
-                        txid,
-                        reason,
-                    } => {
+                    TransactionNotification::Rejected { txid, reason } => {
                         let short_txid = &txid[..std::cmp::min(16, txid.len())];
                         self.error_message = Some(format!(
                             "❌ Transaction {} rejected: {}",

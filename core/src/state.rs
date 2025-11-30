@@ -1217,6 +1217,13 @@ impl BlockchainState {
         active
     }
 
+    /// Get masternode by wallet address
+    pub fn get_masternode_by_address(&self, address: &str) -> Option<&MasternodeInfo> {
+        self.masternodes
+            .values()
+            .find(|mn| mn.wallet_address == address)
+    }
+
     /// Get masternodes by tier
     pub fn get_masternodes_by_tier(&self, tier: MasternodeTier) -> Vec<&MasternodeInfo> {
         self.masternodes

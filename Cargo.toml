@@ -13,7 +13,7 @@ members = [
     "tools/masternode-dashboard",
     "tools/tx-perf-test",
     # "tools/utxo-protocol-demo",  # Temporarily disabled - needs update for new instant finality API
-    # "wallet-gui",  # Temporarily disabled - has lifetime issue to fix separately
+    "wallet-gui",
 ]
 # Only build main binaries by default (saves time)
 default-members = ["cli"]

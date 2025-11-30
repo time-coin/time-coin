@@ -783,6 +783,28 @@ pub enum NetworkMessage {
     UTXOUnsubscribe {
         subscriber_id: String,
     },
+
+    // Masternode synchronization protocol
+    GetMasternodeList,
+    MasternodeList {
+        masternodes: Vec<MasternodeInfo>,
+    },
+    MasternodeAnnouncement {
+        masternode: MasternodeInfo,
+    },
+    GetMasternodeHash,
+    MasternodeHash {
+        hash: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MasternodeInfo {
+    pub node_id: String,
+    pub wallet_address: String,
+    pub tier: String, // "Free", "Basic", "Standard", "Premium", "Enterprise"
+    pub is_active: bool,
+    pub registered_at: i64,
 }
 
 impl NetworkMessage {
