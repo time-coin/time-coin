@@ -734,6 +734,35 @@ impl ChainSync {
                                         "Block {} validation failed: Invalid coinbase (will retry with different peer)",
                                         height
                                     ));
+                                } else if matches!(&e, time_core::state::StateError::DuplicateBlock)
+                                {
+                                    // DuplicateBlock: We already have a block at this height
+                                    // This likely means we're on a different chain branch
+                                    println!("   ⚠️  Block {} already exists locally with different hash", height);
+                                    println!("      Local chain may have diverged - this is a fork situation");
+                                    println!(
+                                        "      Peer's block hash: {}",
+                                        &block_hash_for_comparison[..16]
+                                    );
+
+                                    let our_block_hash = {
+                                        let blockchain = self.blockchain.read().await;
+                                        blockchain
+                                            .get_block_by_height(height)
+                                            .map(|b| b.hash.clone())
+                                            .unwrap_or_default()
+                                    };
+                                    println!(
+                                        "      Our block hash:    {}...",
+                                        &our_block_hash[..16]
+                                    );
+
+                                    // Don't quarantine - this is a fork, not a bad peer
+                                    // Return error to trigger fork resolution
+                                    return Err(format!(
+                                        "Fork detected: Block {} exists with different hash (peer has network consensus)",
+                                        height
+                                    ));
                                 } else {
                                     // Other errors: Quarantine peer for sending block that failed to import
                                     if let Ok(peer_addr) = best_peer.parse::<IpAddr>() {

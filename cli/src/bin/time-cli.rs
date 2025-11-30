@@ -1088,11 +1088,9 @@ async fn handle_wallet_command(
                         // Try as object with "balance" field
                         if let Some(bal) = json_val.get("balance").and_then(|v| v.as_u64()) {
                             bal
-                        } else if let Some(bal) = json_val.as_u64() {
-                            // Try as plain number
-                            bal
                         } else {
-                            0
+                            // Try as plain number
+                            json_val.as_u64().unwrap_or_default()
                         }
                     }
                     Err(_) => 0,
@@ -1360,11 +1358,9 @@ async fn handle_wallet_command(
                         // Try as object with "balance" field
                         if let Some(bal) = json_val.get("balance").and_then(|v| v.as_u64()) {
                             bal
-                        } else if let Some(bal) = json_val.as_u64() {
-                            // Try as plain number
-                            bal
                         } else {
-                            0
+                            // Try as plain number
+                            json_val.as_u64().unwrap_or_default()
                         }
                     }
                     Err(_) => 0,

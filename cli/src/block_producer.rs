@@ -152,6 +152,35 @@ impl BlockProducer {
         self.blockchain.read().await.chain_tip_height()
     }
 
+    /// Get the correct TCP port based on network type
+    fn get_p2p_port(&self) -> u16 {
+        match self.peer_manager.network {
+            time_network::discovery::NetworkType::Mainnet => 24000,
+            time_network::discovery::NetworkType::Testnet => 24100,
+        }
+    }
+
+    /// Query peer heights to check if we're behind the network
+    async fn query_peer_heights(&self) -> Vec<(String, u64, String)> {
+        let peer_ips = self.peer_manager.get_peer_ips().await;
+        let mut peer_heights = Vec::new();
+        let p2p_port = self.get_p2p_port();
+
+        for peer_ip in peer_ips {
+            let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
+
+            if let Ok(Some(height)) = self
+                .peer_manager
+                .request_blockchain_info(&peer_addr_with_port)
+                .await
+            {
+                peer_heights.push((peer_ip, height, String::new()));
+            }
+        }
+
+        peer_heights
+    }
+
     fn get_node_id(&self) -> String {
         std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
             local_ip_address::local_ip()
@@ -901,6 +930,34 @@ impl BlockProducer {
             block_num.to_string().cyan().bold()
         );
         println!("────────────────────────────────────────────────────────────────");
+
+        // Check if node is synced before producing blocks
+        let blockchain = self.blockchain.read().await;
+        let has_genesis = !blockchain.genesis_hash().is_empty();
+        let current_height = blockchain.chain_tip_height();
+        drop(blockchain);
+
+        if !has_genesis {
+            println!("   ⚠️  Skipping block production - genesis block not yet synced");
+            println!("   ℹ️  Node must sync with network before producing blocks");
+            return;
+        }
+
+        // Check if we're catching up with the network
+        if block_num > 1 {
+            let peer_heights = self.query_peer_heights().await;
+            if !peer_heights.is_empty() {
+                let max_peer_height = peer_heights.iter().map(|(_, h, _)| *h).max().unwrap_or(0);
+                if max_peer_height > current_height + 1 {
+                    println!(
+                        "   ⚠️  Skipping block production - node is catching up (our height: {}, network: {})",
+                        current_height, max_peer_height
+                    );
+                    println!("   ℹ️  Block production will resume once synced");
+                    return;
+                }
+            }
+        }
 
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {

@@ -504,13 +504,66 @@ impl BlockchainState {
                 );
                 Self::create_state_with_blocks(db, existing_blocks)
             }
+            Err(StateError::ChainValidationFailed(msg)) => {
+                // Extract the corrupted block number from the error message
+                if let Some(corrupted_height) = Self::extract_corrupted_block_height(&msg) {
+                    eprintln!("❌ Blockchain validation failed: {}", msg);
+                    eprintln!(
+                        "   🔧 Truncating blockchain at block {} (keeping {} valid blocks)",
+                        corrupted_height, corrupted_height
+                    );
+
+                    // Keep only the valid blocks (0 to corrupted_height - 1)
+                    let valid_blocks: Vec<Block> = existing_blocks
+                        .into_iter()
+                        .filter(|b| b.header.block_number < corrupted_height)
+                        .collect();
+
+                    // Clear database and save only valid blocks
+                    db.clear_all()?;
+                    for block in &valid_blocks {
+                        db.save_block(block)?;
+                    }
+
+                    eprintln!(
+                        "   ✅ Saved {} valid blocks - will sync remaining from peers",
+                        valid_blocks.len()
+                    );
+
+                    if valid_blocks.is_empty() {
+                        Ok(Self::create_empty_state(db))
+                    } else {
+                        Self::create_state_with_blocks(db, valid_blocks)
+                    }
+                } else {
+                    // Couldn't parse corrupted block, fall back to clearing all
+                    eprintln!("❌ Blockchain validation failed: {}", msg);
+                    eprintln!("   ⚠️  Clearing all blocks - will re-download from peers");
+                    db.clear_all()?;
+                    Ok(Self::create_empty_state(db))
+                }
+            }
             Err(e) => {
                 eprintln!("❌ Blockchain validation failed: {}", e);
-                eprintln!("   Clearing corrupted blockchain - will re-download from peers");
+                eprintln!("   ⚠️  Clearing all blocks - will re-download from peers");
                 db.clear_all()?;
                 Ok(Self::create_empty_state(db))
             }
         }
+    }
+
+    /// Extract the corrupted block height from validation error message
+    fn extract_corrupted_block_height(error_msg: &str) -> Option<u64> {
+        // Parse error messages like "Block 95 previous hash mismatch: ..."
+        if error_msg.starts_with("Block ") {
+            let parts: Vec<&str> = error_msg.split_whitespace().collect();
+            if parts.len() >= 2 {
+                if let Ok(height) = parts[1].parse::<u64>() {
+                    return Some(height);
+                }
+            }
+        }
+        None
     }
 
     fn create_empty_state(db: crate::db::BlockchainDB) -> Self {
