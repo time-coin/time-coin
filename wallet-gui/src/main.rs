@@ -1621,20 +1621,24 @@ impl WalletApp {
 
                             // Start periodic latency refresh
                             let network_mgr_for_ping = network_mgr_clone.clone();
-                            tokio::spawn(async move {
-                                // Wait before first ping
-                                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                            tokio::task::spawn_blocking(move || {
+                                let rt = tokio::runtime::Handle::current();
+                                rt.block_on(async {
+                                    // Wait before first ping
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
 
-                                loop {
-                                    log::debug!("Refreshing peer latencies...");
-                                    {
-                                        let mut net = network_mgr_for_ping.lock().unwrap();
-                                        net.refresh_peer_latencies().await;
+                                    loop {
+                                        log::debug!("Refreshing peer latencies...");
+                                        {
+                                            let mut net = network_mgr_for_ping.lock().unwrap();
+                                            let _ = net.refresh_peer_latencies().await;
+                                        }
+
+                                        // Ping every 2 minutes
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(120))
+                                            .await;
                                     }
-
-                                    // Ping every 2 minutes
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
-                                }
+                                });
                             });
                         } else {
                             log::warn!("No peer info available to connect");
@@ -3894,20 +3898,23 @@ impl WalletApp {
 
                         // Start periodic latency refresh
                         let network_mgr_for_ping = network_mgr.clone();
-                        tokio::spawn(async move {
-                            // Wait before first ping
-                            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                        tokio::task::spawn_blocking(move || {
+                            let rt = tokio::runtime::Handle::current();
+                            rt.block_on(async {
+                                // Wait before first ping
+                                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
 
-                            loop {
-                                log::debug!("Refreshing peer latencies...");
-                                {
-                                    let mut net = network_mgr_for_ping.lock().unwrap();
-                                    net.refresh_peer_latencies().await;
+                                loop {
+                                    log::debug!("Refreshing peer latencies...");
+                                    {
+                                        let mut net = network_mgr_for_ping.lock().unwrap();
+                                        let _ = net.refresh_peer_latencies().await;
+                                    }
+
+                                    // Ping every 2 minutes
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
                                 }
-
-                                // Ping every 2 minutes
-                                tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
-                            }
+                            });
                         });
                     } else {
                         log::warn!("No peer info available to connect");
