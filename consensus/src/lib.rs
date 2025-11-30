@@ -35,6 +35,7 @@ pub mod utxo_state_protocol;
 // New simplified consensus
 pub mod midnight_consensus;
 pub mod simplified;
+pub mod transaction_approval;
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -2204,3 +2205,6 @@ mod tests {
         assert!(!engine.has_transaction_consensus(&tx.txid).await);
     }
 }
+
+// Re-exports
+pub use transaction_approval::TransactionApprovalManager;

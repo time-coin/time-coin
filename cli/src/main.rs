@@ -27,7 +27,7 @@ use time_core::state::BlockchainState;
 
 use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
 
-use time_consensus::ConsensusEngine;
+use time_consensus::{ConsensusEngine, TransactionApprovalManager};
 
 /// Safely truncate a string to a maximum length, handling short strings
 fn truncate_str(s: &str, max_len: usize) -> &str {
@@ -1470,6 +1470,11 @@ async fn main() {
     block_consensus.set_masternodes(masternodes.clone()).await;
     println!("{}", "✓ Block consensus manager initialized".green());
 
+    // Initialize Transaction Approval Manager
+    let approval_manager = Arc::new(TransactionApprovalManager::new());
+    approval_manager.set_masternodes(masternodes.clone()).await;
+    println!("{}", "✓ Transaction approval manager initialized".green());
+
     println!();
     // Start API Server
     let api_enabled = config.rpc.enabled.unwrap_or(true);
@@ -1494,7 +1499,8 @@ async fn main() {
         .with_tx_consensus(tx_consensus.clone())
         .with_block_consensus(block_consensus.clone())
         .with_tx_broadcaster(tx_broadcaster.clone())
-        .with_quarantine(quarantine.clone());
+        .with_quarantine(quarantine.clone())
+        .with_approval_manager(approval_manager.clone());
 
         // Start Peer Listener for incoming connections
         let p2p_bind_addr = "0.0.0.0:24100".parse().unwrap();

@@ -27,6 +27,8 @@ pub struct ApiState {
     pub quarantine: Option<Arc<PeerQuarantine>>,
     /// Instant finality manager for transaction validation
     pub instant_finality: Option<Arc<time_consensus::instant_finality::InstantFinalityManager>>,
+    /// Transaction approval manager
+    pub approval_manager: Option<Arc<time_consensus::TransactionApprovalManager>>,
 }
 
 impl ApiState {
@@ -58,6 +60,7 @@ impl ApiState {
             recent_broadcasts: Arc::new(RwLock::new(HashMap::new())),
             quarantine: None,
             instant_finality: None,
+            approval_manager: None,
         };
 
         // Spawn cleanup task for recent_broadcasts
@@ -120,6 +123,14 @@ impl ApiState {
         self
     }
 
+    pub fn with_approval_manager(
+        mut self,
+        approval_manager: Arc<time_consensus::TransactionApprovalManager>,
+    ) -> Self {
+        self.approval_manager = Some(approval_manager);
+        self
+    }
+
     pub fn instant_finality_manager(
         &self,
     ) -> Option<Arc<time_consensus::instant_finality::InstantFinalityManager>> {
@@ -160,6 +171,7 @@ impl Clone for ApiState {
             recent_broadcasts: self.recent_broadcasts.clone(),
             quarantine: self.quarantine.clone(),
             instant_finality: self.instant_finality.clone(),
+            approval_manager: self.approval_manager.clone(),
         }
     }
 }
