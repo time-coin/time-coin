@@ -1,3 +1,79 @@
+//! Peer Exchange - Manages discovery and persistence of network peers
+//!
+//! CRITICAL FIX (Issue #16): Document design decisions
+//!
+//! # Overview
+//!
+//! The peer exchange system maintains a database of discovered peers with their
+//! connection history, reliability scores, and last-seen timestamps. It provides
+//! automatic persistence to disk and cleanup of stale entries.
+//!
+//! # Key Design Decisions
+//!
+//! ## Ephemeral Port Handling (49152 Threshold)
+//!
+//! Ports >= 49152 are considered ephemeral (RFC 6335 defines 49152-65535 as
+//! the dynamic/private port range). When a peer connects with an ephemeral port,
+//! we normalize it to the network's standard port (8333 for mainnet, 18333 for testnet).
+//!
+//! **Why?** Ephemeral ports are temporary client-side ports that change on each
+//! connection. Storing them would create duplicate entries for the same peer.
+//!
+//! ## IP-Only Keys
+//!
+//! Peers are keyed by IP address only (not IP:port). This ensures we don't
+//! create duplicate entries when a peer reconnects with a different ephemeral port.
+//!
+//! **Why?** A single node at IP 192.168.1.1 shouldn't appear multiple times
+//! just because it reconnected with different source ports (50123, 50124, etc).
+//!
+//! ## Peer Corruption Recovery
+//!
+//! If the peer database file is corrupted (invalid JSON, IO error, etc), we:
+//! 1. Log a warning
+//! 2. Start with an empty peer set
+//! 3. Rebuild from seed nodes and peer discovery
+//!
+//! **Why?** Network connectivity is more important than preserving a corrupt
+//! database. The system will rediscover peers naturally.
+//!
+//! ## Reliability Scoring
+//!
+//! Peers are scored based on successful vs failed connections:
+//! - Score = successful / (successful + failed)
+//! - New peers start at 0.5 (neutral)
+//! - Scores used for sorting best peers
+//!
+//! **Why?** Prioritize peers with proven reliability to reduce connection failures.
+//!
+//! # Performance Characteristics
+//!
+//! - **Lookup:** O(1) - HashMap keyed by IP
+//! - **Cleanup:** O(n) - Runs hourly in background
+//! - **Persistence:** O(n) - Saves after each modification
+//! - **Memory:** ~100 bytes per peer (typical: 100-1000 peers = 10-100 KB)
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use time_network::peer_exchange::PeerExchange;
+//! use time_network::NetworkType;
+//!
+//! let mut exchange = PeerExchange::new(
+//!     "/path/to/peers.json".to_string(),
+//!     NetworkType::Mainnet
+//! );
+//!
+//! // Add a peer
+//! exchange.add_peer("192.168.1.1".to_string(), 8333, "v0.1.0".to_string());
+//!
+//! // Get best peers
+//! let peers = exchange.get_best_peers(10);
+//!
+//! // Record connection success
+//! exchange.record_success("192.168.1.1");
+//! ```
+
 use crate::discovery::NetworkType;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

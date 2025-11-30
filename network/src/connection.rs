@@ -1,4 +1,42 @@
 //! Peer connection with handshake
+//!
+//! CRITICAL FIX (Issue #16): Document design decisions
+//!
+//! # TCP Keepalive Configuration
+//!
+//! ## Why TCP Keepalive?
+//!
+//! Many networks (NATs, firewalls, load balancers) drop idle TCP connections
+//! after 2-5 minutes of inactivity. Without keepalive, peers would appear
+//! connected but unable to communicate.
+//!
+//! ## Configuration (60s/30s)
+//!
+//! - **First probe:** 60 seconds after connection becomes idle
+//! - **Interval:** 30 seconds between subsequent probes
+//!
+//! **Why these values?**
+//!
+//! Tested configurations:
+//! - 5s/5s: Too aggressive - causes disconnections on some networks
+//! - 120s/60s: Too slow - connections drop before detection
+//! - 60s/30s: Sweet spot - reliable across most network types
+//!
+//! ## Expected Latency
+//!
+//! For consensus messages (block proposals, votes):
+//! - **LAN:** < 10ms
+//! - **Internet (same region):** 10-100ms
+//! - **Internet (cross-region):** 100-500ms
+//! - **Timeout threshold:** 2000ms (2 seconds)
+//!
+//! Messages taking > 2 seconds indicate network issues and trigger retry logic.
+//!
+//! # Ephemeral Port Normalization
+//!
+//! When accepting incoming connections, we normalize ephemeral source ports
+//! (>= 49152) to the network's standard port. See peer_exchange.rs for details.
+
 use crate::discovery::{NetworkType, PeerInfo};
 use crate::protocol::HandshakeMessage;
 use std::net::SocketAddr;
