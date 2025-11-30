@@ -300,6 +300,38 @@ impl Block {
         Ok(())
     }
 
+    /// Validate block timestamp (SECURITY: prevents timestamp manipulation)
+    ///
+    /// Ensures:
+    /// 1. Block timestamp is not too far in the future (prevents time-based attacks)
+    /// 2. Block timestamp is monotonically increasing (must be > previous block)
+    /// 3. Block timestamp is reasonable (not too far in the past)
+    pub fn validate_timestamp(&self, prev_block_timestamp: Option<i64>) -> Result<(), BlockError> {
+        use crate::constants::{MAX_FUTURE_DRIFT_SECS, MAX_PAST_DRIFT_SECS};
+
+        let now = Utc::now().timestamp();
+        let block_time = self.header.timestamp.timestamp();
+
+        // Check not too far in future (prevents miners creating future blocks)
+        if block_time > now + MAX_FUTURE_DRIFT_SECS {
+            return Err(BlockError::InvalidTimestamp);
+        }
+
+        // Check not too far in past (prevents old blocks being accepted)
+        if block_time < now - MAX_PAST_DRIFT_SECS {
+            return Err(BlockError::InvalidTimestamp);
+        }
+
+        // Check monotonic increase (blocks must have increasing timestamps)
+        if let Some(prev_time) = prev_block_timestamp {
+            if block_time <= prev_time {
+                return Err(BlockError::InvalidTimestamp);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Validate block against UTXO set and apply it
     /// Uses masternode counts stored in block header for reward validation
     pub fn validate_and_apply(&self, utxo_set: &mut UTXOSet) -> Result<(), BlockError> {
