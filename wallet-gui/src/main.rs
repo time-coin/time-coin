@@ -22,6 +22,7 @@ mod mnemonic_ui;
 mod monitoring;
 mod network;
 mod password_ui;
+mod peer_consensus;
 mod peer_manager;
 mod protocol_client;
 mod rate_limiter;
@@ -1122,6 +1123,12 @@ impl WalletApp {
                                     self.current_screen = Screen::Overview;
                                     self.set_success("Wallet unlocked successfully!".to_string());
                                     log::info!("✅ Wallet unlocked with password");
+
+                                    // Initialize network after unlock if not already done
+                                    if self.network_manager.is_none() {
+                                        log::info!("Initializing network after wallet unlock...");
+                                        self.initialize_network();
+                                    }
                                 }
                                 Err(e) => {
                                     log::error!("Failed to unlock wallet: {}", e);
@@ -3726,6 +3733,152 @@ impl WalletApp {
         self.set_success(format!("Old wallet backed up to: {}", backup_path));
 
         Ok(())
+    }
+
+    /// Initialize network connections and peer discovery
+    fn initialize_network(&mut self) {
+        if let Ok(main_config) = Config::load() {
+            // Initialize peer manager if not already done
+            if self.peer_manager.is_none() {
+                let peer_mgr = Arc::new(PeerManager::new(self.network));
+                if let Some(db) = &self.wallet_db {
+                    let db_clone = db.clone();
+                    let peer_mgr_clone = peer_mgr.clone();
+                    tokio::spawn(async move {
+                        peer_mgr_clone.set_wallet_db(db_clone).await;
+                    });
+                }
+                self.peer_manager = Some(peer_mgr.clone());
+            }
+
+            // Initialize network manager if not already done
+            if self.network_manager.is_none() {
+                let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
+                    main_config.api_endpoint.clone(),
+                )));
+
+                if let Some(peer_mgr) = &self.peer_manager {
+                    let mut net = network_mgr.lock().unwrap();
+                    net.set_peer_manager(peer_mgr.clone());
+                }
+
+                self.network_manager = Some(network_mgr);
+                self.network_status = "Connecting...".to_string();
+            }
+
+            // Start network bootstrap
+            if let (Some(peer_mgr), Some(network_mgr)) = (&self.peer_manager, &self.network_manager)
+            {
+                let peer_mgr = peer_mgr.clone();
+                let network_mgr = network_mgr.clone();
+                let bootstrap_nodes = main_config.bootstrap_nodes.clone();
+                let addnodes = main_config.addnode.clone();
+                let api_endpoint_str = main_config.api_endpoint.clone();
+
+                tokio::spawn(async move {
+                    log::info!("🚀 Starting network bootstrap...");
+                    let db_peer_count = peer_mgr.peer_count().await;
+                    log::info!("📂 Found {} peers in database", db_peer_count);
+
+                    if !addnodes.is_empty() {
+                        log::info!("📝 Adding {} nodes from config", addnodes.len());
+                        for node in addnodes {
+                            let (ip, port) = if let Some((ip, port_str)) = node.split_once(':') {
+                                (ip.to_string(), port_str.parse().unwrap_or(24100))
+                            } else {
+                                (node.clone(), 24100)
+                            };
+                            peer_mgr.add_peer(ip, port).await;
+                        }
+                    }
+
+                    let total_peer_count = peer_mgr.peer_count().await;
+                    if total_peer_count == 0 {
+                        log::info!("🌐 No peers found, fetching from API: {}", api_endpoint_str);
+                        if let Ok(client) = reqwest::Client::builder()
+                            .timeout(std::time::Duration::from_secs(10))
+                            .build()
+                        {
+                            if let Ok(response) = client.get(&api_endpoint_str).send().await {
+                                if let Ok(peers) = response.json::<Vec<String>>().await {
+                                    log::info!("✓ Fetched {} peers from API", peers.len());
+                                    for peer_str in peers {
+                                        let (ip, port) = if let Some((ip, port_str)) =
+                                            peer_str.split_once(':')
+                                        {
+                                            (ip.to_string(), port_str.parse().unwrap_or(24100))
+                                        } else {
+                                            (peer_str, 24100)
+                                        };
+                                        peer_mgr.add_peer(ip, port).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Bootstrap PeerManager (don't block)
+                    log::info!("🔍 Bootstrapping PeerManager...");
+                    let peer_mgr_for_bootstrap = peer_mgr.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = peer_mgr_for_bootstrap.bootstrap().await {
+                            log::warn!("⚠️ PeerManager bootstrap failed: {}", e);
+                        } else {
+                            log::info!("✅ PeerManager bootstrap completed");
+                        }
+                    });
+
+                    // Connect NetworkManager to peers immediately
+                    log::info!("🔗 Connecting NetworkManager to discovered peers...");
+                    let peer_list = peer_mgr.get_healthy_peers().await;
+                    log::info!("📋 Attempting to connect to {} peers", peer_list.len());
+
+                    let peer_infos: Vec<network::PeerInfo> = peer_list
+                        .into_iter()
+                        .map(|p| network::PeerInfo {
+                            address: p.address,
+                            port: p.port,
+                            version: None,
+                            last_seen: Some(
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                            ),
+                            latency_ms: 0,
+                        })
+                        .collect();
+
+                    if !peer_infos.is_empty() {
+                        log::info!("Starting connection to {} peers...", peer_infos.len());
+                        let net_clone = network_mgr.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async move {
+                                let mut manager = net_clone.lock().unwrap();
+                                log::info!(
+                                    "Acquired NetworkManager lock, calling connect_to_peers"
+                                );
+                                if let Err(e) = manager.connect_to_peers(peer_infos).await {
+                                    log::error!("Failed to connect to peers: {}", e);
+                                } else {
+                                    let peer_count = manager.peer_count();
+                                    log::info!(
+                                        "✅ Successfully connected to {} network peers",
+                                        peer_count
+                                    );
+                                }
+                            });
+                        })
+                        .await
+                        .ok();
+                        log::info!("Connection task completed");
+                    } else {
+                        log::warn!("No peer info available to connect");
+                    }
+                });
+            }
+        }
     }
 }
 
