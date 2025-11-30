@@ -42,8 +42,7 @@ pub struct WalletManager {
 }
 
 impl WalletManager {
-    /// Create a wallet from a BIP-39 mnemonic phrase
-    /// Create a wallet from mnemonic (checks if wallet already exists first)
+    /// Create a wallet from a BIP-39 mnemonic phrase (unencrypted)
     pub fn create_from_mnemonic(
         network: NetworkType,
         mnemonic: &str,
@@ -69,6 +68,44 @@ impl WalletManager {
         let wallet_dat = WalletDat::from_mnemonic(mnemonic, network)?;
 
         log::info!("Created wallet with xpub: {}", wallet_dat.get_xpub());
+
+        // Save immediately
+        wallet_dat.save()?;
+
+        Ok(Self {
+            wallet_dat,
+            active_wallet: wallet,
+            next_address_index: 0,
+        })
+    }
+
+    /// Create an encrypted wallet from a BIP-39 mnemonic phrase with password
+    pub fn create_from_mnemonic_encrypted(
+        network: NetworkType,
+        mnemonic: &str,
+        password: &str,
+    ) -> Result<Self, WalletDatError> {
+        // Check if wallet already exists
+        let wallet_path = WalletDat::default_path(network);
+        if wallet_path.exists() {
+            log::warn!(
+                "Wallet already exists at: {}. Loading existing wallet instead.",
+                wallet_path.display()
+            );
+            return Self::load(network);
+        }
+
+        // Validate mnemonic first
+        wallet::validate_mnemonic(mnemonic)
+            .map_err(|e| WalletDatError::WalletError(wallet::WalletError::MnemonicError(e)))?;
+
+        // Create wallet from mnemonic
+        let wallet = Wallet::from_mnemonic(mnemonic, "", network)?;
+
+        // Create encrypted wallet_dat from mnemonic with password
+        let wallet_dat = WalletDat::from_mnemonic_encrypted(mnemonic, network, password)?;
+
+        log::info!("Created encrypted wallet with xpub: {}", wallet_dat.get_xpub());
 
         // Save immediately
         wallet_dat.save()?;
