@@ -205,11 +205,19 @@ impl TcpProtocolClient {
     }
 }
 
+/// Transaction notification type
+#[derive(Debug, Clone)]
+pub enum TransactionNotification {
+    Approved { txid: String, timestamp: i64 },
+    Rejected { txid: String, reason: String },
+}
+
 /// TCP Protocol Listener - maintains persistent connection and listens for push notifications
 pub struct TcpProtocolListener {
     peer_addr: String,
     xpub: String,
     utxo_tx: mpsc::UnboundedSender<time_network::protocol::UtxoInfo>,
+    tx_notif_tx: mpsc::UnboundedSender<TransactionNotification>,
 }
 
 impl TcpProtocolListener {
@@ -217,11 +225,13 @@ impl TcpProtocolListener {
         peer_addr: String,
         xpub: String,
         utxo_tx: mpsc::UnboundedSender<time_network::protocol::UtxoInfo>,
+        tx_notif_tx: mpsc::UnboundedSender<TransactionNotification>,
     ) -> Self {
         Self {
             peer_addr,
             xpub,
             utxo_tx,
+            tx_notif_tx,
         }
     }
 
@@ -463,7 +473,10 @@ impl TcpProtocolListener {
                     &txid[..std::cmp::min(16, txid.len())],
                     timestamp
                 );
-                // Transaction approved - will be included in next block
+                // Send notification to UI
+                let _ = self
+                    .tx_notif_tx
+                    .send(TransactionNotification::Approved { txid, timestamp });
                 Ok(())
             }
             NetworkMessage::TransactionRejected { txid, reason } => {
@@ -472,7 +485,11 @@ impl TcpProtocolListener {
                     &txid[..std::cmp::min(16, txid.len())],
                     reason
                 );
-                // TODO: Notify user via UI that transaction was rejected
+                // Send notification to UI
+                let _ = self.tx_notif_tx.send(TransactionNotification::Rejected {
+                    txid: txid.clone(),
+                    reason: reason.clone(),
+                });
                 Ok(())
             }
             _ => Ok(()), // Ignore other messages

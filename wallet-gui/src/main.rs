@@ -157,6 +157,15 @@ struct WalletApp {
 
     // Channel for receiving UTXO updates from TCP listener
     utxo_rx: Option<tokio::sync::mpsc::UnboundedReceiver<time_network::protocol::UtxoInfo>>,
+
+    // Channel for transaction approval/rejection notifications
+    tx_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<TransactionNotification>>,
+}
+
+#[derive(Debug, Clone)]
+enum TransactionNotification {
+    Approved { txid: String, timestamp: i64 },
+    Rejected { txid: String, reason: String },
 }
 
 impl Default for WalletApp {
@@ -233,6 +242,7 @@ impl Default for WalletApp {
             show_qr_for_address: None,
             is_creating_new_address: false,
             utxo_rx: None,
+            tx_notification_rx: None,
         };
 
         // If wallet exists and is NOT encrypted, auto-load it
@@ -541,11 +551,19 @@ impl WalletApp {
                                 let (utxo_tx, utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
                                     time_network::protocol::UtxoInfo,
                                 >();
+                                let (tx_notif_tx, tx_notif_rx) =
+                                    tokio::sync::mpsc::unbounded_channel::<
+                                        tcp_protocol_client::TransactionNotification,
+                                    >();
                                 let listener = tcp_protocol_client::TcpProtocolListener::new(
                                     addr.clone(),
                                     wallet_xpub.clone(),
                                     utxo_tx,
+                                    tx_notif_tx,
                                 );
+
+                                // Store the receiver in the app
+                                self.tx_notification_rx = Some(tx_notif_rx);
 
                                 // TODO: Refactor UTXO notification handling
                                 // Currently disabled because wallet_manager is owned by self
@@ -1026,10 +1044,12 @@ impl WalletApp {
                                                     if let Some(addr) = peer_addr {
                                                         log::info!("🔗 Starting TCP listener for {}", addr);
                                                         let (utxo_tx, _utxo_rx) = tokio::sync::mpsc::unbounded_channel();
+                                                        let (tx_notif_tx, _tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
                                                         let listener = tcp_protocol_client::TcpProtocolListener::new(
                                                             addr,
                                                             tcp_xpub,
                                                             utxo_tx,
+                                                            tx_notif_tx,
                                                         );
                                                         listener.start().await;
                                                     } else {
@@ -3960,8 +3980,13 @@ impl WalletApp {
                 log::info!("🔗 Connecting TCP listener to {}", peer_addr);
 
                 tokio::spawn(async move {
-                    let listener =
-                        tcp_protocol_client::TcpProtocolListener::new(peer_addr, xpub, utxo_tx);
+                    let (tx_notif_tx, _tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
+                    let listener = tcp_protocol_client::TcpProtocolListener::new(
+                        peer_addr,
+                        xpub,
+                        utxo_tx,
+                        tx_notif_tx,
+                    );
 
                     listener.start().await;
                 });
@@ -4181,8 +4206,31 @@ impl WalletApp {
 
     /// Check for new transaction notifications
     fn check_notifications(&mut self) {
-        // WebSocket notifications removed - TCP-only communication now
-        // TODO: Implement polling or push notifications via TCP protocol
+        // Check for transaction approval/rejection notifications
+        if let Some(rx) = &mut self.tx_notification_rx {
+            while let Ok(notification) = rx.try_recv() {
+                match notification {
+                    tcp_protocol_client::TransactionNotification::Approved { txid, timestamp } => {
+                        let short_txid = &txid[..std::cmp::min(16, txid.len())];
+                        self.success_message = Some(format!(
+                            "✅ Transaction {} approved by network!",
+                            short_txid
+                        ));
+                        self.success_message_time = Some(std::time::Instant::now());
+                        log::info!("✅ Transaction {} approved at {}", short_txid, timestamp);
+                    }
+                    tcp_protocol_client::TransactionNotification::Rejected { txid, reason } => {
+                        let short_txid = &txid[..std::cmp::min(16, txid.len())];
+                        self.error_message = Some(format!(
+                            "❌ Transaction {} rejected: {}",
+                            short_txid, reason
+                        ));
+                        self.error_message_time = Some(std::time::Instant::now());
+                        log::error!("❌ Transaction {} rejected: {}", short_txid, reason);
+                    }
+                }
+            }
+        }
     }
 
     fn check_message_timeout(&mut self) {
