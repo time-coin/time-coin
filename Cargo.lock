@@ -5900,6 +5900,7 @@ dependencies = [
  "sled",
  "socket2 0.5.10",
  "thiserror 2.0.17",
+ "time-core 0.1.0",
  "time-network",
  "tiny-skia",
  "tokio",

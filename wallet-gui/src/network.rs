@@ -1501,4 +1501,223 @@ impl NetworkManager {
         // Also update blockchain height
         self.update_blockchain_height().await;
     }
+
+    /// Get blockchain info from a specific peer
+    pub async fn get_blockchain_info(&self, peer_address: &str) -> Result<BlockchainInfo, String> {
+        use time_network::protocol::{HandshakeMessage, NetworkMessage};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpStream;
+
+        // Parse peer address to get IP and port
+        let parts: Vec<&str> = peer_address.split(':').collect();
+        if parts.len() != 2 {
+            return Err(format!("Invalid peer address format: {}", peer_address));
+        }
+
+        let peer_ip = parts[0];
+        let peer_port: u16 = parts[1]
+            .parse()
+            .map_err(|e| format!("Invalid port in address {}: {}", peer_address, e))?;
+
+        let tcp_addr = format!("{}:{}", peer_ip, peer_port);
+
+        // Connect via TCP with timeout
+        let mut stream = tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr))
+            .await
+            .map_err(|_| format!("Connection timeout to {}", tcp_addr))?
+            .map_err(|e| format!("Connection failed to {}: {}", tcp_addr, e))?;
+
+        // Determine network from peer port
+        let network_type = if peer_port == 24100 {
+            time_network::discovery::NetworkType::Testnet
+        } else {
+            time_network::discovery::NetworkType::Mainnet
+        };
+
+        // Perform handshake
+        let our_addr = "0.0.0.0:0".parse().unwrap();
+        let handshake = HandshakeMessage::new(network_type, our_addr);
+        let magic = network_type.magic_bytes();
+        
+        let handshake_json = serde_json::to_vec(&handshake)
+            .map_err(|e| format!("Handshake serialization error: {}", e))?;
+        let handshake_len = handshake_json.len() as u32;
+
+        // Send handshake with magic and length prefix
+        stream
+            .write_all(&magic)
+            .await
+            .map_err(|e| format!("Failed to write magic bytes: {}", e))?;
+        stream
+            .write_all(&handshake_len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to write handshake length: {}", e))?;
+        stream
+            .write_all(&handshake_json)
+            .await
+            .map_err(|e| format!("Failed to write handshake: {}", e))?;
+        stream.flush().await.ok();
+
+        // Receive their handshake
+        let mut their_magic = [0u8; 4];
+        let mut their_len_bytes = [0u8; 4];
+        stream.read_exact(&mut their_magic).await.ok();
+        stream.read_exact(&mut their_len_bytes).await.ok();
+        
+        let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+        if their_len < 10 * 1024 {
+            let mut their_handshake_bytes = vec![0u8; their_len];
+            stream.read_exact(&mut their_handshake_bytes).await.ok();
+        }
+
+        // Send GetBlockchainInfo request
+        let get_info_msg = NetworkMessage::GetBlockchainInfo;
+        let serialized = serde_json::to_vec(&get_info_msg)
+            .map_err(|e| format!("GetBlockchainInfo serialization error: {}", e))?;
+        let msg_len = serialized.len() as u32;
+
+        stream
+            .write_all(&msg_len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Failed to write message length: {}", e))?;
+        stream
+            .write_all(&serialized)
+            .await
+            .map_err(|e| format!("Failed to write GetBlockchainInfo: {}", e))?;
+        stream.flush().await.ok();
+
+        // Read response
+        let mut len_buf = [0u8; 4];
+        tokio::time::timeout(Duration::from_secs(3), stream.read_exact(&mut len_buf))
+            .await
+            .map_err(|_| "Timeout reading response length".to_string())?
+            .map_err(|e| format!("Failed to read response length: {}", e))?;
+
+        let msg_len = u32::from_be_bytes(len_buf) as usize;
+        if msg_len > 10_000_000 {
+            return Err(format!("Message too large: {} bytes", msg_len));
+        }
+
+        let mut msg_buf = vec![0u8; msg_len];
+        tokio::time::timeout(Duration::from_secs(3), stream.read_exact(&mut msg_buf))
+            .await
+            .map_err(|_| "Timeout reading response body".to_string())?
+            .map_err(|e| format!("Failed to read response body: {}", e))?;
+
+        // Parse response
+        let message: NetworkMessage = serde_json::from_slice(&msg_buf)
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        match message {
+            NetworkMessage::BlockchainInfo {
+                height,
+                best_block_hash,
+            } => Ok(BlockchainInfo {
+                network: if peer_port == 24100 { "testnet" } else { "mainnet" }.to_string(),
+                height: height.unwrap_or(0),
+                best_block_hash,
+                total_supply: 0,
+                timestamp: 0,
+            }),
+            _ => Err(format!("Unexpected response type: {:?}", message)),
+        }
+    }
+
+    /// Get blocks from a specific peer
+    pub async fn get_blocks(
+        &self,
+        peer_address: &str,
+        start_height: u64,
+        end_height: u64,
+    ) -> Result<Vec<time_core::block::Block>, String> {
+        use time_network::protocol::{HandshakeMessage, NetworkMessage};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpStream;
+
+        // Parse peer address
+        let parts: Vec<&str> = peer_address.split(':').collect();
+        if parts.len() != 2 {
+            return Err(format!("Invalid peer address format: {}", peer_address));
+        }
+
+        let peer_ip = parts[0];
+        let peer_port: u16 = parts[1]
+            .parse()
+            .map_err(|e| format!("Invalid port: {}", e))?;
+
+        let tcp_addr = format!("{}:{}", peer_ip, peer_port);
+
+        // Connect
+        let mut stream = tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(&tcp_addr))
+            .await
+            .map_err(|_| format!("Connection timeout to {}", tcp_addr))?
+            .map_err(|e| format!("Connection failed to {}: {}", tcp_addr, e))?;
+
+        // Network type
+        let network_type = if peer_port == 24100 {
+            time_network::discovery::NetworkType::Testnet
+        } else {
+            time_network::discovery::NetworkType::Mainnet
+        };
+
+        // Handshake
+        let our_addr = "0.0.0.0:0".parse().unwrap();
+        let handshake = HandshakeMessage::new(network_type, our_addr);
+        let magic = network_type.magic_bytes();
+        
+        let handshake_json = serde_json::to_vec(&handshake)
+            .map_err(|e| format!("Handshake serialization error: {}", e))?;
+        let handshake_len = handshake_json.len() as u32;
+
+        stream.write_all(&magic).await.ok();
+        stream.write_all(&handshake_len.to_be_bytes()).await.ok();
+        stream.write_all(&handshake_json).await.ok();
+        stream.flush().await.ok();
+
+        // Receive their handshake
+        let mut their_magic = [0u8; 4];
+        let mut their_len_bytes = [0u8; 4];
+        stream.read_exact(&mut their_magic).await.ok();
+        stream.read_exact(&mut their_len_bytes).await.ok();
+        
+        let their_len = u32::from_be_bytes(their_len_bytes) as usize;
+        if their_len < 10 * 1024 {
+            let mut their_handshake_bytes = vec![0u8; their_len];
+            stream.read_exact(&mut their_handshake_bytes).await.ok();
+        }
+
+        // Send GetBlocks request
+        let get_blocks_msg = NetworkMessage::GetBlocks {
+            start_height,
+            end_height,
+        };
+        let serialized = serde_json::to_vec(&get_blocks_msg)
+            .map_err(|e| format!("GetBlocks serialization error: {}", e))?;
+        let msg_len = serialized.len() as u32;
+
+        stream.write_all(&msg_len.to_be_bytes()).await.ok();
+        stream.write_all(&serialized).await.ok();
+        stream.flush().await.ok();
+
+        // Read response
+        let mut len_buf = [0u8; 4];
+        stream.read_exact(&mut len_buf).await.ok();
+
+        let msg_len = u32::from_be_bytes(len_buf) as usize;
+        if msg_len > 10_000_000 {
+            return Err(format!("Message too large: {} bytes", msg_len));
+        }
+
+        let mut msg_buf = vec![0u8; msg_len];
+        stream.read_exact(&mut msg_buf).await.ok();
+
+        // Parse response
+        let message: NetworkMessage = serde_json::from_slice(&msg_buf)
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        match message {
+            NetworkMessage::Blocks { blocks } => Ok(blocks),
+            _ => Err(format!("Unexpected response type")),
+        }
+    }
 }

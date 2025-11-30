@@ -24,6 +24,7 @@ mod tcp_protocol_client;
 mod wallet_dat;
 mod wallet_db;
 mod wallet_manager;
+mod wallet_sync;
 
 use config::Config;
 use mnemonic_ui::{MnemonicAction, MnemonicInterface};
