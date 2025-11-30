@@ -267,7 +267,7 @@ impl DeterministicConsensus {
     ) -> Vec<(String, Block)> {
         let p2p_port = self.get_p2p_port();
 
-        // Request blocks from all peers IN PARALLEL
+        // Request blocks from all peers IN PARALLEL with shorter timeout
         let mut tasks = Vec::new();
 
         for peer_ip in peer_ips {
@@ -277,51 +277,51 @@ impl DeterministicConsensus {
             let peer_manager = self.peer_manager.clone();
 
             let task = tokio::spawn(async move {
-                // Reduced timeout to 10s for faster consensus
+                // 3 second timeout per peer request
                 match tokio::time::timeout(
-                    tokio::time::Duration::from_secs(10),
+                    tokio::time::Duration::from_secs(3),
                     peer_manager.request_block_by_height(&peer_addr, block_num),
                 )
                 .await
                 {
                     Ok(Ok(block)) => Some((peer_ip_for_task, block)),
                     Ok(Err(_)) => None,
-                    Err(_) => None,
+                    Err(_) => None, // Timeout
                 }
             });
             tasks.push((peer_ip_for_logging, task));
         }
 
-        // Collect results with overall timeout to prevent hanging
-        // Add overall timeout of 5 seconds for ALL peers
-        let collect_timeout = tokio::time::Duration::from_secs(5);
-        let collect_future = async {
-            let mut blocks = Vec::new();
-            for (peer_ip_log, task) in tasks {
-                match task.await {
-                    Ok(Some((ip, block))) => {
-                        println!("      ✓ Received block from {}", ip);
-                        blocks.push((ip, block));
-                    }
-                    Ok(None) => {
-                        println!("      ✗ No response from {}", peer_ip_log);
-                    }
-                    Err(e) => {
-                        println!("      ✗ Task error for {}: {}", peer_ip_log, e);
-                    }
+        // Collect results with aggressive timeout to prevent consensus hang
+        let mut blocks = Vec::new();
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+
+        for (peer_ip_log, task) in tasks {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+
+            if remaining.is_zero() {
+                println!("      ⚠️  Overall timeout - proceeding with received blocks");
+                break;
+            }
+
+            match tokio::time::timeout(remaining, task).await {
+                Ok(Ok(Some((ip, block)))) => {
+                    println!("      ✓ Received block from {}", ip);
+                    blocks.push((ip, block));
+                }
+                Ok(Ok(None)) => {
+                    println!("      ✗ No response from {}", peer_ip_log);
+                }
+                Ok(Err(e)) => {
+                    println!("      ✗ Task error for {}: {}", peer_ip_log, e);
+                }
+                Err(_) => {
+                    println!("      ✗ Timeout waiting for {}", peer_ip_log);
                 }
             }
-            blocks
-        };
-
-        // Timeout the entire collection process
-        match tokio::time::timeout(collect_timeout, collect_future).await {
-            Ok(blocks) => blocks,
-            Err(_) => {
-                println!("      ⚠️  Overall timeout - proceeding with received blocks");
-                Vec::new()
-            }
         }
+
+        blocks
     }
 
     /// Compare our block with peer blocks
