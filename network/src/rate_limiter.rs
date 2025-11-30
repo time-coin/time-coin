@@ -33,6 +33,8 @@ impl Default for RateLimiterConfig {
 struct RequestHistory {
     /// Request timestamps within the current window
     requests: Vec<Instant>,
+    /// Bytes transferred in current window
+    bytes_transferred: u64,
     /// Last cleanup time
     last_cleanup: Instant,
 }
@@ -41,6 +43,7 @@ impl RequestHistory {
     fn new() -> Self {
         Self {
             requests: Vec::new(),
+            bytes_transferred: 0,
             last_cleanup: Instant::now(),
         }
     }
@@ -49,6 +52,10 @@ impl RequestHistory {
     fn cleanup(&mut self, window: Duration) {
         let cutoff = Instant::now() - window;
         self.requests.retain(|&time| time > cutoff);
+        // Reset bytes when window resets
+        if self.requests.is_empty() {
+            self.bytes_transferred = 0;
+        }
         self.last_cleanup = Instant::now();
     }
 
@@ -64,9 +71,15 @@ impl RequestHistory {
         recent_count >= config.burst_size as usize
     }
 
-    /// Add a request timestamp
-    fn add_request(&mut self) {
+    /// Check if byte limit is exceeded (1MB per minute default)
+    fn is_byte_limited(&self) -> bool {
+        self.bytes_transferred >= 1_000_000 // 1MB
+    }
+
+    /// Add a request timestamp and bytes
+    fn add_request(&mut self, bytes: u64) {
         self.requests.push(Instant::now());
+        self.bytes_transferred += bytes;
     }
 }
 
@@ -91,7 +104,11 @@ impl RateLimiter {
     }
 
     /// Check if a request from an IP should be allowed
-    pub async fn check_rate_limit(&self, ip: IpAddr) -> Result<(), RateLimitError> {
+    ///
+    /// Parameters:
+    /// - ip: The IP address making the request
+    /// - bytes: Size of the request in bytes (for bandwidth limiting)
+    pub async fn check_rate_limit(&self, ip: IpAddr, bytes: u64) -> Result<(), RateLimitError> {
         let mut history = self.history.write().await;
         let entry = history.entry(ip).or_insert_with(RequestHistory::new);
 
@@ -119,8 +136,20 @@ impl RateLimiter {
             });
         }
 
+        // SECURITY FIX (Issue #6): Check byte limit for bandwidth-based DoS
+        if entry.is_byte_limited() {
+            warn!(
+                "Byte limit exceeded for IP: {} ({} bytes/min)",
+                ip, entry.bytes_transferred
+            );
+            return Err(RateLimitError::ByteLimitExceeded {
+                ip,
+                bytes: entry.bytes_transferred,
+            });
+        }
+
         // Allow request and record it
-        entry.add_request();
+        entry.add_request(bytes);
         Ok(())
     }
 
@@ -177,6 +206,9 @@ pub enum RateLimitError {
 
     #[error("Burst limit exceeded for {ip}: {limit} requests per second")]
     BurstLimitExceeded { ip: IpAddr, limit: u32 },
+
+    #[error("Byte limit exceeded for {ip}: {bytes} bytes per minute (max 1MB)")]
+    ByteLimitExceeded { ip: IpAddr, bytes: u64 },
 }
 
 #[cfg(test)]
@@ -196,11 +228,11 @@ mod tests {
 
         // First 5 requests should succeed
         for _ in 0..5 {
-            assert!(limiter.check_rate_limit(ip).await.is_ok());
+            assert!(limiter.check_rate_limit(ip, 100).await.is_ok());
         }
 
         // 6th request should fail (rate limit)
-        assert!(limiter.check_rate_limit(ip).await.is_err());
+        assert!(limiter.check_rate_limit(ip, 100).await.is_err());
     }
 
     #[tokio::test]
@@ -214,10 +246,24 @@ mod tests {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 
         // First 2 requests should succeed
-        assert!(limiter.check_rate_limit(ip).await.is_ok());
-        assert!(limiter.check_rate_limit(ip).await.is_ok());
+        assert!(limiter.check_rate_limit(ip, 100).await.is_ok());
+        assert!(limiter.check_rate_limit(ip, 100).await.is_ok());
 
         // 3rd rapid request should fail burst limit
-        assert!(limiter.check_rate_limit(ip).await.is_err());
+        assert!(limiter.check_rate_limit(ip, 100).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_byte_limit() {
+        let config = RateLimiterConfig {
+            max_requests: 100,
+            window: Duration::from_secs(60),
+            burst_size: 100,
+        };
+        let limiter = RateLimiter::with_config(config);
+        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+
+        // Send request exceeding byte limit (1MB)
+        assert!(limiter.check_rate_limit(ip, 1_000_001).await.is_err());
     }
 }

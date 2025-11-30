@@ -1610,7 +1610,7 @@ impl BlockProducer {
                 } else {
                     println!("      💾 UTXO snapshot saved");
                 }
-                
+
                 drop(blockchain);
                 true
             }
@@ -2188,7 +2188,7 @@ impl BlockProducer {
         block.hash = block.calculate_hash();
 
         println!("      🔧 Finalizing block #{}...", block_num);
-        
+
         // SECURITY FIX: Acquire write lock only for the actual write operation
         let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {

@@ -40,6 +40,8 @@ pub struct PeerManager {
     wallet_subscriptions: Arc<RwLock<HashMap<String, Vec<IpAddr>>>>, // xpub -> connected peer IPs
     /// Quarantine system for bad peers
     quarantine: Arc<crate::quarantine::PeerQuarantine>,
+    /// SECURITY FIX (Issue #6): Rate limiter for DoS protection
+    rate_limiter: Arc<crate::rate_limiter::RateLimiter>,
 }
 
 impl PeerManager {
@@ -62,6 +64,7 @@ impl PeerManager {
             broadcast_count_reset: Arc::new(RwLock::new(Instant::now())),
             wallet_subscriptions: Arc::new(RwLock::new(HashMap::new())),
             quarantine: Arc::new(crate::quarantine::PeerQuarantine::new()),
+            rate_limiter: Arc::new(crate::rate_limiter::RateLimiter::new()),
         };
 
         manager.spawn_reaper();
@@ -82,6 +85,21 @@ impl PeerManager {
     pub async fn peer_seen(&self, addr: IpAddr) {
         let mut ls = self.last_seen.write().await;
         ls.insert(addr, Instant::now());
+    }
+
+    /// SECURITY FIX (Issue #6): Check rate limit for incoming requests
+    ///
+    /// Returns Ok(()) if request is allowed, Err with reason if rate limited
+    pub async fn check_rate_limit(&self, peer: IpAddr, bytes: u64) -> Result<(), String> {
+        self.rate_limiter
+            .check_rate_limit(peer, bytes)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Get rate limiter for advanced usage
+    pub fn rate_limiter(&self) -> Arc<crate::rate_limiter::RateLimiter> {
+        self.rate_limiter.clone()
     }
 
     /// Remove a connected peer and clear last_seen. Centralized removal + logging.
@@ -2138,6 +2156,7 @@ impl Clone for PeerManager {
             broadcast_count_reset: self.broadcast_count_reset.clone(),
             wallet_subscriptions: self.wallet_subscriptions.clone(),
             quarantine: self.quarantine.clone(),
+            rate_limiter: self.rate_limiter.clone(),
         }
     }
 }

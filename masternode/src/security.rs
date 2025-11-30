@@ -40,8 +40,8 @@ impl SecureMasternodeHandler {
             return Err(SecurityError::PeerQuarantined(peer_ip));
         }
 
-        // Check rate limit
-        if let Err(e) = self.rate_limiter.check_rate_limit(peer_ip).await {
+        // Check rate limit (assume 1KB per request for simplicity)
+        if let Err(e) = self.rate_limiter.check_rate_limit(peer_ip, 1024).await {
             warn!(peer = %peer_ip, error = %e, "Rate limit exceeded");
 
             // Quarantine peer for rate limit violation
