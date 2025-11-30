@@ -278,6 +278,10 @@ impl WalletApp {
                     let wallet_xpub = manager.get_xpub().to_string();
                     let wallet_network = manager.network(); // Also get network type
 
+                    // Wrap manager in Arc<Mutex> for shared access
+                    let wallet_mgr_shared = Arc::new(Mutex::new(manager));
+                    let wallet_mgr_clone = wallet_mgr_shared.clone();
+
                     // Spawn network bootstrap task
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                     let addnodes = main_config.addnode.clone();
@@ -502,12 +506,26 @@ impl WalletApp {
                                         );
 
                                         let mut wallet = wallet_for_utxo.lock().unwrap();
+
+                                        // Convert txid string to [u8; 32]
+                                        let tx_hash = hex::decode(&utxo_info.txid)
+                                            .ok()
+                                            .and_then(|bytes| {
+                                                if bytes.len() == 32 {
+                                                    let mut arr = [0u8; 32];
+                                                    arr.copy_from_slice(&bytes);
+                                                    Some(arr)
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                            .unwrap_or([0u8; 32]);
+
                                         let utxo = wallet::UTXO {
-                                            txid: utxo_info.txid,
-                                            vout: utxo_info.vout,
+                                            tx_hash,
+                                            output_index: utxo_info.vout,
                                             amount: utxo_info.amount,
                                             address: utxo_info.address,
-                                            confirmations: 0, // New transaction
                                         };
                                         wallet.add_utxo(utxo);
 
@@ -533,13 +551,25 @@ impl WalletApp {
                                         // Save transactions to wallet manager
                                         let mut wallet = wallet_mgr_clone.lock().unwrap();
                                         for tx in response.transactions {
-                                            // Create UTXO from transaction
+                                            // Convert txid string to [u8; 32]
+                                            let tx_hash = hex::decode(&tx.tx_hash)
+                                                .ok()
+                                                .and_then(|bytes| {
+                                                    if bytes.len() == 32 {
+                                                        let mut arr = [0u8; 32];
+                                                        arr.copy_from_slice(&bytes);
+                                                        Some(arr)
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or([0u8; 32]);
+
                                             let utxo = wallet::UTXO {
-                                                txid: tx.tx_hash.clone(),
-                                                vout: 0, // Assuming first output
+                                                tx_hash,
+                                                output_index: 0, // Assuming first output
                                                 amount: tx.amount,
                                                 address: tx.to_address.clone(),
-                                                confirmations: tx.confirmations as u32,
                                             };
                                             wallet.add_utxo(utxo);
                                             log::info!(
@@ -604,7 +634,12 @@ impl WalletApp {
                     });
                 }
 
-                self.wallet_manager = Some(manager);
+                // Extract manager from Arc<Mutex> to store in self
+                let manager_final = Arc::try_unwrap(wallet_mgr_shared)
+                    .expect("Failed to unwrap wallet manager")
+                    .into_inner()
+                    .unwrap();
+                self.wallet_manager = Some(manager_final);
                 log::info!("Wallet auto-loaded successfully");
             }
             Err(e) => {
