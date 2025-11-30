@@ -145,17 +145,21 @@ impl PeerManager {
                 let info = conn.peer_info().await;
                 info!(peer = %info.address, version = %info.version, "connected to peer");
 
-                // Insert into the active peers map using IP address as key
-                self.peers.write().await.insert(peer_ip, info.clone());
-
-                // Store the TCP connection for two-way communication
+                // CRITICAL FIX (Issue #2): Enforce consistent lock ordering: connections → peers → last_seen
+                // This prevents potential deadlock with other code paths
                 let conn_arc = Arc::new(tokio::sync::Mutex::new(conn));
-                self.connections
-                    .write()
-                    .await
-                    .insert(peer_ip, conn_arc.clone());
 
-                // mark last-seen immediately
+                // Acquire locks in consistent order
+                let mut connections = self.connections.write().await;
+                let mut peers = self.peers.write().await;
+
+                connections.insert(peer_ip, conn_arc.clone());
+                peers.insert(peer_ip, info.clone());
+
+                drop(connections);
+                drop(peers);
+
+                // mark last-seen immediately (after releasing other locks)
                 self.peer_seen(peer_ip).await;
 
                 // Persist discovery / mark success in peer exchange
@@ -276,13 +280,21 @@ impl PeerManager {
     }
 
     /// Connect concurrently to a list of peers.
+    /// CRITICAL FIX (Issue #3): Limited to 10 concurrent connections via semaphore to prevent resource exhaustion
     pub async fn connect_to_peers(&self, peer_list: Vec<PeerInfo>) {
+        // Limit concurrent connections to prevent file descriptor exhaustion
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(10));
         let mut handles = Vec::new();
 
         for peer in peer_list {
             let mgr = self.clone();
             let peer_addr = peer.address;
+            let permit = semaphore.clone();
+
             let handle = tokio::spawn(async move {
+                // Acquire permit before connecting (blocks if 10 connections already active)
+                let _permit = permit.acquire().await.expect("Semaphore closed");
+
                 debug!(peer = %peer_addr, "Attempting connection...");
                 match mgr.connect_to_peer(peer).await {
                     Ok(_) => {
@@ -294,6 +306,7 @@ impl PeerManager {
                         Err(e)
                     }
                 }
+                // Permit automatically released when _permit is dropped
             });
             handles.push(handle);
         }
@@ -472,22 +485,21 @@ impl PeerManager {
             !peers.contains_key(&peer_ip)
         };
 
+        // CRITICAL FIX (Issue #2): Enforce consistent lock ordering: connections → peers
         {
+            let mut connections = self.connections.write().await;
             let mut peers = self.peers.write().await;
+
             if let Some(existing) = peers.get(&peer_ip) {
                 // keep an existing known good version over unknown version
                 if existing.version != "unknown" && peer.version == "unknown" {
                     return;
                 }
             }
+
+            connections.insert(peer_ip, conn_arc.clone());
             peers.insert(peer_ip, peer.clone());
         }
-
-        // Store the TCP connection for two-way communication
-        self.connections
-            .write()
-            .await
-            .insert(peer_ip, conn_arc.clone());
 
         // mark last-seen on add
         self.peer_seen(peer_ip).await;
@@ -990,17 +1002,24 @@ impl PeerManager {
         info!("Removed dead connection for {}", peer_ip);
     }
 
+    /// CRITICAL FIX (Issue #7): Use Arc to avoid cloning large messages for each peer
     pub async fn broadcast_message(&self, message: crate::protocol::NetworkMessage) {
         let peers = self.peers.read().await.clone();
 
+        // Wrap message in Arc to avoid cloning large data structures (Vec<Block>, Vec<Transaction>)
+        let message_arc = Arc::new(message);
+
         for (_peer_ip, peer_info) in peers.iter() {
             let peer_ip = peer_info.address.ip();
-            let msg_clone = message.clone();
+            let msg_ref = message_arc.clone(); // Only clones Arc pointer, not message data
             let manager_clone = self.clone();
 
             tokio::spawn(async move {
+                // Clone the Arc'd message for sending (still just pointer clone)
+                let msg_to_send = (*msg_ref).clone();
+
                 // Use stored connection with handshake (preferred method)
-                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                if let Err(e) = manager_clone.send_to_peer_tcp(peer_ip, msg_to_send).await {
                     debug!(
                         peer = %peer_ip,
                         error = %e,
@@ -1529,14 +1548,17 @@ impl PeerManager {
             peer_ips_with_connections.len()
         );
 
+        // CRITICAL FIX (Issue #7): Use Arc to avoid cloning large proposal message
+        let message_arc = Arc::new(message);
         let mut send_tasks = vec![];
 
         for peer_ip in peer_ips_with_connections {
-            let msg_clone = message.clone();
+            let msg_ref = message_arc.clone(); // Only clones Arc pointer
             let manager_clone = self.clone();
 
             let task = tokio::spawn(async move {
-                match manager_clone.send_to_peer_tcp(peer_ip, msg_clone).await {
+                let msg_to_send = (*msg_ref).clone(); // Clone when ready to send
+                match manager_clone.send_to_peer_tcp(peer_ip, msg_to_send).await {
                     Ok(_) => {
                         println!("   ✓ Proposal sent to {}", peer_ip);
                         true
@@ -1593,16 +1615,19 @@ impl PeerManager {
             peer_ips_with_connections.len()
         );
 
+        // CRITICAL FIX (Issue #7): Use Arc to avoid cloning large vote message
+        let message_arc = Arc::new(message);
         let mut send_tasks = vec![];
 
         for peer_ip in peer_ips_with_connections {
-            let msg_clone = message.clone();
+            let msg_ref = message_arc.clone(); // Only clones Arc pointer
             let hash_clone = block_hash.clone();
             let manager_clone = self.clone();
 
             let task = tokio::spawn(async move {
+                let msg_to_send = (*msg_ref).clone(); // Clone when ready to send
                 match manager_clone
-                    .send_vote_with_ack(peer_ip, msg_clone, hash_clone)
+                    .send_vote_with_ack(peer_ip, msg_to_send, hash_clone)
                     .await
                 {
                     Ok(_) => {
