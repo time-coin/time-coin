@@ -483,7 +483,7 @@ impl WalletApp {
 
                             if let Some(addr) = peer_addr {
                                 log::info!("🔗 Starting TCP listener for {}", addr);
-                                let (utxo_tx, _utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
+                                let (utxo_tx, mut utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
                                     time_network::protocol::UtxoInfo,
                                 >();
                                 let listener = tcp_protocol_client::TcpProtocolListener::new(
@@ -491,6 +491,33 @@ impl WalletApp {
                                     wallet_xpub.clone(),
                                     utxo_tx,
                                 );
+
+                                // Spawn task to handle incoming UTXO notifications
+                                let wallet_for_utxo = wallet_mgr_clone.clone();
+                                tokio::spawn(async move {
+                                    while let Some(utxo_info) = utxo_rx.recv().await {
+                                        log::info!(
+                                            "📬 Received new UTXO notification: {} TIME",
+                                            utxo_info.amount as f64 / 100_000_000.0
+                                        );
+
+                                        let mut wallet = wallet_for_utxo.lock().unwrap();
+                                        let utxo = wallet::UTXO {
+                                            txid: utxo_info.txid,
+                                            vout: utxo_info.vout,
+                                            amount: utxo_info.amount,
+                                            address: utxo_info.address,
+                                            confirmations: 0, // New transaction
+                                        };
+                                        wallet.add_utxo(utxo);
+
+                                        let new_balance = wallet.get_balance();
+                                        log::info!(
+                                            "💰 Balance updated: {} TIME",
+                                            new_balance as f64 / 100_000_000.0
+                                        );
+                                    }
+                                });
 
                                 // Scan blockchain for existing transactions BEFORE starting listener
                                 log::info!("🔍 Scanning blockchain for wallet transactions...");
@@ -503,13 +530,29 @@ impl WalletApp {
                                         log::info!("✅ Found {} transactions on blockchain (synced to block {})", 
                                             response.transactions.len(), response.last_synced_height);
 
-                                        // Save transactions to database would go here
-                                        // For now, just log the total balance
-                                        let total_received: u64 =
-                                            response.transactions.iter().map(|tx| tx.amount).sum();
+                                        // Save transactions to wallet manager
+                                        let mut wallet = wallet_mgr_clone.lock().unwrap();
+                                        for tx in response.transactions {
+                                            // Create UTXO from transaction
+                                            let utxo = wallet::UTXO {
+                                                txid: tx.tx_hash.clone(),
+                                                vout: 0, // Assuming first output
+                                                amount: tx.amount,
+                                                address: tx.to_address.clone(),
+                                                confirmations: tx.confirmations as u32,
+                                            };
+                                            wallet.add_utxo(utxo);
+                                            log::info!(
+                                                "💰 Added UTXO: {} TIME (txid: {})",
+                                                tx.amount as f64 / 100_000_000.0,
+                                                &tx.tx_hash[..16]
+                                            );
+                                        }
+
+                                        let total_balance = wallet.get_balance();
                                         log::info!(
-                                            "💰 Total received: {} TIME",
-                                            total_received as f64 / 1_000_000.0
+                                            "💰 Total wallet balance: {} TIME",
+                                            total_balance as f64 / 100_000_000.0
                                         );
                                     }
                                     Err(e) => {
