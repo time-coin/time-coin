@@ -117,7 +117,7 @@ pub fn create_routes() -> Router<ApiState> {
         )
         .route(
             "/finality/vote",
-            post(crate::instant_finality_handlers::vote_on_transaction),
+            post(crate::instant_finality_handlers::record_decision),
         )
         .route(
             "/finality/status",

@@ -2,13 +2,14 @@
 
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
-use time_consensus::instant_finality::{TransactionStatus, TransactionVote};
+use time_consensus::instant_finality::{TransactionDecision, TransactionStatus};
 
 use crate::{ApiResult, ApiState};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SubmitTransactionRequest {
     pub transaction: time_core::Transaction,
+    pub wallet_xpubs: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,12 +19,12 @@ pub struct SubmitTransactionResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VoteTransactionRequest {
-    pub vote: TransactionVote,
+pub struct DecisionRequest {
+    pub decision: TransactionDecision,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VoteTransactionResponse {
+pub struct DecisionResponse {
     pub txid: String,
     pub status: TransactionStatus,
 }
@@ -50,7 +51,7 @@ pub async fn submit_transaction(
     ))?;
 
     let txid = finality_manager
-        .submit_transaction(req.transaction)
+        .submit_transaction(req.transaction, req.wallet_xpubs)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
@@ -60,23 +61,23 @@ pub async fn submit_transaction(
     }))
 }
 
-/// Vote on a transaction
-pub async fn vote_on_transaction(
+/// Record a decision on a transaction (approve or decline)
+pub async fn record_decision(
     State(state): State<ApiState>,
-    Json(req): Json<VoteTransactionRequest>,
-) -> ApiResult<Json<VoteTransactionResponse>> {
+    Json(req): Json<DecisionRequest>,
+) -> ApiResult<Json<DecisionResponse>> {
     let finality_manager = state.instant_finality_manager().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Instant finality not initialized".to_string(),
     ))?;
 
     let status = finality_manager
-        .record_vote(req.vote.clone())
+        .record_decision(req.decision.clone())
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    Ok(Json(VoteTransactionResponse {
-        txid: req.vote.txid,
+    Ok(Json(DecisionResponse {
+        txid: req.decision.txid,
         status,
     }))
 }

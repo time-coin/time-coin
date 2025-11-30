@@ -14,28 +14,34 @@ use tokio::sync::RwLock;
 pub enum TransactionStatus {
     /// Transaction received, pending validation
     Pending,
-    /// Transaction validated by this node, awaiting quorum
+    /// Transaction validated by this node, awaiting network confirmation
     Validated,
-    /// Transaction approved by quorum (instantly final)
-    Approved { votes: usize, total_nodes: usize },
-    /// Transaction rejected by quorum
-    Rejected { reason: String },
+    /// Transaction approved by masternode (instantly final)
+    Approved { masternode: String, timestamp: i64 },
+    /// Transaction declined by masternode
+    Declined {
+        masternode: String,
+        reason: String,
+        timestamp: i64,
+    },
+    /// Transaction rejected by network after approval (conflict detected)
+    NetworkRejected { reason: String, timestamp: i64 },
     /// Transaction included in a block
     Confirmed { block_height: u64 },
 }
 
-/// Vote on a transaction from a masternode
+/// Decision on a transaction from a masternode
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionVote {
-    /// Transaction ID being voted on
+pub struct TransactionDecision {
+    /// Transaction ID
     pub txid: String,
     /// Masternode IP address
-    pub voter: String,
-    /// Vote decision
+    pub masternode: String,
+    /// Decision (true = approved, false = declined)
     pub approved: bool,
-    /// Reason for rejection (if applicable)
-    pub reason: Option<String>,
-    /// Timestamp of vote
+    /// Reason for decision
+    pub reason: String,
+    /// Timestamp of decision
     pub timestamp: i64,
     /// Signature from masternode
     pub signature: Vec<u8>,
@@ -50,15 +56,20 @@ pub struct FinalityEntry {
     pub transaction: Transaction,
     /// Current status
     pub status: TransactionStatus,
-    /// Votes received
-    pub votes: HashMap<String, bool>, // masternode_id -> approved
+    /// Decisions received from masternodes
+    pub decisions: HashMap<String, TransactionDecision>, // masternode_id -> decision
     /// When transaction was first seen
     pub first_seen: i64,
     /// When transaction reached finality (if applicable)
     pub finalized_at: Option<i64>,
     /// UTXOs spent by this transaction
     pub spent_utxos: Vec<OutPoint>,
+    /// Wallets to notify about this transaction
+    pub subscribed_wallets: Vec<String>,
 }
+
+/// Type alias for notification callback
+type NotificationCallback = Box<dyn Fn(String, TransactionStatus) + Send + Sync>;
 
 /// Instant Finality Manager
 pub struct InstantFinalityManager {
@@ -66,24 +77,39 @@ pub struct InstantFinalityManager {
     transactions: Arc<RwLock<HashMap<String, FinalityEntry>>>,
     /// Active masternode list
     masternodes: Arc<RwLock<Vec<String>>>,
-    /// Quorum threshold (percentage, e.g., 67 for 67%)
-    quorum_threshold: u8,
     /// Track which UTXOs are locked by pending transactions
     locked_utxos: Arc<RwLock<HashMap<OutPoint, String>>>, // outpoint -> txid
     /// History of finalized transactions (for auditing)
     finality_history: Arc<RwLock<Vec<(String, TransactionStatus, i64)>>>,
+    /// Callback for notifying wallets of transaction status changes
+    notification_callback: Arc<RwLock<Option<NotificationCallback>>>,
+}
+
+impl Default for InstantFinalityManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InstantFinalityManager {
     /// Create new instant finality manager
-    pub fn new(quorum_threshold: u8) -> Self {
+    pub fn new() -> Self {
         Self {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             masternodes: Arc::new(RwLock::new(Vec::new())),
-            quorum_threshold,
             locked_utxos: Arc::new(RwLock::new(HashMap::new())),
             finality_history: Arc::new(RwLock::new(Vec::new())),
+            notification_callback: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Set notification callback for wallet updates
+    pub async fn set_notification_callback<F>(&self, callback: F)
+    where
+        F: Fn(String, TransactionStatus) + Send + Sync + 'static,
+    {
+        let mut cb = self.notification_callback.write().await;
+        *cb = Some(Box::new(callback));
     }
 
     /// Update masternode list
@@ -93,7 +119,11 @@ impl InstantFinalityManager {
     }
 
     /// Submit a new transaction for instant finality validation
-    pub async fn submit_transaction(&self, transaction: Transaction) -> Result<String, String> {
+    pub async fn submit_transaction(
+        &self,
+        transaction: Transaction,
+        wallet_xpubs: Vec<String>,
+    ) -> Result<String, String> {
         let txid = transaction.txid.clone();
 
         // Check for double-spend with locked UTXOs
@@ -120,7 +150,7 @@ impl InstantFinalityManager {
             txid: txid.clone(),
             transaction: transaction.clone(),
             status: TransactionStatus::Pending,
-            votes: HashMap::new(),
+            decisions: HashMap::new(),
             first_seen: chrono::Utc::now().timestamp(),
             finalized_at: None,
             spent_utxos: transaction
@@ -128,6 +158,7 @@ impl InstantFinalityManager {
                 .iter()
                 .map(|i| i.previous_output.clone())
                 .collect(),
+            subscribed_wallets: wallet_xpubs,
         };
 
         let mut txs = self.transactions.write().await;
@@ -136,85 +167,103 @@ impl InstantFinalityManager {
         Ok(txid)
     }
 
-    /// Record a vote from a masternode
-    pub async fn record_vote(&self, vote: TransactionVote) -> Result<TransactionStatus, String> {
+    /// Record a decision from a masternode (approve or decline)
+    pub async fn record_decision(
+        &self,
+        decision: TransactionDecision,
+    ) -> Result<TransactionStatus, String> {
         let mut txs = self.transactions.write().await;
 
         let entry = txs
-            .get_mut(&vote.txid)
-            .ok_or_else(|| format!("Transaction {} not found", vote.txid))?;
+            .get_mut(&decision.txid)
+            .ok_or_else(|| format!("Transaction {} not found", decision.txid))?;
 
-        // Don't allow votes on already finalized transactions
+        // Don't allow decisions on already finalized transactions
         if matches!(
             entry.status,
-            TransactionStatus::Approved { .. } | TransactionStatus::Rejected { .. }
+            TransactionStatus::Approved { .. }
+                | TransactionStatus::Declined { .. }
+                | TransactionStatus::NetworkRejected { .. }
         ) {
             return Ok(entry.status.clone());
         }
 
-        // Record vote
-        entry.votes.insert(vote.voter.clone(), vote.approved);
+        // Record decision
+        entry
+            .decisions
+            .insert(decision.masternode.clone(), decision.clone());
 
-        // Check if quorum reached
-        let masternodes = self.masternodes.read().await;
-        let total_nodes = masternodes.len();
-        let required_votes = (total_nodes * self.quorum_threshold as usize) / 100;
-
-        let approve_votes = entry.votes.values().filter(|&&v| v).count();
-        let _reject_votes = entry.votes.values().filter(|&&v| !v).count();
-
-        // Check for approval quorum
-        if approve_votes >= required_votes {
-            entry.status = TransactionStatus::Approved {
-                votes: approve_votes,
-                total_nodes,
-            };
-            entry.finalized_at = Some(chrono::Utc::now().timestamp());
-
-            // Log to history
-            let mut history = self.finality_history.write().await;
-            history.push((
-                vote.txid.clone(),
-                entry.status.clone(),
-                entry.finalized_at.unwrap(),
-            ));
-
-            return Ok(entry.status.clone());
-        }
-
-        // Check for rejection quorum
-        let votes_remaining = total_nodes - entry.votes.len();
-        let max_possible_approvals = approve_votes + votes_remaining;
-
-        if max_possible_approvals < required_votes {
-            // Can't reach approval quorum anymore - rejected
-            let reason = vote
-                .reason
-                .unwrap_or_else(|| "Failed to reach approval quorum".to_string());
-            entry.status = TransactionStatus::Rejected {
-                reason: reason.clone(),
-            };
-            entry.finalized_at = Some(chrono::Utc::now().timestamp());
-
-            // Unlock UTXOs
-            let mut locked = self.locked_utxos.write().await;
-            for outpoint in &entry.spent_utxos {
-                locked.remove(outpoint);
+        // Update status based on decision
+        let new_status = if decision.approved {
+            TransactionStatus::Approved {
+                masternode: decision.masternode.clone(),
+                timestamp: decision.timestamp,
             }
+        } else {
+            TransactionStatus::Declined {
+                masternode: decision.masternode.clone(),
+                reason: decision.reason.clone(),
+                timestamp: decision.timestamp,
+            }
+        };
 
-            // Log to history
-            let mut history = self.finality_history.write().await;
-            history.push((
-                vote.txid.clone(),
-                entry.status.clone(),
-                entry.finalized_at.unwrap(),
-            ));
+        entry.status = new_status.clone();
+        entry.finalized_at = Some(decision.timestamp);
 
-            return Ok(entry.status.clone());
+        // Log to history
+        let mut history = self.finality_history.write().await;
+        history.push((
+            decision.txid.clone(),
+            new_status.clone(),
+            decision.timestamp,
+        ));
+
+        // Notify subscribed wallets
+        self.notify_wallets(
+            &entry.subscribed_wallets,
+            decision.txid.clone(),
+            new_status.clone(),
+        )
+        .await;
+
+        Ok(new_status)
+    }
+
+    /// Mark a transaction as rejected by network (after approval)
+    pub async fn mark_network_rejected(&self, txid: &str, reason: String) -> Result<(), String> {
+        let mut txs = self.transactions.write().await;
+
+        let entry = txs
+            .get_mut(txid)
+            .ok_or_else(|| format!("Transaction {} not found", txid))?;
+
+        let new_status = TransactionStatus::NetworkRejected {
+            reason: reason.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+
+        entry.status = new_status.clone();
+
+        // Notify subscribed wallets about rejection
+        self.notify_wallets(&entry.subscribed_wallets, txid.to_string(), new_status)
+            .await;
+
+        Ok(())
+    }
+
+    /// Notify subscribed wallets about transaction status change
+    async fn notify_wallets(
+        &self,
+        wallet_xpubs: &[String],
+        txid: String,
+        status: TransactionStatus,
+    ) {
+        let callback = self.notification_callback.read().await;
+        if let Some(ref cb) = *callback {
+            for _xpub in wallet_xpubs {
+                cb(txid.clone(), status.clone());
+            }
         }
-
-        // Still waiting for more votes
-        Ok(TransactionStatus::Validated)
     }
 
     /// Get transaction status
@@ -264,8 +313,9 @@ impl InstantFinalityManager {
             .get_mut(txid)
             .ok_or_else(|| format!("Transaction {} not found", txid))?;
 
-        entry.status = TransactionStatus::Rejected {
+        entry.status = TransactionStatus::NetworkRejected {
             reason: reason.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
         };
         entry.finalized_at = Some(chrono::Utc::now().timestamp());
 
@@ -329,7 +379,9 @@ impl InstantFinalityManager {
                 TransactionStatus::Pending => stats.pending += 1,
                 TransactionStatus::Validated => stats.validated += 1,
                 TransactionStatus::Approved { .. } => stats.approved += 1,
-                TransactionStatus::Rejected { .. } => stats.rejected += 1,
+                TransactionStatus::Declined { .. } | TransactionStatus::NetworkRejected { .. } => {
+                    stats.rejected += 1
+                }
                 TransactionStatus::Confirmed { .. } => stats.confirmed += 1,
             }
         }
