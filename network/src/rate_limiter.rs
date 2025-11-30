@@ -71,11 +71,6 @@ impl RequestHistory {
         recent_count >= config.burst_size as usize
     }
 
-    /// Check if byte limit is exceeded (1MB per minute default)
-    fn is_byte_limited(&self) -> bool {
-        self.bytes_transferred >= 1_000_000 // 1MB
-    }
-
     /// Add a request timestamp and bytes
     fn add_request(&mut self, bytes: u64) {
         self.requests.push(Instant::now());
@@ -137,14 +132,15 @@ impl RateLimiter {
         }
 
         // SECURITY FIX (Issue #6): Check byte limit for bandwidth-based DoS
-        if entry.is_byte_limited() {
+        // Check if adding this request would exceed the byte limit
+        if entry.bytes_transferred + bytes > 1_000_000 {
             warn!(
-                "Byte limit exceeded for IP: {} ({} bytes/min)",
-                ip, entry.bytes_transferred
+                "Byte limit exceeded for IP: {} ({} + {} bytes would exceed 1MB/min)",
+                ip, entry.bytes_transferred, bytes
             );
             return Err(RateLimitError::ByteLimitExceeded {
                 ip,
-                bytes: entry.bytes_transferred,
+                bytes: entry.bytes_transferred + bytes,
             });
         }
 

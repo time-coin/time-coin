@@ -5053,6 +5053,7 @@ dependencies = [
  "sha2",
  "sha3",
  "sled",
+ "tempfile",
  "thiserror 2.0.17",
  "time-crypto",
  "tokio",

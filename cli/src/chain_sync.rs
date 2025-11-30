@@ -762,13 +762,16 @@ impl ChainSync {
                                     if height > 0 {
                                         println!("   🔄 Triggering immediate rollback to resolve fork...");
                                         drop(blockchain); // Release lock before rollback
-                                        
+
                                         // Rollback to the block before the fork
                                         let rollback_to = height - 1;
                                         let mut blockchain_write = self.blockchain.write().await;
                                         match blockchain_write.rollback_to_height(rollback_to) {
                                             Ok(_) => {
-                                                println!("   ✅ Rolled back to block {}", rollback_to);
+                                                println!(
+                                                    "   ✅ Rolled back to block {}",
+                                                    rollback_to
+                                                );
                                                 println!("   🔄 Will re-sync from block {} with network consensus", height);
                                             }
                                             Err(e) => {
