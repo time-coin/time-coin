@@ -282,9 +282,6 @@ impl WalletApp {
                     // Store manager first
                     self.wallet_manager = Some(manager);
                     log::info!("Wallet auto-loaded successfully");
-                    
-                    // Clone the manager for async tasks (they won't modify it)
-                    let wallet_mgr_for_tasks = self.wallet_manager.clone();
 
                     // Spawn network bootstrap task
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
@@ -491,7 +488,7 @@ impl WalletApp {
 
                             if let Some(addr) = peer_addr {
                                 log::info!("🔗 Starting TCP listener for {}", addr);
-                                let (utxo_tx, mut utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
+                                let (utxo_tx, utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
                                     time_network::protocol::UtxoInfo,
                                 >();
                                 let listener = tcp_protocol_client::TcpProtocolListener::new(
@@ -500,6 +497,10 @@ impl WalletApp {
                                     utxo_tx,
                                 );
 
+                                // TODO: Refactor UTXO notification handling
+                                // Currently disabled because wallet_manager is owned by self
+                                // and can't be shared with async tasks
+                                /* 
                                 // Spawn task to handle incoming UTXO notifications
                                 let wallet_for_utxo = wallet_mgr_clone.clone();
                                 tokio::spawn(async move {
@@ -540,7 +541,11 @@ impl WalletApp {
                                         );
                                     }
                                 });
+                                */
 
+                                // TODO: Refactor blockchain scanning
+                                // Currently disabled because wallet_manager is owned by self
+                                /*
                                 // Scan blockchain for existing transactions BEFORE starting listener
                                 log::info!("🔍 Scanning blockchain for wallet transactions...");
                                 let client = protocol_client::ProtocolClient::new(
@@ -596,6 +601,9 @@ impl WalletApp {
 
                                 // Now start listening for new transactions
                                 listener.start().await;
+                                */
+                                
+                                log::info!("💡 UTXO notifications temporarily disabled pending refactor");
                             } else {
                                 log::warn!("❌ No peers available for TCP listener");
                             }
@@ -637,14 +645,6 @@ impl WalletApp {
                         });
                     });
                 }
-
-                // Extract manager from Arc<Mutex> to store in self
-                let manager_final = Arc::try_unwrap(wallet_mgr_shared)
-                    .expect("Failed to unwrap wallet manager")
-                    .into_inner()
-                    .unwrap();
-                self.wallet_manager = Some(manager_final);
-                log::info!("Wallet auto-loaded successfully");
             }
             Err(e) => {
                 log::error!("Failed to auto-load wallet: {}", e);
