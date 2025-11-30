@@ -96,13 +96,30 @@ impl PeerConsensus {
 
     async fn query_single_peer_height(peer_addr: String) -> Result<PeerResponse<u64>, String> {
         let start = std::time::Instant::now();
+        let peer_addr_clone = peer_addr.clone();
 
-        // TODO: Replace with actual TCP protocol call
-        // For now, simulate query
-        let result = timeout(QUERY_TIMEOUT, async {
-            // Simulated network call
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            Ok::<u64, String>(0) // Would return actual height
+        let result = timeout(QUERY_TIMEOUT, async move {
+            use time_network::protocol::NetworkMessage;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            use tokio::net::TcpStream;
+
+            let mut stream = TcpStream::connect(&peer_addr_clone)
+                .await
+                .map_err(|e| format!("Connection failed: {}", e))?;
+
+            // Send GetBlockchainInfo request
+            let msg = NetworkMessage::GetBlockchainInfo;
+            Self::send_tcp_message(&mut stream, &msg).await?;
+
+            // Receive response
+            let response = Self::receive_tcp_message(&mut stream).await?;
+
+            match response {
+                NetworkMessage::BlockchainInfo { height, .. } => {
+                    Ok::<u64, String>(height.unwrap_or(0))
+                }
+                _ => Err("Unexpected response".to_string()),
+            }
         })
         .await;
 
@@ -202,11 +219,33 @@ impl PeerConsensus {
         peer_addr: String,
     ) -> Result<PeerResponse<Vec<String>>, String> {
         let start = std::time::Instant::now();
+        let peer_addr_clone = peer_addr.clone();
 
-        let result = timeout(QUERY_TIMEOUT, async {
-            // TODO: Replace with actual TCP protocol call
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            Ok::<Vec<String>, String>(vec![])
+        let result = timeout(QUERY_TIMEOUT, async move {
+            use time_network::protocol::NetworkMessage;
+            use tokio::net::TcpStream;
+
+            let mut stream = TcpStream::connect(&peer_addr_clone)
+                .await
+                .map_err(|e| format!("Connection failed: {}", e))?;
+
+            // Send GetMempool request (it's MempoolQuery in the protocol)
+            let msg = NetworkMessage::MempoolQuery;
+            Self::send_tcp_message(&mut stream, &msg).await?;
+
+            // Receive response
+            let response = Self::receive_tcp_message(&mut stream).await?;
+
+            match response {
+                NetworkMessage::MempoolResponse(transactions) => {
+                    let txids: Vec<String> = transactions
+                        .iter()
+                        .map(|tx| format!("{:?}", tx.hash()))
+                        .collect();
+                    Ok::<Vec<String>, String>(txids)
+                }
+                _ => Err("Unexpected response".to_string()),
+            }
         })
         .await;
 
@@ -306,11 +345,41 @@ impl PeerConsensus {
         address: String,
     ) -> Result<PeerResponse<Vec<String>>, String> {
         let start = std::time::Instant::now();
+        let peer_addr_clone = peer_addr.clone();
 
         let result = timeout(QUERY_TIMEOUT, async move {
-            // TODO: Replace with actual TCP protocol call
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            Ok::<Vec<String>, String>(vec![])
+            use time_network::protocol::NetworkMessage;
+            use tokio::net::TcpStream;
+
+            let mut stream = TcpStream::connect(&peer_addr_clone)
+                .await
+                .map_err(|e| format!("Connection failed: {}", e))?;
+
+            // Send UTXOSubscribe request to get UTXOs for this address
+            let msg = NetworkMessage::UTXOSubscribe {
+                outpoints: vec![],
+                addresses: vec![address.clone()],
+                subscriber_id: format!(
+                    "temp-{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
+            };
+            Self::send_tcp_message(&mut stream, &msg).await?;
+
+            // Receive response - expecting UTXOStateNotification
+            let response = Self::receive_tcp_message(&mut stream).await?;
+
+            match response {
+                NetworkMessage::UTXOStateNotification { notification } => {
+                    // Parse the notification JSON
+                    // For now, return empty list as this requires more complex parsing
+                    Ok::<Vec<String>, String>(vec![])
+                }
+                _ => Err("Unexpected response".to_string()),
+            }
         })
         .await;
 
@@ -325,6 +394,57 @@ impl PeerConsensus {
             Ok(Err(e)) => Err(format!("Peer {} error: {}", peer_addr, e)),
             Err(_) => Err(format!("Peer {} timeout", peer_addr)),
         }
+    }
+
+    // Helper methods for TCP communication
+    async fn send_tcp_message(
+        stream: &mut tokio::net::TcpStream,
+        msg: &time_network::protocol::NetworkMessage,
+    ) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt;
+
+        let json = serde_json::to_vec(msg).map_err(|e| format!("Serialization failed: {}", e))?;
+
+        let len = json.len() as u32;
+        stream
+            .write_all(&len.to_be_bytes())
+            .await
+            .map_err(|e| format!("Write length failed: {}", e))?;
+        stream
+            .write_all(&json)
+            .await
+            .map_err(|e| format!("Write message failed: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Flush failed: {}", e))?;
+
+        Ok(())
+    }
+
+    async fn receive_tcp_message(
+        stream: &mut tokio::net::TcpStream,
+    ) -> Result<time_network::protocol::NetworkMessage, String> {
+        use tokio::io::AsyncReadExt;
+
+        let mut len_buf = [0u8; 4];
+        stream
+            .read_exact(&mut len_buf)
+            .await
+            .map_err(|e| format!("Read length failed: {}", e))?;
+        let len = u32::from_be_bytes(len_buf) as usize;
+
+        if len > 10 * 1024 * 1024 {
+            return Err("Message too large".to_string());
+        }
+
+        let mut buf = vec![0u8; len];
+        stream
+            .read_exact(&mut buf)
+            .await
+            .map_err(|e| format!("Read message failed: {}", e))?;
+
+        serde_json::from_slice(&buf).map_err(|e| format!("Deserialization failed: {}", e))
     }
 
     fn find_consensus_utxos(

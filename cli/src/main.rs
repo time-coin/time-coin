@@ -1716,6 +1716,10 @@ async fn main() {
 
                                     match msg_result {
                                         Ok(Ok(msg)) => {
+                                            // CRITICAL: Mark peer as seen on EVERY message receive
+                                            // This prevents the reaper from removing active connections
+                                            peer_manager_listen.peer_seen(peer_ip_listen).await;
+
                                             match msg {
                                                 time_network::protocol::NetworkMessage::Ping => {
                                                     // Respond to ping with pong
