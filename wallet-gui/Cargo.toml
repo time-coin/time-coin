@@ -23,6 +23,10 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 ed25519-dalek = { workspace = true }
 rand = { workspace = true }
+# SECURITY FIX: Add AES-256-GCM encryption for wallet
+aes-gcm = "0.10"
+argon2 = "0.5"
+zeroize = { version = "1.8", features = ["derive"] }
 
 # Networking
 reqwest = { workspace = true }
