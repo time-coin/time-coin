@@ -757,10 +757,31 @@ impl ChainSync {
                                         &our_block_hash[..16]
                                     );
 
+                                    // CRITICAL FIX: Immediately rollback to resolve the fork
+                                    // We need to rewind to one block before the fork point
+                                    if height > 0 {
+                                        println!("   🔄 Triggering immediate rollback to resolve fork...");
+                                        drop(blockchain); // Release lock before rollback
+                                        
+                                        // Rollback to the block before the fork
+                                        let rollback_to = height - 1;
+                                        let mut blockchain_write = self.blockchain.write().await;
+                                        match blockchain_write.rollback_to_height(rollback_to) {
+                                            Ok(_) => {
+                                                println!("   ✅ Rolled back to block {}", rollback_to);
+                                                println!("   🔄 Will re-sync from block {} with network consensus", height);
+                                            }
+                                            Err(e) => {
+                                                println!("   ❌ Rollback failed: {:?}", e);
+                                            }
+                                        }
+                                        drop(blockchain_write);
+                                    }
+
                                     // Don't quarantine - this is a fork, not a bad peer
-                                    // Return error to trigger fork resolution
+                                    // Return error to trigger retry with clean chain
                                     return Err(format!(
-                                        "Fork detected: Block {} exists with different hash (peer has network consensus)",
+                                        "Fork detected and resolved: Block {} rolled back (will re-sync)",
                                         height
                                     ));
                                 } else {
