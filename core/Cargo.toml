@@ -20,6 +20,7 @@ time-crypto = { version = "0.1.0", path = "../crypto" }
 lru = "0.12"
 ed25519-dalek = "2.1"
 log = "0.4"
+tokio = { workspace = true, features = ["rt", "macros"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
