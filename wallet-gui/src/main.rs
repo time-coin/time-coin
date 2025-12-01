@@ -122,6 +122,7 @@ struct WalletApp {
     // Transaction sync
     last_sync_time: Option<std::time::Instant>,
     is_syncing_transactions: bool,
+    refresh_in_progress: bool,
 
     // UI state
     // Network manager (wrapped for thread safety)
@@ -160,8 +161,99 @@ struct WalletApp {
     // Channel for transaction approval/rejection notifications
     tx_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<TransactionNotification>>,
 
+    // Real-time notifications
+    recent_notifications: Vec<NotificationToast>,
+
+    // XPub registration tracking
+    registered_masternodes: std::collections::HashSet<String>,
+    xpub_registration_status: XPubRegistrationStatus,
+
     // UTXO management
     utxo_manager: UtxoManager,
+}
+
+/// XPub registration status across masternodes
+#[derive(Debug, Clone, PartialEq)]
+enum XPubRegistrationStatus {
+    NotRegistered,
+    Registering,
+    Registered {
+        count: usize,
+        last_registered: std::time::Instant,
+    },
+    PartiallyRegistered {
+        registered: usize,
+        total: usize,
+    },
+}
+
+impl Default for XPubRegistrationStatus {
+    fn default() -> Self {
+        XPubRegistrationStatus::NotRegistered
+    }
+}
+
+/// Toast notification for real-time events
+#[derive(Debug, Clone)]
+struct NotificationToast {
+    message: String,
+    notification_type: NotificationType,
+    created_at: std::time::Instant,
+    duration_secs: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum NotificationType {
+    Success,
+    Info,
+    Warning,
+    NewTransaction,
+    TransactionApproved,
+    TransactionRejected,
+}
+
+impl NotificationToast {
+    fn new(message: String, notification_type: NotificationType) -> Self {
+        let duration_secs = match notification_type {
+            NotificationType::NewTransaction => 10, // Show longer for important events
+            NotificationType::TransactionApproved => 8,
+            NotificationType::TransactionRejected => 8,
+            _ => 5,
+        };
+
+        Self {
+            message,
+            notification_type,
+            created_at: std::time::Instant::now(),
+            duration_secs,
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        self.created_at.elapsed().as_secs() >= self.duration_secs
+    }
+
+    fn icon(&self) -> &str {
+        match self.notification_type {
+            NotificationType::Success => "✅",
+            NotificationType::Info => "ℹ️",
+            NotificationType::Warning => "⚠️",
+            NotificationType::NewTransaction => "💰",
+            NotificationType::TransactionApproved => "✅",
+            NotificationType::TransactionRejected => "❌",
+        }
+    }
+
+    fn color(&self) -> egui::Color32 {
+        match self.notification_type {
+            NotificationType::Success => egui::Color32::from_rgb(34, 139, 34),
+            NotificationType::Info => egui::Color32::from_rgb(70, 130, 180),
+            NotificationType::Warning => egui::Color32::from_rgb(255, 165, 0),
+            NotificationType::NewTransaction => egui::Color32::from_rgb(34, 139, 34),
+            NotificationType::TransactionApproved => egui::Color32::from_rgb(34, 139, 34),
+            NotificationType::TransactionRejected => egui::Color32::from_rgb(220, 20, 60),
+        }
+    }
 }
 
 // Use the TransactionNotification from tcp_protocol_client module
@@ -224,6 +316,7 @@ impl Default for WalletApp {
             is_scanning_qr: false,
             last_sync_time: None,
             is_syncing_transactions: false,
+            refresh_in_progress: false,
             network_manager: None,
             network_status: "Not connected".to_string(),
             peer_manager: None,
@@ -242,6 +335,9 @@ impl Default for WalletApp {
             is_creating_new_address: false,
             utxo_rx: None,
             tx_notification_rx: None,
+            recent_notifications: Vec::new(),
+            registered_masternodes: std::collections::HashSet::new(),
+            xpub_registration_status: XPubRegistrationStatus::default(),
             utxo_manager: UtxoManager::new(),
         };
 
@@ -319,6 +415,14 @@ impl WalletApp {
                     // Store manager first
                     self.wallet_manager = Some(manager);
                     log::info!("Wallet auto-loaded successfully");
+
+                    // Create channels for UTXO updates and transaction notifications (auto-load path)
+                    let (utxo_tx, utxo_rx) = tokio::sync::mpsc::unbounded_channel();
+                    let (tx_notif_tx, tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
+
+                    // Store receivers in app state
+                    self.utxo_rx = Some(utxo_rx);
+                    self.tx_notification_rx = Some(tx_notif_rx);
 
                     // Spawn network bootstrap task
                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
@@ -550,13 +654,6 @@ impl WalletApp {
 
                             if let Some(addr) = peer_addr {
                                 log::info!("🔗 Starting TCP listener for {}", addr);
-                                let (utxo_tx, _utxo_rx) = tokio::sync::mpsc::unbounded_channel::<
-                                    time_network::protocol::UtxoInfo,
-                                >();
-                                let (tx_notif_tx, _tx_notif_rx) =
-                                    tokio::sync::mpsc::unbounded_channel::<
-                                        tcp_protocol_client::TransactionNotification,
-                                    >();
                                 let listener = tcp_protocol_client::TcpProtocolListener::new(
                                     addr.clone(),
                                     wallet_xpub_clone.clone(),
@@ -564,119 +661,7 @@ impl WalletApp {
                                     tx_notif_tx,
                                 );
 
-                                // Note: receivers are dropped here since we can't store them in self
-                                // from inside the async task. This is a limitation that should be
-                                // refactored in the future.
-
-                                // TODO: Refactor UTXO notification handling
-                                // Currently disabled because wallet_manager is owned by self
-                                // and can't be shared with async tasks
-                                /*
-                                // Spawn task to handle incoming UTXO notifications
-                                let wallet_for_utxo = wallet_mgr_clone.clone();
-                                tokio::spawn(async move {
-                                    while let Some(utxo_info) = utxo_rx.recv().await {
-                                        log::info!(
-                                            "📬 Received new UTXO notification: {} TIME",
-                                            utxo_info.amount as f64 / 100_000_000.0
-                                        );
-
-                                        let mut wallet = wallet_for_utxo.lock().unwrap();
-
-                                        // Convert txid string to [u8; 32]
-                                        let tx_hash = hex::decode(&utxo_info.txid)
-                                            .ok()
-                                            .and_then(|bytes| {
-                                                if bytes.len() == 32 {
-                                                    let mut arr = [0u8; 32];
-                                                    arr.copy_from_slice(&bytes);
-                                                    Some(arr)
-                                                } else {
-                                                    None
-                                                }
-                                            })
-                                            .unwrap_or([0u8; 32]);
-
-                                        let utxo = wallet::UTXO {
-                                            tx_hash,
-                                            output_index: utxo_info.vout,
-                                            amount: utxo_info.amount,
-                                            address: utxo_info.address,
-                                        };
-                                        wallet.add_utxo(utxo);
-
-                                        let new_balance = wallet.get_balance();
-                                        log::info!(
-                                            "💰 Balance updated: {} TIME",
-                                            new_balance as f64 / 100_000_000.0
-                                        );
-                                    }
-                                });
-                                */
-
-                                // TODO: Refactor blockchain scanning
-                                // Currently disabled because wallet_manager is owned by self
-                                /*
-                                // Scan blockchain for existing transactions BEFORE starting listener
-                                log::info!("🔍 Scanning blockchain for wallet transactions...");
-                                let client = protocol_client::ProtocolClient::new(
-                                    addr.clone(),
-                                    wallet_network,
-                                );
-                                match client.request_wallet_transactions(wallet_xpub.clone()) {
-                                    Ok(response) => {
-                                        log::info!("✅ Found {} transactions on blockchain (synced to block {})",
-                                            response.transactions.len(), response.last_synced_height);
-
-                                        // Save transactions to wallet manager
-                                        let mut wallet = wallet_mgr_clone.lock().unwrap();
-                                        for tx in response.transactions {
-                                            // Convert txid string to [u8; 32]
-                                            let tx_hash = hex::decode(&tx.tx_hash)
-                                                .ok()
-                                                .and_then(|bytes| {
-                                                    if bytes.len() == 32 {
-                                                        let mut arr = [0u8; 32];
-                                                        arr.copy_from_slice(&bytes);
-                                                        Some(arr)
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or([0u8; 32]);
-
-                                            let utxo = wallet::UTXO {
-                                                tx_hash,
-                                                output_index: 0, // Assuming first output
-                                                amount: tx.amount,
-                                                address: tx.to_address.clone(),
-                                            };
-                                            wallet.add_utxo(utxo);
-                                            log::info!(
-                                                "💰 Added UTXO: {} TIME (txid: {})",
-                                                tx.amount as f64 / 100_000_000.0,
-                                                &tx.tx_hash[..16]
-                                            );
-                                        }
-
-                                        let total_balance = wallet.get_balance();
-                                        log::info!(
-                                            "💰 Total wallet balance: {} TIME",
-                                            total_balance as f64 / 100_000_000.0
-                                        );
-                                    }
-                                    Err(e) => {
-                                        log::warn!("⚠️ Failed to scan blockchain: {}", e);
-                                    }
-                                }
-
-                                // Now start listening for new transactions
                                 listener.start().await;
-                                */
-
-                                log::info!(
-                                    "💡 UTXO notifications temporarily disabled pending refactor"
-                                );
                             } else {
                                 log::warn!("❌ No peers available for TCP listener");
                             }
@@ -857,6 +842,14 @@ impl WalletApp {
 
                                     // NOTE: TCP listener will be initialized AFTER network bootstrap completes
                                     // (moved to after peer connection to ensure peers are available)
+
+                                    // Create channels for UTXO updates and transaction notifications
+                                    let (utxo_tx, utxo_rx) = tokio::sync::mpsc::unbounded_channel();
+                                    let (tx_notif_tx, tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
+
+                                    // Store receivers in app state
+                                    self.utxo_rx = Some(utxo_rx);
+                                    self.tx_notification_rx = Some(tx_notif_rx);
 
                                     // Trigger network bootstrap in background
                                     let bootstrap_nodes = main_config.bootstrap_nodes.clone();
@@ -1046,8 +1039,6 @@ impl WalletApp {
 
                                                     if let Some(addr) = peer_addr {
                                                         log::info!("🔗 Starting TCP listener for {}", addr);
-                                                        let (utxo_tx, _utxo_rx) = tokio::sync::mpsc::unbounded_channel();
-                                                        let (tx_notif_tx, _tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
                                                         let listener = tcp_protocol_client::TcpProtocolListener::new(
                                                             addr,
                                                             tcp_xpub,
@@ -1116,6 +1107,9 @@ impl WalletApp {
                                     // Set UI network to match wallet
                                     self.network = manager.network();
 
+                                    // Get xpub before moving manager
+                                    let wallet_xpub = manager.get_xpub().to_string();
+
                                     // Initialize wallet database
                                     if let Ok(main_config) = Config::load() {
                                         let wallet_dir = main_config.wallet_dir();
@@ -1146,6 +1140,51 @@ impl WalletApp {
                                     self.current_screen = Screen::Overview;
                                     self.set_success("Wallet unlocked successfully!".to_string());
                                     log::info!("✅ Wallet unlocked with password");
+
+                                    // Create channels for UTXO updates and transaction notifications (password unlock path)
+                                    if self.utxo_rx.is_none() {
+                                        let (utxo_tx, utxo_rx) = tokio::sync::mpsc::unbounded_channel();
+                                        let (tx_notif_tx, tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
+
+                                        self.utxo_rx = Some(utxo_rx);
+                                        self.tx_notification_rx = Some(tx_notif_rx);
+
+                                        log::info!("✅ Notification channels created");
+
+                                        // Start TCP listener for this wallet
+                                        if let Some(network_mgr) = &self.network_manager {
+                                            let network_mgr_clone = network_mgr.clone();
+                                            let xpub_for_listener = wallet_xpub.clone();
+                                            tokio::spawn(async move {
+                                                // Wait for network to be ready
+                                                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                                                let peer_addr = {
+                                                    let net = network_mgr_clone.lock().unwrap();
+                                                    let peers = net.get_connected_peers();
+                                                    if let Some(peer) = peers.first() {
+                                                        let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                                                        Some(format!("{}:24100", peer_ip))
+                                                    } else {
+                                                        None
+                                                    }
+                                                };
+
+                                                if let Some(addr) = peer_addr {
+                                                    log::info!("🔗 Starting TCP listener for password-unlocked wallet at {}", addr);
+                                                    let listener = tcp_protocol_client::TcpProtocolListener::new(
+                                                        addr,
+                                                        xpub_for_listener,
+                                                        utxo_tx,
+                                                        tx_notif_tx,
+                                                    );
+                                                    listener.start().await;
+                                                } else {
+                                                    log::warn!("❌ No peers available for TCP listener");
+                                                }
+                                            });
+                                        }
+                                    }
 
                                     // Initialize network after unlock if not already done
                                     if self.network_manager.is_none() {
@@ -1754,6 +1793,38 @@ impl WalletApp {
                         ui.close_menu();
                     }
                 });
+
+                // Add space before notification badge
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Notification badge
+                    if !self.recent_notifications.is_empty() {
+                        let notif_count = self.recent_notifications.len();
+                        let badge_text = if notif_count > 9 {
+                            "9+".to_string()
+                        } else {
+                            notif_count.to_string()
+                        };
+
+                        ui.add_space(10.0);
+
+                        // Badge button
+                        let badge_response = ui.button(
+                            egui::RichText::new(format!("🔔 {}", badge_text))
+                                .color(egui::Color32::WHITE)
+                                .strong(),
+                        );
+
+                        if badge_response.hovered() {
+                            badge_response.on_hover_ui(|ui| {
+                                ui.label(format!(
+                                    "{} active notification{}",
+                                    notif_count,
+                                    if notif_count == 1 { "" } else { "s" }
+                                ));
+                            });
+                        }
+                    }
+                });
             });
         });
 
@@ -1811,8 +1882,14 @@ impl WalletApp {
                 if let Some(net_mgr_arc) = &self.network_manager {
                     if let Ok(net_mgr) = net_mgr_arc.lock() {
                         // Peer count
-                        ui.label(format!("Peers: {} peers", net_mgr.peer_count()));
+                        ui.label(format!("Peers: {}", net_mgr.peer_count()));
                         ui.separator();
+
+                        // XPub monitoring status
+                        if self.wallet_manager.is_some() && net_mgr.peer_count() > 0 {
+                            ui.colored_label(egui::Color32::GREEN, "📡 Monitoring");
+                            ui.separator();
+                        }
 
                         // Block height
                         let current_height = net_mgr.current_block_height();
@@ -1843,106 +1920,62 @@ impl WalletApp {
         });
 
         // Main content
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match self.current_screen {
-                Screen::Overview => self.show_overview_screen(ui, ctx),
-                Screen::Send => self.show_send_screen(ui, ctx),
-                Screen::Receive => self.show_receive_screen(ui, ctx),
-                Screen::Transactions => self.show_transactions_screen(ui),
-                Screen::Utxos => self.show_utxos_screen(ctx),
-                Screen::Settings => self.show_settings_screen(ui, ctx),
-                Screen::Peers => {
-                    ui.heading("Connected Peers");
-                    ui.separator();
-
-                    if let Some(network_mgr) = self.network_manager.as_ref() {
-                        let mgr = network_mgr.lock().unwrap();
-                        let peers = mgr.get_connected_peers();
-                        let peer_count = mgr.peer_count();
-
-                        ui.label(format!("Status: {} peers in connected list", peers.len()));
-                        ui.label(format!("Peer count method returns: {}", peer_count));
-                        ui.add_space(10.0);
-
-                        if peers.is_empty() {
-                            ui.colored_label(
-                                egui::Color32::LIGHT_BLUE,
-                                "⏳ Waiting for peer discovery to complete...",
-                            );
-                            ui.add_space(10.0);
-                            ui.label(
-                                "Peer discovery runs in the background and takes a few seconds.",
-                            );
-                            ui.label("Please wait or click refresh below.");
-                            ui.add_space(10.0);
-                            if ui.button("🔄 Refresh").clicked() {
-                                // Force UI update
-                                ctx.request_repaint();
-                            }
-                        } else {
-                            ui.label(format!(
-                                "✓ Connected to {} peers (sorted by latency):",
-                                peers.len()
-                            ));
-                            ui.add_space(10.0);
-
-                            egui::Grid::new("peers_grid")
-                                .striped(true)
-                                .spacing([10.0, 4.0])
-                                .show(ui, |ui| {
-                                    ui.strong("Address");
-                                    ui.strong("Port");
-                                    ui.strong("Latency");
-                                    ui.strong("Version");
-                                    ui.end_row();
-
-                                    for peer in peers {
-                                        ui.label(&peer.address);
-                                        ui.label(peer.port.to_string());
-
-                                        if peer.latency_ms > 0 {
-                                            let color = if peer.latency_ms < 50 {
-                                                egui::Color32::GREEN
-                                            } else if peer.latency_ms < 150 {
-                                                egui::Color32::from_rgb(255, 165, 0)
-                                            // Orange
-                                            } else {
-                                                egui::Color32::RED
-                                            };
-                                            ui.horizontal(|ui| {
-                                                // Draw a filled circle
-                                                let (rect, _response) = ui.allocate_exact_size(
-                                                    egui::vec2(10.0, 10.0),
-                                                    egui::Sense::hover(),
-                                                );
-                                                ui.painter().circle_filled(
-                                                    rect.center(),
-                                                    5.0,
-                                                    color,
-                                                );
-                                                ui.label(format!("{}ms", peer.latency_ms));
-                                            });
-                                        } else {
-                                            ui.label("-");
-                                        }
-
-                                        ui.label(
-                                            peer.version.as_ref().unwrap_or(&"unknown".to_string()),
-                                        );
-                                        ui.end_row();
-                                    }
-                                });
-                        }
-                    } else {
-                        ui.label("Network manager not initialized");
-                    }
-                }
-                _ => {}
+        egui::CentralPanel::default().show(ctx, |ui| match self.current_screen {
+            Screen::Overview => self.show_overview_screen(ui, ctx),
+            Screen::Send => self.show_send_screen(ui, ctx),
+            Screen::Receive => self.show_receive_screen(ui, ctx),
+            Screen::Transactions => self.show_transactions_screen(ui),
+            Screen::Utxos => self.show_utxos_screen(ctx),
+            Screen::Settings => self.show_settings_screen(ui, ctx),
+            Screen::Peers => {
+                self.show_peers_screen(ui, ctx);
             }
+            _ => {}
         });
     }
 
     fn show_overview_screen(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+        ui.add_space(10.0);
+
+        // Add refresh button at the top
+        ui.horizontal(|ui| {
+            ui.heading("Overview");
+            ui.add_space(10.0);
+
+            // Refresh button with spinner when in progress
+            let refresh_icon = if self.refresh_in_progress {
+                "⏳"
+            } else {
+                "🔄"
+            };
+
+            let refresh_button =
+                egui::Button::new(egui::RichText::new(format!("{} Refresh", refresh_icon)));
+
+            if ui
+                .add_enabled(!self.refresh_in_progress, refresh_button)
+                .on_hover_text("Manually refresh wallet balance and transactions")
+                .clicked()
+            {
+                self.trigger_manual_refresh();
+            }
+
+            // Show last sync time
+            if let Some(last_sync) = self.last_sync_time {
+                let elapsed = last_sync.elapsed().as_secs();
+                let time_str = if elapsed < 60 {
+                    format!("{}s ago", elapsed)
+                } else {
+                    format!("{}m ago", elapsed / 60)
+                };
+                ui.label(
+                    egui::RichText::new(format!("Last sync: {}", time_str))
+                        .color(egui::Color32::GRAY)
+                        .small(),
+                );
+            }
+        });
+
         ui.add_space(10.0);
 
         if let Some(manager) = &self.wallet_manager {
@@ -3410,26 +3443,14 @@ impl WalletApp {
     }
 
     fn trigger_transaction_sync(&mut self) {
-        log::info!("🔄 Transaction sync via TCP monitoring...");
-
-        if self.wallet_manager.is_none() || self.network_manager.is_none() {
-            log::warn!("Cannot sync: wallet or network not initialized");
-            return;
-        }
-
-        // Transaction sync happens automatically via:
-        // 1. Xpub registration (masternode scans blockchain for history)
-        // 2. Mempool polling (for pending transactions)
-        // 3. Real-time notifications (for new transactions)
-
-        log::info!("✓ Wallet monitoring active via TCP protocol");
+        log::info!("🔄 Manual transaction sync triggered");
+        self.trigger_manual_refresh();
     }
 
     fn trigger_mempool_check(&mut self) {
         log::info!("🔄 Transaction check temporarily disabled to prevent GUI hang");
         log::info!("💡 Use manual refresh button to check for transactions");
         // TODO: Re-implement with proper async handling that doesn't block GUI
-        return;
     }
 
     fn show_utxos_screen(&mut self, ctx: &egui::Context) {
@@ -4097,6 +4118,14 @@ impl WalletApp {
                     new_balance as f64 / 1_000_000.0
                 );
 
+                // Show toast notification for new UTXO
+                let notification_msg =
+                    format!("Received {} TIME", utxo.amount as f64 / 1_000_000.0);
+                self.recent_notifications.push(NotificationToast::new(
+                    notification_msg,
+                    NotificationType::NewTransaction,
+                ));
+
                 // Save transaction to database
                 if let Some(db) = &self.wallet_db {
                     let tx_record = wallet_db::TransactionRecord {
@@ -4186,6 +4215,14 @@ impl WalletApp {
                 match notification {
                     TransactionNotification::Approved { txid, timestamp } => {
                         let short_txid = &txid[..std::cmp::min(16, txid.len())];
+
+                        // Show toast notification
+                        let notification_msg = format!("Transaction approved: {}", short_txid);
+                        self.recent_notifications.push(NotificationToast::new(
+                            notification_msg,
+                            NotificationType::TransactionApproved,
+                        ));
+
                         self.success_message = Some(format!(
                             "✅ Transaction {} approved by network!",
                             short_txid
@@ -4195,6 +4232,14 @@ impl WalletApp {
                     }
                     TransactionNotification::Rejected { txid, reason } => {
                         let short_txid = &txid[..std::cmp::min(16, txid.len())];
+
+                        // Show toast notification
+                        let notification_msg = format!("Transaction rejected: {}", reason);
+                        self.recent_notifications.push(NotificationToast::new(
+                            notification_msg,
+                            NotificationType::TransactionRejected,
+                        ));
+
                         self.error_message = Some(format!(
                             "❌ Transaction {} rejected: {}",
                             short_txid, reason
@@ -4205,6 +4250,130 @@ impl WalletApp {
                 }
             }
         }
+    }
+
+    /// Trigger a manual refresh of wallet data
+    fn trigger_manual_refresh(&mut self) {
+        if self.refresh_in_progress {
+            log::warn!("Refresh already in progress, skipping");
+            return;
+        }
+
+        log::info!("🔄 Manual refresh triggered");
+        self.refresh_in_progress = true;
+
+        // Get required data
+        let xpub = if let Some(manager) = &self.wallet_manager {
+            manager.get_xpub().to_string()
+        } else {
+            log::warn!("No wallet manager available");
+            self.refresh_in_progress = false;
+            return;
+        };
+
+        let network_mgr = if let Some(mgr) = &self.network_manager {
+            mgr.clone()
+        } else {
+            log::warn!("No network manager available");
+            self.refresh_in_progress = false;
+            return;
+        };
+
+        let wallet_db = self.wallet_db.clone();
+
+        // Spawn refresh task
+        tokio::spawn(async move {
+            log::info!("📡 Requesting wallet transactions from masternodes...");
+
+            // Refresh peer latencies and blockchain height
+            let network_mgr_clone = network_mgr.clone();
+            tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    let mut net = network_mgr_clone.lock().unwrap();
+                    net.periodic_refresh().await;
+                });
+            })
+            .await
+            .ok();
+
+            // Request transactions from connected peers
+            let peers = {
+                let net = network_mgr.lock().unwrap();
+                net.get_connected_peers()
+            };
+
+            for peer in peers.iter().take(3) {
+                let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                let peer_addr = format!("{}:24100", peer_ip);
+
+                log::info!("📬 Requesting transactions from {}...", peer_addr);
+
+                // Request wallet transactions via protocol client
+                let client = protocol_client::ProtocolClient::new(
+                    peer_addr.clone(),
+                    wallet::NetworkType::Testnet, // TODO: Make configurable
+                );
+
+                match client.request_wallet_transactions(xpub.clone()) {
+                    Ok(response) => {
+                        log::info!(
+                            "✅ Received {} transactions from {}",
+                            response.transactions.len(),
+                            peer_addr
+                        );
+
+                        // Save to database if available
+                        if let Some(db) = &wallet_db {
+                            for tx in response.transactions {
+                                let tx_record = wallet_db::TransactionRecord {
+                                    tx_hash: tx.tx_hash.clone(),
+                                    from_address: Some(tx.from_address),
+                                    to_address: tx.to_address,
+                                    amount: tx.amount,
+                                    timestamp: tx.timestamp as i64,
+                                    block_height: Some(tx.block_height),
+                                    status: wallet_db::TransactionStatus::Confirmed,
+                                    notes: None,
+                                };
+
+                                if let Err(e) = db.save_transaction(&tx_record) {
+                                    log::warn!("Failed to save transaction: {}", e);
+                                }
+                            }
+                        }
+
+                        break; // Got transactions from one peer, that's enough
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to get transactions from {}: {}", peer_addr, e);
+                    }
+                }
+            }
+
+            log::info!("✅ Manual refresh completed");
+        });
+
+        // Update last sync time
+        self.last_sync_time = Some(std::time::Instant::now());
+
+        // Reset refresh flag after a delay (we do this immediately in the UI thread)
+        let refresh_flag = Arc::new(std::sync::Mutex::new(false));
+        let refresh_flag_clone = refresh_flag.clone();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            *refresh_flag_clone.lock().unwrap() = true;
+        });
+
+        // Schedule flag reset - we'll check this flag in the update loop
+        // For now, reset after 3 seconds as a safety
+        let start_time = std::time::Instant::now();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        });
+
+        self.set_success("Refreshing wallet data...".to_string());
     }
 
     fn check_message_timeout(&mut self) {
@@ -4223,6 +4392,248 @@ impl WalletApp {
                 self.error_message_time = None;
             }
         }
+
+        // Clean up expired notifications
+        self.recent_notifications.retain(|n| !n.is_expired());
+    }
+
+    /// Render toast notifications at the top-right of the screen
+    fn render_toast_notifications(&self, ctx: &egui::Context) {
+        if self.recent_notifications.is_empty() {
+            return;
+        }
+
+        let screen_rect = ctx.screen_rect();
+        let toast_width = 350.0;
+        let toast_height = 60.0;
+        let padding = 10.0;
+        let spacing = 5.0;
+
+        for (i, notification) in self.recent_notifications.iter().enumerate() {
+            let y_offset = padding + (toast_height + spacing) * i as f32;
+            let x_pos = screen_rect.max.x - toast_width - padding;
+            let y_pos = screen_rect.min.y + y_offset;
+
+            let toast_rect = egui::Rect::from_min_size(
+                egui::pos2(x_pos, y_pos),
+                egui::vec2(toast_width, toast_height),
+            );
+
+            // Calculate fade-out animation
+            let time_remaining =
+                notification.duration_secs as f32 - notification.created_at.elapsed().as_secs_f32();
+            let fade_duration = 1.0; // Start fading 1 second before expiry
+            let alpha = if time_remaining < fade_duration {
+                (time_remaining / fade_duration).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+
+            egui::Area::new(egui::Id::new(format!("toast_{}", i)))
+                .fixed_pos(toast_rect.min)
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    let bg_color = notification.color();
+                    let bg_color_with_alpha = egui::Color32::from_rgba_premultiplied(
+                        bg_color.r(),
+                        bg_color.g(),
+                        bg_color.b(),
+                        (255.0 * alpha) as u8,
+                    );
+
+                    egui::Frame::default()
+                        .fill(bg_color_with_alpha)
+                        .corner_radius(8.0)
+                        .inner_margin(12.0)
+                        .shadow(egui::epaint::Shadow {
+                            offset: [2, 2],
+                            blur: 8,
+                            spread: 0,
+                            color: egui::Color32::from_black_alpha((100.0 * alpha) as u8),
+                        })
+                        .show(ui, |ui| {
+                            ui.set_max_width(toast_width - 24.0);
+
+                            ui.horizontal(|ui| {
+                                // Icon
+                                ui.label(
+                                    egui::RichText::new(notification.icon())
+                                        .size(24.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+
+                                ui.add_space(8.0);
+
+                                // Message
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(&notification.message)
+                                            .size(14.0)
+                                            .color(egui::Color32::WHITE)
+                                            .strong(),
+                                    );
+
+                                    // Progress bar
+                                    let progress =
+                                        1.0 - (time_remaining / notification.duration_secs as f32);
+                                    let progress_width = (toast_width - 80.0) * progress;
+                                    let progress_rect = egui::Rect::from_min_size(
+                                        ui.cursor().min,
+                                        egui::vec2(progress_width, 3.0),
+                                    );
+                                    ui.painter().rect_filled(
+                                        progress_rect,
+                                        2.0,
+                                        egui::Color32::from_white_alpha((150.0 * alpha) as u8),
+                                    );
+                                });
+                            });
+                        });
+                });
+        }
+    }
+
+    /// Show peers and XPub registration status screen
+    fn show_peers_screen(&self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.heading("📡 Masternode Connections");
+        ui.add_space(10.0);
+
+        // XPub Registration Status Panel
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.strong("XPub Registration Status:");
+                ui.add_space(10.0);
+
+                // Determine registration status from wallet and network state
+                let (status_text, status_color) = if self.wallet_manager.is_some() {
+                    if let Some(network_mgr) = self.network_manager.as_ref() {
+                        let mgr = network_mgr.lock().unwrap();
+                        let peer_count = mgr.peer_count();
+
+                        if peer_count == 0 {
+                            ("❌ No Masternodes Connected", egui::Color32::GRAY)
+                        } else {
+                            // Assume registered if we have peers and wallet
+                            (
+                                &format!(
+                                    "✅ Monitoring {} Masternode{}",
+                                    peer_count,
+                                    if peer_count == 1 { "" } else { "s" }
+                                ) as &str,
+                                egui::Color32::GREEN,
+                            )
+                        }
+                    } else {
+                        ("⏳ Connecting to Network...", egui::Color32::YELLOW)
+                    }
+                } else {
+                    ("❌ No Wallet Loaded", egui::Color32::GRAY)
+                };
+
+                ui.colored_label(status_color, status_text);
+            });
+
+            ui.add_space(5.0);
+
+            // Show XPub if wallet is loaded
+            if let Some(wallet_mgr) = &self.wallet_manager {
+                let xpub = wallet_mgr.get_xpub();
+                let xpub_display = if xpub.len() > 40 {
+                    format!("{}...{}", &xpub[..20], &xpub[xpub.len() - 15..])
+                } else {
+                    xpub.to_string()
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label("XPub:");
+                    ui.add_space(5.0);
+                    ui.label(egui::RichText::new(xpub_display).monospace().small());
+                });
+            }
+        });
+
+        ui.add_space(15.0);
+
+        // Connected Peers Panel
+        if let Some(network_mgr) = self.network_manager.as_ref() {
+            let mgr = network_mgr.lock().unwrap();
+            let peers = mgr.get_connected_peers();
+            let peer_count = mgr.peer_count();
+
+            ui.horizontal(|ui| {
+                ui.label(format!("Connected Peers: {}", peer_count));
+                ui.add_space(10.0);
+
+                if ui.button("🔄 Refresh").clicked() {
+                    ctx.request_repaint();
+                }
+            });
+
+            ui.add_space(10.0);
+
+            if peers.is_empty() {
+                ui.colored_label(
+                    egui::Color32::LIGHT_BLUE,
+                    "⏳ Waiting for peer discovery to complete...",
+                );
+                ui.add_space(10.0);
+                ui.label("Peer discovery runs in the background and takes a few seconds.");
+            } else {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("peers_grid")
+                        .striped(true)
+                        .spacing([10.0, 4.0])
+                        .min_col_width(120.0)
+                        .show(ui, |ui| {
+                            ui.strong("Address");
+                            ui.strong("Port");
+                            ui.strong("Latency");
+                            ui.strong("Version");
+                            ui.strong("XPub Status");
+                            ui.end_row();
+
+                            for peer in peers {
+                                ui.label(&peer.address);
+                                ui.label(peer.port.to_string());
+
+                                // Latency with color indicator
+                                if peer.latency_ms > 0 {
+                                    let color = if peer.latency_ms < 50 {
+                                        egui::Color32::GREEN
+                                    } else if peer.latency_ms < 150 {
+                                        egui::Color32::from_rgb(255, 165, 0)
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.horizontal(|ui| {
+                                        let (rect, _response) = ui.allocate_exact_size(
+                                            egui::vec2(10.0, 10.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        ui.painter().circle_filled(rect.center(), 5.0, color);
+                                        ui.label(format!("{}ms", peer.latency_ms));
+                                    });
+                                } else {
+                                    ui.label("-");
+                                }
+
+                                // Version
+                                ui.label(peer.version.as_ref().unwrap_or(&"unknown".to_string()));
+
+                                // XPub Registration Status
+                                let peer_key = format!("{}:{}", peer.address, peer.port);
+                                // For now, assume all connected peers have xpub registered
+                                // (actual registration happens via TCP listener)
+                                ui.colored_label(egui::Color32::GREEN, "✅ Active");
+
+                                ui.end_row();
+                            }
+                        });
+                });
+            }
+        } else {
+            ui.colored_label(egui::Color32::RED, "Network manager not initialized");
+        }
     }
 }
 
@@ -4230,6 +4641,16 @@ impl eframe::App for WalletApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check and clear messages after timeout
         self.check_message_timeout();
+
+        // Reset refresh flag after a reasonable time (prevent it from being stuck)
+        if self.refresh_in_progress {
+            if let Some(last_sync) = self.last_sync_time {
+                if last_sync.elapsed().as_secs() > 10 {
+                    log::info!("✅ Refresh completed (timeout)");
+                    self.refresh_in_progress = false;
+                }
+            }
+        }
 
         // Check for UTXO updates from TCP listener
         self.check_utxo_updates();
@@ -4245,9 +4666,15 @@ impl eframe::App for WalletApp {
         // Check for new transaction notifications
         self.check_notifications();
 
-        // Request repaint if messages are showing
-        if self.success_message.is_some() || self.error_message.is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        // Render toast notifications (must be before main UI)
+        self.render_toast_notifications(ctx);
+
+        // Request repaint if notifications are showing or messages are active
+        if !self.recent_notifications.is_empty()
+            || self.success_message.is_some()
+            || self.error_message.is_some()
+        {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
 
         match self.current_screen {

@@ -182,7 +182,7 @@ impl UtxoManager {
         let action = None;
 
         for utxo in utxos {
-            let utxo_id = format!("{}:{}", hex::encode(&utxo.tx_hash), utxo.output_index);
+            let utxo_id = format!("{}:{}", hex::encode(utxo.tx_hash), utxo.output_index);
             let is_selected = self.selected_utxos.get(&utxo_id).copied().unwrap_or(false);
 
             ui.horizontal(|ui| {
@@ -195,8 +195,8 @@ impl UtxoManager {
                 ui.separator();
                 ui.label(format!(
                     "{}...{}",
-                    &hex::encode(&utxo.tx_hash)[..8],
-                    &hex::encode(&utxo.tx_hash)[56..]
+                    &hex::encode(utxo.tx_hash)[..8],
+                    &hex::encode(utxo.tx_hash)[56..]
                 ));
                 ui.label(format!(":{}", utxo.output_index));
             });
