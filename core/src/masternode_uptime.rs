@@ -16,11 +16,11 @@ use std::collections::{HashMap, HashSet};
 pub struct MasternodeUptimeTracker {
     /// Map of masternode address -> timestamp when it joined
     join_times: HashMap<String, DateTime<Utc>>,
-    
+
     /// Set of masternodes that were online for the previous block
     /// These are the ones eligible for rewards in the current block
     eligible_for_current_block: HashSet<String>,
-    
+
     /// Timestamp when the previous block was created
     previous_block_time: DateTime<Utc>,
 }
@@ -49,9 +49,9 @@ impl MasternodeUptimeTracker {
             address,
             join_time.format("%Y-%m-%d %H:%M:%S UTC")
         );
-        
+
         self.join_times.insert(address.clone(), join_time);
-        
+
         // If this masternode joined after the previous block, it's NOT eligible yet
         if join_time > self.previous_block_time {
             log::info!(
@@ -60,10 +60,7 @@ impl MasternodeUptimeTracker {
             );
         } else {
             // This is a restart or rejoin - check if it was online for the previous block
-            log::info!(
-                "🔄 Masternode {} rejoined - checking eligibility",
-                address
-            );
+            log::info!("🔄 Masternode {} rejoined - checking eligibility", address);
         }
     }
 
@@ -127,7 +124,8 @@ impl MasternodeUptimeTracker {
         }
 
         // Remove masternodes that went offline
-        self.join_times.retain(|addr, _| current_online.contains(addr));
+        self.join_times
+            .retain(|addr, _| current_online.contains(addr));
 
         log::info!(
             "   ✅ Eligible for current block: {} masternodes",
@@ -166,14 +164,14 @@ impl MasternodeUptimeTracker {
     /// eligible for the first block.
     pub fn bootstrap_genesis(&mut self, genesis_time: DateTime<Utc>, masternodes: &[String]) {
         log::info!("🌱 Bootstrapping genesis masternodes");
-        
+
         self.previous_block_time = genesis_time;
-        
+
         for address in masternodes {
             self.join_times.insert(address.clone(), genesis_time);
             self.eligible_for_current_block.insert(address.clone());
         }
-        
+
         log::info!(
             "   ✅ {} masternodes eligible for first block",
             self.eligible_for_current_block.len()
@@ -196,15 +194,15 @@ mod tests {
     fn test_new_masternode_not_eligible_immediately() {
         let mut tracker = MasternodeUptimeTracker::new();
         let block_time = Utc::now();
-        
+
         // Masternode joins
         let mn1 = "masternode1".to_string();
         tracker.register_masternode(mn1.clone(), block_time);
-        
+
         // Finalize block - masternode joined after previous block, so NOT eligible
         let current_online = [mn1.clone()].iter().cloned().collect();
         let eligible = tracker.finalize_block(block_time, &current_online);
-        
+
         assert_eq!(eligible.len(), 0); // Not eligible for current block
         assert_eq!(tracker.eligible_count(), 1); // But eligible for next block
     }
@@ -214,16 +212,16 @@ mod tests {
         let mut tracker = MasternodeUptimeTracker::new();
         let block1_time = Utc::now();
         let block2_time = block1_time + Duration::minutes(10);
-        
+
         // Masternode joins at block 1
         let mn1 = "masternode1".to_string();
         tracker.register_masternode(mn1.clone(), block1_time);
-        
+
         // Finalize block 1
         let current_online = [mn1.clone()].iter().cloned().collect();
         let eligible_block1 = tracker.finalize_block(block1_time, &current_online);
         assert_eq!(eligible_block1.len(), 0); // Not eligible for block 1
-        
+
         // Finalize block 2
         let eligible_block2 = tracker.finalize_block(block2_time, &current_online);
         assert_eq!(eligible_block2.len(), 1); // NOW eligible for block 2
@@ -234,24 +232,24 @@ mod tests {
     fn test_masternode_goes_offline() {
         let mut tracker = MasternodeUptimeTracker::new();
         let genesis = Utc::now();
-        
+
         // Bootstrap with two masternodes
         let mn1 = "masternode1".to_string();
         let mn2 = "masternode2".to_string();
         tracker.bootstrap_genesis(genesis, &[mn1.clone(), mn2.clone()]);
-        
+
         assert_eq!(tracker.eligible_count(), 2);
-        
+
         // MN2 goes offline
         tracker.remove_masternode(&mn2);
-        
+
         // Finalize block - only MN1 is online
         let current_online = [mn1.clone()].iter().cloned().collect();
         let eligible = tracker.finalize_block(genesis + Duration::minutes(10), &current_online);
-        
+
         // Both were eligible for current block (because both were online at start)
         assert_eq!(eligible.len(), 2);
-        
+
         // But only MN1 is eligible for next block
         assert_eq!(tracker.eligible_count(), 1);
         assert!(tracker.is_eligible(&mn1));
@@ -264,27 +262,27 @@ mod tests {
         let genesis = Utc::now();
         let block1 = genesis + Duration::minutes(10);
         let block2 = genesis + Duration::minutes(20);
-        
+
         // Bootstrap with one masternode
         let mn1 = "masternode1".to_string();
         tracker.bootstrap_genesis(genesis, &[mn1.clone()]);
-        
+
         // Block 1: MN1 is online
         let current_online = [mn1.clone()].iter().cloned().collect();
         tracker.finalize_block(block1, &current_online);
         assert_eq!(tracker.eligible_count(), 1);
-        
+
         // MN1 goes offline
         tracker.remove_masternode(&mn1);
-        
+
         // Block 2: MN1 rejoins
         tracker.register_masternode(mn1.clone(), block2);
         let current_online = [mn1.clone()].iter().cloned().collect();
         let eligible = tracker.finalize_block(block2, &current_online);
-        
+
         // MN1 not eligible for block 2 (joined after previous block)
         assert_eq!(eligible.len(), 0);
-        
+
         // But will be eligible for block 3
         assert_eq!(tracker.eligible_count(), 1);
     }
@@ -293,15 +291,11 @@ mod tests {
     fn test_bootstrap_genesis() {
         let mut tracker = MasternodeUptimeTracker::new();
         let genesis = Utc::now();
-        
-        let masternodes = vec![
-            "mn1".to_string(),
-            "mn2".to_string(),
-            "mn3".to_string(),
-        ];
-        
+
+        let masternodes = vec!["mn1".to_string(), "mn2".to_string(), "mn3".to_string()];
+
         tracker.bootstrap_genesis(genesis, &masternodes);
-        
+
         assert_eq!(tracker.eligible_count(), 3);
         assert!(tracker.is_eligible("mn1"));
         assert!(tracker.is_eligible("mn2"));

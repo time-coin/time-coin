@@ -2513,6 +2513,36 @@ async fn main() {
         }
     );
 
+    // Initialize Masternode Uptime Tracker
+    println!("🕐 Initializing Masternode Uptime Tracker...");
+    let uptime_tracker = Arc::new(RwLock::new(time_core::MasternodeUptimeTracker::new()));
+
+    // Bootstrap with current masternodes
+    {
+        let masternodes = consensus.get_masternodes().await;
+        let mut tracker = uptime_tracker.write().await;
+        let blockchain_state = blockchain.read().await;
+
+        // Get latest block timestamp for bootstrap
+        let genesis_time = {
+            let chain_tip_height = blockchain_state.chain_tip_height();
+            if chain_tip_height > 0 {
+                if let Some(block) = blockchain_state.get_block_by_height(chain_tip_height) {
+                    block.header.timestamp
+                } else {
+                    chrono::Utc::now()
+                }
+            } else {
+                chrono::Utc::now()
+            }
+        };
+        drop(blockchain_state);
+
+        // Get masternode addresses (masternodes is Vec<String> of IPs)
+        tracker.bootstrap_genesis(genesis_time, &masternodes);
+        println!("   ✅ Bootstrapped with {} masternodes", masternodes.len());
+    }
+
     let block_producer = BlockProducer::with_shared_state(
         node_id.clone(),
         peer_manager.clone(),
@@ -2524,6 +2554,7 @@ async fn main() {
         block_producer_active_state,
         allow_block_recreation,
         quarantine.clone(),
+        uptime_tracker.clone(),
     );
 
     tokio::spawn(async move {

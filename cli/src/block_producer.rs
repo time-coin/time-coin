@@ -40,6 +40,7 @@ pub struct BlockProducer {
     is_active: Arc<RwLock<bool>>,
     allow_block_recreation: bool,
     quarantine: Arc<time_network::PeerQuarantine>,
+    uptime_tracker: Arc<RwLock<time_core::MasternodeUptimeTracker>>,
 }
 
 impl BlockProducer {
@@ -55,6 +56,7 @@ impl BlockProducer {
         is_active: Arc<RwLock<bool>>,
         allow_block_recreation: bool,
         quarantine: Arc<time_network::PeerQuarantine>,
+        uptime_tracker: Arc<RwLock<time_core::MasternodeUptimeTracker>>,
     ) -> Self {
         BlockProducer {
             node_id,
@@ -66,6 +68,7 @@ impl BlockProducer {
             is_active,
             allow_block_recreation,
             quarantine,
+            uptime_tracker,
         }
     }
 
@@ -217,6 +220,7 @@ impl BlockProducer {
             is_active: self.is_active.clone(),
             allow_block_recreation: self.allow_block_recreation,
             quarantine: self.quarantine.clone(),
+            uptime_tracker: self.uptime_tracker.clone(),
         };
 
         tokio::spawn(async move {
@@ -1004,16 +1008,38 @@ impl BlockProducer {
         let blockchain = self.blockchain.read().await;
         let previous_hash = blockchain.chain_tip_hash().to_string();
         let masternode_counts = blockchain.masternode_counts().clone();
-        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+        let all_active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
             .get_active_masternodes()
             .iter()
             .map(|mn| (mn.wallet_address.clone(), mn.tier))
             .collect();
         drop(blockchain);
 
+        // Get eligible masternodes for rewards (must have been online for full block period)
+        let mut uptime_tracker = self.uptime_tracker.write().await;
+        let current_online_addresses: std::collections::HashSet<String> = all_active_masternodes
+            .iter()
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        let eligible_addresses =
+            uptime_tracker.finalize_block(timestamp, &current_online_addresses);
+        drop(uptime_tracker);
+
+        // Filter active masternodes to only include eligible ones
+        let eligible_masternodes: Vec<(String, time_core::MasternodeTier)> = all_active_masternodes
+            .into_iter()
+            .filter(|(addr, _)| eligible_addresses.contains(addr))
+            .collect();
+
+        println!(
+            "   🎁 Rewards: {} eligible / {} online masternodes",
+            eligible_masternodes.len(),
+            current_online_addresses.len()
+        );
+
         let coinbase_tx = time_core::block::create_coinbase_transaction(
             block_num,
-            &active_masternodes,
+            &eligible_masternodes,
             &masternode_counts,
             total_fees,
             timestamp.timestamp(),
@@ -1880,6 +1906,28 @@ impl BlockProducer {
 
         drop(blockchain);
 
+        // Get eligible masternodes for rewards (must have been online for full block period)
+        let mut uptime_tracker = self.uptime_tracker.write().await;
+        let current_online_addresses: std::collections::HashSet<String> = active_masternodes
+            .iter()
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        let eligible_addresses =
+            uptime_tracker.finalize_block(timestamp, &current_online_addresses);
+        drop(uptime_tracker);
+
+        // Filter active masternodes to only include eligible ones
+        let eligible_masternodes: Vec<(String, time_core::MasternodeTier)> = active_masternodes
+            .into_iter()
+            .filter(|(addr, _)| eligible_addresses.contains(addr))
+            .collect();
+
+        println!(
+            "      🎁 Catchup rewards: {} eligible / {} online masternodes",
+            eligible_masternodes.len(),
+            current_online_addresses.len()
+        );
+
         // Get pending transactions from mempool
         // For catch-up blocks (past dates), only include transactions from before that block's time
         // For current/future blocks, include all pending transactions
@@ -1898,10 +1946,7 @@ impl BlockProducer {
             all_mempool_txs
         };
 
-        println!(
-            "      💰 Catch-up block will reward all {} active masternodes",
-            active_masternodes.len()
-        );
+        println!("      💰 Catch-up block will reward eligible masternodes");
         println!(
             "      🔍 Using {} registered masternodes for consensus",
             all_masternodes.len()
@@ -1921,7 +1966,7 @@ impl BlockProducer {
 
         let coinbase_tx = create_coinbase_transaction(
             block_num,
-            &active_masternodes,
+            &eligible_masternodes,
             &masternode_counts,
             0,
             timestamp.timestamp(), // Use block timestamp for determinism
@@ -2120,14 +2165,31 @@ impl BlockProducer {
 
         let my_id = self.get_node_id();
 
+        // Get eligible masternodes for rewards (must have been online for full block period)
+        let mut uptime_tracker = self.uptime_tracker.write().await;
+        let current_online_addresses: std::collections::HashSet<String> = all_masternodes
+            .iter()
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        let eligible_addresses =
+            uptime_tracker.finalize_block(timestamp, &current_online_addresses);
+        drop(uptime_tracker);
+
+        // Filter active masternodes to only include eligible ones
+        let eligible_masternodes: Vec<(String, time_core::MasternodeTier)> = all_masternodes
+            .into_iter()
+            .filter(|(addr, _)| eligible_addresses.contains(addr))
+            .collect();
+
         println!(
-            "      💰 Distributing rewards to {} registered masternodes",
-            all_masternodes.len()
+            "      💰 Distributing rewards to {} eligible / {} online masternodes",
+            eligible_masternodes.len(),
+            current_online_addresses.len()
         );
 
         let coinbase_tx = time_core::block::create_coinbase_transaction(
             block_num,
-            &all_masternodes,
+            &eligible_masternodes,
             &masternode_counts,
             0,
             timestamp.timestamp(),
