@@ -45,9 +45,10 @@ impl VDFConfig {
             min_block_time_seconds: 0,
         }
     }
+}
 
-    /// Default configuration (uses testnet settings)
-    pub fn default() -> Self {
+impl Default for VDFConfig {
+    fn default() -> Self {
         Self::testnet()
     }
 }

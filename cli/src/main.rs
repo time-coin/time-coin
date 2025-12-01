@@ -904,10 +904,7 @@ async fn main() {
                     time_core::db::BlockchainDB::open(&db_path).expect("Failed to open database");
 
                 // Check specifically for genesis block (height 0), not just any blocks
-                let has_genesis = match db.load_block(0) {
-                    Ok(Some(_)) => true,
-                    _ => false,
-                };
+                let has_genesis = matches!(db.load_block(0), Ok(Some(_)));
 
                 println!(
                     "{}",

@@ -9,19 +9,21 @@ mode = "production"
 # Path to genesis block JSON file (only used if load_genesis_from_file is true)
 genesis_file = "/root/time-coin-node/config/genesis-testnet.json"
 
-# Allow loading genesis from file (DANGEROUS - only enable during initial network setup)
-# When false (default): Genesis must be downloaded from peers
+# Allow loading genesis from file during testnet reset
+# When false: Genesis must be downloaded from peers (production mode)
 # When true: Will load genesis from genesis_file if blockchain is empty
-# WARNING: Set to false in production to prevent nodes from starting independent chains
-load_genesis_from_file = false
+# NOTE: Set to true during testnet migration to new PoT genesis
+# TODO: Set to false after all nodes have migrated
+load_genesis_from_file = true
 
 data_dir = "./data"
 
-# Allow creating missing historical blocks via consensus if download fails
-# When false (default): Only download blocks from peers, never recreate
+# Allow creating missing historical blocks via consensus during testnet reset
+# When false: Only download blocks from peers, never recreate (production mode)
 # When true: Create missing blocks via BFT consensus if peers don't have them
-# WARNING: Only enable this during initial network setup or recovery
-allow_block_recreation = false
+# NOTE: Enabled during testnet migration to help network recover
+# TODO: Set to false after network is stable
+allow_block_recreation = true
 
 [network]
 listen_addr = "0.0.0.0:24100"
