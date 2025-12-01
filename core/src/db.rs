@@ -108,7 +108,7 @@ impl BlockchainDB {
                     Err(e1) => {
                         // Fall back to old format and migrate
                         eprintln!(
-                            "   ⚠️  Block {} uses old format (new format error: {}), migrating...",
+                            "   ⚠️  Block {} uses old format (new format error: {:?}), migrating...",
                             height, e1
                         );
                         match bincode::deserialize::<BlockV1>(&data) {
