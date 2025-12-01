@@ -3463,7 +3463,12 @@ impl WalletApp {
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async move {
+            
+            // Wrap entire async block in timeout
+            let result = rt.block_on(async move {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    async move {
                 let peers = {
                     let net = network_mgr.lock().unwrap();
                     net.get_connected_peers()
@@ -3590,7 +3595,14 @@ impl WalletApp {
                 }
 
                 log::warn!("❌ Failed to check mempool from any peer");
+                    }
+                ).await
             });
+            
+            match result {
+                Ok(_) => log::info!("✅ Mempool check completed"),
+                Err(_) => log::warn!("⏱️ Mempool check timed out after 10 seconds")
+            }
         });
     }
 

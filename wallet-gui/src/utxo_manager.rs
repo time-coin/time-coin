@@ -179,7 +179,7 @@ impl UtxoManager {
             return None;
         }
 
-        let mut action = None;
+        let action = None;
 
         for utxo in utxos {
             let utxo_id = format!("{}:{}", hex::encode(&utxo.tx_hash), utxo.output_index);
