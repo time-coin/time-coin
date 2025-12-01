@@ -46,6 +46,18 @@ pub struct UTXO {
     pub address: String,
 }
 
+/// Statistics about UTXO consolidation status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsolidationStats {
+    pub total_utxos: usize,
+    pub dust_utxos: usize,
+    pub small_utxos: usize,
+    pub large_utxos: usize,
+    pub total_value: u64,
+    pub dust_value: u64,
+    pub needs_consolidation: bool,
+}
+
 /// Wallet structure - represents active wallet state in memory
 /// Physical storage is handled by:
 /// - time-wallet.dat (via WalletDat) - cryptographic keys only
@@ -251,6 +263,134 @@ impl Wallet {
     /// Get all UTXOs
     pub fn utxos(&self) -> &[UTXO] {
         &self.utxos
+    }
+
+    /// Get UTXO count
+    pub fn utxo_count(&self) -> usize {
+        self.utxos.len()
+    }
+
+    /// Check if wallet needs consolidation (has many small UTXOs)
+    pub fn needs_consolidation(&self) -> bool {
+        // Recommend consolidation if:
+        // - More than 50 UTXOs total, OR
+        // - More than 20% of UTXOs are "dust" (< 1 TIME)
+        if self.utxos.len() > 50 {
+            return true;
+        }
+
+        let dust_threshold = 1_000_000_000; // 1 TIME in satoshis
+        let dust_count = self
+            .utxos
+            .iter()
+            .filter(|u| u.amount < dust_threshold)
+            .count();
+        dust_count > self.utxos.len() / 5 // > 20% dust
+    }
+
+    /// Create a UTXO consolidation transaction
+    /// Combines multiple UTXOs into a single UTXO to improve transaction efficiency
+    ///
+    /// # Arguments
+    /// * `max_utxos` - Maximum number of UTXOs to consolidate in one transaction (default: 100)
+    /// * `fee` - Transaction fee
+    ///
+    /// Returns consolidated transaction or None if consolidation not beneficial
+    pub fn create_consolidation_transaction(
+        &mut self,
+        max_utxos: Option<usize>,
+        fee: u64,
+    ) -> Result<Option<Transaction>, WalletError> {
+        let max = max_utxos.unwrap_or(100);
+
+        // Only consolidate if we have more than 10 UTXOs
+        if self.utxos.len() <= 10 {
+            return Ok(None);
+        }
+
+        // Select UTXOs to consolidate (up to max_utxos)
+        let utxos_to_consolidate: Vec<UTXO> = self
+            .utxos
+            .iter()
+            .take(max.min(self.utxos.len()))
+            .cloned()
+            .collect();
+
+        if utxos_to_consolidate.is_empty() {
+            return Ok(None);
+        }
+
+        // Calculate total amount
+        let total_amount: u64 = utxos_to_consolidate.iter().map(|u| u.amount).sum();
+
+        if total_amount <= fee {
+            return Ok(None); // Not worth consolidating
+        }
+
+        // Create transaction
+        let mut tx = Transaction::new();
+        tx.set_nonce(self.nonce);
+
+        // Add all selected UTXOs as inputs
+        for utxo in &utxos_to_consolidate {
+            let input = TxInput::new(utxo.tx_hash, utxo.output_index);
+            tx.add_input(input);
+        }
+
+        // Single output back to ourselves (minus fee)
+        let output_amount = total_amount - fee;
+        let output = TxOutput::new(output_amount, self.address.clone());
+        tx.add_output(output)?;
+
+        // Sign the transaction
+        tx.sign_all(&self.keypair)?;
+
+        // Remove spent UTXOs immediately
+        for utxo in &utxos_to_consolidate {
+            self.remove_utxo(&utxo.tx_hash, utxo.output_index);
+        }
+
+        // Update nonce
+        self.increment_nonce();
+
+        Ok(Some(tx))
+    }
+
+    /// Get consolidation statistics
+    pub fn consolidation_stats(&self) -> ConsolidationStats {
+        let dust_threshold = 1_000_000_000; // 1 TIME
+        let small_threshold = 10_000_000_000; // 10 TIME
+
+        let total_utxos = self.utxos.len();
+        let dust_utxos = self
+            .utxos
+            .iter()
+            .filter(|u| u.amount < dust_threshold)
+            .count();
+        let small_utxos = self
+            .utxos
+            .iter()
+            .filter(|u| u.amount >= dust_threshold && u.amount < small_threshold)
+            .count();
+        let large_utxos = total_utxos - dust_utxos - small_utxos;
+
+        let total_value: u64 = self.utxos.iter().map(|u| u.amount).sum();
+        let dust_value: u64 = self
+            .utxos
+            .iter()
+            .filter(|u| u.amount < dust_threshold)
+            .map(|u| u.amount)
+            .sum();
+
+        ConsolidationStats {
+            total_utxos,
+            dust_utxos,
+            small_utxos,
+            large_utxos,
+            total_value,
+            dust_value,
+            needs_consolidation: self.needs_consolidation(),
+        }
     }
 
     /// Derive a keypair at the given index (for HD wallets)

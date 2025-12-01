@@ -223,6 +223,40 @@ enum WalletCommands {
         db_path: PathBuf,
     },
 
+    /// Show UTXO consolidation statistics
+    UtxoStats {
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
+
+        /// Database path
+        #[arg(long, default_value = "/var/lib/time-coin/wallets")]
+        db_path: PathBuf,
+    },
+
+    /// Consolidate UTXOs into fewer outputs
+    ConsolidateUtxos {
+        /// Wallet address (optional, defaults to node wallet)
+        #[arg(short, long)]
+        address: Option<String>,
+
+        /// Maximum number of UTXOs to consolidate in one transaction
+        #[arg(long, default_value = "100")]
+        max_utxos: usize,
+
+        /// Transaction fee in TIME
+        #[arg(long, default_value = "0.001")]
+        fee: f64,
+
+        /// Database path
+        #[arg(long, default_value = "/var/lib/time-coin/wallets")]
+        db_path: PathBuf,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+
     /// Lock collateral for masternode tier (defaults to node wallet)
     LockCollateral {
         /// Wallet address (optional, defaults to node wallet)
@@ -1670,6 +1704,237 @@ async fn handle_wallet_command(
                     );
                 } else {
                     println!("Error fetching UTXOs for {}: {}", addr, error);
+                }
+            }
+        }
+
+        WalletCommands::UtxoStats {
+            address,
+            db_path: _,
+        } => {
+            let client = reqwest::Client::new();
+
+            let addr = if let Some(a) = address {
+                a
+            } else {
+                // Get node wallet address from API
+                let response = client
+                    .get(format!("{}/blockchain/info", api))
+                    .send()
+                    .await?;
+
+                if response.status().is_success() {
+                    let info: serde_json::Value = response.json().await?;
+                    info["wallet_address"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            };
+
+            // Get UTXO stats from API
+            let response = client
+                .get(format!("{}/utxos/{}/stats", api, addr))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let stats: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&stats)?);
+                } else {
+                    println!("\n📊 UTXO Statistics for {}\n", addr);
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                    let total_utxos = stats["total_utxos"].as_u64().unwrap_or(0);
+                    let dust_utxos = stats["dust_utxos"].as_u64().unwrap_or(0);
+                    let small_utxos = stats["small_utxos"].as_u64().unwrap_or(0);
+                    let large_utxos = stats["large_utxos"].as_u64().unwrap_or(0);
+                    let total_value = stats["total_value"].as_u64().unwrap_or(0);
+                    let dust_value = stats["dust_value"].as_u64().unwrap_or(0);
+                    let needs_consolidation =
+                        stats["needs_consolidation"].as_bool().unwrap_or(false);
+
+                    println!("Total UTXOs:     {}", total_utxos);
+                    println!(
+                        "  Dust (<1 TIME):  {} ({:.2}%)",
+                        dust_utxos,
+                        if total_utxos > 0 {
+                            (dust_utxos as f64 / total_utxos as f64) * 100.0
+                        } else {
+                            0.0
+                        }
+                    );
+                    println!("  Small (1-10):    {}", small_utxos);
+                    println!("  Large (>10):     {}", large_utxos);
+                    println!();
+                    println!(
+                        "Total Value:     {:.8} TIME",
+                        total_value as f64 / 100_000_000.0
+                    );
+                    println!(
+                        "Dust Value:      {:.8} TIME",
+                        dust_value as f64 / 100_000_000.0
+                    );
+                    println!();
+
+                    if needs_consolidation {
+                        println!("⚠️  Consolidation recommended");
+                        println!("   Run: time-cli wallet consolidate-utxos");
+                    } else {
+                        println!("✓ UTXOs are well-organized");
+                    }
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "address": addr,
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("Error fetching UTXO stats for {}: {}", addr, error);
+                }
+            }
+        }
+
+        WalletCommands::ConsolidateUtxos {
+            address,
+            max_utxos,
+            fee,
+            db_path: _,
+            yes,
+        } => {
+            let client = reqwest::Client::new();
+
+            let addr = if let Some(a) = address {
+                a
+            } else {
+                // Get node wallet address from API
+                let response = client
+                    .get(format!("{}/blockchain/info", api))
+                    .send()
+                    .await?;
+
+                if response.status().is_success() {
+                    let info: serde_json::Value = response.json().await?;
+                    info["wallet_address"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            };
+
+            // Get UTXO stats first
+            let stats_response = client
+                .get(format!("{}/utxos/{}/stats", api, addr))
+                .send()
+                .await?;
+
+            if !stats_response.status().is_success() {
+                let error = stats_response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("Error: {}", error);
+                }
+                return Ok(());
+            }
+
+            let stats: serde_json::Value = stats_response.json().await?;
+            let total_utxos = stats["total_utxos"].as_u64().unwrap_or(0);
+
+            if total_utxos <= 10 {
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "message": "No consolidation needed",
+                            "utxo_count": total_utxos
+                        }))?
+                    );
+                } else {
+                    println!("✓ No consolidation needed ({} UTXOs)", total_utxos);
+                }
+                return Ok(());
+            }
+
+            // Confirmation prompt unless --yes flag
+            if !yes && !json_output {
+                println!("\n⚠️  UTXO Consolidation");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("Address:      {}", addr);
+                println!("Current UTXOs: {}", total_utxos);
+                println!("Max to consolidate: {}", max_utxos);
+                println!("Fee:          {} TIME", fee);
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!(
+                    "\nThis will create a transaction combining up to {} UTXOs.",
+                    max_utxos
+                );
+                print!("\nProceed? (y/N): ");
+                use std::io::{self, Write};
+                io::stdout().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+            }
+
+            // Send consolidation request
+            let response = client
+                .post(format!("{}/wallet/consolidate", api))
+                .json(&json!({
+                    "address": addr,
+                    "max_utxos": max_utxos,
+                    "fee": (fee * 100_000_000.0) as u64
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("\n✓ Consolidation transaction created");
+                    if let Some(txid) = result.get("txid") {
+                        println!("TxID: {}", txid);
+                    }
+                    if let Some(utxos_consolidated) = result.get("utxos_consolidated") {
+                        println!("UTXOs consolidated: {}", utxos_consolidated);
+                    }
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("✗ Consolidation failed: {}", error);
                 }
             }
         }
