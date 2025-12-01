@@ -83,7 +83,14 @@ impl BlockchainDB {
             Ok(Some(data)) => {
                 // Try to deserialize with new format first
                 match bincode::deserialize::<Block>(&data) {
-                    Ok(block) => Ok(Some(block)),
+                    Ok(block) => {
+                        eprintln!(
+                            "   ✅ Block {} loaded with {} transactions",
+                            height,
+                            block.transactions.len()
+                        );
+                        Ok(Some(block))
+                    }
                     Err(e1) => {
                         // Fall back to old format and migrate
                         eprintln!(
@@ -92,6 +99,10 @@ impl BlockchainDB {
                         );
                         match bincode::deserialize::<BlockV1>(&data) {
                             Ok(old_block) => {
+                                eprintln!(
+                                    "   📦 Old block has {} transactions",
+                                    old_block.transactions.len()
+                                );
                                 // Convert old format to new format
                                 let new_block = Block {
                                     header: BlockHeader {
@@ -109,6 +120,10 @@ impl BlockchainDB {
                                     hash: old_block.hash,
                                 };
 
+                                eprintln!(
+                                    "   📦 New block has {} transactions",
+                                    new_block.transactions.len()
+                                );
                                 // Save migrated block back to disk
                                 self.save_block(&new_block)?;
                                 eprintln!("   ✅ Block {} migrated to new format", height);
