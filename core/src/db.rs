@@ -120,12 +120,19 @@ impl BlockchainDB {
                                 eprintln!("      Old format error: {}", e2);
                                 eprintln!("      Block data size: {} bytes", data.len());
 
-                                // Instead of failing, skip this corrupted block
-                                // and let the node re-sync it from peers
+                                // Delete the corrupted block so it can be re-synced
                                 eprintln!(
-                                    "   ⚠️  Skipping corrupted block {} - will re-sync from peers",
+                                    "   ⚠️  Deleting corrupted block {} - will re-sync from peers",
                                     height
                                 );
+
+                                if let Err(del_err) = self.db.remove(key.as_bytes()) {
+                                    eprintln!(
+                                        "   ⚠️  Failed to delete corrupted block {}: {}",
+                                        height, del_err
+                                    );
+                                }
+
                                 Ok(None)
                             }
                         }
