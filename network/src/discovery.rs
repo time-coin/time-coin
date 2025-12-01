@@ -10,7 +10,7 @@ use crate::peer_info::PeerInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum NetworkType {
@@ -371,7 +371,6 @@ impl PeerDiscovery {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

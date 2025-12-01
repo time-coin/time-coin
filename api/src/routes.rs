@@ -47,7 +47,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/network/quarantine", get(get_quarantined_peers))
         .route("/network/quarantine/release", post(release_peer))
         .route("/network/quarantine/stats", get(get_quarantine_stats))
-        // Network peers endpoint (and alias for dashboard compatibility)
+        // Network peers endpoint
         .route("/network/peers", get(get_peers))
         // Catch-up coordination endpoint
         .route("/network/catch-up-request", post(handle_catch_up_request))
@@ -58,7 +58,6 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/blockchain/block/{height}", get(get_block_by_height))
         .route("/balance/{address}", get(get_balance))
         .route("/utxos/{address}", get(get_utxos_by_address))
-        .route("/peers", get(get_peers))
         .route("/peers/discovered", post(handle_peer_discovered))
         .route("/genesis", get(get_genesis))
         .route("/snapshot", get(get_snapshot))
