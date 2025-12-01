@@ -14,8 +14,10 @@ mod bft_consensus;
 mod block_producer;
 mod chain_sync;
 mod deterministic_consensus;
+mod fast_sync;
 use block_producer::BlockProducer;
 use chain_sync::ChainSync;
+use fast_sync::FastSync;
 
 use std::path::PathBuf;
 
@@ -1120,43 +1122,61 @@ async fn main() {
         }
     }
 
-    // Run initial sync
-    // Check for forks first
-    println!("{}", "🔍 Checking for blockchain forks...".cyan());
-    if let Err(e) = chain_sync.detect_and_resolve_forks().await {
-        println!("   {} Fork detection failed: {}", "⚠️".yellow(), e);
-    }
+    // Run initial sync with LIGHTNING FAST sync
+    // Try fast sync first, fall back to regular sync if needed
+    println!("{}", "⚡ Attempting lightning-fast sync...".cyan());
 
-    println!("{}", "🔄 Syncing blockchain with network...".cyan());
-    match chain_sync.sync_from_peers().await {
+    let fast_sync = FastSync::new(blockchain.clone(), peer_manager.clone());
+
+    match fast_sync.lightning_sync().await {
         Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
-        Ok(n) => println!("   {} Synced {} blocks", "✓".green(), n),
+        Ok(n) => println!("   {} ⚡ Lightning synced {} blocks", "✓".green(), n),
         Err(e) => {
-            // Check if this is a fork-related error
-            if e.contains("Fork detected") {
-                println!("   {} {}", "⚠️".yellow(), e);
-                println!("   {} Re-running fork resolution...", "🔄".yellow());
-                if let Err(fork_err) = chain_sync.detect_and_resolve_forks().await {
-                    println!("   {} Fork resolution failed: {}", "⚠️".yellow(), fork_err);
-                } else {
-                    // Try sync again after fork resolution
-                    match chain_sync.sync_from_peers().await {
-                        Ok(0) => println!(
-                            "   {}",
-                            "✓ Blockchain is up to date after fork resolution".green()
-                        ),
-                        Ok(n) => println!(
-                            "   {} Synced {} blocks after fork resolution",
-                            "✓".green(),
-                            n
-                        ),
-                        Err(e2) => {
-                            println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e2)
+            println!("   {} Fast sync not available: {}", "⚠️".yellow(), e);
+            println!("   {} Falling back to standard sync...", "🔄".yellow());
+
+            // Fall back to fork detection + regular sync
+            println!("{}", "🔍 Checking for blockchain forks...".cyan());
+            if let Err(e) = chain_sync.detect_and_resolve_forks().await {
+                println!("   {} Fork detection failed: {}", "⚠️".yellow(), e);
+            }
+
+            println!("{}", "🔄 Syncing blockchain with network...".cyan());
+            match chain_sync.sync_from_peers().await {
+                Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
+                Ok(n) => println!("   {} Synced {} blocks", "✓".green(), n),
+                Err(e) => {
+                    // Check if this is a fork-related error
+                    if e.contains("Fork detected") {
+                        println!("   {} {}", "⚠️".yellow(), e);
+                        println!("   {} Re-running fork resolution...", "🔄".yellow());
+                        if let Err(fork_err) = chain_sync.detect_and_resolve_forks().await {
+                            println!("   {} Fork resolution failed: {}", "⚠️".yellow(), fork_err);
+                        } else {
+                            // Try sync again after fork resolution
+                            match chain_sync.sync_from_peers().await {
+                                Ok(0) => println!(
+                                    "   {}",
+                                    "✓ Blockchain is up to date after fork resolution".green()
+                                ),
+                                Ok(n) => println!(
+                                    "   {} Synced {} blocks after fork resolution",
+                                    "✓".green(),
+                                    n
+                                ),
+                                Err(e2) => {
+                                    println!(
+                                        "   {} Sync failed: {} (will retry)",
+                                        "⚠️".yellow(),
+                                        e2
+                                    )
+                                }
+                            }
                         }
+                    } else {
+                        println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e);
                     }
                 }
-            } else {
-                println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e);
             }
         }
     }
