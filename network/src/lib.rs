@@ -12,6 +12,7 @@ pub mod quarantine;
 pub mod rate_limiter;
 pub mod sync;
 pub mod tx_broadcast;
+pub mod unified_connection;
 pub mod utxo_handler;
 pub mod voting;
 

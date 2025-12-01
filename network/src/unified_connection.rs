@@ -1,11 +1,10 @@
 //! Unified connection pool structure
-//! 
+//!
 //! This module consolidates the previously separate `peers`, `connections`, and `last_seen` maps
 //! into a single unified structure, eliminating cascading lock contention and duplicate data storage.
 
 use crate::connection::PeerConnection;
 use crate::discovery::PeerInfo;
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
@@ -14,16 +13,16 @@ use tokio::sync::Mutex;
 pub struct UnifiedPeerConnection {
     /// The actual TCP connection (wrapped for concurrent access)
     pub connection: Arc<Mutex<PeerConnection>>,
-    
+
     /// Peer information (version, address, etc.)
     pub info: PeerInfo,
-    
+
     /// Last time we received any message from this peer (for reaper)
     pub last_seen: Instant,
-    
+
     /// Health score for peer quality tracking (0-100)
     pub health_score: u8,
-    
+
     /// Connection established timestamp
     pub connected_at: Instant,
 }
@@ -89,25 +88,13 @@ impl UnifiedPeerConnection {
 }
 
 /// Statistics about the connection pool
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PoolStats {
     pub total_connections: usize,
     pub healthy_connections: usize,
     pub stale_connections: usize,
     pub avg_health_score: u8,
     pub oldest_connection_secs: u64,
-}
-
-impl Default for PoolStats {
-    fn default() -> Self {
-        Self {
-            total_connections: 0,
-            healthy_connections: 0,
-            stale_connections: 0,
-            avg_health_score: 0,
-            oldest_connection_secs: 0,
-        }
-    }
 }
 
 #[cfg(test)]

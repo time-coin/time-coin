@@ -100,7 +100,6 @@ impl PeerConsensus {
 
         let result = timeout(QUERY_TIMEOUT, async move {
             use time_network::protocol::NetworkMessage;
-            use tokio::io::{AsyncReadExt, AsyncWriteExt};
             use tokio::net::TcpStream;
 
             let mut stream = TcpStream::connect(&peer_addr_clone)
@@ -240,7 +239,7 @@ impl PeerConsensus {
                 NetworkMessage::MempoolResponse(transactions) => {
                     let txids: Vec<String> = transactions
                         .iter()
-                        .map(|tx| format!("{:?}", tx.hash()))
+                        .map(|tx| format!("{:?}", tx.txid))
                         .collect();
                     Ok::<Vec<String>, String>(txids)
                 }

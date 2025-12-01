@@ -21,6 +21,7 @@ mod message_validator;
 mod mnemonic_ui;
 mod monitoring;
 mod network;
+mod network_state;
 mod password_ui;
 mod peer_consensus;
 mod peer_manager;

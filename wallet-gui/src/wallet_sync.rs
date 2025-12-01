@@ -6,7 +6,9 @@
 
 use crate::network::NetworkManager;
 use crate::peer_manager::PeerManager;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -19,8 +21,17 @@ const CONSENSUS_THRESHOLD: f64 = 0.67;
 /// Maximum blocks to download per batch
 const BATCH_SIZE: u64 = 100;
 
+/// Timeout for peer queries (30 seconds)
+const PEER_QUERY_TIMEOUT_SECS: u64 = 30;
+
+/// Checkpoint save interval (every 100 blocks)
+const CHECKPOINT_INTERVAL: u64 = 100;
+
+/// Maximum sync time (30 minutes)
+const MAX_SYNC_TIME_SECS: u64 = 1800;
+
 /// Synchronization state
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncState {
     /// Not syncing
     Idle,
@@ -34,6 +45,19 @@ pub enum SyncState {
     Ready,
     /// Sync failed
     Failed(String),
+}
+
+/// Sync checkpoint for persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncCheckpoint {
+    /// Last synced height
+    height: u64,
+    /// Block hash at this height
+    block_hash: String,
+    /// Timestamp when checkpoint was saved
+    timestamp: std::time::SystemTime,
+    /// Network height at time of checkpoint
+    network_height: u64,
 }
 
 /// Peer blockchain info
@@ -61,6 +85,8 @@ pub struct WalletSync {
     last_sync: Arc<Mutex<Option<std::time::Instant>>>,
     current_height: Arc<Mutex<u64>>,
     network_height: Arc<Mutex<u64>>,
+    checkpoint_path: PathBuf,
+    sync_start_time: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 impl WalletSync {
@@ -68,7 +94,10 @@ impl WalletSync {
     pub fn new(
         peer_manager: Arc<Mutex<PeerManager>>,
         network_manager: Arc<Mutex<NetworkManager>>,
+        data_dir: PathBuf,
     ) -> Self {
+        let checkpoint_path = data_dir.join("sync_checkpoint.json");
+
         Self {
             peer_manager,
             network_manager,
@@ -76,7 +105,70 @@ impl WalletSync {
             last_sync: Arc::new(Mutex::new(None)),
             current_height: Arc::new(Mutex::new(0)),
             network_height: Arc::new(Mutex::new(0)),
+            checkpoint_path,
+            sync_start_time: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Load checkpoint from disk
+    async fn load_checkpoint(&self) -> Result<Option<SyncCheckpoint>, String> {
+        if !self.checkpoint_path.exists() {
+            return Ok(None);
+        }
+
+        let data = std::fs::read_to_string(&self.checkpoint_path)
+            .map_err(|e| format!("Failed to read checkpoint: {}", e))?;
+
+        let checkpoint: SyncCheckpoint = serde_json::from_str(&data)
+            .map_err(|e| format!("Failed to parse checkpoint: {}", e))?;
+
+        log::info!(
+            "📥 Loaded sync checkpoint: height={}, hash={}",
+            checkpoint.height,
+            &checkpoint.block_hash[..16]
+        );
+
+        Ok(Some(checkpoint))
+    }
+
+    /// Save checkpoint to disk
+    async fn save_checkpoint(
+        &self,
+        height: u64,
+        block_hash: String,
+        network_height: u64,
+    ) -> Result<(), String> {
+        let checkpoint = SyncCheckpoint {
+            height,
+            block_hash: block_hash.clone(),
+            timestamp: std::time::SystemTime::now(),
+            network_height,
+        };
+
+        let data = serde_json::to_string_pretty(&checkpoint)
+            .map_err(|e| format!("Failed to serialize checkpoint: {}", e))?;
+
+        std::fs::write(&self.checkpoint_path, data)
+            .map_err(|e| format!("Failed to write checkpoint: {}", e))?;
+
+        log::debug!(
+            "💾 Saved sync checkpoint: height={}, hash={}",
+            height,
+            &block_hash[..16]
+        );
+
+        Ok(())
+    }
+
+    /// Check if sync has timed out
+    async fn check_timeout(&self) -> Result<(), String> {
+        if let Some(start_time) = *self.sync_start_time.lock().await {
+            let elapsed = start_time.elapsed().as_secs();
+            if elapsed > MAX_SYNC_TIME_SECS {
+                return Err(format!("Sync timeout after {} seconds", elapsed));
+            }
+        }
+        Ok(())
     }
 
     /// Get current sync state
@@ -138,11 +230,32 @@ impl WalletSync {
 
     /// Perform multi-peer consensus sync
     pub async fn sync(&self, local_height: u64) -> Result<SyncState, String> {
+        // Set sync start time
+        *self.sync_start_time.lock().await = Some(std::time::Instant::now());
+
+        // Try to load checkpoint
+        let checkpoint = self.load_checkpoint().await?;
+        let start_height = if let Some(ref cp) = checkpoint {
+            if cp.height > local_height {
+                log::info!("📍 Resuming from checkpoint: height={}", cp.height);
+                cp.height
+            } else {
+                local_height
+            }
+        } else {
+            local_height
+        };
+
         // Update state to querying
         *self.state.lock().await = SyncState::Querying;
 
-        // Step 1: Query multiple peers for their chain info
-        let peer_infos = self.query_peer_heights().await?;
+        // Step 1: Query multiple peers for their chain info with timeout
+        let peer_infos = tokio::time::timeout(
+            std::time::Duration::from_secs(PEER_QUERY_TIMEOUT_SECS),
+            self.query_peer_heights(),
+        )
+        .await
+        .map_err(|_| "Peer query timeout".to_string())??;
 
         if peer_infos.len() < MIN_PEERS_FOR_CONSENSUS {
             let msg = format!(
@@ -151,6 +264,7 @@ impl WalletSync {
                 MIN_PEERS_FOR_CONSENSUS
             );
             *self.state.lock().await = SyncState::Failed(msg.clone());
+            *self.sync_start_time.lock().await = None;
             return Err(msg);
         }
 
@@ -161,12 +275,13 @@ impl WalletSync {
             Ok(c) => c,
             Err(e) => {
                 *self.state.lock().await = SyncState::Failed(e.clone());
+                *self.sync_start_time.lock().await = None;
                 return Err(e);
             }
         };
 
         // Update heights for UI
-        self.update_heights(local_height, consensus.height).await;
+        self.update_heights(start_height, consensus.height).await;
 
         log::info!(
             "✅ Consensus reached: height {} with {}/{} peers",
@@ -337,12 +452,17 @@ impl WalletSync {
         let mut current_height = start_height;
 
         while current_height <= end_height {
+            // Check for timeout
+            self.check_timeout().await?;
+
             let batch_end = (current_height + BATCH_SIZE - 1).min(end_height);
 
             log::debug!("📥 Downloading blocks {}-{}...", current_height, batch_end);
 
             // Try each peer until one succeeds
             let mut downloaded = false;
+            let mut last_block_hash = String::new();
+
             for peer_addr in peers {
                 let net = self.network_manager.lock().await;
                 match net.get_blocks(peer_addr, current_height, batch_end).await {
@@ -352,6 +472,10 @@ impl WalletSync {
                         // TODO: Validate and store blocks
                         // For now, just update progress
 
+                        if let Some(last_block) = blocks.last() {
+                            last_block_hash = last_block.hash.clone();
+                        }
+
                         current_height = batch_end + 1;
                         downloaded = true;
 
@@ -360,6 +484,18 @@ impl WalletSync {
                             current: batch_end,
                             total: end_height,
                         };
+
+                        self.update_heights(batch_end, end_height).await;
+
+                        // Save checkpoint every CHECKPOINT_INTERVAL blocks
+                        if batch_end.is_multiple_of(CHECKPOINT_INTERVAL) {
+                            if let Err(e) = self
+                                .save_checkpoint(batch_end, last_block_hash.clone(), end_height)
+                                .await
+                            {
+                                log::warn!("Failed to save checkpoint: {}", e);
+                            }
+                        }
 
                         break;
                     }
@@ -377,6 +513,17 @@ impl WalletSync {
                 ));
             }
         }
+
+        // Save final checkpoint
+        if let Err(e) = self
+            .save_checkpoint(end_height, "final".to_string(), end_height)
+            .await
+        {
+            log::warn!("Failed to save final checkpoint: {}", e);
+        }
+
+        // Clear sync start time
+        *self.sync_start_time.lock().await = None;
 
         Ok(())
     }

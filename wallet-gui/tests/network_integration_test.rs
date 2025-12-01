@@ -53,7 +53,6 @@ async fn test_message_validation() {
     // Test various message size limits
     const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024; // 10 MB
     const MAX_ARRAY_ITEMS: usize = 10_000;
-    const MAX_STRING_LENGTH: usize = 1024 * 1024; // 1 MB
 
     // Test oversized message rejection
     let oversized = vec![0u8; MAX_MESSAGE_SIZE + 1];
@@ -73,6 +72,7 @@ async fn test_multi_peer_consensus() {
     println!("Testing multi-peer consensus validation...");
 
     // Simulate responses from 3 peers
+    #[allow(dead_code)]
     struct PeerResponse {
         height: u64,
         hash: String,
@@ -199,25 +199,26 @@ async fn test_network_resilience() {
     println!("Testing network resilience...");
 
     // Test connection state machine
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     enum ConnectionState {
         Connecting,
         Connected,
         Syncing,
         Ready,
+        #[allow(dead_code)]
         Disconnected,
     }
 
-    let mut state = ConnectionState::Connecting;
+    let _state = ConnectionState::Connecting;
 
     // Simulate state transitions
-    state = ConnectionState::Connected;
+    let state = ConnectionState::Connected;
     assert_eq!(state, ConnectionState::Connected);
 
-    state = ConnectionState::Syncing;
+    let state = ConnectionState::Syncing;
     assert_eq!(state, ConnectionState::Syncing);
 
-    state = ConnectionState::Ready;
+    let state = ConnectionState::Ready;
     assert_eq!(state, ConnectionState::Ready);
 
     println!("✅ Connection state machine works");
