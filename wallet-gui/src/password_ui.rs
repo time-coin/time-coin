@@ -146,6 +146,7 @@ impl PasswordPrompt {
                 ui.set_min_width(400.0);
 
                 // Password input
+                let mut submit_on_enter = false;
                 ui.horizontal(|ui| {
                     ui.label("Password:");
                     ui.add_space(10.0);
@@ -158,6 +159,15 @@ impl PasswordPrompt {
                     // Auto-focus on first show
                     if self.password.is_empty() && self.confirm_password.is_empty() {
                         password_response.request_focus();
+                    }
+
+                    // Check for Enter key press
+                    if password_response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    {
+                        if self.is_confirmation_only {
+                            submit_on_enter = true;
+                        }
                     }
                 });
 
@@ -191,13 +201,20 @@ impl PasswordPrompt {
                     ui.horizontal(|ui| {
                         ui.label("Confirm:");
                         ui.add_space(17.0);
-                        if self.show_password {
-                            ui.text_edit_singleline(&mut self.confirm_password);
+                        let confirm_response = if self.show_password {
+                            ui.text_edit_singleline(&mut self.confirm_password)
                         } else {
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.confirm_password)
                                     .password(true),
-                            );
+                            )
+                        };
+
+                        // Check for Enter key press on confirm field
+                        if confirm_response.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        {
+                            submit_on_enter = true;
                         }
                     });
                 }
@@ -235,9 +252,11 @@ impl PasswordPrompt {
                             && self.password.len() >= 8
                     };
 
-                    if ui
-                        .add_enabled(ok_enabled, egui::Button::new("OK"))
-                        .clicked()
+                    // Handle Enter key submission or button click
+                    if (submit_on_enter && ok_enabled)
+                        || ui
+                            .add_enabled(ok_enabled, egui::Button::new("OK"))
+                            .clicked()
                     {
                         if self.is_confirmation_only {
                             // Just confirm password
