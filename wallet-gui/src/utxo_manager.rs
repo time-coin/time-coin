@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::collections::HashMap;
-use time_coin_core::Utxo;
+use wallet::UTXO as Utxo;
 
 #[derive(Default)]
 pub struct UtxoManager {
@@ -182,7 +182,7 @@ impl UtxoManager {
         let mut action = None;
 
         for utxo in utxos {
-            let utxo_id = format!("{}:{}", hex::encode(&utxo.txid), utxo.vout);
+            let utxo_id = format!("{}:{}", hex::encode(&utxo.tx_hash), utxo.output_index);
             let is_selected = self.selected_utxos.get(&utxo_id).copied().unwrap_or(false);
 
             ui.horizontal(|ui| {
@@ -195,22 +195,10 @@ impl UtxoManager {
                 ui.separator();
                 ui.label(format!(
                     "{}...{}",
-                    &hex::encode(&utxo.txid)[..8],
-                    &hex::encode(&utxo.txid)[56..]
+                    &hex::encode(&utxo.tx_hash)[..8],
+                    &hex::encode(&utxo.tx_hash)[56..]
                 ));
-                ui.label(format!(":{}", utxo.vout));
-
-                if let Some(confirmations) = utxo.confirmations {
-                    ui.separator();
-                    if confirmations >= 6 {
-                        ui.colored_label(egui::Color32::GREEN, format!("✓ {} conf", confirmations));
-                    } else {
-                        ui.colored_label(
-                            egui::Color32::YELLOW,
-                            format!("⏳ {} conf", confirmations),
-                        );
-                    }
-                }
+                ui.label(format!(":{}", utxo.output_index));
             });
         }
 

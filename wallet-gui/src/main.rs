@@ -41,7 +41,7 @@ use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
 use peer_manager::PeerManager;
 use protocol_client::ProtocolClient;
-use utxo_manager::{ConsolidationResult, UtxoAction, UtxoManager};
+use utxo_manager::{UtxoAction, UtxoManager};
 use wallet_db::{AddressContact, WalletDb};
 use wallet_manager::WalletManager;
 
@@ -3624,15 +3624,14 @@ impl WalletApp {
     }
 
     fn consolidate_selected_utxos(&mut self, utxo_ids: Vec<String>) {
-        let Some(ref mut wallet_mgr) = self.wallet_manager else {
-            self.show_error("Wallet not loaded");
+        let Some(ref wallet_mgr) = self.wallet_manager else {
+            self.set_error("Wallet not loaded".to_string());
             return;
         };
 
         self.utxo_manager.consolidation_in_progress = true;
 
         // Spawn async task to consolidate
-        let wallet_clone = wallet_mgr.clone();
         let utxo_ids_clone = utxo_ids.clone();
 
         tokio::spawn(async move {
@@ -3648,12 +3647,12 @@ impl WalletApp {
             // This would call wallet_mgr.consolidate_utxos(utxo_ids) or similar
         });
 
-        self.show_success(format!("Consolidating {} UTXOs...", utxo_ids.len()));
+        self.set_success(format!("Consolidating {} UTXOs...", utxo_ids.len()));
     }
 
     fn smart_consolidate_utxos(&mut self, threshold_amount: u64, target_utxo_count: usize) {
-        let Some(ref mut wallet_mgr) = self.wallet_manager else {
-            self.show_error("Wallet not loaded");
+        let Some(ref wallet_mgr) = self.wallet_manager else {
+            self.set_error("Wallet not loaded".to_string());
             return;
         };
 
@@ -3664,13 +3663,12 @@ impl WalletApp {
             .collect();
 
         if candidates.is_empty() {
-            self.show_error("No UTXOs match the consolidation criteria");
+            self.set_error("No UTXOs match the consolidation criteria".to_string());
             return;
         }
 
         self.utxo_manager.consolidation_in_progress = true;
 
-        let wallet_clone = wallet_mgr.clone();
         let candidate_count = candidates.len();
 
         tokio::spawn(async move {
@@ -3685,7 +3683,7 @@ impl WalletApp {
             // Placeholder for actual consolidation logic
         });
 
-        self.show_success(format!(
+        self.set_success(format!(
             "Smart consolidating {} UTXOs to {} target UTXO(s)...",
             candidate_count, target_utxo_count
         ));
