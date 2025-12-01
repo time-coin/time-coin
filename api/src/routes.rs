@@ -392,7 +392,7 @@ struct PeersResponse {
 
 async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<PeersResponse>> {
     use std::time::Instant;
-    
+
     tracing::info!("GET /peers endpoint called");
     let start = Instant::now();
     tracing::info!("Calling peer_manager.get_connected_peers()...");

@@ -81,8 +81,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+/// Persistent peer information for exchange/storage
+/// Uses string + port format for easier serialization
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerInfo {
+pub struct PersistentPeerInfo {
     pub address: String,
     pub port: u16,
     pub last_seen: i64,
@@ -92,7 +94,7 @@ pub struct PeerInfo {
     pub failed_connections: u32,
 }
 
-impl PeerInfo {
+impl PersistentPeerInfo {
     pub fn new(address: String, port: u16, version: String) -> Self {
         Self {
             address,
@@ -133,7 +135,7 @@ impl PeerInfo {
 }
 
 pub struct PeerExchange {
-    peers: HashMap<String, PeerInfo>,
+    peers: HashMap<String, PersistentPeerInfo>,
     storage_path: String,
     #[allow(dead_code)] // Kept for deprecated cleanup_ephemeral_ports method
     network: NetworkType,
@@ -164,7 +166,7 @@ impl PeerExchange {
             peer.port = port;
         } else {
             self.peers
-                .insert(key, PeerInfo::new(address, port, version));
+                .insert(key, PersistentPeerInfo::new(address, port, version));
         }
 
         self.save_to_disk();
@@ -191,8 +193,8 @@ impl PeerExchange {
         }
     }
 
-    pub fn get_best_peers(&self, count: usize) -> Vec<PeerInfo> {
-        let mut peers: Vec<PeerInfo> = self.peers.values().cloned().collect();
+    pub fn get_best_peers(&self, count: usize) -> Vec<PersistentPeerInfo> {
+        let mut peers: Vec<PersistentPeerInfo> = self.peers.values().cloned().collect();
 
         let cutoff = Utc::now().timestamp() - 86400;
         peers.retain(|p| p.last_seen > cutoff);
@@ -367,15 +369,15 @@ mod tests {
             // Add peers with various ports including ephemeral ones
             exchange.peers.insert(
                 "192.168.1.1".to_string(),
-                PeerInfo::new("192.168.1.1".to_string(), 49152, "1.0.0".to_string()),
+                PersistentPeerInfo::new("192.168.1.1".to_string(), 49152, "1.0.0".to_string()),
             );
             exchange.peers.insert(
                 "192.168.1.2".to_string(),
-                PeerInfo::new("192.168.1.2".to_string(), 24100, "1.0.0".to_string()),
+                PersistentPeerInfo::new("192.168.1.2".to_string(), 24100, "1.0.0".to_string()),
             );
             exchange.peers.insert(
                 "192.168.1.3".to_string(),
-                PeerInfo::new("192.168.1.3".to_string(), 65000, "1.0.0".to_string()),
+                PersistentPeerInfo::new("192.168.1.3".to_string(), 65000, "1.0.0".to_string()),
             );
 
             exchange.save_to_disk();

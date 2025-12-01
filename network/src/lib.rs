@@ -8,6 +8,7 @@ pub mod lock_ordering; // OPTIMIZATION (Quick Win #7): Compile-time deadlock pre
 pub mod manager;
 pub mod message_auth;
 pub mod message_handler;
+pub mod peer_info; // Canonical peer information structure
 pub mod protocol;
 pub mod quarantine;
 pub mod rate_limiter;
@@ -20,12 +21,13 @@ pub mod voting;
 
 pub use config::NetworkConfig;
 pub use connection::{PeerConnection, PeerListener};
-pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
+pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, SeedNodes};
 pub use error::{NetworkError, NetworkResult};
 pub use lock_ordering::LockOrdering; // Export for external use
 pub use manager::PeerManager;
 pub use message_auth::{AuthError, AuthenticatedMessage, NonceTracker};
 pub use message_handler::MessageHandler;
+pub use peer_info::PeerInfo;
 pub use protocol::{HandshakeMessage, NetworkMessage, ProtocolVersion, TransactionMessage};
 pub use protocol::{TransactionValidation, PROTOCOL_VERSION, VERSION};
 pub use quarantine::{

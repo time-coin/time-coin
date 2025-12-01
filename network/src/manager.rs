@@ -27,7 +27,8 @@
 //! ```
 
 use crate::connection::PeerConnection;
-use crate::discovery::{NetworkType, PeerInfo};
+use crate::discovery::NetworkType;
+use crate::peer_info::PeerInfo;
 use crate::protocol::{NetworkMessage, TransactionMessage};
 use crate::sync_gate::SyncGate;
 use crate::unified_connection::{PoolStats, UnifiedPeerConnection};
@@ -1388,7 +1389,10 @@ impl PeerManager {
         exchange.add_peer(address, normalized_port, version);
     }
 
-    pub async fn get_best_peers(&self, count: usize) -> Vec<crate::peer_exchange::PeerInfo> {
+    pub async fn get_best_peers(
+        &self,
+        count: usize,
+    ) -> Vec<crate::peer_exchange::PersistentPeerInfo> {
         let exchange = self.peer_exchange.read().await;
         exchange.get_best_peers(count)
     }

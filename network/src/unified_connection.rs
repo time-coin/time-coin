@@ -4,7 +4,7 @@
 //! into a single unified structure, eliminating cascading lock contention and duplicate data storage.
 
 use crate::connection::PeerConnection;
-use crate::discovery::PeerInfo;
+use crate::peer_info::PeerInfo;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;

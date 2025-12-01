@@ -37,7 +37,8 @@
 //! When accepting incoming connections, we normalize ephemeral source ports
 //! (>= 49152) to the network's standard port. See peer_exchange.rs for details.
 
-use crate::discovery::{NetworkType, PeerInfo};
+use crate::discovery::NetworkType;
+use crate::peer_info::PeerInfo;
 use crate::protocol::HandshakeMessage;
 use std::net::SocketAddr;
 use std::sync::Arc;

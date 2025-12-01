@@ -6,80 +6,11 @@
 //! 3. DNS seeds
 //! 4. Peer exchange (PEX)
 
+use crate::peer_info::PeerInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
-
-/// Peer information
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct PeerInfo {
-    pub address: SocketAddr,
-    pub last_seen: u64,
-    pub version: String,
-    pub network: NetworkType,
-
-    #[serde(default)]
-    pub commit_date: Option<String>,
-
-    #[serde(default)]
-    pub commit_count: Option<String>,
-
-    #[serde(default)]
-    pub wallet_address: Option<String>,
-}
-
-impl PeerInfo {
-    /// Create a new peer with unknown version
-    pub fn new(address: SocketAddr, network: NetworkType) -> Self {
-        PeerInfo {
-            address, // <-- use 'address' not 'addr'
-            last_seen: current_timestamp(),
-            version: "unknown".to_string(),
-            network, // <-- use 'network' not 'self.network'
-            commit_date: None,
-            commit_count: None,
-            wallet_address: None,
-        }
-    }
-
-    /// Create a new peer with known version
-    pub fn with_version(address: SocketAddr, network: NetworkType, version: String) -> Self {
-        PeerInfo {
-            address, // <-- use 'address' not 'peer_addr'
-            last_seen: current_timestamp(),
-            version,           // <-- use 'version' not 'peer.version'
-            network,           // <-- use 'network' not 'self.network'
-            commit_date: None, // <-- These should be None for this constructor
-            commit_count: None,
-            wallet_address: None,
-        }
-    }
-
-    /// Update the peer's version (called after handshake)
-    pub fn update_version(&mut self, version: String) {
-        self.version = version;
-        self.last_seen = current_timestamp();
-    }
-
-    /// Update the peer's version with commit info (called after handshake)
-    pub fn update_version_with_build_info(
-        &mut self,
-        version: String,
-        commit_date: Option<String>,
-        commit_count: Option<String>,
-    ) {
-        self.version = version;
-        self.commit_date = commit_date;
-        self.commit_count = commit_count;
-        self.last_seen = current_timestamp();
-    }
-
-    /// Update last seen timestamp
-    pub fn touch(&mut self) {
-        self.last_seen = current_timestamp();
-    }
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum NetworkType {
@@ -441,13 +372,6 @@ impl PeerDiscovery {
     }
 }
 
-/// Get current Unix timestamp
-fn current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
 
 #[cfg(test)]
 mod tests {
