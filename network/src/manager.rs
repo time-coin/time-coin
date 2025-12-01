@@ -29,6 +29,7 @@
 use crate::connection::PeerConnection;
 use crate::discovery::{NetworkType, PeerInfo};
 use crate::protocol::{NetworkMessage, TransactionMessage};
+use crate::sync_gate::SyncGate;
 use crate::unified_connection::{PoolStats, UnifiedPeerConnection};
 use local_ip_address::local_ip;
 use std::collections::HashMap;
@@ -71,6 +72,8 @@ pub struct PeerManager {
     quarantine: Arc<crate::quarantine::PeerQuarantine>,
     /// SECURITY FIX (Issue #6): Rate limiter for DoS protection
     rate_limiter: Arc<crate::rate_limiter::RateLimiter>,
+    /// FORK PREVENTION: Gate to prevent block creation when behind network
+    pub sync_gate: Arc<SyncGate>,
 }
 
 impl PeerManager {
@@ -92,6 +95,7 @@ impl PeerManager {
             wallet_subscriptions: Arc::new(RwLock::new(HashMap::new())),
             quarantine: Arc::new(crate::quarantine::PeerQuarantine::new()),
             rate_limiter: Arc::new(crate::rate_limiter::RateLimiter::new()),
+            sync_gate: Arc::new(SyncGate::new(0)), // Start at height 0
         };
 
         // OPTIMIZATION: Single unified maintenance task instead of 4 separate tasks
@@ -2081,6 +2085,7 @@ impl Clone for PeerManager {
             wallet_subscriptions: self.wallet_subscriptions.clone(),
             quarantine: self.quarantine.clone(),
             rate_limiter: self.rate_limiter.clone(),
+            sync_gate: self.sync_gate.clone(),
         }
     }
 }

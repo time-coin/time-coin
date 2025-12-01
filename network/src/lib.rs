@@ -12,6 +12,7 @@ pub mod protocol;
 pub mod quarantine;
 pub mod rate_limiter;
 pub mod sync;
+pub mod sync_gate; // Fork prevention: Block creation gating
 pub mod tx_broadcast;
 pub mod unified_connection;
 pub mod utxo_handler;
@@ -31,6 +32,7 @@ pub use quarantine::{
     PeerQuarantine, QuarantineConfig, QuarantineReason, QuarantineSeverity, QuarantineStats,
 };
 pub use rate_limiter::{RateLimitError, RateLimiter, RateLimiterConfig};
+pub use sync_gate::SyncGate; // Export for consensus layer
 pub use tx_broadcast::TransactionBroadcaster;
 pub use utxo_handler::UTXOProtocolHandler;
 
