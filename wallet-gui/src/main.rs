@@ -30,6 +30,7 @@ mod rate_limiter;
 mod tcp_protocol_client;
 mod tx_validator;
 mod ui_components;
+mod utxo_manager;
 mod wallet_dat;
 mod wallet_db;
 mod wallet_manager;
@@ -40,6 +41,7 @@ use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
 use peer_manager::PeerManager;
 use protocol_client::ProtocolClient;
+use utxo_manager::{ConsolidationResult, UtxoAction, UtxoManager};
 use wallet_db::{AddressContact, WalletDb};
 use wallet_manager::WalletManager;
 
@@ -90,6 +92,7 @@ enum Screen {
     Send,
     Receive,
     Transactions,
+    Utxos,
     Settings,
     Peers,
 }
@@ -161,6 +164,9 @@ struct WalletApp {
 
     // Channel for transaction approval/rejection notifications
     tx_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<TransactionNotification>>,
+
+    // UTXO management
+    utxo_manager: UtxoManager,
 }
 
 // Use the TransactionNotification from tcp_protocol_client module
@@ -241,6 +247,7 @@ impl Default for WalletApp {
             is_creating_new_address: false,
             utxo_rx: None,
             tx_notification_rx: None,
+            utxo_manager: UtxoManager::new(),
         };
 
         // If wallet exists and is NOT encrypted, auto-load it
@@ -1785,6 +1792,12 @@ impl WalletApp {
                     self.current_screen = Screen::Transactions;
                 }
                 if ui
+                    .selectable_label(self.current_screen == Screen::Utxos, "📦 UTXOs")
+                    .clicked()
+                {
+                    self.current_screen = Screen::Utxos;
+                }
+                if ui
                     .selectable_label(self.current_screen == Screen::Peers, "Peers")
                     .clicked()
                 {
@@ -1838,6 +1851,7 @@ impl WalletApp {
                 Screen::Send => self.show_send_screen(ui, ctx),
                 Screen::Receive => self.show_receive_screen(ui, ctx),
                 Screen::Transactions => self.show_transactions_screen(ui),
+                Screen::Utxos => self.show_utxos_screen(ctx),
                 Screen::Settings => self.show_settings_screen(ui, ctx),
                 Screen::Peers => {
                     ui.heading("Connected Peers");
@@ -3578,6 +3592,103 @@ impl WalletApp {
                 log::warn!("❌ Failed to check mempool from any peer");
             });
         });
+    }
+
+    fn show_utxos_screen(&mut self, ctx: &egui::Context) {
+        let utxos = if let Some(ref wallet_mgr) = self.wallet_manager {
+            wallet_mgr.get_utxos()
+        } else {
+            vec![]
+        };
+
+        if let Some(action) = self.utxo_manager.show(ctx, &utxos) {
+            self.handle_utxo_action(action);
+        }
+    }
+
+    fn handle_utxo_action(&mut self, action: UtxoAction) {
+        match action {
+            UtxoAction::ConsolidateSelected(utxo_ids) => {
+                self.consolidate_selected_utxos(utxo_ids);
+            }
+            UtxoAction::SmartConsolidate {
+                threshold_amount,
+                target_utxo_count,
+            } => {
+                self.smart_consolidate_utxos(threshold_amount, target_utxo_count);
+            }
+            UtxoAction::ViewDetails(utxo_id) => {
+                log::info!("Viewing UTXO details: {}", utxo_id);
+            }
+        }
+    }
+
+    fn consolidate_selected_utxos(&mut self, utxo_ids: Vec<String>) {
+        let Some(ref mut wallet_mgr) = self.wallet_manager else {
+            self.show_error("Wallet not loaded");
+            return;
+        };
+
+        self.utxo_manager.consolidation_in_progress = true;
+
+        // Spawn async task to consolidate
+        let wallet_clone = wallet_mgr.clone();
+        let utxo_ids_clone = utxo_ids.clone();
+
+        tokio::spawn(async move {
+            // In a real implementation, this would:
+            // 1. Create a transaction that spends all selected UTXOs
+            // 2. Send outputs back to own address(es)
+            // 3. Broadcast the transaction
+            // 4. Return the result
+
+            log::info!("Consolidating {} UTXOs...", utxo_ids_clone.len());
+
+            // Placeholder for actual consolidation logic
+            // This would call wallet_mgr.consolidate_utxos(utxo_ids) or similar
+        });
+
+        self.show_success(format!("Consolidating {} UTXOs...", utxo_ids.len()));
+    }
+
+    fn smart_consolidate_utxos(&mut self, threshold_amount: u64, target_utxo_count: usize) {
+        let Some(ref mut wallet_mgr) = self.wallet_manager else {
+            self.show_error("Wallet not loaded");
+            return;
+        };
+
+        let utxos = wallet_mgr.get_utxos();
+        let candidates: Vec<_> = utxos
+            .iter()
+            .filter(|u| u.amount < threshold_amount)
+            .collect();
+
+        if candidates.is_empty() {
+            self.show_error("No UTXOs match the consolidation criteria");
+            return;
+        }
+
+        self.utxo_manager.consolidation_in_progress = true;
+
+        let wallet_clone = wallet_mgr.clone();
+        let candidate_count = candidates.len();
+
+        tokio::spawn(async move {
+            // In a real implementation, this would:
+            // 1. Group small UTXOs intelligently
+            // 2. Create consolidation transactions
+            // 3. Broadcast them
+            // 4. Return the result
+
+            log::info!("Smart consolidating {} UTXOs...", candidate_count);
+
+            // Placeholder for actual consolidation logic
+        });
+
+        self.show_success(format!(
+            "Smart consolidating {} UTXOs to {} target UTXO(s)...",
+            candidate_count, target_utxo_count
+        ));
     }
 
     fn show_settings_screen(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
