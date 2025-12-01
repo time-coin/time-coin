@@ -219,7 +219,8 @@ fn load_genesis_from_json(
         .ok_or("Missing 'block' field in genesis JSON")?;
 
     // Deserialize the block, adding masternode_counts if missing
-    let mut block: Block = serde_json::from_value(block_json.clone())?;
+    let mut block: Block = serde_json::from_value(block_json.clone())
+        .map_err(|e| format!("Failed to deserialize block: {} - JSON: {}", e, serde_json::to_string_pretty(&block_json).unwrap_or_default()))?;
 
     // Ensure masternode_counts exists (for backwards compatibility)
     if block.header.masternode_counts.free == 0
