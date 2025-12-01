@@ -53,9 +53,17 @@ impl BlockchainDB {
 
     /// Save a block to disk
     pub fn save_block(&self, block: &Block) -> Result<(), StateError> {
+        eprintln!(
+            "   💾 Saving block {} with {} transactions to disk",
+            block.header.block_number,
+            block.transactions.len()
+        );
+
         let key = format!("block:{}", block.header.block_number);
         let value = bincode::serialize(block)
             .map_err(|e| StateError::IoError(format!("Failed to serialize block: {}", e)))?;
+
+        eprintln!("   💾 Serialized to {} bytes", value.len());
 
         self.db
             .insert(key.as_bytes(), value)
@@ -68,7 +76,7 @@ impl BlockchainDB {
 
         // Debug: verify block was saved
         eprintln!(
-            "   💾 Block {} saved to disk (path: {})",
+            "   ✅ Block {} saved to disk (path: {})",
             block.header.block_number, self.path
         );
 
@@ -81,11 +89,17 @@ impl BlockchainDB {
 
         match self.db.get(key.as_bytes()) {
             Ok(Some(data)) => {
+                eprintln!(
+                    "   🔍 Loading block {} from disk ({} bytes)",
+                    height,
+                    data.len()
+                );
+
                 // Try to deserialize with new format first
                 match bincode::deserialize::<Block>(&data) {
                     Ok(block) => {
                         eprintln!(
-                            "   ✅ Block {} loaded with {} transactions",
+                            "   ✅ Block {} loaded with {} transactions (new format)",
                             height,
                             block.transactions.len()
                         );

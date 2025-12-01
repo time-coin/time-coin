@@ -243,9 +243,15 @@ fn load_genesis_from_json(
     }
 
     // DEBUG: Check transaction count after deserialization
-    println!("   📦 Deserialized block has {} transactions", block.transactions.len());
+    println!(
+        "   📦 Deserialized block has {} transactions",
+        block.transactions.len()
+    );
     if !block.transactions.is_empty() {
-        println!("   📝 First transaction: txid={}", block.transactions[0].txid);
+        println!(
+            "   📝 First transaction: txid={}",
+            block.transactions[0].txid
+        );
     }
 
     // Recalculate hash to ensure it matches
