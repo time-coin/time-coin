@@ -1204,28 +1204,42 @@ impl PeerManager {
                         Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
                     })?;
 
-                    // Wait for response with timeout
-                    let response = tokio::time::timeout(
-                        std::time::Duration::from_secs(10),
-                        conn.receive_message(),
-                    )
-                    .await
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
-                    .map_err(|e| {
-                        Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
-                    })?;
+                    // Wait for response with timeout, but keep reading until we get Blocks message
+                    // (peer may send other messages like MasternodeList first)
+                    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
 
-                    match response {
-                        crate::protocol::NetworkMessage::Blocks { blocks } => {
-                            if let Some(block) = blocks.into_iter().next() {
-                                Ok(block)
-                            } else {
-                                Err(Box::new(std::io::Error::other("No block in response"))
-                                    as Box<dyn std::error::Error + Send>)
-                            }
+                    loop {
+                        let remaining =
+                            deadline.saturating_duration_since(tokio::time::Instant::now());
+                        if remaining.is_zero() {
+                            return Err(
+                                Box::new(std::io::Error::other("Timeout waiting for blocks"))
+                                    as Box<dyn std::error::Error + Send>,
+                            );
                         }
-                        _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
-                            as Box<dyn std::error::Error + Send>),
+
+                        let response = tokio::time::timeout(remaining, conn.receive_message())
+                            .await
+                            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
+                            .map_err(|e| {
+                                Box::new(std::io::Error::other(e))
+                                    as Box<dyn std::error::Error + Send>
+                            })?;
+
+                        match response {
+                            crate::protocol::NetworkMessage::Blocks { blocks } => {
+                                if let Some(block) = blocks.into_iter().next() {
+                                    return Ok(block);
+                                } else {
+                                    return Err(Box::new(std::io::Error::other(
+                                        "No block in response",
+                                    ))
+                                        as Box<dyn std::error::Error + Send>);
+                                }
+                            }
+                            // Ignore other message types and keep waiting for Blocks
+                            _ => continue,
+                        }
                     }
                 }
                 .await;
