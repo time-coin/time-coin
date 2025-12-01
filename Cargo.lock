@@ -5276,7 +5276,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "time-consensus",
  "time-core 0.1.0",
@@ -5295,7 +5295,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "time-core 0.1.0",
 ]
 

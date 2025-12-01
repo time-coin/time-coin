@@ -23,23 +23,23 @@ time-core = { version = "0.1.0", path = "../core" }
 time-api = { version = "0.1.0", path = "../api" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
 time-masternode = { version = "0.1.0", path = "../masternode" }
-clap = { version = "4.4", features = ["derive"] }
+clap = { workspace = true }
 tokio = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
-toml = "0.9"
-chrono = "0.4"
-owo-colors = "4"
+toml = { workspace = true }
+chrono = { workspace = true }
+owo-colors = { workspace = true }
 reqwest = { workspace = true }
-sled = "0.34"
-ed25519-dalek = { version = "2.0", features = ["serde"] }
-sha2 = "0.10"
-hex = "0.4"
-md5.workspace = true
+sled = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+md5 = { workspace = true }
 time-consensus = { version = "0.1.0", path = "../consensus" }
 time-mempool = { version = "0.1.0", path = "../mempool" }
 wallet = { version = "0.1.0", path = "../wallet" }
-sysinfo = "0.37"
-crossterm = "0.29"
-sha3.workspace = true
-futures = "0.3"
+sysinfo = { workspace = true }
+crossterm = { workspace = true }
+sha3 = { workspace = true }
+futures = { workspace = true }

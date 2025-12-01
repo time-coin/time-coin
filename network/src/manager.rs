@@ -2199,21 +2199,21 @@ mod tests {
         // Add the peer - this should trigger broadcast
         manager.add_connected_peer(test_peer.clone()).await;
 
-        // Verify the peer was added to peers map
-        let peers = manager.peers.read().await;
-        assert_eq!(peers.len(), 1);
+        // Verify the peer was added to connections map
+        let connections = manager.connections.read().await;
+        assert_eq!(connections.len(), 1);
         assert_eq!(
-            peers.get(&test_peer.address.ip()).unwrap().address,
+            connections.get(&test_peer.address.ip()).unwrap().info.address,
             test_peer.address
         );
-        drop(peers);
+        drop(connections);
 
         // Adding the same peer again should not create a duplicate
         manager.add_connected_peer(test_peer.clone()).await;
 
         // Peer count should still be 1
-        let peers = manager.peers.read().await;
-        assert_eq!(peers.len(), 1);
+        let connections = manager.connections.read().await;
+        assert_eq!(connections.len(), 1);
     }
 
     #[tokio::test]
@@ -2328,13 +2328,13 @@ mod tests {
         manager.add_connected_peer(peer2.clone()).await;
         manager.add_connected_peer(peer3.clone()).await;
 
-        // Verify that all 3 peers are in the peers map
-        let peers = manager.peers.read().await;
-        assert_eq!(peers.len(), 3, "Expected 3 peers, but got {}", peers.len());
+        // Verify that all 3 peers are in the connections map
+        let connections = manager.connections.read().await;
+        assert_eq!(connections.len(), 3, "Expected 3 peers, but got {}", connections.len());
 
         // Verify each peer is present
-        assert!(peers.contains_key(&peer1.address.ip()));
-        assert!(peers.contains_key(&peer2.address.ip()));
-        assert!(peers.contains_key(&peer3.address.ip()));
+        assert!(connections.contains_key(&peer1.address.ip()));
+        assert!(connections.contains_key(&peer2.address.ip()));
+        assert!(connections.contains_key(&peer3.address.ip()));
     }
 }

@@ -4,7 +4,7 @@
 //! the security hardening phase.
 
 use std::collections::HashMap;
-use time_core::{Block, OutPoint, Transaction, TxInput, TxOutput};
+use time_core::{OutPoint, Transaction, TxInput, TxOutput};
 
 /// Test that unsigned transactions are rejected
 #[test]
