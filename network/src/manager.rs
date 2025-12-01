@@ -1,4 +1,31 @@
 //! Peer connection manager
+//!
+//! # Lock Ordering (CRITICAL - Quick Win #7)
+//!
+//! To prevent deadlocks, locks MUST be acquired in this order:
+//!
+//! 1. `connections` (highest priority)
+//! 2. `peer_exchange`
+//! 3. `recent_peer_broadcasts`
+//! 4. `wallet_subscriptions` (lowest priority)
+//!
+//! **Never acquire locks in reverse order!**
+//!
+//! Use `crate::lock_ordering::LockOrdering` helpers for safe multi-lock operations.
+//!
+//! Example:
+//! ```rust,ignore
+//! // SAFE: Correct order
+//! let (conns, exchange) = LockOrdering::write_connections_and_exchange(
+//!     &self.connections,
+//!     &self.peer_exchange,
+//! ).await;
+//!
+//! // UNSAFE: Wrong order (deadlock risk)
+//! let exchange = self.peer_exchange.write().await;
+//! let conns = self.connections.write().await;  // ❌ DEADLOCK!
+//! ```
+
 use crate::connection::PeerConnection;
 use crate::discovery::{NetworkType, PeerInfo};
 use crate::protocol::{NetworkMessage, TransactionMessage};

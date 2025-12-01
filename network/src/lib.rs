@@ -4,6 +4,7 @@ pub mod connection;
 pub mod discovery;
 pub mod error;
 pub mod heartbeat;
+pub mod lock_ordering; // OPTIMIZATION (Quick Win #7): Compile-time deadlock prevention
 pub mod manager;
 pub mod message_auth;
 pub mod message_handler;
@@ -20,6 +21,7 @@ pub use config::NetworkConfig;
 pub use connection::{PeerConnection, PeerListener};
 pub use discovery::{DnsDiscovery, HttpDiscovery, NetworkType, PeerDiscovery, PeerInfo, SeedNodes};
 pub use error::{NetworkError, NetworkResult};
+pub use lock_ordering::LockOrdering; // Export for external use
 pub use manager::PeerManager;
 pub use message_auth::{AuthError, AuthenticatedMessage, NonceTracker};
 pub use message_handler::MessageHandler;
