@@ -1158,7 +1158,7 @@ impl ChainSync {
         println!("\n⚠️  FORK DETECTED at height {}!", our_height);
         println!("   Found {} competing blocks", all_blocks.len());
 
-        // CRITICAL: Check if majority of nodes have moved beyond this height
+        // CRITICAL: Check if any nodes have moved beyond this height
         // If so, follow the longest chain (most work) principle
         let nodes_ahead: Vec<_> = peer_heights
             .iter()
@@ -1174,12 +1174,13 @@ impl ChainSync {
         );
         println!("      Majority threshold: {}", peer_heights.len() / 2);
 
-        if nodes_ahead.len() >= peer_heights.len() / 2 {
-            // Majority of network is ahead - follow their chain
+        // Follow longest chain if ANY nodes are ahead (not just majority)
+        // This ensures we always follow the chain with more work
+        if !nodes_ahead.is_empty() {
+            // Any nodes ahead - follow their chain (longest chain wins)
             println!(
-                "   ℹ️  Majority of network ({}/{} peers) is ahead at height {}",
+                "   ℹ️  Network has nodes ahead ({} peers) at height {}",
                 nodes_ahead.len(),
-                peer_heights.len(),
                 nodes_ahead
                     .iter()
                     .map(|(_, h, _)| h)
@@ -1267,7 +1268,52 @@ impl ChainSync {
             }
         }
 
-        // If we reach here, use timestamp-based selection for same-height forks
+        // If we reach here, all competing nodes are at same height
+        // Use timestamp-based selection combined with peer consensus
+        println!("   ℹ️  All competing nodes at same height - using consensus rules");
+
+        // Check if we can find consensus among the competing blocks
+        let mut block_counts = std::collections::HashMap::new();
+        for (_source, block) in &all_blocks {
+            *block_counts.entry(block.hash.clone()).or_insert(0) += 1;
+        }
+
+        // Find the block with most occurrences
+        let consensus_block = block_counts
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(hash, count)| (hash.clone(), *count));
+
+        if let Some((consensus_hash, consensus_count)) = consensus_block {
+            if consensus_count > all_blocks.len() / 2 {
+                // We have majority consensus on a specific block
+                let winner = all_blocks
+                    .iter()
+                    .find(|(_, block)| block.hash == consensus_hash)
+                    .map(|(_, block)| block.clone());
+
+                if let Some(winner) = winner {
+                    println!(
+                        "   ✓ Found consensus block ({}/{} nodes agree)",
+                        consensus_count,
+                        all_blocks.len()
+                    );
+
+                    if winner.hash != our_block.hash {
+                        println!("\n   🔄 Our block lost to consensus - reverting and accepting winner...");
+                        self.revert_and_replace_block(our_height, winner).await?;
+                        println!("   ✓ Fork resolved - now on consensus chain");
+                    } else {
+                        println!("   ✓ Our block matches consensus - no action needed");
+                    }
+
+                    return Ok(false); // Fork resolved, continue with sync
+                }
+            }
+        }
+
+        // No clear consensus - use timestamp-based selection as fallback
+        println!("   ℹ️  No clear consensus - using timestamp-based selection");
         let winner = self.select_winning_block(&all_blocks)?;
 
         println!("   📊 Block comparison:");
