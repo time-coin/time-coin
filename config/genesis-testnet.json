@@ -21,7 +21,8 @@
         "proof": "0000000000000000000000000000000000000000000000000000000000000000",
         "iterations": 100000,
         "input_hash": "genesis_bootstrap_2025_12_01"
-      }
+      },
+      "checkpoints": []
     },
     "transactions": [
       {
