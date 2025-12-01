@@ -1,0 +1,199 @@
+#!/bin/bash
+# TIME Coin Genesis Migration Script
+# Migrates masternode from old genesis to new Proof-of-Time genesis
+
+set -e  # Exit on error
+
+echo "════════════════════════════════════════════════════════════════"
+echo "  TIME Coin Genesis Migration - Proof of Time"
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+
+# Configuration
+DATA_DIR="${DATA_DIR:-$HOME/time-coin-node/data}"
+CONFIG_FILE="${CONFIG_FILE:-$HOME/time-coin-node/config/testnet.toml}"
+REPO_DIR="${REPO_DIR:-$HOME/time-coin}"
+
+echo "📂 Configuration:"
+echo "   Data directory: $DATA_DIR"
+echo "   Config file: $CONFIG_FILE"
+echo "   Repo directory: $REPO_DIR"
+echo ""
+
+# Step 1: Stop service
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 1: Stopping timed service"
+echo "════════════════════════════════════════════════════════════════"
+if systemctl is-active --quiet timed; then
+    echo "🛑 Stopping timed service..."
+    sudo systemctl stop timed
+    echo "✅ Service stopped"
+else
+    echo "ℹ️  Service already stopped"
+fi
+echo ""
+
+# Step 2: Backup (optional)
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 2: Backup old blockchain (optional)"
+echo "════════════════════════════════════════════════════════════════"
+read -p "Create backup? (y/N): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    BACKUP_FILE="$HOME/backup-old-chain-$(date +%Y%m%d-%H%M%S).tar.gz"
+    echo "💾 Creating backup: $BACKUP_FILE"
+    sudo tar -czf "$BACKUP_FILE" "$DATA_DIR" 2>/dev/null || true
+    echo "✅ Backup created"
+else
+    echo "⏭️  Skipping backup"
+fi
+echo ""
+
+# Step 3: Delete old blockchain
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 3: Deleting old blockchain"
+echo "════════════════════════════════════════════════════════════════"
+if [ -d "$DATA_DIR/blockchain" ]; then
+    echo "🗑️  Deleting $DATA_DIR/blockchain..."
+    sudo rm -rf "$DATA_DIR/blockchain"
+    echo "✅ Old blockchain deleted"
+else
+    echo "ℹ️  No blockchain directory found (already clean)"
+fi
+echo ""
+
+# Step 4: Pull latest code
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 4: Pulling latest code"
+echo "════════════════════════════════════════════════════════════════"
+cd "$REPO_DIR"
+echo "📥 Fetching latest code..."
+git fetch origin
+git reset --hard origin/main
+git pull origin main
+echo "✅ Code updated"
+echo ""
+echo "📊 Current commit:"
+git log --oneline -1
+echo ""
+
+# Step 5: Verify genesis file
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 5: Verifying genesis file"
+echo "════════════════════════════════════════════════════════════════"
+GENESIS_FILE="$REPO_DIR/config/genesis-testnet.json"
+if [ -f "$GENESIS_FILE" ]; then
+    echo "📄 Genesis file found: $GENESIS_FILE"
+    
+    # Check for proof_of_time field
+    if grep -q "proof_of_time" "$GENESIS_FILE"; then
+        echo "✅ Genesis has proof_of_time field"
+        
+        # Show genesis details
+        echo ""
+        echo "📊 Genesis details:"
+        cat "$GENESIS_FILE" | grep -A 6 "proof_of_time" || true
+    else
+        echo "❌ ERROR: Genesis file missing proof_of_time field!"
+        echo "   Your code may not be up to date"
+        exit 1
+    fi
+else
+    echo "❌ ERROR: Genesis file not found: $GENESIS_FILE"
+    exit 1
+fi
+echo ""
+
+# Step 6: Check config
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 6: Checking config"
+echo "════════════════════════════════════════════════════════════════"
+if [ -f "$CONFIG_FILE" ]; then
+    echo "📄 Config file: $CONFIG_FILE"
+    
+    # Check load_genesis_from_file setting
+    if grep -q "load_genesis_from_file = true" "$CONFIG_FILE"; then
+        echo "✅ Genesis loading is enabled"
+    elif grep -q "load_genesis_from_file = false" "$CONFIG_FILE"; then
+        echo "⚠️  Genesis loading is DISABLED"
+        echo ""
+        read -p "Enable genesis loading? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            echo "✏️  Updating config..."
+            sudo sed -i 's/load_genesis_from_file = false/load_genesis_from_file = true/' "$CONFIG_FILE"
+            echo "✅ Config updated"
+        else
+            echo "❌ ERROR: Genesis loading must be enabled"
+            exit 1
+        fi
+    else
+        echo "⚠️  Cannot find load_genesis_from_file in config"
+        echo "   Manually verify config file"
+    fi
+    
+    # Check genesis_file path
+    echo ""
+    echo "📊 Genesis file path in config:"
+    grep "genesis_file" "$CONFIG_FILE" | grep -v "^#" || echo "   Not set (will use default)"
+else
+    echo "❌ ERROR: Config file not found: $CONFIG_FILE"
+    exit 1
+fi
+echo ""
+
+# Step 7: Rebuild
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 7: Rebuilding"
+echo "════════════════════════════════════════════════════════════════"
+cd "$REPO_DIR"
+echo "🔨 Building release binary..."
+echo "   (This will take 5-10 minutes)"
+echo ""
+cargo build --release
+echo ""
+echo "✅ Build complete"
+echo ""
+
+# Step 8: Restart service
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 8: Restarting service"
+echo "════════════════════════════════════════════════════════════════"
+echo "🚀 Starting timed service..."
+sudo systemctl start timed
+echo "✅ Service started"
+echo ""
+
+# Step 9: Verify
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 9: Verifying migration"
+echo "════════════════════════════════════════════════════════════════"
+echo "📊 Service status:"
+sudo systemctl status timed --no-pager -l | head -n 10 || true
+echo ""
+echo "Waiting 5 seconds for startup..."
+sleep 5
+echo ""
+echo "📋 Recent logs:"
+sudo journalctl -u timed -n 20 --no-pager | tail -n 20
+echo ""
+
+# Final checklist
+echo "════════════════════════════════════════════════════════════════"
+echo "✅ MIGRATION COMPLETE!"
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+echo "Verification checklist:"
+echo "  [ ] Service is running (check above)"
+echo "  [ ] Logs show: 🔍 Genesis loading is enabled"
+echo "  [ ] Logs show: 📥 Loading genesis block from file..."
+echo "  [ ] Logs show: ✅ Genesis block loaded"
+echo "  [ ] No errors in logs"
+echo ""
+echo "Watch live logs with:"
+echo "  sudo journalctl -u timed -f"
+echo ""
+echo "Check genesis block:"
+echo "  curl -s http://localhost:24101/api/blockchain/block/0 | jq ."
+echo ""
+echo "════════════════════════════════════════════════════════════════"
