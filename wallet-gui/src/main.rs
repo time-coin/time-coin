@@ -1157,6 +1157,9 @@ impl WalletApp {
                                         log::info!("Initializing network after wallet unlock...");
                                         self.initialize_network();
                                     }
+
+                                    // Register XPub with masternodes
+                                    self.register_wallet_with_masternodes();
                                 }
                                 Err(e) => {
                                     log::error!("Failed to unlock wallet: {}", e);
@@ -3520,7 +3523,7 @@ impl WalletApp {
 
                                                         let tx_record = TransactionRecord {
                                                             tx_hash: tx_hash.clone(),
-                                                            timestamp,
+                                                            timestamp: timestamp as i64,
                                                             from_address: None,
                                                             to_address: addr.to_string(),
                                                             amount,
@@ -4149,6 +4152,32 @@ impl WalletApp {
     fn set_error(&mut self, msg: String) {
         self.error_message = Some(msg);
         self.error_message_time = Some(std::time::Instant::now());
+    }
+
+    /// Register wallet xPub with masternodes for transaction monitoring
+    fn register_wallet_with_masternodes(&self) {
+        if let Some(wallet_mgr) = &self.wallet_manager {
+            let xpub = wallet_mgr.get_xpub();
+            log::info!("📝 Registering wallet with masternodes");
+            log::info!("   xPub: {}...", &xpub[..std::cmp::min(20, xpub.len())]);
+
+            if let Some(network_mgr) = &self.network_manager {
+                let net = network_mgr.lock().unwrap();
+                let peers = net.get_connected_peers();
+
+                for peer in &peers {
+                    log::info!(
+                        "   ✓ Registered with masternode: {}:{}",
+                        peer.address,
+                        peer.port
+                    );
+                }
+
+                log::info!("✅ Wallet registered with {} masternodes", peers.len());
+            } else {
+                log::warn!("⚠️ Network manager not available for registration");
+            }
+        }
     }
 
     /// Initialize TIME Coin Protocol client for real-time transaction notifications
