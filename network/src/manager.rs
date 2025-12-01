@@ -1362,9 +1362,32 @@ impl PeerManager {
         Ok(vec![])
     }
 
+    /// Add a discovered peer to the peer exchange
+    /// OPTIMIZATION (Quick Win #4): Normalize ephemeral ports once at entry point
+    /// Ephemeral ports (>= 49152) are normalized to network standard ports:
+    /// - Mainnet: 24000
+    /// - Testnet: 24100
     pub async fn add_discovered_peer(&self, address: String, port: u16, version: String) {
+        // Normalize ephemeral ports once, at the entry point
+        let normalized_port = match self.network {
+            NetworkType::Mainnet => {
+                if port >= 49152 {
+                    24000
+                } else {
+                    port
+                }
+            }
+            NetworkType::Testnet => {
+                if port >= 49152 {
+                    24100
+                } else {
+                    port
+                }
+            }
+        };
+
         let mut exchange = self.peer_exchange.write().await;
-        exchange.add_peer(address, port, version);
+        exchange.add_peer(address, normalized_port, version);
     }
 
     pub async fn get_best_peers(&self, count: usize) -> Vec<crate::peer_exchange::PeerInfo> {

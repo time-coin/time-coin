@@ -135,6 +135,7 @@ impl PeerInfo {
 pub struct PeerExchange {
     peers: HashMap<String, PeerInfo>,
     storage_path: String,
+    #[allow(dead_code)] // Kept for deprecated cleanup_ephemeral_ports method
     network: NetworkType,
 }
 
@@ -146,20 +147,21 @@ impl PeerExchange {
             network,
         };
         exchange.load_from_disk();
-        exchange.cleanup_ephemeral_ports();
+        // OPTIMIZATION (Quick Win #4): No longer need cleanup - ports normalized at entry
         exchange
     }
 
+    /// Add or update a peer in the exchange
+    /// OPTIMIZATION (Quick Win #4): Assumes ports are already normalized by caller
+    /// Callers (PeerManager::add_discovered_peer) normalize ephemeral ports before calling this
     pub fn add_peer(&mut self, address: String, port: u16, version: String) {
         let key = address.clone();
 
         if let Some(peer) = self.peers.get_mut(&key) {
             peer.last_seen = Utc::now().timestamp();
             peer.version = version;
-            // Prefer non-ephemeral ports (< 49152) when updating existing peers
-            if port < 49152 && peer.port >= 49152 {
-                peer.port = port;
-            }
+            // Update port (already normalized by caller)
+            peer.port = port;
         } else {
             self.peers
                 .insert(key, PeerInfo::new(address, port, version));
@@ -244,28 +246,14 @@ impl PeerExchange {
         }
     }
 
-    /// Clean up peers with ephemeral ports (>= 49152) by updating them to standard ports
-    /// This prevents peer list bloat from accumulating ephemeral source ports
+    /// DEPRECATED: Cleanup no longer needed - ports normalized at entry point
+    /// OPTIMIZATION (Quick Win #4): Ephemeral ports are now normalized in
+    /// PeerManager::add_discovered_peer(), so this cleanup is redundant
+    #[deprecated(note = "Ephemeral ports are now normalized at entry point")]
+    #[allow(dead_code)]
     fn cleanup_ephemeral_ports(&mut self) {
-        let mut updated = false;
-
-        // Choose the network-appropriate default port for mapping ephemeral ports
-        let default_port = match self.network {
-            NetworkType::Mainnet => 24000,
-            NetworkType::Testnet => 24100,
-        };
-
-        for peer in self.peers.values_mut() {
-            if peer.port >= 49152 {
-                peer.port = default_port;
-                updated = true;
-            }
-        }
-
-        if updated {
-            println!("✓ Cleaned up ephemeral ports in peer database");
-            self.save_to_disk();
-        }
+        // No-op: Ports are already normalized when added
+        // Kept for backward compatibility
     }
 
     pub fn peer_count(&self) -> usize {
