@@ -1,5 +1,3 @@
-use crate::bft_consensus::BftConsensus;
-use crate::deterministic_consensus::{ConsensusResult, DeterministicConsensus};
 use chrono::{TimeZone, Utc};
 use crossterm::style::Stylize;
 use owo_colors::OwoColorize;
@@ -33,66 +31,18 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
 }
 
 pub struct BlockProducer {
-    #[allow(dead_code)]
     node_id: String,
     peer_manager: Arc<PeerManager>,
     consensus: Arc<ConsensusEngine>,
     blockchain: Arc<RwLock<BlockchainState>>,
     mempool: Arc<time_mempool::Mempool>,
     block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
-    #[allow(dead_code)]
-    tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
     is_active: Arc<RwLock<bool>>,
-    #[allow(dead_code)]
     allow_block_recreation: bool,
     quarantine: Arc<time_network::PeerQuarantine>,
-    bft: Arc<BftConsensus>,
-    deterministic: Arc<DeterministicConsensus>,
 }
 
 impl BlockProducer {
-    #[allow(dead_code)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        node_id: String,
-        peer_manager: Arc<PeerManager>,
-        consensus: Arc<ConsensusEngine>,
-        blockchain: Arc<RwLock<BlockchainState>>,
-        mempool: Arc<time_mempool::Mempool>,
-        block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
-        #[allow(dead_code)] tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
-        allow_block_recreation: bool,
-        quarantine: Arc<time_network::PeerQuarantine>,
-    ) -> Self {
-        let bft = Arc::new(BftConsensus::new(
-            node_id.clone(),
-            peer_manager.clone(),
-            block_consensus.clone(),
-            blockchain.clone(),
-        ));
-
-        let deterministic = Arc::new(DeterministicConsensus::new(
-            node_id.clone(),
-            peer_manager.clone(),
-            blockchain.clone(),
-        ));
-
-        BlockProducer {
-            node_id,
-            peer_manager,
-            consensus,
-            blockchain,
-            mempool,
-            block_consensus,
-            tx_consensus,
-            is_active: Arc::new(RwLock::new(false)),
-            allow_block_recreation,
-            quarantine,
-            bft,
-            deterministic,
-        }
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn with_shared_state(
         node_id: String,
@@ -101,24 +51,11 @@ impl BlockProducer {
         blockchain: Arc<RwLock<BlockchainState>>,
         mempool: Arc<time_mempool::Mempool>,
         block_consensus: Arc<time_consensus::block_consensus::BlockConsensusManager>,
-        tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
+        _tx_consensus: Arc<time_consensus::tx_consensus::TxConsensusManager>,
         is_active: Arc<RwLock<bool>>,
         allow_block_recreation: bool,
         quarantine: Arc<time_network::PeerQuarantine>,
     ) -> Self {
-        let bft = Arc::new(BftConsensus::new(
-            node_id.clone(),
-            peer_manager.clone(),
-            block_consensus.clone(),
-            blockchain.clone(),
-        ));
-
-        let deterministic = Arc::new(DeterministicConsensus::new(
-            node_id.clone(),
-            peer_manager.clone(),
-            blockchain.clone(),
-        ));
-
         BlockProducer {
             node_id,
             peer_manager,
@@ -126,12 +63,9 @@ impl BlockProducer {
             blockchain,
             mempool,
             block_consensus,
-            tx_consensus,
             is_active,
             allow_block_recreation,
             quarantine,
-            bft,
-            deterministic,
         }
     }
 
@@ -280,12 +214,9 @@ impl BlockProducer {
             blockchain: self.blockchain.clone(),
             mempool: self.mempool.clone(),
             block_consensus: self.block_consensus.clone(),
-            tx_consensus: self.tx_consensus.clone(),
             is_active: self.is_active.clone(),
             allow_block_recreation: self.allow_block_recreation,
             quarantine: self.quarantine.clone(),
-            bft: self.bft.clone(),
-            deterministic: self.deterministic.clone(),
         };
 
         tokio::spawn(async move {
@@ -1060,57 +991,53 @@ impl BlockProducer {
             now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
         };
 
-        println!("   📡 Running deterministic consensus...");
+        println!("   📡 Creating block with BFT consensus...");
 
         // Calculate total fees
         let total_fees = self.calculate_total_fees(&transactions).await;
 
-        // Run deterministic consensus
-        match self
-            .deterministic
-            .run_consensus(block_num, timestamp, &masternodes, transactions, total_fees)
-            .await
-        {
-            ConsensusResult::Consensus(block) => {
-                println!("   ✅ CONSENSUS REACHED - Block finalized!");
-                self.finalize_and_broadcast_block(block).await;
-            }
-            ConsensusResult::NeedsReconciliation {
-                our_block,
-                peer_blocks,
-                differences,
-            } => {
-                println!("   ⚠️  Block differences detected - reconciling...");
+        // Create the block using the same logic as catch-up blocks
+        let blockchain = self.blockchain.read().await;
+        let previous_hash = blockchain.chain_tip_hash().to_string();
+        let masternode_counts = blockchain.masternode_counts().clone();
+        let active_masternodes: Vec<(String, time_core::MasternodeTier)> = blockchain
+            .get_active_masternodes()
+            .iter()
+            .map(|mn| (mn.wallet_address.clone(), mn.tier))
+            .collect();
+        drop(blockchain);
 
-                if let Some(reconciled_block) = self
-                    .deterministic
-                    .reconcile_and_finalize(
-                        block_num,
-                        timestamp,
-                        our_block,
-                        peer_blocks,
-                        differences,
-                    )
-                    .await
-                {
-                    println!("   ✅ Reconciliation successful!");
-                    self.finalize_and_broadcast_block(reconciled_block).await;
-                } else {
-                    println!("   ❌ Reconciliation failed - will retry next block");
-                }
-            }
-            ConsensusResult::Failed(failure) => {
-                println!("   ❌ CONSENSUS FAILED - Block NOT finalized");
-                println!("      Reason: {}", failure.last_error);
-                println!("      Attempts: {}", failure.attempts);
-                println!(
-                    "      Responses: {}/{}",
-                    failure.votes_received, failure.votes_required
-                );
-                println!("   ⏭️  Skipping this block - will retry in next cycle");
-                println!("   ℹ️  Network must have active peers for consensus");
-            }
-        }
+        let coinbase_tx = time_core::block::create_coinbase_transaction(
+            block_num,
+            &active_masternodes,
+            &masternode_counts,
+            total_fees,
+            timestamp.timestamp(),
+        );
+
+        let deterministic_validator = format!("consensus_block_{}", block_num);
+        let mut all_transactions = vec![coinbase_tx];
+        all_transactions.extend(transactions);
+
+        let mut block = Block {
+            hash: String::new(),
+            header: BlockHeader {
+                block_number: block_num,
+                timestamp,
+                previous_hash,
+                merkle_root: String::new(),
+                validator_signature: deterministic_validator.clone(),
+                validator_address: deterministic_validator,
+                masternode_counts: masternode_counts.clone(),
+            },
+            transactions: all_transactions,
+        };
+
+        block.header.merkle_root = block.calculate_merkle_root();
+        block.hash = block.calculate_hash();
+
+        println!("   ✅ Block created - broadcasting for finalization");
+        self.finalize_and_broadcast_block(block).await;
     }
 
     /// Finalize and broadcast a block to the network
@@ -1537,15 +1464,8 @@ impl BlockProducer {
         // Initialize outputs with masternode rewards only (no treasury pre-allocation)
         let mut outputs = vec![];
 
-        // For catch-up blocks, also filter by participation
-        let agreed_tx_set = self.tx_consensus.get_agreed_tx_set(block_num).await;
-        let voters = if let Some(proposal) = agreed_tx_set {
-            self.tx_consensus
-                .get_voters(block_num, &proposal.merkle_root)
-                .await
-        } else {
-            Vec::new()
-        };
+        // For catch-up blocks, use all masternodes (no tx consensus filtering needed)
+        let voters = Vec::new();
 
         // --- FIX: derive participating_masternodes from voters ---
         let active_masternodes = self.consensus.get_masternodes_with_wallets().await;

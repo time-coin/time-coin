@@ -2203,7 +2203,11 @@ mod tests {
         let connections = manager.connections.read().await;
         assert_eq!(connections.len(), 1);
         assert_eq!(
-            connections.get(&test_peer.address.ip()).unwrap().info.address,
+            connections
+                .get(&test_peer.address.ip())
+                .unwrap()
+                .info
+                .address,
             test_peer.address
         );
         drop(connections);
@@ -2330,7 +2334,12 @@ mod tests {
 
         // Verify that all 3 peers are in the connections map
         let connections = manager.connections.read().await;
-        assert_eq!(connections.len(), 3, "Expected 3 peers, but got {}", connections.len());
+        assert_eq!(
+            connections.len(),
+            3,
+            "Expected 3 peers, but got {}",
+            connections.len()
+        );
 
         // Verify each peer is present
         assert!(connections.contains_key(&peer1.address.ip()));

@@ -10,10 +10,8 @@ use owo_colors::OwoColorize;
 
 use serde::Deserialize;
 
-mod bft_consensus;
 mod block_producer;
 mod chain_sync;
-mod deterministic_consensus;
 mod fast_sync;
 use block_producer::BlockProducer;
 use chain_sync::ChainSync;
@@ -93,22 +91,10 @@ struct Config {
 struct NodeConfig {
     mode: Option<String>,
     network: Option<String>,
-
-    #[allow(dead_code)]
-    name: Option<String>,
-
-    #[allow(dead_code)]
-    data_dir: Option<String>,
-
-    #[allow(dead_code)]
-    log_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct BlockchainConfig {
-    #[allow(dead_code)]
-    data_dir: Option<String>,
-
     /// Path to genesis block JSON file
     genesis_file: Option<String>,
 
@@ -124,9 +110,6 @@ struct BlockchainConfig {
 #[derive(Debug, Deserialize, Default)]
 struct ConsensusConfig {
     dev_mode: Option<bool>,
-
-    #[allow(dead_code)]
-    auto_approve: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -699,13 +682,15 @@ async fn main() {
     // ═══════════════════════════════════════════════════════════════
 
     // Get data directory from config or use default
-    let data_dir = config
-        .node
-        .data_dir
-        .as_ref()
-        .map(|p| expand_path(p))
-        .or_else(|| config.blockchain.data_dir.as_ref().map(|p| expand_path(p)))
-        .unwrap_or_else(|| "/var/lib/time-coin".to_string());
+    // Determine data directory
+    let data_dir = std::env::var("TIME_COIN_DATA_DIR").unwrap_or_else(|_| {
+        if cfg!(windows) {
+            let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
+            format!("{}\\AppData\\Local\\time-coin", home)
+        } else {
+            "/var/lib/time-coin".to_string()
+        }
+    });
 
     // Ensure all data directories exist
     if let Err(e) = ensure_data_directories(&data_dir) {
