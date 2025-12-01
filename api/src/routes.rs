@@ -391,8 +391,16 @@ struct PeersResponse {
 }
 
 async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<PeersResponse>> {
+    use std::time::Instant;
+    
+    tracing::info!("GET /peers endpoint called");
+    let start = Instant::now();
+    tracing::info!("Calling peer_manager.get_connected_peers()...");
     let peers = state.peer_manager.get_connected_peers().await;
+    let fetch_time = start.elapsed();
+    tracing::info!("Got {} peers in {:?}", peers.len(), fetch_time);
 
+    let map_start = Instant::now();
     let peer_info: Vec<PeerInfo> = peers
         .iter()
         .map(|p| PeerInfo {
@@ -401,8 +409,18 @@ async fn get_peers(State(state): State<ApiState>) -> ApiResult<Json<PeersRespons
             connected: true,
         })
         .collect();
+    let map_time = map_start.elapsed();
 
     let count = peer_info.len();
+    let total_time = start.elapsed();
+
+    tracing::debug!(
+        "GET /peers: fetched {} peers in {:?} (fetch: {:?}, map: {:?})",
+        count,
+        total_time,
+        fetch_time,
+        map_time
+    );
 
     Ok(Json(PeersResponse {
         peers: peer_info,
