@@ -897,17 +897,23 @@ async fn main() {
                 "{}",
                 format!("   Genesis file path: {}", genesis_path).bright_black()
             );
-            // Check if we need to load genesis (no blocks on disk)
+            // Check if we need to load genesis (no genesis block on disk)
             let db_path = format!("{}/blockchain", data_dir);
             let needs_genesis = {
                 let db =
                     time_core::db::BlockchainDB::open(&db_path).expect("Failed to open database");
-                let blocks = db.load_all_blocks().expect("Failed to check blocks");
+
+                // Check specifically for genesis block (height 0), not just any blocks
+                let has_genesis = match db.load_block(0) {
+                    Ok(Some(_)) => true,
+                    _ => false,
+                };
+
                 println!(
                     "{}",
-                    format!("   Blocks on disk: {}", blocks.len()).bright_black()
+                    format!("   Genesis block on disk: {}", has_genesis).bright_black()
                 );
-                blocks.is_empty()
+                !has_genesis
             };
 
             if needs_genesis {
@@ -942,7 +948,10 @@ async fn main() {
                     }
                 }
             } else {
-                println!("{}", "   Genesis already exists on disk".bright_black());
+                println!(
+                    "{}",
+                    "   ✅ Genesis block already exists on disk".bright_black()
+                );
             }
         } else {
             eprintln!(

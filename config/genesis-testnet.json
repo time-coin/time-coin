@@ -1,11 +1,11 @@
 {
   "network": "testnet",
-  "version": 1,
-  "message": "TIME Coin Testnet Launch - October 12, 2025 - 24 Hour Blocks, Instant Finality",
+  "version": 2,
+  "message": "TIME Coin Testnet Relaunch - December 1, 2025 - Proof of Time Enabled",
   "block": {
     "header": {
       "block_number": 0,
-      "timestamp": "2025-10-12T00:00:00Z",
+      "timestamp": "2025-12-01T00:00:00Z",
       "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
       "merkle_root": "coinbase_0",
       "validator_signature": "genesis",
@@ -15,6 +15,12 @@
         "bronze": 0,
         "silver": 0,
         "gold": 0
+      },
+      "proof_of_time": {
+        "output": "0000000000000000000000000000000000000000000000000000000000000000",
+        "proof": "0000000000000000000000000000000000000000000000000000000000000000",
+        "iterations": 100000,
+        "input_hash": "genesis_bootstrap_2025_12_01"
       }
     },
     "transactions": [
@@ -29,9 +35,9 @@
           }
         ],
         "lock_time": 0,
-        "timestamp": 1760227200
+        "timestamp": 1733011200
       }
     ],
-    "hash": "9a81c7599d8eed9720282aa68dccbc76e92ac3770a1892a96e1d073f375d0aed"
+    "hash": "0000000000000000000000000000000000000000000000000000000000000000"
   }
 }
