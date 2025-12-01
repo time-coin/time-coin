@@ -1099,6 +1099,17 @@ impl BlockProducer {
                     println!("   ❌ Reconciliation failed - will retry next block");
                 }
             }
+            ConsensusResult::Failed(failure) => {
+                println!("   ❌ CONSENSUS FAILED - Block NOT finalized");
+                println!("      Reason: {}", failure.last_error);
+                println!("      Attempts: {}", failure.attempts);
+                println!(
+                    "      Responses: {}/{}",
+                    failure.votes_received, failure.votes_required
+                );
+                println!("   ⏭️  Skipping this block - will retry in next cycle");
+                println!("   ℹ️  Network must have active peers for consensus");
+            }
         }
     }
 

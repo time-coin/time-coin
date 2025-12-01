@@ -18,6 +18,8 @@ use time_core::transaction::Transaction;
 use time_network::PeerManager;
 use tokio::sync::RwLock;
 
+use crate::bft_consensus::ConsensusFailure;
+
 /// Result of deterministic consensus
 #[derive(Debug)]
 pub enum ConsensusResult {
@@ -29,6 +31,8 @@ pub enum ConsensusResult {
         peer_blocks: Vec<(String, Block)>,
         differences: BlockDifferences,
     },
+    /// Consensus failed - no peers available or not enough responses
+    Failed(ConsensusFailure),
 }
 
 /// Differences found between blocks
@@ -124,8 +128,15 @@ impl DeterministicConsensus {
         // Step 2: Request blocks from all peers
         let peer_ips = self.peer_manager.get_peer_ips().await;
         if peer_ips.is_empty() {
-            println!("   ⚠️  No peers available - accepting local block");
-            return ConsensusResult::Consensus(our_block);
+            println!("   ⚠️  No peers available - CANNOT finalize block");
+            println!("   ℹ️  Deterministic consensus requires peer validation");
+            println!("   ⏭️  Skipping block - will retry when peers available");
+            return ConsensusResult::Failed(ConsensusFailure {
+                attempts: 1,
+                last_error: "No peers available for consensus validation".to_string(),
+                votes_received: 0,
+                votes_required: 1,
+            });
         }
 
         println!(
@@ -136,9 +147,15 @@ impl DeterministicConsensus {
         let peer_blocks = self.request_blocks_from_peers(&peer_ips, block_num).await;
 
         if peer_blocks.is_empty() {
-            println!("   ⚠️  No peer responses -  assuming consensus (all nodes creating identical block)");
-            println!("   ℹ️  In deterministic consensus, no response = implicit agreement");
-            return ConsensusResult::Consensus(our_block);
+            println!("   ⚠️  No peer responses - CANNOT finalize block");
+            println!("   ℹ️  Deterministic consensus requires peer validation");
+            println!("   ⏭️  Skipping block - will retry when peers respond");
+            return ConsensusResult::Failed(ConsensusFailure {
+                attempts: 1,
+                last_error: "No peer responses received".to_string(),
+                votes_received: 0,
+                votes_required: peer_ips.len(),
+            });
         }
 
         println!("   ✓ Received {} peer blocks", peer_blocks.len());
