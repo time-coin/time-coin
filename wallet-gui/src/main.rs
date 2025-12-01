@@ -3428,10 +3428,10 @@ impl WalletApp {
     }
 
     fn trigger_mempool_check(&mut self) {
-        log::info!("🔄 Checking mempool for pending transactions...");
+        log::info!("🔄 Checking for new transactions (mempool + finalized)...");
 
         if self.wallet_manager.is_none() || self.network_manager.is_none() {
-            log::warn!("Cannot check mempool: wallet or network not initialized");
+            log::warn!("Cannot check transactions: wallet or network not initialized");
             return;
         }
 
@@ -3454,7 +3454,7 @@ impl WalletApp {
         };
 
         if addresses.is_empty() {
-            log::warn!("No addresses to check in mempool");
+            log::warn!("No addresses to check");
             return;
         }
 
@@ -3463,11 +3463,11 @@ impl WalletApp {
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            
+
             // Wrap entire async block in timeout
             let result = rt.block_on(async move {
                 tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
+                    std::time::Duration::from_secs(5),
                     async move {
                 let peers = {
                     let net = network_mgr.lock().unwrap();
@@ -3475,11 +3475,84 @@ impl WalletApp {
                 };
 
                 if peers.is_empty() {
-                    log::warn!("No connected peers to check mempool from");
+                    log::warn!("No connected peers to check transactions from");
                     return;
                 }
 
-                // Try each peer until success
+                // Check finalized transactions first via HTTP API (faster and more reliable)
+                for peer in peers.iter().take(1) {
+                    let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
+                    let api_url = format!("http://{}:24101/api/transactions", peer_ip);
+
+                    log::info!("📡 Checking finalized transactions from peer: {}", peer_ip);
+
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        reqwest::get(&api_url)
+                    ).await {
+                        Ok(Ok(response)) => {
+                            if let Ok(transactions) = response.json::<Vec<serde_json::Value>>().await {
+                                log::info!("📥 Received {} finalized transactions", transactions.len());
+
+                                // Process recent transactions for our addresses
+                                for tx_val in transactions.iter().rev().take(100) {
+                                    // Check if transaction involves our addresses
+                                    if let Some(outputs) = tx_val.get("outputs").and_then(|v| v.as_array()) {
+                                        for output in outputs {
+                                            if let Some(addr) = output.get("address").and_then(|v| v.as_str()) {
+                                                if addresses.iter().any(|a| a == addr) {
+                                                    // This transaction is for us!
+                                                    if let Some(db) = &wallet_db {
+                                                        use crate::wallet_db::{TransactionRecord, TransactionStatus};
+
+                                                        let tx_hash = tx_val.get("txid")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("unknown")
+                                                            .to_string();
+
+                                                        let amount = output.get("amount")
+                                                            .and_then(|v| v.as_u64())
+                                                            .unwrap_or(0);
+
+                                                        let timestamp = tx_val.get("timestamp")
+                                                            .and_then(|v| v.as_u64())
+                                                            .unwrap_or(0);
+
+                                                        let tx_record = TransactionRecord {
+                                                            tx_hash: tx_hash.clone(),
+                                                            timestamp,
+                                                            from_address: None,
+                                                            to_address: addr.to_string(),
+                                                            amount,
+                                                            status: TransactionStatus::Confirmed,
+                                                            block_height: tx_val.get("block_height").and_then(|v| v.as_u64()),
+                                                            notes: Some("Finalized".to_string()),
+                                                        };
+
+                                                        if let Err(e) = db.save_transaction(&tx_record) {
+                                                            log::error!("Failed to save transaction: {}", e);
+                                                        } else {
+                                                            log::info!("✅ Saved finalized transaction: {}", &tx_hash[..16]);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                return; // Success
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            log::warn!("Failed to fetch finalized transactions: {}", e);
+                        }
+                        Err(_) => {
+                            log::warn!("Timeout fetching finalized transactions from {}", peer_ip);
+                        }
+                    }
+                }
+
+                // Also check mempool via TCP for pending transactions
                 for peer in peers.iter().take(1) {
                     use time_network::protocol::{NetworkMessage, HandshakeMessage};
                     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -3598,10 +3671,10 @@ impl WalletApp {
                     }
                 ).await
             });
-            
+
             match result {
-                Ok(_) => log::info!("✅ Mempool check completed"),
-                Err(_) => log::warn!("⏱️ Mempool check timed out after 10 seconds")
+                Ok(_) => log::info!("✅ Transaction check completed"),
+                Err(_) => log::warn!("⏱️ Transaction check timed out after 5 seconds"),
             }
         });
     }
