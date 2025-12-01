@@ -1060,6 +1060,7 @@ impl BlockProducer {
                 validator_address: deterministic_validator,
                 masternode_counts: masternode_counts.clone(),
                 proof_of_time: None,
+                checkpoints: Vec::new(),
             },
             transactions: all_transactions,
         };
@@ -1246,6 +1247,7 @@ impl BlockProducer {
                 gold: 0,
             },
             proof_of_time: None,
+            checkpoints: Vec::new(),
         };
 
         let mut block = Block {
@@ -1388,6 +1390,7 @@ impl BlockProducer {
             validator_address: my_id.to_string(),
             masternode_counts: masternode_counts.clone(),
             proof_of_time: None,
+            checkpoints: Vec::new(),
         };
 
         // Create a temporary block to calculate hash properly
@@ -1573,6 +1576,7 @@ impl BlockProducer {
                     gold: 0,
                 },
                 proof_of_time: None,
+                checkpoints: Vec::new(),
             },
             transactions: vec![coinbase_tx],
         };
@@ -1868,6 +1872,7 @@ impl BlockProducer {
                     gold: 0,
                 },
                 proof_of_time: None,
+                checkpoints: Vec::new(),
             },
             transactions: vec![coinbase_tx],
         };
@@ -1990,6 +1995,7 @@ impl BlockProducer {
                 validator_address: deterministic_validator,
                 masternode_counts: masternode_counts.clone(),
                 proof_of_time: None,
+                checkpoints: Vec::new(),
             },
             transactions,
         };
@@ -2211,6 +2217,7 @@ impl BlockProducer {
                 validator_address: my_id.clone(),
                 masternode_counts: masternode_counts.clone(),
                 proof_of_time: None,
+                checkpoints: Vec::new(),
             },
             transactions: vec![coinbase_tx],
         };

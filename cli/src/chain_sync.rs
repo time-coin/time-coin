@@ -1532,6 +1532,7 @@ impl ChainSync {
                             gold: 0,
                         },
                         proof_of_time: None,
+                        checkpoints: Vec::new(),
                     },
                     transactions: vec![coinbase_tx],
                 };

@@ -71,6 +71,9 @@ pub struct BlockHeader {
     /// Proof-of-Time VDF proof (optional for backwards compatibility)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proof_of_time: Option<VDFProof>,
+    /// Checkpoints (finality markers) - optional, primarily for genesis
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checkpoints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +187,7 @@ impl Block {
                 validator_address,
                 masternode_counts: masternode_counts.clone(),
                 proof_of_time: None,
+                checkpoints: Vec::new(),
             },
             transactions: vec![coinbase],
             hash: String::new(),
@@ -678,6 +682,7 @@ pub fn create_reward_only_block(
             validator_address,
             masternode_counts: counts.clone(),
             proof_of_time: None,
+            checkpoints: Vec::new(),
         },
         transactions: vec![coinbase_tx],
         hash: String::new(),

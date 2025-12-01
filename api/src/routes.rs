@@ -1343,6 +1343,7 @@ async fn create_and_broadcast_catchup_proposal(
             validator_address: leader_ip.clone(),
             masternode_counts: masternode_counts.clone(),
             proof_of_time: None,
+            checkpoints: Vec::new(),
         },
         hash: String::new(),
         transactions: all_transactions.clone(),
@@ -1368,6 +1369,7 @@ async fn create_and_broadcast_catchup_proposal(
         validator_address: leader_ip.clone(),
         masternode_counts: masternode_counts.clone(),
         proof_of_time: None,
+        checkpoints: Vec::new(),
     };
 
     // Create block with proper hash calculation
