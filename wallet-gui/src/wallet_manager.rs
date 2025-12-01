@@ -7,7 +7,6 @@
 //! - Addresses are derived on-demand from xpub
 //! - Contact info and metadata stored separately in wallet.db
 
-use crate::tx_validator::{TransactionValidator, ValidationError};
 use crate::wallet_dat::{WalletDat, WalletDatError};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -40,8 +39,6 @@ pub struct WalletManager {
     active_wallet: Wallet,
     // Next address index to derive
     next_address_index: u32,
-    // Transaction validator for network rules
-    transaction_validator: TransactionValidator,
 }
 
 impl WalletManager {
@@ -79,7 +76,6 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
-            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -121,7 +117,6 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
-            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -154,7 +149,6 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
-            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -173,7 +167,6 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
-            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -227,7 +220,6 @@ impl WalletManager {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
-            transaction_validator: TransactionValidator::new(),
         })
     }
 
@@ -319,29 +311,9 @@ impl WalletManager {
             .create_transaction(to_address, amount, fee)
             .map_err(|e| e.to_string())?;
 
-        // Validate before returning
-        let tx_size = self.estimate_transaction_size(&tx);
-        match self
-            .transaction_validator
-            .validate_transaction(&tx, tx_size)
-        {
-            Ok(report) => {
-                // Log warnings if any
-                if !report.warnings.is_empty() {
-                    log::warn!("Transaction validation warnings:");
-                    for warning in &report.warnings {
-                        log::warn!("  - {}", warning);
-                    }
-                }
-                log::info!(
-                    "Transaction validated: {} sat/byte, estimated confirmation: {}",
-                    report.fee_rate,
-                    report.estimated_confirmation_time
-                );
-                Ok(tx)
-            }
-            Err(e) => Err(format!("Transaction validation failed: {}", e)),
-        }
+        // Transaction will be validated by masternodes
+        log::info!("Transaction created, will be validated by masternode network");
+        Ok(tx)
     }
 
     /// Estimate transaction size in bytes
@@ -350,47 +322,6 @@ impl WalletManager {
         let input_size = tx.inputs.len() * 180;
         let output_size = tx.outputs.len() * 34;
         base_size + input_size + output_size
-    }
-
-    /// Validate a transaction before broadcasting (direct validation)
-    pub fn validate_transaction(
-        &self,
-        tx: &Transaction,
-        tx_size: usize,
-    ) -> Result<(), ValidationError> {
-        self.transaction_validator
-            .validate_transaction(tx, tx_size)
-            .map(|_| ())
-    }
-
-    /// Get transaction validator for fee estimation
-    pub fn get_transaction_validator(&self) -> &TransactionValidator {
-        &self.transaction_validator
-    }
-
-    /// Get mutable transaction validator for updates
-    pub fn get_transaction_validator_mut(&mut self) -> &mut TransactionValidator {
-        &mut self.transaction_validator
-    }
-
-    /// Estimate transaction fees for given priority
-    pub fn estimate_fee_for_priority(
-        &self,
-        tx_size_bytes: usize,
-        priority: crate::tx_validator::FeePriority,
-    ) -> u64 {
-        self.transaction_validator
-            .estimate_fee(tx_size_bytes, priority)
-    }
-
-    /// Update mempool state for double-spend detection
-    pub fn update_mempool(&mut self, txids: Vec<String>) {
-        self.transaction_validator.update_mempool(txids);
-    }
-
-    /// Update network fee market data
-    pub fn update_fee_market(&mut self, fee_market: crate::tx_validator::FeeMarket) {
-        self.transaction_validator.update_fee_market(fee_market);
     }
 }
 
@@ -426,7 +357,6 @@ mod tests {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
-            transaction_validator: TransactionValidator::new(),
         };
 
         assert!(!manager.get_xpub().is_empty());
@@ -451,7 +381,6 @@ mod tests {
             wallet_dat,
             active_wallet: wallet,
             next_address_index: 0,
-            transaction_validator: TransactionValidator::new(),
         };
 
         assert_eq!(manager.get_balance(), 0);
