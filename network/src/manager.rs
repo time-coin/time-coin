@@ -67,10 +67,8 @@ impl PeerManager {
             rate_limiter: Arc::new(crate::rate_limiter::RateLimiter::new()),
         };
 
-        manager.spawn_reaper();
-        manager.spawn_reconnection_task();
-        manager.spawn_broadcast_cleanup_task();
-        manager.spawn_peer_exchange_cleanup_task();
+        // OPTIMIZATION: Single unified maintenance task instead of 4 separate tasks
+        manager.spawn_network_maintenance();
         manager
     }
 
@@ -1748,27 +1746,44 @@ impl PeerManager {
         }
     }
 
-    /// Spawn a background task that periodically removes stale peers and logs removals.
-    #[allow(dead_code)] // Temporarily disabled for debugging
-    fn spawn_reaper(&self) {
+    /// OPTIMIZATION: Unified network maintenance task
+    /// Consolidates reaper, reconnection, broadcast cleanup, and peer exchange cleanup
+    /// into a single task to reduce lock thrashing and CPU overhead
+    fn spawn_network_maintenance(&self) {
         let connections = self.connections.clone();
         let stale_after = self.stale_after;
-        let interval = self.reaper_interval;
         let manager = self.clone();
+        let recent_broadcasts = self.recent_peer_broadcasts.clone();
+        let broadcast_count = self.broadcast_count.clone();
+        let broadcast_count_reset = self.broadcast_count_reset.clone();
+        let peer_exchange = self.peer_exchange.clone();
 
         tokio::spawn(async move {
-            let mut ticker = time::interval(interval);
+            // Wait 10 seconds before first run to allow initial connections
+            time::sleep(Duration::from_secs(10)).await;
+
+            let mut ticker = time::interval(Duration::from_secs(30)); // Unified 30s heartbeat
+            let mut tick_count = 0u64;
+
+            const MIN_CONNECTIONS: usize = 5;
+            const TARGET_CONNECTIONS: usize = 8;
+
             loop {
                 ticker.tick().await;
+                tick_count += 1;
+                let now = Instant::now();
 
-                // UNIFIED POOL: Single lock to find stale peers
-                let stale_peers: Vec<IpAddr> = {
+                // ============================================================
+                // PHASE 1: Peer Health Check & Reaper (every 30s)
+                // ============================================================
+                let (stale_peers, current_count) = {
                     let conns = connections.read().await;
-                    conns
+                    let stale: Vec<IpAddr> = conns
                         .iter()
                         .filter(|(_, peer)| peer.is_stale(stale_after))
                         .map(|(ip, _)| *ip)
-                        .collect()
+                        .collect();
+                    (stale, conns.len())
                 };
 
                 // Remove stale peers
@@ -1777,180 +1792,114 @@ impl PeerManager {
                         warn!(peer = %addr, "Peer down (heartbeat timeout)");
                         manager.remove_connected_peer(addr).await;
                     }
-
-                    let count = connections.read().await.len();
-                    info!(connected_count = count, "Connected peers after purge");
-                }
-            }
-        });
-    }
-
-    /// Spawn a background task that periodically attempts to reconnect to known peers
-    /// that are not currently connected. This enables automatic recovery when nodes
-    /// come back online after being reaped.
-    fn spawn_reconnection_task(&self) {
-        let manager = self.clone();
-
-        tokio::spawn(async move {
-            // Wait 10 seconds before the first reconnection attempt to allow initial connections
-            time::sleep(Duration::from_secs(10)).await;
-
-            const MIN_CONNECTIONS: usize = 5;
-            const TARGET_CONNECTIONS: usize = 8;
-
-            loop {
-                let current_count = manager.connections.read().await.len();
-
-                // Adaptive interval: aggressive when below threshold, relaxed when healthy
-                let check_interval = if current_count < MIN_CONNECTIONS {
-                    Duration::from_secs(5) // CRITICAL: Check every 5s when below minimum
-                } else if current_count < TARGET_CONNECTIONS {
-                    Duration::from_secs(10) // Moderate: Check every 10s when below target
-                } else {
-                    Duration::from_secs(30) // Relaxed: Check every 30s when healthy
-                };
-
-                time::sleep(check_interval).await;
-
-                // Get currently connected peer IP addresses
-                let connected_ips: std::collections::HashSet<IpAddr> = {
-                    let conns = manager.connections.read().await;
-                    conns.keys().copied().collect()
-                };
-
-                if current_count < MIN_CONNECTIONS {
-                    warn!(
-                        current = current_count,
-                        minimum = MIN_CONNECTIONS,
-                        "🚨 Below minimum connections - aggressive reconnection"
+                    let remaining = connections.read().await.len();
+                    info!(
+                        removed = stale_peers.len(),
+                        connected_count = remaining,
+                        "Connected peers after purge"
                     );
+                }
 
-                    // CRITICAL: Try seed nodes immediately
-                    info!("Attempting to connect to seed nodes");
-                    if let Err(e) = manager.connect_to_seed_nodes().await {
-                        warn!(error = %e, "Failed to connect to seed nodes");
+                // ============================================================
+                // PHASE 2: Reconnection Logic (adaptive based on connection count)
+                // ============================================================
+                let should_reconnect = match current_count {
+                    n if n < MIN_CONNECTIONS => {
+                        // CRITICAL: Aggressive reconnection every 30s
+                        warn!(
+                            current = n,
+                            minimum = MIN_CONNECTIONS,
+                            "🚨 Below minimum connections - aggressive reconnection"
+                        );
+                        true
                     }
-                } else if current_count < TARGET_CONNECTIONS {
-                    debug!(
-                        current = current_count,
-                        target = TARGET_CONNECTIONS,
-                        "Below target connections - opportunistic reconnection"
-                    );
-                }
-
-                // Get best known peers from peer exchange
-                let peer_count = if current_count < MIN_CONNECTIONS {
-                    20 // Aggressive: Try many peers when critical
-                } else if current_count < TARGET_CONNECTIONS {
-                    10 // Moderate: Try some peers
-                } else {
-                    5 // Relaxed: Try a few peers
+                    n if n < TARGET_CONNECTIONS => {
+                        // Moderate: Every 60s (every 2nd tick)
+                        tick_count.is_multiple_of(2)
+                    }
+                    _ => {
+                        // Relaxed: Every 120s (every 4th tick)
+                        tick_count.is_multiple_of(4)
+                    }
                 };
 
-                let best_peers = manager.get_best_peers(peer_count).await;
+                if should_reconnect {
+                    // Get currently connected IPs
+                    let connected_ips: std::collections::HashSet<IpAddr> = {
+                        let conns = connections.read().await;
+                        conns.keys().copied().collect()
+                    };
 
-                // Filter to only peers that aren't currently connected (by IP)
-                let disconnected_peers: Vec<_> = best_peers
-                    .into_iter()
-                    .filter(|p| {
-                        // Parse the IP from the full address and check if it's not connected
-                        if let Ok(addr) = p.full_address().parse::<SocketAddr>() {
-                            !connected_ips.contains(&addr.ip())
-                        } else {
-                            false
+                    // Try seed nodes if critically low
+                    if current_count < MIN_CONNECTIONS {
+                        info!("Attempting to connect to seed nodes");
+                        if let Err(e) = manager.connect_to_seed_nodes().await {
+                            warn!(error = %e, "Failed to connect to seed nodes");
                         }
-                    })
-                    .collect();
+                    }
 
-                if !disconnected_peers.is_empty() {
-                    debug!(
-                        count = disconnected_peers.len(),
-                        "Attempting to reconnect to known peers"
-                    );
+                    // Get best peers based on urgency
+                    let peer_count = if current_count < MIN_CONNECTIONS {
+                        20 // Aggressive
+                    } else if current_count < TARGET_CONNECTIONS {
+                        10 // Moderate
+                    } else {
+                        5 // Relaxed
+                    };
 
-                    // Attempt to reconnect to each disconnected peer
-                    for pex_peer in disconnected_peers {
-                        // Convert peer_exchange::PeerInfo to discovery::PeerInfo
-                        match pex_peer.full_address().parse() {
-                            Ok(addr) => {
+                    let best_peers = manager.get_best_peers(peer_count).await;
+
+                    // Filter disconnected peers and spawn reconnection attempts
+                    for pex_peer in best_peers {
+                        if let Ok(addr) = pex_peer.full_address().parse::<SocketAddr>() {
+                            if !connected_ips.contains(&addr.ip()) {
                                 let peer_info = PeerInfo::new(addr, manager.network);
-
                                 let mgr = manager.clone();
-                                let peer_addr = peer_info.address;
                                 tokio::spawn(async move {
-                                    if let Err(e) = mgr.connect_to_peer(peer_info).await {
-                                        debug!(
-                                            peer = %peer_addr,
-                                            error = %e,
-                                            "Reconnection attempt failed"
-                                        );
+                                    if let Err(e) = mgr.connect_to_peer(peer_info.clone()).await {
+                                        debug!(peer = %peer_info.address, error = %e, "Reconnection failed");
                                     } else {
-                                        info!(peer = %peer_addr, "Successfully reconnected to peer");
+                                        info!(peer = %peer_info.address, "Reconnected to peer");
                                     }
                                 });
                             }
-                            Err(_) => {
-                                debug!(
-                                    address = %pex_peer.full_address(),
-                                    "Failed to parse peer address during reconnection"
-                                );
-                            }
                         }
                     }
                 }
-            }
-        });
-    }
 
-    /// Spawn a background task that periodically cleans up old broadcast tracking entries
-    /// and resets the rate limiter counter
-    fn spawn_broadcast_cleanup_task(&self) {
-        let recent_broadcasts = self.recent_peer_broadcasts.clone();
-        let broadcast_count = self.broadcast_count.clone();
-        let broadcast_count_reset = self.broadcast_count_reset.clone();
+                // ============================================================
+                // PHASE 3: Broadcast Cleanup (every 60s = every 2nd tick)
+                // ============================================================
+                if tick_count.is_multiple_of(2) {
+                    // Clean up old broadcast tracking (older than 5 minutes)
+                    {
+                        let mut broadcasts = recent_broadcasts.write().await;
+                        broadcasts.retain(|_, &mut last_broadcast| {
+                            now.duration_since(last_broadcast) < Duration::from_secs(300)
+                        });
+                    }
 
-        tokio::spawn(async move {
-            let mut ticker = time::interval(Duration::from_secs(60)); // Run every minute
-            loop {
-                ticker.tick().await;
-                let now = Instant::now();
-
-                // Clean up old broadcast tracking entries (older than 5 minutes)
-                {
-                    let mut broadcasts = recent_broadcasts.write().await;
-                    broadcasts.retain(|_, &mut last_broadcast| {
-                        now.duration_since(last_broadcast) < Duration::from_secs(300)
-                    });
-                }
-
-                // Reset rate limiter if a minute has passed
-                {
-                    let mut reset_time = broadcast_count_reset.write().await;
-                    if now.duration_since(*reset_time) >= Duration::from_secs(60) {
-                        let mut count = broadcast_count.write().await;
-                        *count = 0;
-                        *reset_time = now;
+                    // Reset rate limiter counter every minute
+                    {
+                        let mut reset_time = broadcast_count_reset.write().await;
+                        if now.duration_since(*reset_time) >= Duration::from_secs(60) {
+                            let mut count = broadcast_count.write().await;
+                            *count = 0;
+                            *reset_time = now;
+                        }
                     }
                 }
-            }
-        });
-    }
 
-    /// CRITICAL FIX (Issue #8): Spawn periodic peer exchange cleanup task
-    /// Removes stale peers older than 7 days to prevent unbounded growth
-    fn spawn_peer_exchange_cleanup_task(&self) {
-        let peer_exchange = self.peer_exchange.clone();
-
-        tokio::spawn(async move {
-            let mut ticker = time::interval(Duration::from_secs(3600)); // Run every hour
-            loop {
-                ticker.tick().await;
-
-                // Remove peers not seen in 7 days (7 * 24 * 3600 = 604800 seconds)
-                let mut exchange = peer_exchange.write().await;
-                let removed = exchange.cleanup_stale_peers(604800);
-                if removed > 0 {
-                    info!(removed, "Cleaned up stale peers from exchange");
+                // ============================================================
+                // PHASE 4: Peer Exchange Cleanup (every 1 hour = every 120th tick)
+                // ============================================================
+                if tick_count.is_multiple_of(120) {
+                    // Remove peers not seen in 7 days
+                    let mut exchange = peer_exchange.write().await;
+                    let removed = exchange.cleanup_stale_peers(604800);
+                    if removed > 0 {
+                        info!(removed, "Cleaned up stale peers from exchange");
+                    }
                 }
             }
         });
