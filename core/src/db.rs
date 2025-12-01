@@ -84,9 +84,12 @@ impl BlockchainDB {
                 // Try to deserialize with new format first
                 match bincode::deserialize::<Block>(&data) {
                     Ok(block) => Ok(Some(block)),
-                    Err(_) => {
+                    Err(e1) => {
                         // Fall back to old format and migrate
-                        eprintln!("   ⚠️  Block {} uses old format, migrating...", height);
+                        eprintln!(
+                            "   ⚠️  Block {} uses old format (new format error: {}), migrating...",
+                            height, e1
+                        );
                         match bincode::deserialize::<BlockV1>(&data) {
                             Ok(old_block) => {
                                 // Convert old format to new format
@@ -111,10 +114,20 @@ impl BlockchainDB {
 
                                 Ok(Some(new_block))
                             }
-                            Err(e) => Err(StateError::IoError(format!(
-                                "Failed to deserialize block {} (tried both old and new formats): {}",
-                                height, e
-                            ))),
+                            Err(e2) => {
+                                eprintln!("   ❌ Block {} deserialization failed:", height);
+                                eprintln!("      New format error: {}", e1);
+                                eprintln!("      Old format error: {}", e2);
+                                eprintln!("      Block data size: {} bytes", data.len());
+
+                                // Instead of failing, skip this corrupted block
+                                // and let the node re-sync it from peers
+                                eprintln!(
+                                    "   ⚠️  Skipping corrupted block {} - will re-sync from peers",
+                                    height
+                                );
+                                Ok(None)
+                            }
                         }
                     }
                 }

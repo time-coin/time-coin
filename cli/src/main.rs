@@ -838,10 +838,25 @@ async fn main() {
         println!("{}", "🔍 No genesis block found - checking peers...".cyan());
 
         // Create a temporary blockchain state to download into
-        let temp_blockchain = Arc::new(RwLock::new(
-            BlockchainState::new_from_disk_or_sync(&db_path)
-                .expect("Failed to initialize temporary blockchain state"),
-        ));
+        let temp_blockchain = match BlockchainState::new_from_disk_or_sync(&db_path) {
+            Ok(state) => Arc::new(RwLock::new(state)),
+            Err(e) => {
+                eprintln!("⚠️  Failed to initialize temporary blockchain state: {}", e);
+                eprintln!("   This may be due to corrupted blocks on disk.");
+                eprintln!("   Starting with fresh blockchain state...");
+
+                // Delete the corrupted database and start fresh
+                if let Err(del_err) = std::fs::remove_dir_all(&db_path) {
+                    eprintln!("   ⚠️  Failed to delete corrupted database: {}", del_err);
+                }
+
+                // Create fresh state
+                Arc::new(RwLock::new(
+                    BlockchainState::new_from_disk_or_sync(&db_path)
+                        .expect("Failed to create fresh blockchain state"),
+                ))
+            }
+        };
 
         // Create temporary chain sync to use download method
         let temp_chain_sync = ChainSync::with_midnight_config(
