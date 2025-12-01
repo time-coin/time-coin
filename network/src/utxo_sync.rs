@@ -276,7 +276,10 @@ impl UtxoSyncManager {
                 vout: input.vout,
             };
 
-            match self.lock_utxo(key.clone(), txid.clone(), proposer.clone()).await {
+            match self
+                .lock_utxo(key.clone(), txid.clone(), proposer.clone())
+                .await
+            {
                 Ok(_) => {
                     info!(txid = %txid, input = ?input, "UTXO locked successfully");
                 }

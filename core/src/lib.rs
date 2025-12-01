@@ -13,6 +13,7 @@ pub mod state;
 pub mod transaction;
 pub mod treasury_manager;
 pub mod utxo_disk_backed;
+pub mod utxo_locker;
 pub mod utxo_set;
 
 // Re-export commonly used types
@@ -24,6 +25,7 @@ pub use block::{
 pub use transaction::{
     OutPoint, SpecialTransaction, Transaction, TransactionError, TxInput, TxOutput,
 };
+pub use utxo_locker::{CoinSelector, UTXOLocker, UTXOLockerError, UTXOStateUpdate};
 pub use utxo_set::{UTXOSet, UTXOSetSnapshot};
 
 // Note: Mempool and BlockchainState will be re-exported once they're properly defined
