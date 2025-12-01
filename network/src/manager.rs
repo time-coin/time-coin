@@ -742,63 +742,16 @@ impl PeerManager {
             .await
             .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
 
-        // Perform handshake first
+        // OPTIMIZATION (Quick Win #6): Use consolidated handshake helper
         let handshake = crate::protocol::HandshakeMessage::new(self.network, self.listen_addr);
-        let handshake_json = serde_json::to_vec(&handshake).map_err(|e| e.to_string())?;
-        let handshake_len = handshake_json.len() as u32;
-
-        // Write magic bytes first (CRITICAL: must match connection.rs send_handshake)
-        let magic = self.network.magic_bytes();
-        stream
-            .write_all(&magic)
-            .await
-            .map_err(|e| format!("Failed to write magic bytes: {}", e))?;
-
-        // Then write handshake length and payload
-        stream
-            .write_all(&handshake_len.to_be_bytes())
-            .await
-            .map_err(|e| format!("Failed to write handshake length: {}", e))?;
-        stream
-            .write_all(&handshake_json)
-            .await
-            .map_err(|e| format!("Failed to write handshake: {}", e))?;
-        stream
-            .flush()
-            .await
-            .map_err(|e| format!("Failed to flush handshake: {}", e))?;
-
-        // Receive their handshake (expects MAGIC + LENGTH + PAYLOAD)
-        let mut magic_bytes = [0u8; 4];
-        stream
-            .read_exact(&mut magic_bytes)
-            .await
-            .map_err(|e| format!("Failed to read handshake magic: {}", e))?;
-
-        let expected_magic = self.network.magic_bytes();
-        if magic_bytes != expected_magic {
-            return Err(format!(
-                "Invalid handshake magic bytes: expected {:?}, got {:?}",
-                expected_magic, magic_bytes
-            ));
-        }
-
-        let mut len_bytes = [0u8; 4];
-        stream
-            .read_exact(&mut len_bytes)
-            .await
-            .map_err(|e| format!("Failed to read handshake length: {}", e))?;
-        let handshake_len = u32::from_be_bytes(len_bytes) as usize;
-        let mut handshake_bytes = vec![0u8; handshake_len];
-        stream
-            .read_exact(&mut handshake_bytes)
-            .await
-            .map_err(|e| format!("Failed to read handshake: {}", e))?;
-
-        // Validate their handshake
-        let _their_handshake: crate::protocol::HandshakeMessage =
-            serde_json::from_slice(&handshake_bytes)
-                .map_err(|e| format!("Failed to deserialize handshake: {}", e))?;
+        let _their_handshake = crate::connection::PeerConnection::perform_handshake(
+            &mut stream,
+            &handshake,
+            &self.network,
+            None, // No genesis validation for simple requests
+            true, // We send first (initiating connection)
+        )
+        .await?;
 
         // Now send the actual request
         let json = serde_json::to_vec(&message).map_err(|e| e.to_string())?;

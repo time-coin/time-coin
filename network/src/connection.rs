@@ -109,11 +109,16 @@ impl PeerConnection {
 
         let our_handshake =
             HandshakeMessage::new_with_genesis(network, our_listen_addr, our_genesis_hash.clone());
-        Self::send_handshake(&mut stream, &our_handshake, &network).await?;
-        let their_handshake = Self::receive_handshake(&mut stream, &network).await?;
 
-        // Validate with genesis check
-        their_handshake.validate_with_genesis(&network, our_genesis_hash.as_deref())?;
+        // OPTIMIZATION (Quick Win #6): Use consolidated handshake helper
+        let their_handshake = Self::perform_handshake(
+            &mut stream,
+            &our_handshake,
+            &network,
+            our_genesis_hash.as_deref(),
+            true, // We send first (initiating connection)
+        )
+        .await?;
 
         // Update peer info with version AND commit info
         peer.lock().await.update_version_with_build_info(
@@ -211,6 +216,51 @@ impl PeerConnection {
             Err(e) => {
                 println!("⚠️  Auto-registration skipped for {}: {:?}", node_ip, e);
             }
+        }
+    }
+
+    /// OPTIMIZATION (Quick Win #6): Consolidated handshake helper
+    /// Performs complete bidirectional handshake with validation
+    ///
+    /// This replaces duplicate handshake code in:
+    /// - PeerConnection::connect()
+    /// - PeerListener::accept()
+    /// - PeerManager::send_to_peer_tcp()
+    ///
+    /// Returns the peer's validated handshake message
+    pub async fn perform_handshake(
+        stream: &mut TcpStream,
+        our_handshake: &HandshakeMessage,
+        network: &NetworkType,
+        expected_genesis: Option<&str>,
+        send_first: bool,
+    ) -> Result<HandshakeMessage, String> {
+        if send_first {
+            // Send our handshake, then receive theirs
+            Self::send_handshake(stream, our_handshake, network).await?;
+            let their_handshake = Self::receive_handshake(stream, network).await?;
+
+            // Validate with genesis if provided, otherwise basic validation
+            if expected_genesis.is_some() {
+                their_handshake.validate_with_genesis(network, expected_genesis)?;
+            } else {
+                their_handshake.validate(network)?;
+            }
+
+            Ok(their_handshake)
+        } else {
+            // Receive theirs, then send ours
+            let their_handshake = Self::receive_handshake(stream, network).await?;
+
+            // Validate with genesis if provided, otherwise basic validation
+            if expected_genesis.is_some() {
+                their_handshake.validate_with_genesis(network, expected_genesis)?;
+            } else {
+                their_handshake.validate(network)?;
+            }
+
+            Self::send_handshake(stream, our_handshake, network).await?;
+            Ok(their_handshake)
         }
     }
 
@@ -500,11 +550,17 @@ impl PeerListener {
         let mut stream = TcpStream::from_std(socket2_sock.into())
             .map_err(|e| format!("Failed to convert socket: {}", e))?;
 
-        let their_handshake = PeerConnection::receive_handshake(&mut stream, &self.network).await?;
-        their_handshake.validate(&self.network)?;
-
         let our_handshake = HandshakeMessage::new(self.network, self.our_listen_addr);
-        PeerConnection::send_handshake(&mut stream, &our_handshake, &self.network).await?;
+
+        // OPTIMIZATION (Quick Win #6): Use consolidated handshake helper
+        let their_handshake = PeerConnection::perform_handshake(
+            &mut stream,
+            &our_handshake,
+            &self.network,
+            None,  // Accept doesn't validate genesis (only basic validate)
+            false, // We receive first (accepting connection)
+        )
+        .await?;
 
         let mut peer_info = PeerInfo::with_version(
             their_handshake.listen_addr,
