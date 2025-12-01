@@ -205,9 +205,10 @@ impl ChainSync {
         for peer_ip in peer_ips {
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
 
-            // Check if peer has genesis with a short timeout
+            // Check if peer has genesis with a longer timeout (10s instead of 3s)
+            // Genesis download is critical, so we give peers more time to respond
             let peer_info_result = tokio::time::timeout(
-                tokio::time::Duration::from_secs(3),
+                tokio::time::Duration::from_secs(10),
                 self.peer_manager
                     .request_blockchain_info(&peer_addr_with_port),
             )
@@ -224,7 +225,10 @@ impl ChainSync {
                     continue;
                 }
                 Err(_) => {
-                    eprintln!("   ⚠️  Could not query peer {} - timeout after 3s", peer_ip);
+                    eprintln!(
+                        "   ⚠️  Could not query peer {} - timeout after 10s",
+                        peer_ip
+                    );
                     continue;
                 }
             };
