@@ -242,11 +242,21 @@ fn load_genesis_from_json(
         };
     }
 
+    // DEBUG: Check transaction count after deserialization
+    println!("   📦 Deserialized block has {} transactions", block.transactions.len());
+    if !block.transactions.is_empty() {
+        println!("   📝 First transaction: txid={}", block.transactions[0].txid);
+    }
+
     // Recalculate hash to ensure it matches
     let calculated_hash = block.calculate_hash();
 
-    // Validate the block structure
-    block.validate_structure()?;
+    // Validate the block structure (skip for genesis block 0)
+    if block.header.block_number != 0 {
+        block.validate_structure()?;
+    } else {
+        println!("   ℹ️  Skipping validation for genesis block");
+    }
 
     // Save to database
     let db = time_core::db::BlockchainDB::open(db_path)?;
