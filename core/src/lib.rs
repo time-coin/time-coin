@@ -7,6 +7,7 @@ pub mod constants;
 pub mod db;
 pub mod finalizer;
 pub mod masternode_tx;
+pub mod masternode_uptime;
 pub mod mempool;
 pub mod snapshot;
 pub mod snapshot_service;
@@ -29,6 +30,7 @@ pub use chain_selection::{
     calculate_cumulative_work, find_fork_point, is_reorg_safe, select_best_chain,
     validate_chain_vdf_proofs, ChainError, ChainSelection, ForkInfo,
 };
+pub use masternode_uptime::MasternodeUptimeTracker;
 pub use transaction::{
     OutPoint, SpecialTransaction, Transaction, TransactionError, TxInput, TxOutput,
 };
