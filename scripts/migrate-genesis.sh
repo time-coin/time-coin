@@ -9,8 +9,14 @@ echo "  TIME Coin Genesis Migration - Proof of Time"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
 
-# Configuration
-DATA_DIR="${DATA_DIR:-$HOME/time-coin-node/data}"
+# Configuration - Check common locations
+if [ -d "/var/lib/time-coin" ]; then
+    DEFAULT_DATA_DIR="/var/lib/time-coin"
+else
+    DEFAULT_DATA_DIR="$HOME/time-coin-node/data"
+fi
+
+DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
 CONFIG_FILE="${CONFIG_FILE:-$HOME/time-coin-node/config/testnet.toml}"
 REPO_DIR="${REPO_DIR:-$HOME/time-coin}"
 
@@ -19,6 +25,13 @@ echo "   Data directory: $DATA_DIR"
 echo "   Config file: $CONFIG_FILE"
 echo "   Repo directory: $REPO_DIR"
 echo ""
+
+# Verify paths exist
+if [ ! -d "$REPO_DIR" ]; then
+    echo "❌ ERROR: Repository directory not found: $REPO_DIR"
+    echo "   Set REPO_DIR environment variable to correct path"
+    exit 1
+fi
 
 # Step 1: Stop service
 echo "════════════════════════════════════════════════════════════════"
@@ -54,9 +67,19 @@ echo "════════════════════════�
 echo "STEP 3: Deleting old blockchain"
 echo "════════════════════════════════════════════════════════════════"
 if [ -d "$DATA_DIR/blockchain" ]; then
-    echo "🗑️  Deleting $DATA_DIR/blockchain..."
-    sudo rm -rf "$DATA_DIR/blockchain"
-    echo "✅ Old blockchain deleted"
+    echo "🗑️  Found blockchain at: $DATA_DIR/blockchain"
+    echo "   This will delete all existing blocks"
+    echo ""
+    read -p "Confirm deletion? (Y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        echo "🗑️  Deleting $DATA_DIR/blockchain/*..."
+        sudo rm -rf "$DATA_DIR/blockchain"/*
+        echo "✅ Old blockchain deleted"
+    else
+        echo "❌ Migration cancelled"
+        exit 1
+    fi
 else
     echo "ℹ️  No blockchain directory found (already clean)"
 fi
