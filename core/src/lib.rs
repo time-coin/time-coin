@@ -1,6 +1,7 @@
 //! Core blockchain components for TIME Coin
 
 pub mod block;
+pub mod chain_selection;
 pub mod checkpoint;
 pub mod constants;
 pub mod db;
@@ -15,6 +16,7 @@ pub mod treasury_manager;
 pub mod utxo_disk_backed;
 pub mod utxo_locker;
 pub mod utxo_set;
+pub mod vdf;
 
 // Re-export commonly used types
 pub use block::{
@@ -22,11 +24,16 @@ pub use block::{
     create_treasury_grant_transaction, Block, BlockHeader, MasternodeCounts, MasternodeTier,
     TREASURY_PERCENTAGE,
 };
+pub use chain_selection::{
+    calculate_cumulative_work, find_fork_point, is_reorg_safe, select_best_chain,
+    validate_chain_vdf_proofs, ChainError, ChainSelection, ForkInfo,
+};
 pub use transaction::{
     OutPoint, SpecialTransaction, Transaction, TransactionError, TxInput, TxOutput,
 };
 pub use utxo_locker::{CoinSelector, UTXOLocker, UTXOLockerError, UTXOStateUpdate};
 pub use utxo_set::{UTXOSet, UTXOSetSnapshot};
+pub use vdf::{compute_vdf, generate_vdf_input, verify_vdf, VDFError, VDFProof};
 
 // Note: Mempool and BlockchainState will be re-exported once they're properly defined
 // pub use mempool::{Mempool, MempoolError, MempoolStats};

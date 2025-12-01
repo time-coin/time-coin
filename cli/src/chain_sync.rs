@@ -1527,6 +1527,7 @@ impl ChainSync {
                             silver: 0,
                             gold: 0,
                         },
+                        proof_of_time: None,
                     },
                     transactions: vec![coinbase_tx],
                 };

@@ -2,6 +2,7 @@
 
 use crate::transaction::{Transaction, TransactionError, TxOutput};
 use crate::utxo_set::UTXOSet;
+use crate::vdf::VDFProof;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
@@ -16,6 +17,10 @@ pub enum BlockError {
     InvalidTransactions,
     TransactionError(TransactionError),
     NoTransactions,
+    InvalidVDFInput,
+    InvalidProofOfTime,
+    BlockTooFast,
+    VDFError(String),
 }
 
 impl std::fmt::Display for BlockError {
@@ -29,6 +34,10 @@ impl std::fmt::Display for BlockError {
             BlockError::InvalidTransactions => write!(f, "Invalid transactions"),
             BlockError::TransactionError(e) => write!(f, "Transaction error: {}", e),
             BlockError::NoTransactions => write!(f, "Block has no transactions"),
+            BlockError::InvalidVDFInput => write!(f, "Invalid VDF input"),
+            BlockError::InvalidProofOfTime => write!(f, "Invalid Proof-of-Time"),
+            BlockError::BlockTooFast => write!(f, "Block created too quickly"),
+            BlockError::VDFError(e) => write!(f, "VDF error: {}", e),
         }
     }
 }
@@ -59,6 +68,9 @@ pub struct BlockHeader {
     /// Optional for backwards compatibility with blocks created before this field was added
     #[serde(default)]
     pub masternode_counts: MasternodeCounts,
+    /// Proof-of-Time VDF proof (optional for backwards compatibility)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof_of_time: Option<VDFProof>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +183,7 @@ impl Block {
                 validator_signature: String::new(),
                 validator_address,
                 masternode_counts: masternode_counts.clone(),
+                proof_of_time: None,
             },
             transactions: vec![coinbase],
             hash: String::new(),
@@ -664,6 +677,7 @@ pub fn create_reward_only_block(
             validator_signature: String::new(),
             validator_address,
             masternode_counts: counts.clone(),
+            proof_of_time: None,
         },
         transactions: vec![coinbase_tx],
         hash: String::new(),
@@ -1266,6 +1280,7 @@ mod tests {
                     silver: 0,
                     gold: 0,
                 },
+                proof_of_time: None,
             },
             transactions: vec![coinbase],
             hash: String::new(),

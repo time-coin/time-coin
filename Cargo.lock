@@ -5181,6 +5181,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "hex",
+ "log",
  "lru",
  "serde",
  "serde_json",

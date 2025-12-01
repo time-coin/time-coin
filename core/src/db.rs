@@ -99,6 +99,7 @@ impl BlockchainDB {
                                         validator_signature: old_block.header.validator_signature,
                                         validator_address: old_block.header.validator_address,
                                         masternode_counts: MasternodeCounts::default(),
+                                        proof_of_time: None,
                                     },
                                     transactions: old_block.transactions,
                                     hash: old_block.hash,
