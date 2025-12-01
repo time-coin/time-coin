@@ -784,6 +784,38 @@ pub enum NetworkMessage {
         subscriber_id: String,
     },
 
+    // UTXO Instant Synchronization messages
+    UtxoLockBroadcast {
+        txid: String,
+        inputs: Vec<String>,  // JSON serialized UtxoInput
+        outputs: Vec<String>, // JSON serialized UtxoOutput
+        timestamp: i64,
+        proposer: String,
+        signature: String,
+    },
+    UtxoLockAcknowledge {
+        txid: String,
+        masternode: String,
+        tier: String,
+        success: bool,
+        conflict: Option<String>, // JSON serialized ConflictInfo
+        timestamp: i64,
+    },
+    UtxoCommit {
+        txid: String,
+        status: String, // "Approved" or "Rejected"
+        ack_count: u32,
+        total_weight: f64,
+        timestamp: i64,
+        reason: Option<String>, // For rejections
+    },
+    UtxoConflictResolution {
+        winner_txid: String,
+        loser_txid: String,
+        resolution_rule: String,
+        timestamp: i64,
+    },
+
     // Masternode synchronization protocol
     GetMasternodeList,
     MasternodeList {
