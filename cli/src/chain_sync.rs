@@ -669,6 +669,13 @@ impl ChainSync {
                             Ok(_) => {
                                 synced_blocks += 1;
                                 println!("   ✓ Block {} imported", height);
+
+                                // FORK PREVENTION: Update local height after importing
+                                drop(blockchain);
+                                self.peer_manager
+                                    .sync_gate
+                                    .update_local_height(height)
+                                    .await;
                             }
                             Err(e) => {
                                 // Check if this is an InvalidCoinbase error

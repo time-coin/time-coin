@@ -153,6 +153,7 @@ impl BlockProducer {
     }
 
     /// Get the correct TCP port based on network type
+    #[allow(dead_code)]
     fn get_p2p_port(&self) -> u16 {
         match self.peer_manager.network {
             time_network::discovery::NetworkType::Mainnet => 24000,
@@ -161,6 +162,7 @@ impl BlockProducer {
     }
 
     /// Query peer heights to check if we're behind the network
+    #[allow(dead_code)]
     async fn query_peer_heights(&self) -> Vec<(String, u64, String)> {
         let peer_ips = self.peer_manager.get_peer_ips().await;
         let mut peer_heights = Vec::new();
@@ -178,7 +180,13 @@ impl BlockProducer {
             .await;
 
             if let Ok(Ok(Some(height))) = result {
-                peer_heights.push((peer_ip, height, String::new()));
+                peer_heights.push((peer_ip.clone(), height, String::new()));
+
+                // FORK PREVENTION: Update network height from peer
+                self.peer_manager
+                    .sync_gate
+                    .update_network_height(height)
+                    .await;
             }
         }
 
@@ -938,7 +946,7 @@ impl BlockProducer {
         // Check if node is synced before producing blocks
         let blockchain = self.blockchain.read().await;
         let has_genesis = !blockchain.genesis_hash().is_empty();
-        let current_height = blockchain.chain_tip_height();
+        let _current_height = blockchain.chain_tip_height();
         drop(blockchain);
 
         if !has_genesis {
@@ -947,20 +955,24 @@ impl BlockProducer {
             return;
         }
 
-        // Check if we're catching up with the network
-        if block_num > 1 {
-            let peer_heights = self.query_peer_heights().await;
-            if !peer_heights.is_empty() {
-                let max_peer_height = peer_heights.iter().map(|(_, h, _)| *h).max().unwrap_or(0);
-                if max_peer_height > current_height + 1 {
-                    println!(
-                        "   ⚠️  Skipping block production - node is catching up (our height: {}, network: {})",
-                        current_height, max_peer_height
-                    );
-                    println!("   ℹ️  Block production will resume once synced");
-                    return;
-                }
-            }
+        // FORK PREVENTION: Check with SyncGate before creating block
+        if let Err(e) = self
+            .peer_manager
+            .sync_gate
+            .can_create_block(block_num)
+            .await
+        {
+            let local_height = self.peer_manager.sync_gate.local_height().await;
+            let network_height = self.peer_manager.sync_gate.network_height().await;
+            let behind = self.peer_manager.sync_gate.blocks_behind().await;
+
+            println!("   ⚠️  Skipping block production - {}", e.bright_red());
+            println!(
+                "   ℹ️  Sync status: local={}, network={}, behind={} blocks",
+                local_height, network_height, behind
+            );
+            println!("   ℹ️  Block production will resume once synced");
+            return;
         }
 
         let consensus_mode = self.consensus.consensus_mode().await;
@@ -1110,6 +1122,12 @@ impl BlockProducer {
                 }
 
                 drop(blockchain);
+
+                // FORK PREVENTION: Update local height in SyncGate
+                self.peer_manager
+                    .sync_gate
+                    .update_local_height(block_num)
+                    .await;
 
                 // Clear processed transactions from mempool
                 // This is ONLY done after successful UTXO snapshot save

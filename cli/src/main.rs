@@ -1161,6 +1161,20 @@ async fn main() {
         }
     }
 
+    // FORK PREVENTION: Initialize SyncGate with current blockchain height
+    {
+        let blockchain_read = blockchain.read().await;
+        let current_height = blockchain_read.chain_tip_height();
+        peer_manager
+            .sync_gate
+            .update_local_height(current_height)
+            .await;
+        println!(
+            "{}",
+            format!("✓ Synced block height file: {} blocks", current_height).green()
+        );
+    }
+
     // Start periodic sync
     chain_sync.clone().start_periodic_sync().await;
     println!(
@@ -2320,24 +2334,23 @@ async fn main() {
                                                     }
                                                     drop(blockchain_guard);
 
-                                                    //  Gossip to other peers (but not back to sender)
-                                                    // TODO: Re-enable gossip after fixing type issues
-                                                    /*
+                                                    // Gossip to other peers (but not back to sender)
                                                     let sender_ip: String = peer_ip_listen.to_string();
                                                     let all_peers = peer_manager_listen.get_peer_ips().await;
-                                                    let gossip_msg = time_network::protocol::NetworkMessage::MasternodeAnnouncement { 
-                                                        masternode: masternode.clone() 
+                                                    let gossip_msg = time_network::protocol::NetworkMessage::MasternodeAnnouncement {
+                                                        masternode: masternode.clone()
                                                     };
-                                                    
-                                                    for peer in all_peers.iter() {
-                                                        let peer_str = peer.to_string();
-                                                        if peer_str != sender_ip {
-                                                            if let Err(e) = peer_manager_listen.send_to_peer_tcp(peer.clone(), gossip_msg.clone()).await {
-                                                                println!("   ⚠️  Failed to gossip announcement to {}: {}", peer, e);
+
+                                                    for peer_str in all_peers.iter() {
+                                                        if peer_str != &sender_ip {
+                                                            // Parse string back to IpAddr for send_to_peer_tcp
+                                                            if let Ok(peer_ip) = peer_str.parse::<std::net::IpAddr>() {
+                                                                if let Err(e) = peer_manager_listen.send_to_peer_tcp(peer_ip, gossip_msg.clone()).await {
+                                                                    println!("   ⚠️  Failed to gossip announcement to {}: {}", peer_str, e);
+                                                                }
                                                             }
                                                         }
                                                     }
-                                                    */
                                                 }
                                                 _ => {
                                                     // Handle other messages if needed
