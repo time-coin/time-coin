@@ -926,9 +926,9 @@ pub struct TreasuryInfo {
 }
 
 pub async fn gettreasury(State(state): State<ApiState>) -> ApiResult<Json<TreasuryInfo>> {
-    let balances = state.balances.read().await;
+    let blockchain = state.blockchain.read().await;
     let treasury_address = "TIME1treasury00000000000000000000000000";
-    let treasury_balance = balances.get(treasury_address).copied().unwrap_or(0);
+    let treasury_balance = blockchain.get_balance(treasury_address);
 
     Ok(Json(TreasuryInfo {
         balance: treasury_balance as f64 / 100_000_000.0,

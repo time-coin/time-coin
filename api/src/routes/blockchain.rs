@@ -32,8 +32,14 @@ async fn get_blockchain_info(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<BlockchainInfoResponse>> {
     let blockchain = state.blockchain.read().await;
-    let balances = state.balances.read().await;
-    let total_supply: u64 = balances.values().sum();
+
+    // Calculate total supply from UTXO set
+    let total_supply: u64 = blockchain
+        .utxo_set()
+        .utxos()
+        .values()
+        .map(|output| output.amount)
+        .sum();
 
     Ok(Json(BlockchainInfoResponse {
         network: state.network.clone(),
