@@ -997,7 +997,7 @@ impl BlockchainState {
         self.blocks.insert(block.hash.clone(), block.clone());
         self.blocks_by_height.insert(0, block.hash.clone());
         self.db.save_block(&block)?;
-        
+
         // Save UTXO set to disk so genesis UTXOs persist
         self.save_utxo_snapshot()?;
 

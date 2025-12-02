@@ -11,9 +11,10 @@ A next-generation cryptocurrency featuring 24-hour time blocks, instant transact
 ## Key features
 
 - ⚡ **Instant finality** — sub-3 second transaction confirmation via TIME Coin Protocol
-- 🕐 **24-hour blocks** — daily checkpoints for immutable settlement
+- ⏱️ **Proof-of-Time security** — VDF-based rollback protection (testnet: 10-min blocks, mainnet: 1-hour blocks)
 - 🔷 **Deterministic consensus** — all nodes generate identical blocks, no single point of failure
 - 🏦 **UTXO model** — Bitcoin-compatible accounting with instant finality
+- 🔒 **Fork-resistant** — objective time-based chain selection prevents 51% rollback attacks
 - 💰 **Tiered staking** — competitive APY across collateral tiers
 - 🛡️ **Community treasury** — on-chain governance and funding
 - 🚀 **Fair launch** — no pre-mine, purchase-based minting model
@@ -35,14 +36,20 @@ TIME separates transaction finality from block production:
 
 1. **Instant transactions** validated by masternodes in real time via TIME Coin Protocol
 2. **UTXO state tracking** prevents double-spends through immediate locking
-3. **Daily blocks** used as periodic immutable checkpoints
-4. **Deterministic consensus**: all nodes independently generate identical blocks at midnight UTC
+3. **Proof-of-Time blocks** provide objective immutable checkpoints
+   - Testnet: 10-minute blocks with 2-minute VDF locks
+   - Mainnet: 1-hour blocks with 5-minute VDF locks
+   - Verifiable Delay Functions (VDF) prevent instant rollback attacks
+4. **Deterministic consensus**: all nodes independently generate identical blocks
    - No leader election or single point of failure
    - All nodes compare blocks with peers (<10 seconds)
    - 67% agreement threshold for instant finalization
    - Automatic reconciliation if differences detected
-5. **Masternode rewards**: block rewards distributed to masternodes by tier
-6. **Treasury funding**: a portion of each block funds ecosystem development
+5. **Fork resolution**: cumulative VDF time determines the canonical chain
+   - Even 51% malicious masternodes cannot instant-rewrite history
+   - Must invest actual time to create alternative chains
+6. **Masternode rewards**: block rewards distributed to masternodes by tier (with uptime requirements)
+7. **Treasury funding**: a portion of each block funds ecosystem development
 
 ## Masternode tiers
 

@@ -61,6 +61,25 @@ TIME Coin features a revolutionary **state-only treasury** with no private keys 
 - `RUNNING_MASTERNODE.md` - Masternode operations guide
 - `MASTERNODE_WEBSOCKET_GUIDE.md` - WebSocket integration
 
+### 🔒 Proof-of-Time Security
+
+TIME Coin uses Verifiable Delay Functions (VDFs) to prevent blockchain rollback attacks, even with 51%+ malicious consensus.
+
+**Core Documentation:**
+- `PROOF_OF_TIME.md` - **Complete PoT system overview** ⭐ START HERE
+- `proof-of-time-configuration.md` - Configuration guide (testnet vs mainnet)
+- `proof-of-time-24hr-blocks.md` - Original design document
+- `PROOF_OF_TIME_SUMMARY.md` - Implementation summary
+- `VDF_INTEGRATION_GUIDE.md` - Developer integration guide
+- `MASTERNODE_UPTIME_TRACKING.md` - Uptime requirements for rewards
+
+**Key Features:**
+- ✅ Rollback protection - Cannot rewrite history without investing real time
+- ✅ Fork resolution - Objective time-based chain selection
+- ✅ Energy efficient - No wasteful mining, just sequential hashing
+- ✅ Fast verification - Verify 2-5 min VDF in ~1 second
+- ✅ Uptime incentives - Masternodes must be online full block period
+
 ### 📄 Whitepapers
 
 - `whitepaper/Technical-Whitepaper-v3.0.md` - Complete technical whitepaper
