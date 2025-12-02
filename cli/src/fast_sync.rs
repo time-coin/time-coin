@@ -112,46 +112,77 @@ impl FastSync {
     /// Query all peers for their chain information
     async fn query_peer_chains(&self) -> Result<Vec<PeerChain>, String> {
         let peer_ips = self.peer_manager.get_peer_ips().await;
-        let mut chains = Vec::new();
 
         println!("   🔍 Querying {} peers...", peer_ips.len());
 
-        for peer_ip in peer_ips {
-            // Get peer's tip by requesting their latest block
-            // We'll use a heuristic: try to get their block at a very high height
-            // If they have it, that's their height, otherwise binary search down
-            if let Some((height, tip_hash)) = self.probe_peer_height(&peer_ip).await {
-                chains.push(PeerChain {
-                    peer: peer_ip,
-                    height,
-                    tip_hash,
-                });
+        // Query peers with overall timeout to prevent hanging
+        let timeout_duration = std::time::Duration::from_secs(30);
+        
+        let query_all = async {
+            let mut chains = Vec::new();
+            for peer_ip in peer_ips {
+                if let Some((height, tip_hash)) = self.probe_peer_height(&peer_ip).await {
+                    chains.push(PeerChain {
+                        peer: peer_ip,
+                        height,
+                        tip_hash,
+                    });
+                }
+            }
+            chains
+        };
+
+        match tokio::time::timeout(timeout_duration, query_all).await {
+            Ok(chains) => Ok(chains),
+            Err(_) => {
+                eprintln!("   ⚠️  Timeout querying peers");
+                Ok(Vec::new()) // Return empty vec on timeout
             }
         }
-
-        Ok(chains)
     }
 
     /// Probe a peer's chain height by testing high heights
     async fn probe_peer_height(&self, peer_ip: &str) -> Option<(u64, String)> {
+        // Use timeout to prevent hanging
+        let timeout_duration = std::time::Duration::from_secs(10);
+        
+        match tokio::time::timeout(timeout_duration, self.probe_peer_height_inner(peer_ip)).await {
+            Ok(result) => result,
+            Err(_) => {
+                eprintln!("   ⚠️  Timeout querying peer {}", peer_ip);
+                None
+            }
+        }
+    }
+    
+    async fn probe_peer_height_inner(&self, peer_ip: &str) -> Option<(u64, String)> {
         // Start with a reasonable upper bound (1 year of 10-minute blocks ~ 52560)
         let mut high = 100_000u64;
         let mut low = 0u64;
         let mut best_height = 0u64;
         let mut best_hash = String::new();
 
-        // Binary search for the actual tip
-        while low <= high && high - low > 1 {
-            let mid = (low + high) / 2;
+        // Binary search for the actual tip - but limit iterations to prevent hanging
+        let mut iterations = 0;
+        const MAX_ITERATIONS: usize = 20; // Log2(100k) ~ 17, so 20 is safe
 
-            if let Some(block_hash) = self.get_peer_block_hash(peer_ip, mid).await {
-                // Block exists at this height
-                best_height = mid;
-                best_hash = block_hash;
-                low = mid + 1; // Try higher
-            } else {
-                // Block doesn't exist, try lower
-                high = mid - 1;
+        while low <= high && high - low > 1 && iterations < MAX_ITERATIONS {
+            let mid = (low + high) / 2;
+            iterations += 1;
+
+            // Add timeout for each individual request
+            let request_timeout = std::time::Duration::from_millis(500);
+            match tokio::time::timeout(request_timeout, self.get_peer_block_hash(peer_ip, mid)).await {
+                Ok(Some(block_hash)) => {
+                    // Block exists at this height
+                    best_height = mid;
+                    best_hash = block_hash;
+                    low = mid + 1; // Try higher
+                }
+                Ok(None) | Err(_) => {
+                    // Block doesn't exist or timeout, try lower
+                    high = mid - 1;
+                }
             }
         }
 

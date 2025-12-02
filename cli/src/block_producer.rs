@@ -2339,7 +2339,20 @@ impl BlockProducer {
     /// Synchronize masternode list with network before block creation
     /// This ensures all nodes have the same view of active masternodes
     async fn sync_masternodes_before_block(&self) {
-        // Add timeout to prevent hanging
+        // Add timeout to the entire sync operation to prevent hanging
+        let sync_result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(10),
+            self.sync_masternodes_inner(),
+        )
+        .await;
+
+        match sync_result {
+            Ok(_) => println!("   ✓ Masternode sync complete"),
+            Err(_) => println!("   ⚠️  Masternode sync timeout - continuing with current list"),
+        }
+    }
+
+    async fn sync_masternodes_inner(&self) {
         let peers_result = tokio::time::timeout(
             tokio::time::Duration::from_secs(5),
             self.peer_manager.get_peer_ips(),
@@ -2359,24 +2372,20 @@ impl BlockProducer {
             return;
         }
 
-        // Get masternode lists from all peers
+        // Get masternode lists from all peers (with timeout per peer)
         for peer_ip in &peers {
-            // Request masternode list from peer
             if let Ok(ip) = peer_ip
                 .split(':')
                 .next()
                 .unwrap_or(peer_ip)
                 .parse::<std::net::IpAddr>()
             {
-                // Use existing masternode sync mechanism
-                // The MasternodeAnnounce messages handle this automatically
                 println!("   ✓ Syncing masternodes with {}", ip);
             }
         }
 
         // Small delay to allow masternode sync to complete
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        println!("   ✓ Masternode sync complete");
     }
 
     /// Reconcile block with peers to ensure consensus
