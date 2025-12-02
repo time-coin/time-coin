@@ -3938,12 +3938,116 @@ impl WalletApp {
                     net.get_connected_peers()
                 };
 
-                log::info!("✅ Wallet registered with {} masternodes", peers.len());
-                // Note: Actual registration happens via TCP protocol client
-                // which is initialized separately with the xpub
+                let xpub_string = xpub.to_string();
+                let peer_count = peers.len();
+
+                // Send registration asynchronously to each masternode
+                for peer in &peers {
+                    let xpub_str = xpub_string.clone();
+                    let peer_addr = format!("{}:{}", peer.address, peer.port);
+
+                    tokio::spawn(async move {
+                        match Self::register_with_peer(peer_addr.clone(), xpub_str).await {
+                            Ok(_) => {
+                                log::info!("✅ Registered xPub with masternode: {}", peer_addr);
+                            }
+                            Err(e) => {
+                                log::warn!("⚠️ Failed to register with {}: {}", peer_addr, e);
+                            }
+                        }
+                    });
+                }
+
+                log::info!("✅ Sent registration to {} masternodes", peer_count);
             } else {
                 log::warn!("⚠️ Network manager not available for registration");
             }
+        }
+    }
+
+    /// Send registration message to a single peer
+    async fn register_with_peer(peer_addr: String, xpub: String) -> Result<(), String> {
+        use time_network::protocol::{HandshakeMessage, NetworkMessage};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Connect to peer
+        let mut stream = tokio::net::TcpStream::connect(&peer_addr)
+            .await
+            .map_err(|e| format!("Connection failed: {}", e))?;
+
+        // Send handshake
+        let handshake = HandshakeMessage {
+            version: time_network::protocol::version_for_handshake(),
+            commit_date: Some(time_network::protocol::GIT_COMMIT_DATE.to_string()),
+            commit_count: Some(time_network::protocol::GIT_COMMIT_COUNT.to_string()),
+            protocol_version: 1,
+            network: time_network::discovery::NetworkType::Testnet,
+            listen_addr: "0.0.0.0:0".parse().unwrap(), // Wallet doesn't listen
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            capabilities: vec!["wallet".to_string()],
+            wallet_address: None,
+            genesis_hash: None, // Wallet doesn't need to validate genesis
+        };
+
+        let handshake_bytes = bincode::serialize(&handshake)
+            .map_err(|e| format!("Handshake serialization failed: {}", e))?;
+        stream
+            .write_u32(handshake_bytes.len() as u32)
+            .await
+            .map_err(|e| format!("Failed to write handshake length: {}", e))?;
+        stream
+            .write_all(&handshake_bytes)
+            .await
+            .map_err(|e| format!("Failed to write handshake: {}", e))?;
+
+        // Read handshake response
+        let response_len = stream
+            .read_u32()
+            .await
+            .map_err(|e| format!("Failed to read handshake response length: {}", e))?
+            as usize;
+        let mut response_buf = vec![0u8; response_len];
+        stream
+            .read_exact(&mut response_buf)
+            .await
+            .map_err(|e| format!("Failed to read handshake response: {}", e))?;
+
+        // Send registration message
+        let msg = NetworkMessage::RegisterXpub { xpub };
+        let msg_bytes =
+            bincode::serialize(&msg).map_err(|e| format!("Message serialization failed: {}", e))?;
+        stream
+            .write_u32(msg_bytes.len() as u32)
+            .await
+            .map_err(|e| format!("Failed to write message length: {}", e))?;
+        stream
+            .write_all(&msg_bytes)
+            .await
+            .map_err(|e| format!("Failed to write message: {}", e))?;
+
+        // Wait for confirmation (with timeout)
+        match tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let len = stream.read_u32().await? as usize;
+            let mut buf = vec![0u8; len];
+            stream.read_exact(&mut buf).await?;
+            let response: NetworkMessage = bincode::deserialize(&buf)?;
+            Ok::<_, Box<dyn std::error::Error>>(response)
+        })
+        .await
+        {
+            Ok(Ok(NetworkMessage::XpubRegistered { success, message })) => {
+                if success {
+                    Ok(())
+                } else {
+                    Err(format!("Registration failed: {}", message))
+                }
+            }
+            Ok(Ok(_)) => Err("Unexpected response".to_string()),
+            Ok(Err(e)) => Err(format!("Protocol error: {}", e)),
+            Err(_) => Err("Timeout waiting for response".to_string()),
         }
     }
 
