@@ -5,6 +5,7 @@ pub mod instant_finality_handlers;
 pub mod masternode_handlers;
 pub mod proposal_handlers;
 pub mod quarantine_handlers;
+mod response;
 mod routes;
 mod rpc_handlers;
 mod state;

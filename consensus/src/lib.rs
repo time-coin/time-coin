@@ -707,9 +707,6 @@ pub mod tx_consensus {
     use super::*;
     use dashmap::DashMap;
 
-    // Type alias for lock-free concurrent nested map
-    type TxSetVotesMap = Arc<DashMap<u64, DashMap<String, Vec<TxSetVote>>>>;
-
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct TransactionProposal {
         pub block_height: u64,
@@ -727,16 +724,16 @@ pub mod tx_consensus {
         pub approve: bool,
         pub timestamp: i64,
     }
-    
+
     impl crate::core::collector::Vote for TxSetVote {
         fn voter(&self) -> &str {
             &self.voter
         }
-        
+
         fn approve(&self) -> bool {
             self.approve
         }
-        
+
         fn timestamp(&self) -> i64 {
             self.timestamp
         }
@@ -766,14 +763,10 @@ pub mod tx_consensus {
         pub async fn set_masternodes(&self, nodes: Vec<String>) {
             let mut masternodes = self.masternodes.write().await;
             *masternodes = nodes.clone();
-            
-            // Update vote collector with new count
-            let count = nodes.len();
             drop(masternodes);
             
-            // Note: VoteCollector doesn't have set_total_voters as mutable method
-            // The check_consensus method will use the stored total_voters
-            // We need to recreate or use internal state properly
+            // Update vote collector with new count
+            self.vote_collector.set_total_voters(nodes.len()).await;
         }
 
         pub async fn propose_tx_set(&self, proposal: TransactionProposal) {
@@ -795,13 +788,9 @@ pub mod tx_consensus {
             }
             drop(masternodes);
 
-            // Use lock-free nested DashMap
-            let height_votes = self.votes.entry(vote.block_height).or_default();
-
-            height_votes
-                .entry(vote.merkle_root.clone())
-                .or_default()
-                .push(vote);
+            // Record vote using the vote collector
+            self.vote_collector
+                .record_vote(vote.block_height, vote.merkle_root.clone(), vote);
 
             Ok(())
         }
@@ -811,24 +800,7 @@ pub mod tx_consensus {
             block_height: u64,
             merkle_root: &str,
         ) -> (bool, usize, usize) {
-            let masternodes = self.masternodes.read().await;
-            let total_nodes = masternodes.len();
-            drop(masternodes);
-
-            if total_nodes < 3 {
-                return (true, 0, total_nodes);
-            }
-
-            if let Some(height_votes) = self.votes.get(&block_height) {
-                if let Some(vote_list) = height_votes.get(merkle_root) {
-                    let approvals = vote_list.iter().filter(|v| v.approve).count();
-                    let required = (total_nodes * 2).div_ceil(3);
-                    let has_consensus = approvals >= required;
-                    return (has_consensus, approvals, total_nodes);
-                }
-            }
-
-            (false, 0, total_nodes)
+            self.vote_collector.check_consensus(block_height, merkle_root).await
         }
 
         pub async fn get_agreed_tx_set(&self, block_height: u64) -> Option<TransactionProposal> {
@@ -849,8 +821,7 @@ pub mod tx_consensus {
         pub async fn cleanup_old(&self, current_height: u64) {
             let mut proposals = self.proposals.write().await;
             proposals.retain(|&h, _| h >= current_height.saturating_sub(10));
-            self.votes
-                .retain(|h, _| *h >= current_height.saturating_sub(10));
+            self.vote_collector.cleanup_old(current_height, 10);
         }
 
         pub async fn get_proposal(&self, block_height: u64) -> Option<TransactionProposal> {
@@ -859,16 +830,7 @@ pub mod tx_consensus {
         }
         /// Get list of masternodes that voted on this block's transaction set
         pub async fn get_voters(&self, block_height: u64, merkle_root: &str) -> Vec<String> {
-            if let Some(height_votes) = self.votes.get(&block_height) {
-                if let Some(vote_list) = height_votes.get(merkle_root) {
-                    return vote_list
-                        .iter()
-                        .filter(|v| v.approve)
-                        .map(|v| v.voter.clone())
-                        .collect();
-                }
-            }
-            Vec::new()
+            self.vote_collector.get_approvers(block_height, merkle_root)
         }
     }
 }

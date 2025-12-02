@@ -11,7 +11,7 @@ use crate::db::BlockchainDB;
 use crate::transaction::{OutPoint, Transaction, TransactionError};
 use crate::utxo_set::UTXOSet;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone)]
@@ -478,6 +478,9 @@ pub struct BlockchainState {
 
     /// Protocol-managed treasury (no wallet/private key)
     treasury: Treasury,
+
+    /// Locked UTXOs (e.g., masternode collateral that cannot be spent)
+    locked_utxos: HashSet<OutPoint>,
 }
 
 impl BlockchainState {
@@ -584,6 +587,7 @@ impl BlockchainState {
             db,
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
             treasury: Treasury::new(),
+            locked_utxos: HashSet::new(),
         }
     }
 
@@ -609,6 +613,7 @@ impl BlockchainState {
             db,
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
             treasury: Treasury::new(),
+            locked_utxos: HashSet::new(),
         };
 
         state.apply_validated_blocks(blocks)?;
@@ -684,6 +689,7 @@ impl BlockchainState {
             db,
             invalidated_transactions: Arc::new(RwLock::new(Vec::new())),
             treasury: Treasury::new(),
+            locked_utxos: HashSet::new(),
         }
     }
 
@@ -1180,8 +1186,8 @@ impl BlockchainState {
                         return Err(StateError::InvalidMasternodeCount); // TODO: Add proper error type
                     }
 
-                    // TODO: Lock the UTXO so it cannot be spent while masternode is active
-                    // This will require tracking locked UTXOs in the state
+                    // Lock the UTXO so it cannot be spent while masternode is active
+                    self.locked_utxos.insert(outpoint);
                 } else {
                     return Err(StateError::InvalidMasternodeCount);
                 }
@@ -1282,7 +1288,16 @@ impl BlockchainState {
             return Ok(());
         }
         for input in &tx.inputs {
+            // Check if UTXO exists
             if !self.utxo_set.contains(&input.previous_output) {
+                return Err(StateError::TransactionError(TransactionError::InvalidInput));
+            }
+            // Check if UTXO is locked (e.g., masternode collateral)
+            if self.locked_utxos.contains(&input.previous_output) {
+                eprintln!(
+                    "❌ Cannot spend locked UTXO: {}:{}",
+                    input.previous_output.txid, input.previous_output.vout
+                );
                 return Err(StateError::TransactionError(TransactionError::InvalidInput));
             }
         }

@@ -94,3 +94,21 @@ impl From<(StatusCode, String)> for ApiError {
         }
     }
 }
+
+impl From<Box<dyn std::error::Error>> for ApiError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        ApiError::Internal(err.to_string())
+    }
+}
+
+impl From<String> for ApiError {
+    fn from(msg: String) -> Self {
+        ApiError::Internal(msg)
+    }
+}
+
+impl From<&str> for ApiError {
+    fn from(msg: &str) -> Self {
+        ApiError::Internal(msg.to_string())
+    }
+}

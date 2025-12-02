@@ -61,10 +61,9 @@ impl<V: Vote> VoteCollector<V> {
     }
 
     /// Update total voter count
-    pub fn set_total_voters(&self, count: usize) {
-        // Store in a thread-safe way - we need to make total_voters atomic or use interior mutability
-        // For now, keep simple - the caller should manage this or we use Arc<RwLock<usize>>
-        // Let's use a simpler approach: pass total_voters to check_consensus
+    pub async fn set_total_voters(&self, count: usize) {
+        let mut total = self.total_voters.write().await;
+        *total = count;
     }
 
     /// Record a vote
@@ -74,16 +73,18 @@ impl<V: Vote> VoteCollector<V> {
     }
 
     /// Check if consensus is reached for a specific key at height
-    pub fn check_consensus(&self, height: u64, key: &str) -> (bool, usize, usize) {
-        if self.total_voters < 3 {
+    pub async fn check_consensus(&self, height: u64, key: &str) -> (bool, usize, usize) {
+        let total_voters = *self.total_voters.read().await;
+        
+        if total_voters < 3 {
             // Bootstrap mode - accept immediately
-            return (true, 0, self.total_voters);
+            return (true, 0, total_voters);
         }
 
         if let Some(height_votes) = self.votes.get(&height) {
             if let Some(vote_list) = height_votes.get(key) {
                 let approvals = vote_list.iter().filter(|v| v.approve()).count();
-                let required = (self.total_voters * self.threshold_numerator)
+                let required = (total_voters * self.threshold_numerator)
                     .div_ceil(self.threshold_denominator);
                 let has_consensus = approvals >= required;
                 return (has_consensus, approvals, required);
@@ -91,7 +92,7 @@ impl<V: Vote> VoteCollector<V> {
         }
 
         let required =
-            (self.total_voters * self.threshold_numerator).div_ceil(self.threshold_denominator);
+            (total_voters * self.threshold_numerator).div_ceil(self.threshold_denominator);
         (false, 0, required)
     }
 
@@ -194,8 +195,8 @@ impl Vote for TxVote {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_vote_collector_bft() {
+    #[tokio::test]
+    async fn test_vote_collector_bft() {
         let collector = VoteCollector::<BlockVote>::new_bft(4);
 
         let vote1 = BlockVote {
@@ -226,7 +227,7 @@ mod tests {
         collector.record_vote(100, "hash1".to_string(), vote2);
 
         // 2 out of 4 votes (50%) - not enough for 2/3
-        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1");
+        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1").await.await;
         assert!(!has_consensus);
         assert_eq!(approvals, 2);
         assert_eq!(required, 3); // ceil(4 * 2 / 3) = 3
@@ -234,14 +235,14 @@ mod tests {
         collector.record_vote(100, "hash1".to_string(), vote3);
 
         // 3 out of 4 votes (75%) - meets 2/3 threshold
-        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1");
+        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1").await.await;
         assert!(has_consensus);
         assert_eq!(approvals, 3);
         assert_eq!(required, 3);
     }
 
-    #[test]
-    fn test_duplicate_vote_detection() {
+    #[tokio::test]
+    async fn test_duplicate_vote_detection() {
         let collector = VoteCollector::<BlockVote>::new_bft(3);
 
         let vote = BlockVote {
@@ -258,8 +259,8 @@ mod tests {
         assert!(!collector.has_voted(100, "hash1", "node2"));
     }
 
-    #[test]
-    fn test_vote_cleanup() {
+    #[tokio::test]
+    async fn test_vote_cleanup() {
         let collector = VoteCollector::<BlockVote>::new_bft(3);
 
         for height in 1..=10 {
