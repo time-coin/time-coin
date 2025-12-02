@@ -1190,10 +1190,8 @@ impl WalletApp {
                                     if self.network_manager.is_none() {
                                         log::info!("Initializing network after wallet unlock...");
                                         self.initialize_network();
+                                        // Note: XPub registration will happen automatically after peers connect
                                     }
-
-                                    // Register XPub with masternodes
-                                    self.register_wallet_with_masternodes();
                                 }
                                 Err(e) => {
                                     log::error!("Failed to unlock wallet: {}", e);
@@ -3748,6 +3746,13 @@ impl WalletApp {
 
     /// Initialize network connections and peer discovery
     fn initialize_network(&mut self) {
+        // Get xPub before spawning async tasks
+        let xpub_for_registration = if let Some(wallet_mgr) = &self.wallet_manager {
+            Some(wallet_mgr.get_xpub().to_string())
+        } else {
+            None
+        };
+
         if let Ok(main_config) = Config::load() {
             // Initialize peer manager if not already done
             if self.peer_manager.is_none() {
@@ -3785,6 +3790,7 @@ impl WalletApp {
                 let bootstrap_nodes = main_config.bootstrap_nodes.clone();
                 let addnodes = main_config.addnode.clone();
                 let api_endpoint_str = main_config.api_endpoint.clone();
+                let xpub_for_task = xpub_for_registration.clone();
 
                 tokio::spawn(async move {
                     log::info!("🚀 Starting network bootstrap...");
@@ -3884,6 +3890,51 @@ impl WalletApp {
                         .await
                         .ok();
                         log::info!("Connection task completed");
+
+                        // Register XPub with masternodes now that peers are connected
+                        if let Some(xpub_str) = xpub_for_task.clone() {
+                            log::info!("📝 Registering wallet with masternodes");
+                            log::info!(
+                                "   xPub: {}...",
+                                &xpub_str[..std::cmp::min(20, xpub_str.len())]
+                            );
+
+                            let peers = {
+                                let net = network_mgr.lock().unwrap();
+                                net.get_connected_peers()
+                            };
+
+                            let peer_count = peers.len();
+                            log::info!("✅ Wallet registered with {} masternodes", peer_count);
+
+                            // Send registration to each peer
+                            for peer in &peers {
+                                let xpub_clone = xpub_str.clone();
+                                let peer_addr = format!("{}:{}", peer.address, peer.port);
+
+                                tokio::spawn(async move {
+                                    match Self::register_with_peer(peer_addr.clone(), xpub_clone)
+                                        .await
+                                    {
+                                        Ok(_) => {
+                                            log::info!(
+                                                "✅ Registered xPub with masternode: {}",
+                                                peer_addr
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::warn!(
+                                                "⚠️ Failed to register with {}: {}",
+                                                peer_addr,
+                                                e
+                                            );
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            log::warn!("⚠️ No xPub available for registration");
+                        }
 
                         // Start periodic latency refresh
                         let network_mgr_for_ping = network_mgr.clone();
