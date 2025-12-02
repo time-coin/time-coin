@@ -1,6 +1,6 @@
 //! Transaction synchronization handlers for API
 
-use crate::{ApiError, ApiResult, ApiState};
+use crate::{ApiError, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use time_core::Transaction;
@@ -155,6 +155,7 @@ pub async fn handle_transaction_rejection(
 }
 
 /// Internal helper to reject a transaction and broadcast notification
+#[allow(dead_code)]
 async fn reject_transaction_internal(state: &ApiState, tx: Transaction, reason: String) {
     println!("🚫 Rejecting transaction {}: {}", &tx.txid[..16], reason);
 
@@ -163,7 +164,7 @@ async fn reject_transaction_internal(state: &ApiState, tx: Transaction, reason: 
         let wallet_address = output.address.clone();
 
         // Broadcast rejection to all peers
-        if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
+        if let Some(_broadcaster) = state.tx_broadcaster.as_ref() {
             // We need to add a broadcast_rejection method to TransactionBroadcaster
             println!(
                 "📨 Rejection notification sent for wallet: {}",

@@ -26,7 +26,6 @@ pub mod foolproof_block;
 pub mod instant_finality;
 pub mod leader_election;
 pub mod monitoring;
-// pub mod orchestrator; // TODO: Remove - unused phased consensus system
 pub mod phased_protocol;
 pub mod proposals;
 pub mod tx_validation;
