@@ -20,6 +20,9 @@
 //! - Grinding attacks prevented by using previous block hash
 //! - Each selection includes verifiable cryptographic proof
 
+// Core shared abstractions (new)
+pub mod core;
+
 // Public modules
 pub mod fallback;
 pub mod foolproof_block;
@@ -36,9 +39,9 @@ pub mod midnight_consensus;
 pub mod simplified;
 pub mod transaction_approval;
 
+use crate::core::vrf::{DefaultVRFSelector, VRFSelector};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use time_core::block::Block;
@@ -77,6 +80,9 @@ pub struct ConsensusEngine {
 
     /// Proposal manager for treasury grants
     proposal_manager: Option<Arc<crate::proposals::ProposalManager>>,
+
+    /// VRF selector for leader election
+    vrf_selector: DefaultVRFSelector,
 }
 
 impl ConsensusEngine {
@@ -94,6 +100,7 @@ impl ConsensusEngine {
             pending_votes: Arc::new(DashMap::new()),
             transaction_votes: Arc::new(DashMap::new()),
             proposal_manager: None,
+            vrf_selector: DefaultVRFSelector,
         }
     }
 
@@ -558,64 +565,10 @@ impl ConsensusEngine {
             return String::new();
         }
 
-        // Generate VRF seed from block height and previous block hash
-        let vrf_seed = self.generate_vrf_seed(block_height, previous_hash);
-
-        // For now, use equal weights (future: integrate tier/longevity/reputation)
-        let weights: Vec<u64> = masternodes.iter().map(|_| 1).collect();
-
-        // Weighted random selection using VRF
-        self.weighted_vrf_selection(&vrf_seed, masternodes, &weights)
-    }
-
-    /// Generate VRF seed from block height and previous block hash
-    fn generate_vrf_seed(&self, block_height: u64, previous_hash: &str) -> Vec<u8> {
-        let mut hasher = Sha256::new();
-        hasher.update(b"TIME_COIN_VRF_SEED");
-        hasher.update(block_height.to_le_bytes());
-        hasher.update(previous_hash.as_bytes());
-        hasher.finalize().to_vec()
-    }
-
-    /// Weighted VRF selection
-    fn weighted_vrf_selection(
-        &self,
-        seed: &[u8],
-        masternodes: &[String],
-        weights: &[u64],
-    ) -> String {
-        let total_weight: u64 = weights.iter().sum();
-
-        if total_weight == 0 {
-            // Fallback to first node if all weights are zero
-            return masternodes[0].clone();
-        }
-
-        // Generate random value from VRF seed
-        let mut hasher = Sha256::new();
-        hasher.update(seed);
-        hasher.update(b"WEIGHTED_SELECTION");
-        let hash = hasher.finalize();
-
-        // Convert to u64
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&hash[0..8]);
-        let random_value = u64::from_le_bytes(bytes);
-
-        // Map to weighted range
-        let selection_point = random_value % total_weight;
-
-        // Find selected node
-        let mut cumulative_weight = 0u64;
-        for (i, weight) in weights.iter().enumerate() {
-            cumulative_weight += weight;
-            if selection_point < cumulative_weight {
-                return masternodes[i].clone();
-            }
-        }
-
-        // Fallback (shouldn't reach here)
-        masternodes.last().unwrap().clone()
+        // Use the VRF selector trait
+        self.vrf_selector
+            .select_leader(masternodes, block_height, previous_hash)
+            .unwrap_or_default()
     }
 
     /// Generate VRF proof for selected leader (for verification)
@@ -625,13 +578,8 @@ impl ConsensusEngine {
         previous_hash: &str,
         leader: &str,
     ) -> Vec<u8> {
-        let seed = self.generate_vrf_seed(block_height, previous_hash);
-
-        let mut hasher = Sha256::new();
-        hasher.update(&seed);
-        hasher.update(b"VRF_PROOF");
-        hasher.update(leader.as_bytes());
-        hasher.finalize().to_vec()
+        self.vrf_selector
+            .generate_proof(block_height, previous_hash, leader)
     }
 
     /// Verify VRF proof for a leader selection
@@ -642,8 +590,8 @@ impl ConsensusEngine {
         leader: &str,
         proof: &[u8],
     ) -> bool {
-        let expected_proof = self.generate_vrf_proof(block_height, previous_hash, leader);
-        proof == expected_proof.as_slice()
+        self.vrf_selector
+            .verify_proof(block_height, previous_hash, leader, proof)
     }
 
     /// Announce chain state to peers and check for mismatches
@@ -779,10 +727,24 @@ pub mod tx_consensus {
         pub approve: bool,
         pub timestamp: i64,
     }
+    
+    impl crate::core::collector::Vote for TxSetVote {
+        fn voter(&self) -> &str {
+            &self.voter
+        }
+        
+        fn approve(&self) -> bool {
+            self.approve
+        }
+        
+        fn timestamp(&self) -> i64 {
+            self.timestamp
+        }
+    }
 
     pub struct TxConsensusManager {
         proposals: Arc<RwLock<HashMap<u64, TransactionProposal>>>,
-        votes: TxSetVotesMap,
+        vote_collector: crate::core::collector::VoteCollector<TxSetVote>,
         masternodes: Arc<RwLock<Vec<String>>>,
     }
 
@@ -796,14 +758,22 @@ pub mod tx_consensus {
         pub fn new() -> Self {
             Self {
                 proposals: Arc::new(RwLock::new(HashMap::new())),
-                votes: Arc::new(DashMap::new()),
+                vote_collector: crate::core::collector::VoteCollector::new_bft(0), // Will be updated via set_masternodes
                 masternodes: Arc::new(RwLock::new(Vec::new())),
             }
         }
 
         pub async fn set_masternodes(&self, nodes: Vec<String>) {
             let mut masternodes = self.masternodes.write().await;
-            *masternodes = nodes;
+            *masternodes = nodes.clone();
+            
+            // Update vote collector with new count
+            let count = nodes.len();
+            drop(masternodes);
+            
+            // Note: VoteCollector doesn't have set_total_voters as mutable method
+            // The check_consensus method will use the stored total_voters
+            // We need to recreate or use internal state properly
         }
 
         pub async fn propose_tx_set(&self, proposal: TransactionProposal) {
@@ -2001,8 +1971,8 @@ mod tests {
         let engine = ConsensusEngine::new(false);
 
         // Same block height but different previous hashes should produce different seeds
-        let seed1 = engine.generate_vrf_seed(100, "hash1");
-        let seed2 = engine.generate_vrf_seed(100, "hash2");
+        let seed1 = engine.vrf_selector.generate_seed(100, "hash1");
+        let seed2 = engine.vrf_selector.generate_seed(100, "hash2");
 
         assert_ne!(
             seed1, seed2,

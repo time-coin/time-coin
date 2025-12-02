@@ -1,3 +1,4 @@
+mod balance;
 mod error;
 mod handlers;
 pub mod instant_finality_handlers;

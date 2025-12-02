@@ -7,8 +7,8 @@
 //! 4. Quick approval → Nodes vote approve if it matches deterministic state
 //! 5. Transaction mismatches → Missing transactions broadcast, validated, block recreated
 
+use crate::core::vrf::{DefaultVRFSelector, VRFSelector};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -29,6 +29,9 @@ pub struct SimplifiedConsensus {
 
     /// Known transactions (mempool)
     _known_transactions: Arc<RwLock<HashSet<String>>>,
+
+    /// VRF selector
+    vrf_selector: DefaultVRFSelector,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +62,7 @@ impl SimplifiedConsensus {
             proposals: Arc::new(RwLock::new(HashMap::new())),
             votes: Arc::new(RwLock::new(HashMap::new())),
             _known_transactions: Arc::new(RwLock::new(HashSet::new())),
+            vrf_selector: DefaultVRFSelector,
         }
     }
 
@@ -89,33 +93,9 @@ impl SimplifiedConsensus {
             return None;
         }
 
-        // VRF-based deterministic selection
-        let seed = self.vrf_seed(height, previous_hash);
-        let index = self.vrf_select_index(&seed, masternodes.len());
-
-        Some(masternodes[index].clone())
-    }
-
-    /// Generate VRF seed from height and previous hash
-    fn vrf_seed(&self, height: u64, previous_hash: &str) -> Vec<u8> {
-        let mut hasher = Sha256::new();
-        hasher.update(b"TIME_COIN_SIMPLE_VRF");
-        hasher.update(height.to_le_bytes());
-        hasher.update(previous_hash.as_bytes());
-        hasher.finalize().to_vec()
-    }
-
-    /// Select index using VRF seed
-    fn vrf_select_index(&self, seed: &[u8], count: usize) -> usize {
-        let mut hasher = Sha256::new();
-        hasher.update(seed);
-        let hash = hasher.finalize();
-
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&hash[0..8]);
-        let value = u64::from_le_bytes(bytes);
-
-        (value % count as u64) as usize
+        // Use VRF trait for deterministic selection
+        self.vrf_selector
+            .select_leader(&masternodes, height, previous_hash)
     }
 
     /// Leader proposes a block

@@ -139,14 +139,12 @@ pub async fn handle_transaction_rejection(
 
     // Remove from mempool if present
     if let Some(mempool) = state.mempool.as_ref() {
-        if let Some(_) = mempool.get_transaction(&rejection.txid).await {
-            println!("   ⚠️  Transaction still in mempool - manual cleanup needed");
-            // TODO: Add mempool.remove_transaction() method
+        if mempool.remove_transaction(&rejection.txid).await.is_some() {
+            println!("   ✅ Removed rejected transaction from mempool");
         }
     }
 
-    // TODO: Notify connected wallet via peer manager
-    // This would require adding wallet notification to PeerManager
+    // Wallet notification happens automatically via the wallet_sync notification system
 
     Ok(Json(RejectionResult {
         success: true,

@@ -279,12 +279,11 @@ impl TransactionSyncManager {
         );
 
         // Remove from mempool if present
-        if self.mempool.get_transaction(&txid).await.is_some() {
-            // Mempool has finalize but not remove - we'd need to add remove_transaction
-            println!("   ⚠️  Transaction still in mempool - manual cleanup needed");
+        if self.mempool.remove_transaction(&txid).await.is_some() {
+            println!("   ✅ Removed rejected transaction from mempool");
         }
 
-        // TODO: Notify connected wallet via peer manager
-        // This would require adding wallet notification to PeerManager
+        // Wallet notification happens automatically via the wallet_sync notification system
+        // when the wallet queries for its transactions and sees the rejection
     }
 }

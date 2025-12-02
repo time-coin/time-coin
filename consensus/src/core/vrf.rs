@@ -9,32 +9,37 @@ use sha2::{Digest, Sha256};
 pub trait VRFSelector {
     /// Generate VRF seed from block height and previous block hash
     fn generate_seed(&self, height: u64, previous_hash: &str) -> Vec<u8>;
-    
+
     /// Select leader index from available masternodes
     fn select_index(&self, seed: &[u8], count: usize) -> usize;
-    
+
     /// Select leader from masternode list
-    fn select_leader(&self, masternodes: &[String], height: u64, previous_hash: &str) -> Option<String> {
+    fn select_leader(
+        &self,
+        masternodes: &[String],
+        height: u64,
+        previous_hash: &str,
+    ) -> Option<String> {
         if masternodes.is_empty() {
             return None;
         }
-        
+
         let seed = self.generate_seed(height, previous_hash);
         let index = self.select_index(&seed, masternodes.len());
         Some(masternodes[index].clone())
     }
-    
+
     /// Generate VRF proof for selected leader
     fn generate_proof(&self, height: u64, previous_hash: &str, leader: &str) -> Vec<u8> {
         let seed = self.generate_seed(height, previous_hash);
-        
+
         let mut hasher = Sha256::new();
         hasher.update(&seed);
         hasher.update(b"VRF_PROOF");
         hasher.update(leader.as_bytes());
         hasher.finalize().to_vec()
     }
-    
+
     /// Verify VRF proof for a leader selection
     fn verify_proof(&self, height: u64, previous_hash: &str, leader: &str, proof: &[u8]) -> bool {
         let expected_proof = self.generate_proof(height, previous_hash, leader);
@@ -53,16 +58,16 @@ impl VRFSelector for DefaultVRFSelector {
         hasher.update(previous_hash.as_bytes());
         hasher.finalize().to_vec()
     }
-    
+
     fn select_index(&self, seed: &[u8], count: usize) -> usize {
         let mut hasher = Sha256::new();
         hasher.update(seed);
         let hash = hasher.finalize();
-        
+
         let mut bytes = [0u8; 8];
         bytes.copy_from_slice(&hash[0..8]);
         let value = u64::from_le_bytes(bytes);
-        
+
         (value % count as u64) as usize
     }
 }
@@ -72,24 +77,29 @@ pub struct WeightedVRFSelector;
 
 impl WeightedVRFSelector {
     /// Weighted selection using VRF seed
-    pub fn weighted_selection(&self, seed: &[u8], masternodes: &[String], weights: &[u64]) -> String {
+    pub fn weighted_selection(
+        &self,
+        seed: &[u8],
+        masternodes: &[String],
+        weights: &[u64],
+    ) -> String {
         let total_weight: u64 = weights.iter().sum();
-        
+
         if total_weight == 0 || masternodes.is_empty() {
             return masternodes.first().cloned().unwrap_or_default();
         }
-        
+
         let mut hasher = Sha256::new();
         hasher.update(seed);
         hasher.update(b"WEIGHTED_SELECTION");
         let hash = hasher.finalize();
-        
+
         let mut bytes = [0u8; 8];
         bytes.copy_from_slice(&hash[0..8]);
         let random_value = u64::from_le_bytes(bytes);
-        
+
         let selection_point = random_value % total_weight;
-        
+
         let mut cumulative_weight = 0u64;
         for (i, weight) in weights.iter().enumerate() {
             cumulative_weight += weight;
@@ -97,7 +107,7 @@ impl WeightedVRFSelector {
                 return masternodes[i].clone();
             }
         }
-        
+
         masternodes.last().cloned().unwrap_or_default()
     }
 }
@@ -110,7 +120,7 @@ impl VRFSelector for WeightedVRFSelector {
         hasher.update(previous_hash.as_bytes());
         hasher.finalize().to_vec()
     }
-    
+
     fn select_index(&self, seed: &[u8], count: usize) -> usize {
         // Equal weights for basic selection
         let weights = vec![1u64; count];
@@ -123,18 +133,22 @@ impl VRFSelector for WeightedVRFSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_vrf_deterministic() {
         let vrf = DefaultVRFSelector;
-        let masternodes = vec!["node1".to_string(), "node2".to_string(), "node3".to_string()];
-        
+        let masternodes = vec![
+            "node1".to_string(),
+            "node2".to_string(),
+            "node3".to_string(),
+        ];
+
         let leader1 = vrf.select_leader(&masternodes, 100, "hash123");
         let leader2 = vrf.select_leader(&masternodes, 100, "hash123");
-        
+
         assert_eq!(leader1, leader2, "VRF should be deterministic");
     }
-    
+
     #[test]
     fn test_vrf_different_heights() {
         let vrf = DefaultVRFSelector;
@@ -144,21 +158,21 @@ mod tests {
             "node3".to_string(),
             "node4".to_string(),
         ];
-        
+
         let leader1 = vrf.select_leader(&masternodes, 100, "hash").unwrap();
         let leader2 = vrf.select_leader(&masternodes, 101, "hash").unwrap();
-        
+
         assert!(masternodes.contains(&leader1));
         assert!(masternodes.contains(&leader2));
     }
-    
+
     #[test]
     fn test_vrf_proof() {
         let vrf = DefaultVRFSelector;
         let height = 100u64;
         let prev_hash = "test_hash";
         let leader = "node1";
-        
+
         let proof = vrf.generate_proof(height, prev_hash, leader);
         assert!(vrf.verify_proof(height, prev_hash, leader, &proof));
         assert!(!vrf.verify_proof(height, prev_hash, "node2", &proof));
