@@ -3747,11 +3747,10 @@ impl WalletApp {
     /// Initialize network connections and peer discovery
     fn initialize_network(&mut self) {
         // Get xPub before spawning async tasks
-        let xpub_for_registration = if let Some(wallet_mgr) = &self.wallet_manager {
-            Some(wallet_mgr.get_xpub().to_string())
-        } else {
-            None
-        };
+        let xpub_for_registration = self
+            .wallet_manager
+            .as_ref()
+            .map(|wallet_mgr| wallet_mgr.get_xpub().to_string());
 
         if let Ok(main_config) = Config::load() {
             // Initialize peer manager if not already done

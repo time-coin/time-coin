@@ -25,7 +25,7 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager};
+use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager, UpnpManager};
 
 use time_consensus::{ConsensusEngine, TransactionApprovalManager};
 
@@ -506,16 +506,21 @@ async fn peer_is_online(addr: &std::net::SocketAddr, _timeout_ms: u64) -> bool {
     )
 }
 
-fn detect_public_ip() -> Option<String> {
+async fn detect_public_ip() -> Option<String> {
     let services = [
         "https://ifconfig.me/ip",
         "https://api.ipify.org",
         "https://icanhazip.com",
     ];
 
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+
     for service in &services {
-        if let Ok(response) = reqwest::blocking::get(*service) {
-            if let Ok(ip) = response.text() {
+        if let Ok(response) = client.get(*service).send().await {
+            if let Ok(ip) = response.text().await {
                 let ip = ip.trim().to_string();
                 // Validate it's an IP address
                 if ip.parse::<std::net::IpAddr>().is_ok() {
@@ -731,10 +736,12 @@ async fn main() {
     // ═══════════════════════════════════════════════════════════════
 
     // Detect public IP for peer-to-peer handshakes
-    let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| {
+    let node_id = if let Ok(ip) = std::env::var("NODE_PUBLIC_IP") {
+        ip
+    } else {
         // Try to auto-detect public IP via HTTP
         println!("🔍 Auto-detecting public IP address...");
-        let public_ip = detect_public_ip();
+        let public_ip = detect_public_ip().await;
 
         if let Some(ip) = public_ip {
             println!("✓ Auto-detected public IP: {}", ip);
@@ -753,7 +760,7 @@ async fn main() {
             eprintln!("❌ Set NODE_PUBLIC_IP environment variable");
             std::process::exit(1);
         }
-    });
+    };
     let discovery = Arc::new(RwLock::new(PeerDiscovery::new(network_type)));
     let p2p_listen_addr = "0.0.0.0:24100".parse().unwrap();
     let p2p_manager_public = format!("{}:24100", node_id).parse().unwrap();
@@ -762,6 +769,38 @@ async fn main() {
         p2p_listen_addr,
         p2p_manager_public,
     ));
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 2.1: Setup UPnP port forwarding
+    // ═══════════════════════════════════════════════════════════════
+
+    // Get local IP for UPnP
+    let local_ip = if let Ok(ip) = local_ip_address::local_ip() {
+        ip
+    } else {
+        eprintln!("⚠️  Could not determine local IP for UPnP");
+        "127.0.0.1".parse().unwrap()
+    };
+
+    let local_addr = format!("{}:24100", local_ip)
+        .parse()
+        .unwrap_or_else(|_| "127.0.0.1:24100".parse().unwrap());
+
+    println!("\n{}", "🔌 Setting up UPnP port forwarding...".cyan());
+    let upnp_manager = Arc::new(UpnpManager::new(local_addr).await);
+
+    // Try to get external IP via UPnP
+    if let Ok(external_ip) = upnp_manager.get_external_ip().await {
+        println!("✓ External IP via UPnP: {}", external_ip);
+    }
+
+    // Setup port forwarding for P2P (24100) and RPC (24101 for testnet, 8080 for mainnet)
+    let rpc_port = if is_testnet { 24101 } else { 8080 };
+    let _ = upnp_manager.setup_time_node_ports(24100, rpc_port).await;
+
+    // Spawn renewal task to keep port forwarding alive
+    let upnp_clone = upnp_manager.clone();
+    let _upnp_renewal_handle = upnp_clone.spawn_renewal_task(24100, rpc_port);
 
     let discovery_quiet = std::env::var("TIMECOIN_QUIET_DISCOVERY").is_ok();
     let strict_discovery = std::env::var("TIMECOIN_STRICT_DISCOVERY").is_ok();
