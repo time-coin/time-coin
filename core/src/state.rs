@@ -612,6 +612,10 @@ impl BlockchainState {
         };
 
         state.apply_validated_blocks(blocks)?;
+
+        // Merge UTXO snapshot if available
+        state.merge_utxo_snapshot()?;
+
         eprintln!(
             "✅ Blockchain ready: {} blocks (genesis: {}...)",
             state.blocks.len(),
