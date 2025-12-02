@@ -1,9 +1,11 @@
 //! Grant System Models
 
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct GrantApplication {
+    #[validate(email(message = "Invalid email format"))]
     pub email: String,
 }
 
@@ -35,9 +37,11 @@ pub struct GrantStatusResponse {
     pub days_remaining: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct MasternodeActivationRequest {
+    #[validate(email(message = "Invalid email format"))]
     pub grant_email: String,
+    #[validate(length(min = 64, max = 66, message = "Invalid public key length"))]
     pub public_key: String,
     pub ip_address: String,
     pub port: u16,

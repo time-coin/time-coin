@@ -3,11 +3,14 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use time_core::transaction::{Transaction, TxInput, TxOutput};
 use tracing as log;
+use validator::Validate;
 use wallet::Wallet;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct WalletSendRequest {
+    #[validate(length(min = 1, message = "Recipient address cannot be empty"))]
     pub to: String,
+    #[validate(range(min = 1, message = "Amount must be greater than 0"))]
     pub amount: u64,
     #[serde(default)]
     pub from: Option<String>,
@@ -25,14 +28,9 @@ pub async fn wallet_send(
     State(state): State<ApiState>,
     Json(req): Json<WalletSendRequest>,
 ) -> ApiResult<Json<WalletSendResponse>> {
-    // Load the node's wallet to get keypair
-    let wallet_path = std::env::var("WALLET_PATH")
-        .unwrap_or_else(|_| "/var/lib/time-coin/wallets/node.json".to_string());
-
-    let wallet = Wallet::load_from_file(&wallet_path)
-        .map_err(|e| ApiError::Internal(format!("Failed to load wallet: {}", e)))?;
-
-    let from_address = wallet.address_string();
+    // Validate request
+    req.validate()
+        .map_err(|e| ApiError::BadRequest(format!("Validation failed: {}", e)))?;
 
     // Validate destination address format
     if !req.to.starts_with("TIME0") && !req.to.starts_with("TIME") {
@@ -41,12 +39,14 @@ pub async fn wallet_send(
         ));
     }
 
-    // Check if amount is valid
-    if req.amount == 0 {
-        return Err(ApiError::BadRequest(
-            "Amount must be greater than 0".to_string(),
-        ));
-    }
+    // Load the node's wallet to get keypair
+    let wallet_path = std::env::var("WALLET_PATH")
+        .unwrap_or_else(|_| "/var/lib/time-coin/wallets/node.json".to_string());
+
+    let wallet = Wallet::load_from_file(&wallet_path)
+        .map_err(|e| ApiError::Internal(format!("Failed to load wallet: {}", e)))?;
+
+    let from_address = wallet.address_string();
 
     // Get blockchain state to find UTXOs
     let blockchain = state.blockchain.read().await;

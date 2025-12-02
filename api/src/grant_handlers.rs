@@ -8,6 +8,7 @@ use crate::{
 use axum::{extract::Path, extract::State, Json};
 use chrono::{Duration, Utc};
 use uuid::Uuid;
+use validator::Validate;
 
 const GRANT_AMOUNT: u64 = 100_000_000_000; // 1000 TIME
 const ACTIVATION_DAYS: i64 = 30; // 30 days to activate
@@ -21,10 +22,9 @@ pub async fn apply_for_grant(
     State(state): State<ApiState>,
     Json(req): Json<GrantApplication>,
 ) -> ApiResult<Json<GrantApplicationResponse>> {
-    // Validate email format
-    if !req.email.contains('@') || !req.email.contains('.') {
-        return Err(ApiError::InvalidAddress("Invalid email format".to_string()));
-    }
+    // Validate request using validator crate
+    req.validate()
+        .map_err(|e| ApiError::BadRequest(format!("Validation failed: {}", e)))?;
 
     let mut grants = state.grants.write().await;
 
@@ -168,6 +168,10 @@ pub async fn activate_masternode(
     State(state): State<ApiState>,
     Json(req): Json<MasternodeActivationRequest>,
 ) -> ApiResult<Json<MasternodeActivationResponse>> {
+    // Validate request
+    req.validate()
+        .map_err(|e| ApiError::BadRequest(format!("Validation failed: {}", e)))?;
+
     let mut grants = state.grants.write().await;
 
     // Find grant

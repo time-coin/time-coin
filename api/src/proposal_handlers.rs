@@ -7,11 +7,19 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tracing as log;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CreateProposalRequest {
+    #[validate(length(min = 1, message = "Recipient address cannot be empty"))]
     pub recipient: String,
+    #[validate(range(min = 1, message = "Amount must be greater than 0"))]
     pub amount: u64,
+    #[validate(length(
+        min = 1,
+        max = 1000,
+        message = "Reason must be between 1 and 1000 characters"
+    ))]
     pub reason: String,
 }
 
@@ -45,25 +53,13 @@ pub async fn create_proposal(
     State(state): State<ApiState>,
     Json(request): Json<CreateProposalRequest>,
 ) -> ApiResult<Json<CreateProposalResponse>> {
+    // Validate request
+    request
+        .validate()
+        .map_err(|e| ApiError::BadRequest(format!("Validation failed: {}", e)))?;
+
     // Get node ID (proposer)
     let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| "unknown".to_string());
-
-    // Validate inputs
-    if request.recipient.is_empty() {
-        return Err(ApiError::BadRequest(
-            "Recipient address cannot be empty".to_string(),
-        ));
-    }
-
-    if request.amount == 0 {
-        return Err(ApiError::BadRequest(
-            "Amount must be greater than 0".to_string(),
-        ));
-    }
-
-    if request.reason.is_empty() {
-        return Err(ApiError::BadRequest("Reason cannot be empty".to_string()));
-    }
 
     // Get proposal manager from consensus
     let consensus = &state.consensus;
