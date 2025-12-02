@@ -2339,7 +2339,21 @@ impl BlockProducer {
     /// Synchronize masternode list with network before block creation
     /// This ensures all nodes have the same view of active masternodes
     async fn sync_masternodes_before_block(&self) {
-        let peers = self.peer_manager.get_peer_ips().await;
+        // Add timeout to prevent hanging
+        let peers_result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(5),
+            self.peer_manager.get_peer_ips(),
+        )
+        .await;
+
+        let peers = match peers_result {
+            Ok(peers) => peers,
+            Err(_) => {
+                println!("   ⚠️  Timeout getting peer list - skipping masternode sync");
+                return;
+            }
+        };
+
         if peers.is_empty() {
             println!("   ⚠️  No peers available for masternode sync");
             return;
