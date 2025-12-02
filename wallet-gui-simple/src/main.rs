@@ -173,7 +173,8 @@ impl WalletApp {
             ui.add_space(20.0);
 
             if ui.button("Generate Wallet").clicked()
-                || (_password_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                || (_password_response.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             {
                 // Generate mnemonic
                 let mnemonic = match wallet::generate_mnemonic(12) {

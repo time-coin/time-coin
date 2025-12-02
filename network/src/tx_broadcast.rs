@@ -38,48 +38,68 @@ impl TransactionBroadcaster {
         }
     }
 
-    /// Broadcast a finalized transaction to all peers via HTTP POST
-    /// This ensures all masternodes receive and apply the finalized transaction to their UTXO sets
+    /// Broadcast a finalized transaction to all peers via TCP with HTTP fallback
+    /// Uses existing TCP connections for efficiency, falls back to HTTP if TCP fails
     pub async fn broadcast_finalized_transaction(&self, tx: Transaction) {
         let peers = self.peer_manager.get_connected_peers().await;
         println!(
-            "📡 Broadcasting FINALIZED transaction {} to {} peers",
+            "📡 Broadcasting FINALIZED transaction {} to {} peers via TCP",
             &tx.txid[..16],
             peers.len()
         );
 
+        let message = NetworkMessage::FinalizedTransactionBroadcast(tx.clone());
         let mut send_tasks = Vec::new();
 
-        // Launch all HTTP POSTs in parallel
+        // Launch all TCP sends in parallel with HTTP fallback
         for peer_info in &peers {
             let peer_addr = peer_info.address;
+            let msg_clone = message.clone();
             let tx_clone = tx.clone();
+            let manager = self.peer_manager.clone();
 
             let task = tokio::spawn(async move {
-                // Construct HTTP endpoint
+                // Try TCP first (fast, uses existing connections)
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(2),
+                    manager.send_message_to_peer(peer_addr, msg_clone),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => {
+                        debug!(peer = %peer_addr, "Finalized transaction sent via TCP");
+                        return true;
+                    }
+                    Ok(Err(e)) => {
+                        debug!(peer = %peer_addr, error = %e, "TCP failed, trying HTTP fallback");
+                    }
+                    Err(_) => {
+                        debug!(peer = %peer_addr, "TCP timeout, trying HTTP fallback");
+                    }
+                }
+
+                // HTTP fallback for reliability
                 let url = format!("http://{}:{}/mempool/finalized", peer_addr.ip(), 24101);
-                
-                // 5 second timeout per peer
                 let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(5))
+                    .timeout(std::time::Duration::from_secs(3))
                     .build()
                     .unwrap();
 
                 match client.post(&url).json(&tx_clone).send().await {
                     Ok(response) if response.status().is_success() => {
-                        debug!(peer = %peer_addr, "Finalized transaction broadcast success");
+                        debug!(peer = %peer_addr, "Finalized transaction sent via HTTP fallback");
                         true
                     }
                     Ok(response) => {
                         debug!(
                             peer = %peer_addr,
                             status = %response.status(),
-                            "Failed to broadcast finalized transaction"
+                            "HTTP fallback failed"
                         );
                         false
                     }
                     Err(e) => {
-                        debug!(peer = %peer_addr, error = %e, "Failed to send finalized transaction");
+                        debug!(peer = %peer_addr, error = %e, "Both TCP and HTTP failed");
                         false
                     }
                 }

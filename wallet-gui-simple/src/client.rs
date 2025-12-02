@@ -99,7 +99,7 @@ impl SimpleClient {
         stream.write_all(&msg_len).await?;
         stream.write_all(&msg_json).await?;
         stream.flush().await?;
-        
+
         log::info!("📤 Sent message, waiting for response...");
 
         // Read response with timeout
@@ -107,20 +107,24 @@ impl SimpleClient {
             log::info!("⏳ Waiting for response (30s timeout)...");
             let mut resp_magic = [0u8; 4];
             let mut resp_len = [0u8; 4];
-            
+
             log::info!("📖 Reading response magic and length...");
             stream.read_exact(&mut resp_magic).await?;
             stream.read_exact(&mut resp_len).await?;
 
             let len = u32::from_be_bytes(resp_len) as usize;
-            log::info!("📦 Response size: {} bytes ({:.2} MB)", len, len as f64 / 1024.0 / 1024.0);
-            
+            log::info!(
+                "📦 Response size: {} bytes ({:.2} MB)",
+                len,
+                len as f64 / 1024.0 / 1024.0
+            );
+
             if len > 100 * 1024 * 1024 {
                 // 100MB limit (increased from 10MB)
                 log::error!("❌ Response too large: {} MB", len as f64 / 1024.0 / 1024.0);
                 return Err(ClientError::InvalidResponse("Response too large".into()));
             }
-            
+
             if len == 0 {
                 log::warn!("⚠️ Empty response from masternode");
                 return Err(ClientError::InvalidResponse("Empty response".into()));
@@ -129,7 +133,7 @@ impl SimpleClient {
             log::info!("📥 Reading {} bytes of data...", len);
             let mut resp_data = vec![0u8; len];
             stream.read_exact(&mut resp_data).await?;
-            
+
             log::info!("🔍 Parsing JSON response...");
             let response: NetworkMessage = serde_json::from_slice(&resp_data)?;
             log::info!("✅ Response parsed successfully");

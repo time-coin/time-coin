@@ -856,15 +856,18 @@ async fn receive_finalized_transaction(
 
     // Apply directly to UTXO set (transaction was already validated by sending node)
     let mut blockchain = state.blockchain.write().await;
-    
+
     if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
-        println!("❌ Failed to apply finalized transaction to UTXO set: {}", e);
+        println!(
+            "❌ Failed to apply finalized transaction to UTXO set: {}",
+            e
+        );
         return Err(ApiError::Internal(format!(
             "Failed to apply transaction: {}",
             e
         )));
     }
-    
+
     println!("✅ Finalized transaction applied to UTXO set");
 
     // Save to finalized transactions database
@@ -1587,14 +1590,21 @@ pub async fn trigger_instant_finality_for_received_tx(
                 } else {
                     println!("💾 UTXO snapshot saved - transaction persists across restarts");
                 }
-                
+
                 // 🆕 BROADCAST FINALIZED TRANSACTION TO OTHER MASTERNODES
                 if let Some(broadcaster) = tx_broadcaster.as_ref() {
-                    println!("📡 Broadcasting finalized transaction {} to network...", &txid[..16]);
-                    broadcaster.broadcast_finalized_transaction(tx.clone()).await;
+                    println!(
+                        "📡 Broadcasting finalized transaction {} to network...",
+                        &txid[..16]
+                    );
+                    broadcaster
+                        .broadcast_finalized_transaction(tx.clone())
+                        .await;
                     println!("✅ Finalized transaction broadcast complete");
                 } else {
-                    println!("⚠️  No broadcaster available - transaction not propagated to network");
+                    println!(
+                        "⚠️  No broadcaster available - transaction not propagated to network"
+                    );
                 }
             }
 
