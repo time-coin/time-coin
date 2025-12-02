@@ -616,6 +616,9 @@ impl BlockchainState {
         // Merge UTXO snapshot if available
         state.merge_utxo_snapshot()?;
 
+        // Recalculate all wallet balances from UTXO set
+        state.recalculate_all_wallet_balances()?;
+
         eprintln!(
             "✅ Blockchain ready: {} blocks (genesis: {}...)",
             state.blocks.len(),
@@ -639,6 +642,7 @@ impl BlockchainState {
         }
 
         state.merge_utxo_snapshot()?;
+        state.recalculate_all_wallet_balances()?;
         Ok(state)
     }
 
@@ -1097,6 +1101,36 @@ impl BlockchainState {
                 eprintln!("⚠️  Failed to save wallet balance for {}: {}", address, e);
             }
         }
+    }
+
+    /// Recalculate ALL wallet balances from the current UTXO set
+    /// This should be called on node startup after loading the blockchain
+    fn recalculate_all_wallet_balances(&mut self) -> Result<(), StateError> {
+        eprintln!("🔄 Recalculating wallet balances from UTXO set...");
+
+        // Get all unique addresses from the UTXO set
+        let addresses: std::collections::HashSet<String> = self
+            .utxo_set
+            .utxos()
+            .values()
+            .map(|utxo| utxo.address.clone())
+            .collect();
+
+        let mut updated_count = 0;
+        for address in addresses {
+            if address == "TREASURY" || address == "BURNED" {
+                continue;
+            }
+
+            let balance = self.utxo_set.get_balance(&address);
+            if balance > 0 {
+                self.db.save_wallet_balance(&address, balance)?;
+                updated_count += 1;
+            }
+        }
+
+        eprintln!("✅ Recalculated {} wallet balances", updated_count);
+        Ok(())
     }
 
     fn finalize_block_addition(&mut self, block: Block) {
