@@ -971,6 +971,8 @@ impl BlockchainState {
                 self.db.save_block(&block)?;
                 self.update_wallet_balances(&block);
                 self.finalize_block_addition(block);
+                // Save UTXO set to disk so rewards persist across restarts
+                self.save_utxo_snapshot()?;
                 Ok(())
             }
             Err(e) => {
@@ -995,6 +997,9 @@ impl BlockchainState {
         self.blocks.insert(block.hash.clone(), block.clone());
         self.blocks_by_height.insert(0, block.hash.clone());
         self.db.save_block(&block)?;
+        
+        // Save UTXO set to disk so genesis UTXOs persist
+        self.save_utxo_snapshot()?;
 
         eprintln!(
             "✅ Genesis block downloaded and initialized: {}...",
