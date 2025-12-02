@@ -1484,26 +1484,38 @@ impl NetworkManager {
             tasks.push(task);
         }
 
-        // Wait for all tests to complete
-        let mut results = Vec::new();
-        for task in tasks {
-            results.push(task.await);
-        }
+        // Wait for all tests to complete with overall timeout of 5 seconds
+        let results = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let mut results = Vec::new();
+            for task in tasks {
+                results.push(task.await);
+            }
+            results
+        })
+        .await;
 
         // Update peer info
-        for (i, result) in results.into_iter().enumerate() {
-            if let Ok(Some((peer_address, latency_ms, peer_version))) = result {
-                if let Some(peer) = self.connected_peers.get_mut(i) {
-                    peer.latency_ms = latency_ms;
-                    if peer_version.is_some() {
-                        peer.version = peer_version;
+        if let Ok(results) = results {
+            for (i, result) in results.into_iter().enumerate() {
+                if let Ok(Some((peer_address, latency_ms, peer_version))) = result {
+                    if let Some(peer) = self.connected_peers.get_mut(i) {
+                        peer.latency_ms = latency_ms;
+                        if peer_version.is_some() {
+                            peer.version = peer_version;
+                        }
                     }
                 }
             }
+        } else {
+            log::warn!("⏱️ Peer refresh timed out after 5 seconds");
         }
 
-        // Also update blockchain height
-        self.update_blockchain_height().await;
+        // Also update blockchain height (with shorter timeout)
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            self.update_blockchain_height(),
+        )
+        .await;
     }
 
     /// Get blockchain info from a specific peer
