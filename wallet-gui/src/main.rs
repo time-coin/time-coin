@@ -23,6 +23,7 @@ mod password_ui;
 mod peer_manager;
 mod protocol_client;
 mod rate_limiter;
+mod simple_client; // New: Simple async TCP client (no blocking, no mutexes)
 mod tcp_protocol_client;
 mod ui_components;
 mod utxo_manager;
@@ -1747,9 +1748,9 @@ impl WalletApp {
     // Old function removed - using create_wallet_from_mnemonic_phrase instead
 
     fn show_main_screen(&mut self, ctx: &egui::Context) {
-        // Check if we should auto-sync transactions (every 30 seconds)
+        // Check if we should auto-sync transactions (every 60 seconds to avoid pileup)
         let should_sync = if let Some(last_sync) = self.last_sync_time {
-            last_sync.elapsed().as_secs() >= 30
+            last_sync.elapsed().as_secs() >= 60 && !self.refresh_in_progress
         } else {
             // First time sync after 5 seconds of wallet being loaded
             self.wallet_manager.is_some() && self.network_manager.is_some()

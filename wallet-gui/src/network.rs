@@ -218,7 +218,7 @@ impl NetworkManager {
 
                 // Measure TCP connection time separately from handshake
                 match tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
+                    std::time::Duration::from_millis(1500), // Reduced from 2s to 1.5s
                     tokio::net::TcpStream::connect(&tcp_addr),
                 )
                 .await
@@ -229,7 +229,7 @@ impl NetworkManager {
 
                         // Quickly grab version via handshake (non-blocking)
                         let peer_version =
-                            tokio::time::timeout(std::time::Duration::from_millis(500), async {
+                            tokio::time::timeout(std::time::Duration::from_millis(300), async {
                                 use time_network::protocol::HandshakeMessage;
                                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
