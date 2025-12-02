@@ -2415,23 +2415,46 @@ impl BlockProducer {
         // If masternode lists are synced, hashes will match
         // If not, we need to detect the difference and resync
 
-        // Count peer agreement
+        // Count peer agreement with 5-second timeout per peer
+        let mut tasks = Vec::new();
+        for peer in peers.iter().take(10) {
+            // Limit to 10 peers max
+            let peer_manager = self.peer_manager.clone();
+            let peer = peer.clone();
+            let task = tokio::spawn(async move {
+                match tokio::time::timeout(
+                    Duration::from_secs(5),
+                    peer_manager.request_blockchain_info(&peer),
+                )
+                .await
+                {
+                    Ok(Ok(Some(_height))) => Some(true),
+                    Ok(Ok(None)) | Ok(Err(_)) | Err(_) => Some(false),
+                }
+            });
+            tasks.push(task);
+        }
+
+        // Wait for all tasks with overall 10-second timeout
+        let results =
+            match tokio::time::timeout(Duration::from_secs(10), futures::future::join_all(tasks))
+                .await
+            {
+                Ok(results) => results,
+                Err(_) => {
+                    println!("   ⚠️  Block reconciliation timed out - using our block");
+                    return our_block;
+                }
+            };
+
         let mut matching_peers = 0;
         let mut differing_peers = 0;
 
-        for peer in &peers {
-            // Request peer's view of this block height
-            // This would use a custom message type in production
-            // For now, check if they have the same masternode list
-            match self.peer_manager.request_blockchain_info(peer).await {
-                Ok(Some(_height)) => {
-                    // In production, compare block hashes at this height
-                    // For now, assume matching if peer is responsive
-                    matching_peers += 1;
-                }
-                _ => {
-                    differing_peers += 1;
-                }
+        for result in results {
+            if let Ok(Some(true)) = result {
+                matching_peers += 1;
+            } else if let Ok(Some(false)) = result {
+                differing_peers += 1;
             }
         }
 
