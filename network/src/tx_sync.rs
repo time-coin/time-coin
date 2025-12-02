@@ -7,12 +7,12 @@
 //! 3. Rejecting invalid transactions (double spend, etc.)
 //! 4. Notifying wallets of rejected transactions
 
+use crate::protocol::NetworkMessage;
+use crate::PeerManager;
 use std::collections::HashSet;
 use std::sync::Arc;
 use time_core::transaction::Transaction;
 use time_mempool::Mempool;
-use time_network::protocol::NetworkMessage;
-use time_network::PeerManager;
 use tokio::sync::RwLock;
 
 pub struct TransactionSyncManager {
@@ -198,13 +198,11 @@ impl TransactionSyncManager {
     /// Validate a transaction before adding to mempool
     async fn validate_transaction(&self, tx: &Transaction) -> Result<(), String> {
         let blockchain = self.blockchain.read().await;
+        let utxo_set = blockchain.utxo_set();
 
         // Check for double spend
         for input in &tx.inputs {
-            if !blockchain
-                .utxo_set()
-                .has_utxo(&input.previous_output.txid, input.previous_output.vout)
-            {
+            if !utxo_set.contains(&input.previous_output) {
                 return Err(format!(
                     "double_spend:{}:{}",
                     &input.previous_output.txid[..16],
@@ -213,8 +211,16 @@ impl TransactionSyncManager {
             }
         }
 
-        // Verify signature
-        if let Err(e) = tx.verify() {
+        // Build UTXO map for signature verification
+        let mut utxo_map = std::collections::HashMap::new();
+        for input in &tx.inputs {
+            if let Some(output) = utxo_set.get(&input.previous_output) {
+                utxo_map.insert(input.previous_output.clone(), output.clone());
+            }
+        }
+
+        // Verify signatures
+        if let Err(e) = tx.verify_signatures(&utxo_map) {
             return Err(format!("invalid_signature:{}", e));
         }
 
@@ -222,12 +228,7 @@ impl TransactionSyncManager {
         let input_sum: u64 = tx
             .inputs
             .iter()
-            .filter_map(|input| {
-                blockchain
-                    .utxo_set()
-                    .get_utxo(&input.previous_output.txid, input.previous_output.vout)
-                    .map(|utxo| utxo.amount)
-            })
+            .filter_map(|input| utxo_set.get(&input.previous_output).map(|utxo| utxo.amount))
             .sum();
 
         let output_sum: u64 = tx.outputs.iter().map(|o| o.amount).sum();

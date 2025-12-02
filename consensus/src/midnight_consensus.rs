@@ -6,32 +6,23 @@
 //! 3. Leader creates block and broadcasts proposal
 //! 4. Nodes verify and vote
 //! 5. If transaction mismatch: sync missing txs, validate, recreate block
+//!
+//! Note: Transaction syncing is handled at the network layer via
+//! TransactionSyncManager, not directly in consensus.
 
 use crate::simplified::{BlockProposal, SimplifiedConsensus};
-use crate::tx_sync::TransactionSyncManager;
 use std::sync::Arc;
 use time_core::block::Block;
 use time_core::transaction::Transaction;
 
 pub struct MidnightConsensusOrchestrator {
     consensus: Arc<SimplifiedConsensus>,
-    tx_sync: Option<Arc<TransactionSyncManager>>,
     my_ip: String,
 }
 
 impl MidnightConsensusOrchestrator {
     pub fn new(consensus: Arc<SimplifiedConsensus>, my_ip: String) -> Self {
-        Self {
-            consensus,
-            tx_sync: None,
-            my_ip,
-        }
-    }
-
-    /// Set transaction sync manager (optional, for production use)
-    pub fn with_tx_sync(mut self, tx_sync: Arc<TransactionSyncManager>) -> Self {
-        self.tx_sync = Some(tx_sync);
-        self
+        Self { consensus, my_ip }
     }
 
     /// Main midnight consensus flow
@@ -103,42 +94,9 @@ impl MidnightConsensusOrchestrator {
                     .await?;
 
                 // Request missing transactions from peers
-                if let Some(tx_sync) = &self.tx_sync {
-                    println!("📡 Requesting missing transactions from peers...");
-                    match tx_sync
-                        .request_missing_transactions(missing.clone(), height, self.my_ip.clone())
-                        .await
-                    {
-                        Ok(transactions) => {
-                            println!(
-                                "✅ Received {}/{} missing transactions",
-                                transactions.len(),
-                                missing.len()
-                            );
-
-                            // Validate each transaction before accepting
-                            // The tx_sync manager handles validation and rejection
-                            if transactions.len() == missing.len() {
-                                println!("✅ All missing transactions received and validated");
-                                // Re-validate proposal after receiving transactions
-                                // (this would need another iteration of consensus)
-                            } else {
-                                println!(
-                                    "⚠️  Only received {} of {} missing transactions",
-                                    transactions.len(),
-                                    missing.len()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            println!("❌ Failed to fetch missing transactions: {}", e);
-                        }
-                    }
-                } else {
-                    println!(
-                        "⚠️  No tx_sync manager configured - cannot request missing transactions"
-                    );
-                }
+                // This is now handled automatically by the TransactionSyncManager
+                // running in the network layer
+                println!("📡 Missing transactions will be synced via network layer");
 
                 return Err("Missing transactions - consensus deferred".to_string());
             }

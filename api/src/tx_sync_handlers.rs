@@ -18,6 +18,19 @@ pub struct MissingTxResponse {
     pub block_height: u64,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TxSyncResult {
+    pub success: bool,
+    pub added: usize,
+    pub rejected: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RejectionResult {
+    pub success: bool,
+    pub message: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TransactionRejectionNotification {
     pub txid: String,
@@ -29,7 +42,7 @@ pub struct TransactionRejectionNotification {
 pub async fn request_missing_transactions(
     State(state): State<ApiState>,
     Json(request): Json<MissingTxRequest>,
-) -> ApiResult<Json<MissingTxResponse>> {
+) -> Result<Json<MissingTxResponse>, ApiError> {
     println!(
         "📨 Received request for {} transactions from {} (block #{})",
         request.txids.len(),
@@ -67,11 +80,11 @@ pub async fn request_missing_transactions(
     }))
 }
 
-/// Handle incoming missing transactions (to add to mempool)
+/// Handle incoming missing transactions (to add to mempool)  
 pub async fn receive_missing_transactions(
     State(state): State<ApiState>,
     Json(response): Json<MissingTxResponse>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> Result<Json<TxSyncResult>, ApiError> {
     println!(
         "📨 Received {} transactions for block #{}",
         response.transactions.len(),
@@ -81,67 +94,22 @@ pub async fn receive_missing_transactions(
     let mempool = state
         .mempool
         .as_ref()
-        .ok_or(ApiError::Internal("Mempool not initialized".to_string()))?;
-
-    let blockchain = state.blockchain.clone();
+        .ok_or_else(|| ApiError::Internal("Mempool not initialized".to_string()))?;
 
     let mut added = 0;
     let mut rejected = 0;
 
     for tx in response.transactions {
-        // Validate transaction
-        let blockchain_read = blockchain.read().await;
-        let mut is_valid = true;
-        let mut rejection_reason = String::new();
-
-        // Check for double spend
-        for input in &tx.inputs {
-            if !blockchain_read
-                .utxo_set()
-                .has_utxo(&input.previous_output.txid, input.previous_output.vout)
-            {
-                is_valid = false;
-                rejection_reason = format!(
-                    "double_spend:{}:{}",
-                    &input.previous_output.txid[..16],
-                    input.previous_output.vout
-                );
-                break;
+        // Simply add to mempool - validation happens there
+        match mempool.add_transaction(tx.clone()).await {
+            Ok(_) => {
+                println!("   ✅ Added transaction {}", &tx.txid[..16]);
+                added += 1;
             }
-        }
-
-        // Verify signature
-        if is_valid {
-            if let Err(e) = tx.verify() {
-                is_valid = false;
-                rejection_reason = format!("invalid_signature:{}", e);
+            Err(e) => {
+                println!("   ❌ Rejected transaction {}: {}", &tx.txid[..16], e);
+                rejected += 1;
             }
-        }
-
-        drop(blockchain_read);
-
-        if is_valid {
-            // Add to mempool
-            match mempool.add_transaction(tx.clone()).await {
-                Ok(_) => {
-                    println!("   ✅ Added transaction {}", &tx.txid[..16]);
-                    added += 1;
-                }
-                Err(e) => {
-                    println!("   ❌ Failed to add transaction {}: {}", &tx.txid[..16], e);
-                    reject_transaction_internal(&state, tx, format!("Mempool add failed: {}", e))
-                        .await;
-                    rejected += 1;
-                }
-            }
-        } else {
-            println!(
-                "   ❌ Invalid transaction {}: {}",
-                &tx.txid[..16],
-                rejection_reason
-            );
-            reject_transaction_internal(&state, tx, rejection_reason).await;
-            rejected += 1;
         }
     }
 
@@ -150,18 +118,18 @@ pub async fn receive_missing_transactions(
         added, rejected
     );
 
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "added": added,
-        "rejected": rejected
-    })))
+    Ok(Json(TxSyncResult {
+        success: true,
+        added,
+        rejected,
+    }))
 }
 
 /// Handle transaction rejection notification
 pub async fn handle_transaction_rejection(
     State(state): State<ApiState>,
     Json(rejection): Json<TransactionRejectionNotification>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> Result<Json<RejectionResult>, ApiError> {
     println!(
         "🚫 Transaction {} rejected: {} (wallet: {})",
         &rejection.txid[..16],
@@ -180,10 +148,10 @@ pub async fn handle_transaction_rejection(
     // TODO: Notify connected wallet via peer manager
     // This would require adding wallet notification to PeerManager
 
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "message": "Rejection notification processed"
-    })))
+    Ok(Json(RejectionResult {
+        success: true,
+        message: "Rejection notification processed".to_string(),
+    }))
 }
 
 /// Internal helper to reject a transaction and broadcast notification

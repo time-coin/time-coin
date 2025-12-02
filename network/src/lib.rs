@@ -15,6 +15,7 @@ pub mod rate_limiter;
 pub mod sync;
 pub mod sync_gate; // Fork prevention: Block creation gating
 pub mod tx_broadcast;
+pub mod tx_sync; // 🆕 Transaction synchronization for block proposals
 pub mod unified_connection;
 pub mod upnp;
 pub mod utxo_handler;
@@ -38,6 +39,7 @@ pub use quarantine::{
 pub use rate_limiter::{RateLimitError, RateLimiter, RateLimiterConfig};
 pub use sync_gate::SyncGate; // Export for consensus layer
 pub use tx_broadcast::TransactionBroadcaster;
+pub use tx_sync::TransactionSyncManager; // 🆕 Export transaction sync manager
 pub use upnp::UpnpManager;
 pub use utxo_handler::UTXOProtocolHandler;
 pub use utxo_sync::{MasternodeTier, UtxoInput, UtxoOutput, UtxoSyncManager};
