@@ -18,5 +18,5 @@ pub fn consensus_routes() -> Router<ApiState> {
         .route("/proposals/create", post(create_proposal))
         .route("/proposals/vote", post(vote_proposal))
         .route("/proposals/list", get(list_proposals))
-        .route("/proposals/:id", get(get_proposal))
+        .route("/proposals/{id}", get(get_proposal))
 }

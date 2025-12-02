@@ -13,9 +13,9 @@ use serde::Serialize;
 pub fn blockchain_routes() -> Router<ApiState> {
     Router::new()
         .route("/info", get(get_blockchain_info))
-        .route("/block/:height", get(get_block_by_height))
-        .route("/balance/:address", get(get_balance))
-        .route("/utxos/:address", get(get_utxos_by_address))
+        .route("/block/{height}", get(get_block_by_height))
+        .route("/balance/{address}", get(get_balance))
+        .route("/utxos/{address}", get(get_utxos_by_address))
 }
 
 #[derive(Serialize)]

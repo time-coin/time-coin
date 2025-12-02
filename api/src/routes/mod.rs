@@ -16,7 +16,7 @@ mod blockchain;
 mod consensus;
 mod masternode;
 pub mod mempool;
-mod network;
+pub mod network; // Public for legacy route access
 mod rpc;
 mod treasury;
 mod wallet;
@@ -43,6 +43,7 @@ pub fn create_routes() -> Router<ApiState> {
         .nest("/masternode", masternode::masternode_routes())
         .nest("/rpc", rpc::rpc_routes())
         // Legacy route redirects for backward compatibility
+        .route("/peers", get(network::get_peers_legacy))
         .route(
             "/masternodes/list",
             get(|| async { axum::response::Redirect::permanent("/masternode/list") }),

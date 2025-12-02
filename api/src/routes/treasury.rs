@@ -20,6 +20,6 @@ pub fn treasury_routes() -> Router<ApiState> {
         .route("/approve", post(approve_treasury_proposal))
         .route("/distribute", post(distribute_treasury_funds))
         .route("/propose", post(submit_proposal))
-        .route("/proposal/:id", post(get_proposal_by_id))
+        .route("/proposal/{id}", post(get_proposal_by_id))
         .route("/vote", post(vote_on_proposal))
 }
