@@ -2559,7 +2559,6 @@ async fn main() {
 
     // Bootstrap with current masternodes
     {
-        let masternodes = consensus.get_masternodes().await;
         let mut tracker = uptime_tracker.write().await;
         let blockchain_state = blockchain.read().await;
 
@@ -2578,9 +2577,17 @@ async fn main() {
         };
         drop(blockchain_state);
 
-        // Get masternode addresses (masternodes is Vec<String> of IPs)
-        tracker.bootstrap_genesis(genesis_time, &masternodes);
-        println!("   ✅ Bootstrapped with {} masternodes", masternodes.len());
+        // Bootstrap with existing masternodes from blockchain
+        let blockchain_state = blockchain.read().await;
+        let all_masternodes = blockchain_state.get_all_masternodes();
+        let masternode_addresses: Vec<String> = all_masternodes
+            .iter()
+            .map(|mn| mn.wallet_address.clone())
+            .collect();
+        drop(blockchain_state);
+        
+        tracker.bootstrap_genesis(genesis_time, &masternode_addresses);
+        println!("   ✅ Bootstrapped with {} masternodes", masternode_addresses.len());
     }
 
     let block_producer = BlockProducer::with_shared_state(
