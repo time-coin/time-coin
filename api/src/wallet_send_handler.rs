@@ -187,10 +187,17 @@ pub async fn wallet_send(
 
     // Add to mempool
     if let Some(mempool) = state.mempool.as_ref() {
-        mempool
-            .add_transaction(tx.clone())
-            .await
-            .map_err(|e| ApiError::Internal(format!("Failed to add to mempool: {}", e)))?;
+        println!("📝 Adding transaction to mempool...");
+        match mempool.add_transaction(tx.clone()).await {
+            Ok(_) => println!("   ✅ Transaction added to mempool successfully"),
+            Err(e) => {
+                println!("   ❌ Failed to add to mempool: {}", e);
+                return Err(ApiError::Internal(format!(
+                    "Failed to add to mempool: {}",
+                    e
+                )));
+            }
+        }
 
         println!("📤 Transaction created and added to mempool:");
         println!("   From:   {}", from_address);
