@@ -4,6 +4,7 @@ use crate::{ApiError, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use time_core::Transaction;
+use tracing as log;
 
 #[derive(Debug, Deserialize)]
 pub struct MissingTxRequest {
@@ -43,11 +44,11 @@ pub async fn request_missing_transactions(
     State(state): State<ApiState>,
     Json(request): Json<MissingTxRequest>,
 ) -> Result<Json<MissingTxResponse>, ApiError> {
-    println!(
-        "📨 Received request for {} transactions from {} (block #{})",
-        request.txids.len(),
-        request.requester,
-        request.block_height
+    log::info!(
+        txid_count = request.txids.len(),
+        requester = %request.requester,
+        block_height = request.block_height,
+        "missing_transactions_requested"
     );
 
     let mempool = state
@@ -62,7 +63,7 @@ pub async fn request_missing_transactions(
         if let Some(tx) = mempool.get_transaction(txid).await {
             transactions.push(tx);
         } else {
-            println!("⚠️  Transaction {} not found in mempool", &txid[..16]);
+            log::warn!(txid = %&txid[..16], "transaction_not_found_in_mempool");
         }
     }
 
@@ -72,7 +73,7 @@ pub async fn request_missing_transactions(
         ));
     }
 
-    println!("📤 Sending {} transactions", transactions.len());
+    log::info!(count = transactions.len(), "sending_transactions");
 
     Ok(Json(MissingTxResponse {
         transactions,
@@ -85,10 +86,10 @@ pub async fn receive_missing_transactions(
     State(state): State<ApiState>,
     Json(response): Json<MissingTxResponse>,
 ) -> Result<Json<TxSyncResult>, ApiError> {
-    println!(
-        "📨 Received {} transactions for block #{}",
-        response.transactions.len(),
-        response.block_height
+    log::info!(
+        transaction_count = response.transactions.len(),
+        block_height = response.block_height,
+        "received_missing_transactions"
     );
 
     let mempool = state
@@ -103,19 +104,20 @@ pub async fn receive_missing_transactions(
         // Simply add to mempool - validation happens there
         match mempool.add_transaction(tx.clone()).await {
             Ok(_) => {
-                println!("   ✅ Added transaction {}", &tx.txid[..16]);
+                log::debug!(txid = %&tx.txid[..16], "transaction_added");
                 added += 1;
             }
             Err(e) => {
-                println!("   ❌ Rejected transaction {}: {}", &tx.txid[..16], e);
+                log::warn!(txid = %&tx.txid[..16], error = %e, "transaction_rejected");
                 rejected += 1;
             }
         }
     }
 
-    println!(
-        "✅ Transaction sync complete: {} added, {} rejected",
-        added, rejected
+    log::info!(
+        added = added,
+        rejected = rejected,
+        "transaction_sync_complete"
     );
 
     Ok(Json(TxSyncResult {
@@ -130,17 +132,17 @@ pub async fn handle_transaction_rejection(
     State(state): State<ApiState>,
     Json(rejection): Json<TransactionRejectionNotification>,
 ) -> Result<Json<RejectionResult>, ApiError> {
-    println!(
-        "🚫 Transaction {} rejected: {} (wallet: {})",
-        &rejection.txid[..16],
-        rejection.reason,
-        rejection.wallet_address
+    log::warn!(
+        txid = %&rejection.txid[..16],
+        reason = %rejection.reason,
+        wallet_address = %rejection.wallet_address,
+        "transaction_rejected"
     );
 
     // Remove from mempool if present
     if let Some(mempool) = state.mempool.as_ref() {
         if mempool.remove_transaction(&rejection.txid).await.is_some() {
-            println!("   ✅ Removed rejected transaction from mempool");
+            log::info!(txid = %rejection.txid, "removed_rejected_transaction_from_mempool");
         }
     }
 
@@ -155,7 +157,7 @@ pub async fn handle_transaction_rejection(
 /// Internal helper to reject a transaction and broadcast notification
 #[allow(dead_code)]
 async fn reject_transaction_internal(state: &ApiState, tx: Transaction, reason: String) {
-    println!("🚫 Rejecting transaction {}: {}", &tx.txid[..16], reason);
+    log::warn!(txid = %&tx.txid[..16], reason = %reason, "rejecting_transaction");
 
     // Extract wallet address from first output
     if let Some(output) = tx.outputs.first() {
@@ -164,9 +166,9 @@ async fn reject_transaction_internal(state: &ApiState, tx: Transaction, reason: 
         // Broadcast rejection to all peers
         if let Some(_broadcaster) = state.tx_broadcaster.as_ref() {
             // We need to add a broadcast_rejection method to TransactionBroadcaster
-            println!(
-                "📨 Rejection notification sent for wallet: {}",
-                wallet_address
+            log::debug!(
+                wallet_address = %wallet_address,
+                "rejection_notification_sent"
             );
         }
     }

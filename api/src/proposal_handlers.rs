@@ -6,6 +6,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use tracing as log;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateProposalRequest {
@@ -77,11 +78,14 @@ pub async fn create_proposal(
         .await
         .map_err(|e| ApiError::Internal(format!("Failed to create proposal: {}", e)))?;
 
-    println!("📜 New proposal created: {}", proposal.id);
-    println!("   Proposer: {}", proposal.proposer);
-    println!("   Recipient: {}", proposal.recipient);
-    println!("   Amount: {} satoshis", proposal.amount);
-    println!("   Reason: {}", proposal.reason);
+    log::info!(
+        proposal_id = %proposal.id,
+        proposer = %proposal.proposer,
+        recipient = %proposal.recipient,
+        amount = proposal.amount,
+        reason = %proposal.reason,
+        "proposal_created"
+    );
 
     Ok(Json(CreateProposalResponse {
         success: true,
@@ -98,7 +102,7 @@ pub async fn vote_proposal(
     // Get node ID (voter)
     let node_id = std::env::var("NODE_PUBLIC_IP").unwrap_or_else(|_| "unknown".to_string());
 
-    println!("📋 Vote request from node_id: {}", node_id);
+    log::debug!(node_id = %node_id, "vote_request_received");
 
     // Get proposal manager from consensus
     let consensus = &state.consensus;
@@ -109,10 +113,10 @@ pub async fn vote_proposal(
 
     // Check if voter is a masternode
     let masternodes = consensus.get_masternodes().await;
-    println!("   📋 Registered masternodes: {:?}", masternodes);
+    log::debug!(masternodes = ?masternodes, "registered_masternodes");
 
     let is_masternode = consensus.is_masternode(&node_id).await;
-    println!("   🔍 Is {} a masternode? {}", node_id, is_masternode);
+    log::debug!(node_id = %node_id, is_masternode = is_masternode, "masternode_check");
 
     if !is_masternode {
         return Err(ApiError::BadRequest(
@@ -136,13 +140,13 @@ pub async fn vote_proposal(
         .await
         .ok_or_else(|| ApiError::NotFound("Proposal not found".to_string()))?;
 
-    println!("🗳️  Vote recorded on proposal {}", request.proposal_id);
-    println!("   Voter: {}", node_id);
-    println!(
-        "   Vote: {}",
-        if request.approve { "APPROVE" } else { "REJECT" }
+    log::info!(
+        proposal_id = %request.proposal_id,
+        voter = %node_id,
+        vote = if request.approve { "APPROVE" } else { "REJECT" },
+        status = ?proposal.status,
+        "vote_recorded"
     );
-    println!("   Status: {:?}", proposal.status);
 
     Ok(Json(VoteProposalResponse {
         success: true,

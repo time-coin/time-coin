@@ -2,6 +2,7 @@ use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use time_core::transaction::{Transaction, TxInput, TxOutput};
+use tracing as log;
 use wallet::Wallet;
 
 #[derive(Debug, Deserialize)]
@@ -129,9 +130,11 @@ pub async fn wallet_send(
     let keypair = wallet.keypair();
     let public_key = keypair.public_key_bytes().to_vec();
 
-    println!("🔐 Signing transaction:");
-    println!("   Public key length: {}", public_key.len());
-    println!("   Public key (hex): {}", hex::encode(&public_key));
+    log::debug!(
+        public_key_len = public_key.len(),
+        public_key_hex = %hex::encode(&public_key),
+        "signing_transaction"
+    );
 
     // Set public keys on all inputs BEFORE calculating signing hash
     for input in &mut tx.inputs {
@@ -140,7 +143,7 @@ pub async fn wallet_send(
 
     // Recalculate TXID after setting public keys (TXID includes public keys)
     tx.txid = tx.calculate_txid();
-    println!("   Updated TXID: {}", &tx.txid[..16]);
+    log::debug!(txid = %&tx.txid[..16], "updated_txid");
 
     // Now calculate the signing hash with public_keys set
     // This must match how mempool calculates it
@@ -170,12 +173,15 @@ pub async fn wallet_send(
         hasher.finalize().to_vec()
     };
 
-    println!("   Signing hash: {}", hex::encode(&tx_hash));
+    log::debug!(signing_hash = %hex::encode(&tx_hash), "calculated_signing_hash");
 
     // Sign the hash
     let signature = keypair.sign(&tx_hash);
-    println!("   Signature length: {}", signature.len());
-    println!("   Signature (hex): {}", hex::encode(&signature[..16]));
+    log::debug!(
+        signature_len = signature.len(),
+        signature_hex = %hex::encode(&signature[..16]),
+        "transaction_signed"
+    );
 
     // Apply signatures to all inputs
     for input in &mut tx.inputs {
@@ -187,11 +193,11 @@ pub async fn wallet_send(
 
     // Add to mempool
     if let Some(mempool) = state.mempool.as_ref() {
-        println!("📝 Adding transaction to mempool...");
+        log::debug!("adding_transaction_to_mempool");
         match mempool.add_transaction(tx.clone()).await {
-            Ok(_) => println!("   ✅ Transaction added to mempool successfully"),
+            Ok(_) => log::info!(txid = %final_txid, "transaction_added_to_mempool"),
             Err(e) => {
-                println!("   ❌ Failed to add to mempool: {}", e);
+                log::error!(txid = %final_txid, error = %e, "failed_to_add_to_mempool");
                 return Err(ApiError::Internal(format!(
                     "Failed to add to mempool: {}",
                     e
@@ -199,20 +205,23 @@ pub async fn wallet_send(
             }
         }
 
-        println!("📤 Transaction created and added to mempool:");
-        println!("   From:   {}", from_address);
-        println!("   To:     {}", req.to);
-        println!("   Amount: {} TIME", req.amount as f64 / 100_000_000.0);
-        println!("   TxID:   {}", &final_txid[..16]);
+        log::info!(
+            from = %from_address,
+            to = %req.to,
+            amount = req.amount,
+            txid = %&final_txid[..16],
+            "transaction_created_and_added_to_mempool"
+        );
 
         // Trigger instant finality via BFT consensus
-        println!("   🚀 Triggering instant finality...");
-        crate::routes::trigger_instant_finality_for_received_tx(state.clone(), tx.clone()).await;
+        log::debug!("triggering_instant_finality");
+        crate::routes::mempool::trigger_instant_finality_for_received_tx(state.clone(), tx.clone())
+            .await;
 
         // Broadcast to network
         if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
             broadcaster.broadcast_transaction(tx).await;
-            println!("   📡 Broadcasting to network...");
+            log::debug!("transaction_broadcast_to_network");
         }
 
         Ok(Json(WalletSendResponse {

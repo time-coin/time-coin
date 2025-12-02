@@ -705,7 +705,6 @@ pub const QUARANTINE_DURATION_SECS: i64 = 3600; // 1 hour
 
 pub mod tx_consensus {
     use super::*;
-    use dashmap::DashMap;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct TransactionProposal {

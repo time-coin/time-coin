@@ -6,6 +6,8 @@
 //! - Masternode network with tiered collateral
 //! - Treasury and governance system
 
+#![allow(dead_code)] // RPC functions are part of full API spec
+
 use crate::balance::calculate_mempool_balance;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};

@@ -1,4 +1,4 @@
-/// Response utilities and macros for consistent API responses
+//! Response utilities and macros for consistent API responses
 
 /// Macro to create JSON responses consistently
 ///
