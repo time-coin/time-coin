@@ -329,7 +329,6 @@ async fn sync_finalized_transactions_from_peers(
                     match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
                         Ok(_) => {
                             total_synced += 1;
-                            println!("      ✓ Applied tx {}", truncate_str(&tx.txid, 16));
                         }
                         Err(e) => {
                             println!(
@@ -342,6 +341,7 @@ async fn sync_finalized_transactions_from_peers(
                 }
 
                 if total_synced > 0 {
+                    println!("      ✓ Applied {} transactions", total_synced);
                     // Save UTXO snapshot after applying synced transactions
                     if let Err(e) = blockchain_write.save_utxo_snapshot() {
                         println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
