@@ -49,8 +49,15 @@ impl ProtocolClient {
     fn send_message(&self, message: &NetworkMessage) -> ProtocolResult<NetworkMessage> {
         use std::io::{Read, Write};
 
-        let mut stream = TcpStream::connect(&self.peer_address)
-            .map_err(|e| ProtocolError::ConnectionError(e.to_string()))?;
+        // Connect with timeout (3 seconds)
+        let mut stream = TcpStream::connect_timeout(
+            &self
+                .peer_address
+                .parse()
+                .map_err(|e| ProtocolError::ConnectionError(format!("Invalid address: {}", e)))?,
+            Duration::from_secs(3),
+        )
+        .map_err(|e| ProtocolError::ConnectionError(e.to_string()))?;
 
         stream.set_read_timeout(Some(self.timeout))?;
         stream.set_write_timeout(Some(self.timeout))?;

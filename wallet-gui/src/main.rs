@@ -4486,7 +4486,7 @@ impl WalletApp {
                     let net = network_mgr_clone.lock().unwrap();
                     net.get_connected_peers()
                 };
-                
+
                 // Just skip the expensive refresh for now - it's causing hangs
                 log::info!("📋 Connected to {} peers", peers_to_check.len());
             });
@@ -4509,14 +4509,23 @@ impl WalletApp {
 
                 log::info!("📬 Requesting transactions from {}...", peer_addr);
 
-                // Request wallet transactions via protocol client
+                // Request wallet transactions via protocol client with shorter timeout
                 let client = protocol_client::ProtocolClient::new(
                     peer_addr.clone(),
                     wallet::NetworkType::Testnet, // TODO: Make configurable
                 );
 
-                match client.request_wallet_transactions(xpub.clone()) {
-                    Ok(response) => {
+                // Use timeout for the entire request
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(5),
+                    tokio::task::spawn_blocking({
+                        let xpub = xpub.clone();
+                        move || client.request_wallet_transactions(xpub)
+                    }),
+                )
+                .await
+                {
+                    Ok(Ok(Ok(response))) => {
                         log::info!(
                             "✅ Received {} transactions from {}",
                             response.transactions.len(),
@@ -4545,8 +4554,14 @@ impl WalletApp {
 
                         break; // Got transactions from one peer, that's enough
                     }
-                    Err(e) => {
+                    Ok(Ok(Err(e))) => {
                         log::warn!("Failed to get transactions from {}: {}", peer_addr, e);
+                    }
+                    Ok(Err(e)) => {
+                        log::warn!("Task error from {}: {}", peer_addr, e);
+                    }
+                    Err(_) => {
+                        log::warn!("Timeout getting transactions from {} (5s)", peer_addr);
                     }
                 }
             }
