@@ -23,6 +23,10 @@ use wallet_manager::WalletState;
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
 
+    // Create Tokio runtime and keep it alive
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+    let _guard = rt.enter();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([800.0, 600.0])

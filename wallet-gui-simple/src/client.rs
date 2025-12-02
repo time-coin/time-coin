@@ -1,5 +1,7 @@
 //! Simple async TCP client for wallet operations
 
+#![allow(dead_code)]
+
 use std::time::Duration;
 use time_network::protocol::{HandshakeMessage, NetworkMessage, WalletTransaction};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

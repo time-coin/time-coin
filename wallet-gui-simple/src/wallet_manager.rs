@@ -1,5 +1,7 @@
 //! Wallet state management
 
+#![allow(dead_code)]
+
 use wallet::NetworkType;
 
 pub struct WalletState {
