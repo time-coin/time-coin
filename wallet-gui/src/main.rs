@@ -3933,18 +3933,14 @@ impl WalletApp {
             log::info!("   xPub: {}...", &xpub[..std::cmp::min(20, xpub.len())]);
 
             if let Some(network_mgr) = &self.network_manager {
-                let net = network_mgr.lock().unwrap();
-                let peers = net.get_connected_peers();
-
-                for peer in &peers {
-                    log::info!(
-                        "   ✓ Registered with masternode: {}:{}",
-                        peer.address,
-                        peer.port
-                    );
-                }
+                let peers = {
+                    let net = network_mgr.lock().unwrap();
+                    net.get_connected_peers()
+                };
 
                 log::info!("✅ Wallet registered with {} masternodes", peers.len());
+                // Note: Actual registration happens via TCP protocol client
+                // which is initialized separately with the xpub
             } else {
                 log::warn!("⚠️ Network manager not available for registration");
             }
