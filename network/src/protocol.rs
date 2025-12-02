@@ -663,6 +663,7 @@ pub enum NetworkMessage {
 
     // New message types for unified TCP communication
     TransactionBroadcast(time_core::Transaction),
+    FinalizedTransactionBroadcast(time_core::Transaction), // 🆕 Broadcast finalized tx to sync UTXO sets
     InstantFinalityRequest(time_core::Transaction),
     InstantFinalityVote {
         txid: String,

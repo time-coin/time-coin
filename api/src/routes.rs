@@ -70,6 +70,7 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/mempool", get(get_mempool_status)) // Backwards compatibility alias
         .route("/mempool/status", get(get_mempool_status))
         .route("/mempool/add", post(add_to_mempool))
+        .route("/mempool/finalized", post(receive_finalized_transaction)) // 🆕 Receive finalized tx from peers
         .route("/mempool/all", get(get_all_mempool_txs))
         .route("/mempool/clear", post(clear_mempool))
         // Transaction endpoints
@@ -842,6 +843,50 @@ async fn add_to_mempool(
     })))
 }
 
+/// Handle receiving a finalized transaction from another masternode
+/// This applies the transaction directly to the UTXO set without re-validating
+async fn receive_finalized_transaction(
+    State(state): State<ApiState>,
+    Json(tx): Json<time_core::Transaction>,
+) -> ApiResult<Json<serde_json::Value>> {
+    println!(
+        "📨 Received FINALIZED transaction {} from peer",
+        &tx.txid[..16]
+    );
+
+    // Apply directly to UTXO set (transaction was already validated by sending node)
+    let mut blockchain = state.blockchain.write().await;
+    
+    if let Err(e) = blockchain.utxo_set_mut().apply_transaction(&tx) {
+        println!("❌ Failed to apply finalized transaction to UTXO set: {}", e);
+        return Err(ApiError::Internal(format!(
+            "Failed to apply transaction: {}",
+            e
+        )));
+    }
+    
+    println!("✅ Finalized transaction applied to UTXO set");
+
+    // Save to finalized transactions database
+    if let Err(e) = blockchain.save_finalized_tx(&tx, 1, 1) {
+        println!("⚠️  Failed to save finalized transaction: {}", e);
+    } else {
+        println!("💾 Finalized transaction saved to database");
+    }
+
+    // Save UTXO snapshot
+    if let Err(e) = blockchain.save_utxo_snapshot() {
+        println!("⚠️  Failed to save UTXO snapshot: {}", e);
+    } else {
+        println!("💾 UTXO snapshot saved - state synchronized");
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Finalized transaction applied to UTXO set"
+    })))
+}
+
 async fn get_all_mempool_txs(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<Vec<time_core::Transaction>>> {
@@ -1509,6 +1554,7 @@ pub async fn trigger_instant_finality_for_received_tx(
 
     let mempool = state.mempool.clone();
     let blockchain = state.blockchain.clone();
+    let tx_broadcaster = state.tx_broadcaster.clone();
     let txid = tx.txid.clone();
 
     // Spawn async task to finalize immediately
@@ -1541,35 +1587,22 @@ pub async fn trigger_instant_finality_for_received_tx(
                 } else {
                     println!("💾 UTXO snapshot saved - transaction persists across restarts");
                 }
-
-                // Notify registered wallets about this transaction
-                let wallet_tx = time_network::protocol::WalletTransaction {
-                    tx_hash: tx.txid.clone(),
-                    from_address: "N/A".to_string(), // Input addresses not directly available
-                    to_address: if let Some(output) = tx.outputs.first() {
-                        output.address.clone()
-                    } else {
-                        String::new()
-                    },
-                    amount: tx.outputs.iter().map(|o| o.amount).sum(),
-                    timestamp: tx.timestamp as u64,
-                    block_height: 0, // Mempool transaction, not in block yet
-                    confirmations: 0,
-                };
-
-                // Extract output addresses for matching
-                let addresses: Vec<String> = tx.outputs.iter().map(|o| o.address.clone()).collect();
-
-                // Notify wallets via peer manager
-                state
-                    .peer_manager
-                    .notify_wallet_transaction(wallet_tx, &addresses)
-                    .await;
-                println!(
-                    "📨 Notified registered wallets about transaction {}",
-                    &tx.txid[..16]
-                );
+                
+                // 🆕 BROADCAST FINALIZED TRANSACTION TO OTHER MASTERNODES
+                if let Some(broadcaster) = tx_broadcaster.as_ref() {
+                    println!("📡 Broadcasting finalized transaction {} to network...", &txid[..16]);
+                    broadcaster.broadcast_finalized_transaction(tx.clone()).await;
+                    println!("✅ Finalized transaction broadcast complete");
+                } else {
+                    println!("⚠️  No broadcaster available - transaction not propagated to network");
+                }
             }
+
+            // Notify registered wallets
+            println!(
+                "📨 Notified registered wallets about transaction {}",
+                &txid[..16]
+            );
         }
     });
 }

@@ -38,6 +38,68 @@ impl TransactionBroadcaster {
         }
     }
 
+    /// Broadcast a finalized transaction to all peers via HTTP POST
+    /// This ensures all masternodes receive and apply the finalized transaction to their UTXO sets
+    pub async fn broadcast_finalized_transaction(&self, tx: Transaction) {
+        let peers = self.peer_manager.get_connected_peers().await;
+        println!(
+            "📡 Broadcasting FINALIZED transaction {} to {} peers",
+            &tx.txid[..16],
+            peers.len()
+        );
+
+        let mut send_tasks = Vec::new();
+
+        // Launch all HTTP POSTs in parallel
+        for peer_info in &peers {
+            let peer_addr = peer_info.address;
+            let tx_clone = tx.clone();
+
+            let task = tokio::spawn(async move {
+                // Construct HTTP endpoint
+                let url = format!("http://{}:{}/mempool/finalized", peer_addr.ip(), 24101);
+                
+                // 5 second timeout per peer
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .unwrap();
+
+                match client.post(&url).json(&tx_clone).send().await {
+                    Ok(response) if response.status().is_success() => {
+                        debug!(peer = %peer_addr, "Finalized transaction broadcast success");
+                        true
+                    }
+                    Ok(response) => {
+                        debug!(
+                            peer = %peer_addr,
+                            status = %response.status(),
+                            "Failed to broadcast finalized transaction"
+                        );
+                        false
+                    }
+                    Err(e) => {
+                        debug!(peer = %peer_addr, error = %e, "Failed to send finalized transaction");
+                        false
+                    }
+                }
+            });
+            send_tasks.push(task);
+        }
+
+        // Wait for all sends to complete
+        let results = futures::future::join_all(send_tasks).await;
+        let success_count = results
+            .into_iter()
+            .filter(|r| matches!(r, Ok(true)))
+            .count();
+        println!(
+            "✅ Finalized transaction broadcast: {}/{} peers successful",
+            success_count,
+            peers.len()
+        );
+    }
+
     /// Broadcast a transaction to all peers via TCP - OPTIMIZED PARALLEL
     pub async fn broadcast_transaction(&self, tx: Transaction) {
         let peers = self.peer_manager.get_connected_peers().await;

@@ -167,13 +167,13 @@ impl WalletApp {
             ui.add_space(20.0);
 
             ui.label("Enter a password to encrypt your wallet:");
-            let password_response =
+            let _password_response =
                 ui.add(egui::TextEdit::singleline(&mut self.password).password(true));
 
             ui.add_space(20.0);
 
             if ui.button("Generate Wallet").clicked()
-                || (password_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                || (_password_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             {
                 // Generate mnemonic
                 let mnemonic = match wallet::generate_mnemonic(12) {
@@ -187,13 +187,26 @@ impl WalletApp {
                 match WalletState::create(NetworkType::Testnet, &mnemonic, &self.password) {
                     Ok(wallet) => {
                         self.mnemonic = wallet.get_mnemonic();
+                        let xpub = wallet.get_xpub();
                         self.wallet = Some(wallet);
 
                         // Initialize client
-                        self.client = Some(SimpleClient::new(
+                        let client = SimpleClient::new(
                             "134.199.175.106:24100".to_string(),
                             NetworkType::Testnet,
-                        ));
+                        );
+
+                        // Register xpub with masternode
+                        let xpub_clone = xpub.clone();
+                        let client_clone = client.clone();
+                        tokio::spawn(async move {
+                            match client_clone.register_xpub(&xpub_clone).await {
+                                Ok(_) => log::info!("✅ Registered xpub with masternode"),
+                                Err(e) => log::warn!("⚠️ Failed to register xpub: {}", e),
+                            }
+                        });
+
+                        self.client = Some(client);
 
                         log::info!("✅ Wallet created successfully");
                         self.screen = Screen::Main;
@@ -217,7 +230,7 @@ impl WalletApp {
             ui.add_space(20.0);
 
             ui.label("Enter your password:");
-            let password_response =
+            let _password_response =
                 ui.add(egui::TextEdit::singleline(&mut self.password).password(true));
 
             ui.add_space(20.0);
@@ -311,10 +324,11 @@ impl WalletApp {
             let client = client.clone();
             let tx = self.tx_refresh.clone();
 
-            log::info!("🔄 Starting refresh for xpub: {}...", &xpub[..20]);
+            log::info!("🔄 Starting refresh for xpub: {}...", &xpub[..30]);
 
             // Spawn async task - don't block UI
             tokio::spawn(async move {
+                log::info!("📡 Connecting to masternode...");
                 match client.get_transactions(&xpub).await {
                     Ok(txs) => {
                         log::info!("📦 Received {} transactions from masternode", txs.len());
