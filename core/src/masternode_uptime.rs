@@ -49,18 +49,24 @@ impl MasternodeUptimeTracker {
             address,
             join_time.format("%Y-%m-%d %H:%M:%S UTC")
         );
+        log::info!(
+            "   Previous block time: {}",
+            self.previous_block_time.format("%Y-%m-%d %H:%M:%S UTC")
+        );
 
         self.join_times.insert(address.clone(), join_time);
 
         // If this masternode joined after the previous block, it's NOT eligible yet
         if join_time > self.previous_block_time {
             log::info!(
-                "⏰ Masternode {} joined after previous block - NOT eligible for current block",
+                "   ⏰ Masternode {} joined after previous block - NOT eligible for current block",
                 address
             );
         } else {
-            // This is a restart or rejoin - check if it was online for the previous block
-            log::info!("🔄 Masternode {} rejoined - checking eligibility", address);
+            // This is a restart or rejoin - since it joined before previous block,
+            // it should be eligible for the next block
+            log::info!("   🔄 Masternode {} rejoined before previous block - will be eligible for next block", address);
+            // Don't add to eligible_for_current_block - that's handled in finalize_block
         }
     }
 
@@ -164,10 +170,18 @@ impl MasternodeUptimeTracker {
     /// eligible for the first block.
     pub fn bootstrap_genesis(&mut self, genesis_time: DateTime<Utc>, masternodes: &[String]) {
         log::info!("🌱 Bootstrapping genesis masternodes");
+        log::info!(
+            "   Genesis time: {}",
+            genesis_time.format("%Y-%m-%d %H:%M:%S UTC")
+        );
 
         self.previous_block_time = genesis_time;
 
         for address in masternodes {
+            log::info!(
+                "   📋 Adding {} to eligible set (join time = genesis)",
+                address
+            );
             self.join_times.insert(address.clone(), genesis_time);
             self.eligible_for_current_block.insert(address.clone());
         }
