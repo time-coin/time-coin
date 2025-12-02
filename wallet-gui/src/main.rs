@@ -4285,17 +4285,21 @@ impl WalletApp {
         tokio::spawn(async move {
             log::info!("📡 Requesting wallet transactions from masternodes...");
 
-            // Refresh peer latencies and blockchain height
+            // Refresh peer latencies and blockchain height (with timeout to prevent hang)
             let network_mgr_clone = network_mgr.clone();
-            tokio::task::spawn_blocking(move || {
+            let refresh_task = tokio::task::spawn_blocking(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async move {
                     let mut net = network_mgr_clone.lock().unwrap();
                     net.periodic_refresh().await;
                 });
-            })
-            .await
-            .ok();
+            });
+
+            // Timeout after 10 seconds to prevent GUI hang
+            match tokio::time::timeout(tokio::time::Duration::from_secs(10), refresh_task).await {
+                Ok(_) => log::info!("✅ Refresh completed"),
+                Err(_) => log::warn!("⏱️ Refresh timed out after 10 seconds"),
+            }
 
             // Request transactions from connected peers
             let peers = {

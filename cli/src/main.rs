@@ -2585,9 +2585,12 @@ async fn main() {
             .map(|mn| mn.wallet_address.clone())
             .collect();
         drop(blockchain_state);
-        
+
         tracker.bootstrap_genesis(genesis_time, &masternode_addresses);
-        println!("   ✅ Bootstrapped with {} masternodes", masternode_addresses.len());
+        println!(
+            "   ✅ Bootstrapped with {} masternodes",
+            masternode_addresses.len()
+        );
     }
 
     let block_producer = BlockProducer::with_shared_state(
