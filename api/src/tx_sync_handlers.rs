@@ -12,7 +12,7 @@ pub struct MissingTxRequest {
     pub block_height: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissingTxResponse {
     pub transactions: Vec<Transaction>,
     pub block_height: u64,
@@ -80,7 +80,7 @@ pub async fn request_missing_transactions(
     }))
 }
 
-/// Handle incoming missing transactions (to add to mempool)  
+/// Handle incoming missing transactions (to add to mempool)
 pub async fn receive_missing_transactions(
     State(state): State<ApiState>,
     Json(response): Json<MissingTxResponse>,

@@ -279,7 +279,7 @@ impl TransactionSyncManager {
         );
 
         // Remove from mempool if present
-        if let Some(_) = self.mempool.get_transaction(&txid).await {
+        if self.mempool.get_transaction(&txid).await.is_some() {
             // Mempool has finalize but not remove - we'd need to add remove_transaction
             println!("   ⚠️  Transaction still in mempool - manual cleanup needed");
         }
