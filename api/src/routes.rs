@@ -8,6 +8,9 @@ use crate::treasury_handlers::{
     get_treasury_allocations, get_treasury_stats, get_treasury_withdrawals, submit_proposal,
     vote_on_proposal,
 };
+use crate::tx_sync_handlers::{
+    handle_transaction_rejection, receive_missing_transactions, request_missing_transactions,
+};
 use crate::wallet_send_handler::wallet_send;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::extract::Path;
@@ -73,6 +76,10 @@ pub fn create_routes() -> Router<ApiState> {
         .route("/mempool/finalized", post(receive_finalized_transaction)) // 🆕 Receive finalized tx from peers
         .route("/mempool/all", get(get_all_mempool_txs))
         .route("/mempool/clear", post(clear_mempool))
+        // Transaction sync endpoints (for block proposals)
+        .route("/tx_sync/request", post(request_missing_transactions)) // Request missing txs
+        .route("/tx_sync/response", post(receive_missing_transactions)) // Receive missing txs
+        .route("/tx_sync/rejection", post(handle_transaction_rejection)) // Handle rejection
         // Transaction endpoints
         .route("/transactions", post(add_to_mempool)) // REST endpoint
         .route("/transactions/{txid}", get(get_transaction)) // Get single transaction

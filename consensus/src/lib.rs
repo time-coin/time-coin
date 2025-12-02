@@ -29,6 +29,7 @@ pub mod monitoring;
 // pub mod orchestrator; // TODO: Remove - unused phased consensus system
 pub mod phased_protocol;
 pub mod proposals;
+pub mod tx_sync; // 🆕 Transaction synchronization for block proposals
 pub mod tx_validation;
 pub mod utxo_state_protocol;
 

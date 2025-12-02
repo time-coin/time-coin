@@ -684,6 +684,22 @@ pub enum NetworkMessage {
         received_at: u64,
     },
 
+    // Transaction sync for block proposals
+    RequestMissingTransactions {
+        txids: Vec<String>,
+        requester: String,
+        block_height: u64,
+    },
+    MissingTransactionsResponse {
+        transactions: Vec<time_core::Transaction>,
+        block_height: u64,
+    },
+    TransactionRejection {
+        txid: String,
+        reason: String, // "double_spend", "invalid_signature", etc.
+        wallet_address: String,
+    },
+
     // Leader election notification
     RequestBlockProposal {
         block_height: u64,
