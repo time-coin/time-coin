@@ -132,6 +132,9 @@ struct WalletApp {
     // Peer manager for discovering and managing masternode peers
     peer_manager: Option<Arc<PeerManager>>,
 
+    // UPnP manager for automatic port forwarding
+    upnp_manager: Option<Arc<time_network::UpnpManager>>,
+
     // TIME Coin Protocol client for real-time notifications
     protocol_client: Option<Arc<ProtocolClient>>,
     // notification_rx: Option<mpsc::UnboundedReceiver<WalletNotification>>, // Removed - WebSocket notifications
@@ -320,6 +323,7 @@ impl Default for WalletApp {
             network_manager: None,
             network_status: "Not connected".to_string(),
             peer_manager: None,
+            upnp_manager: None,
             protocol_client: None,
             mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
@@ -3764,6 +3768,44 @@ impl WalletApp {
                     });
                 }
                 self.peer_manager = Some(peer_mgr.clone());
+            }
+
+            // Initialize UPnP manager for automatic port forwarding
+            if self.upnp_manager.is_none() {
+                log::info!("🔌 Initializing UPnP port forwarding...");
+
+                // Get local IP for UPnP
+                let local_ip = if let Ok(ip) = local_ip_address::local_ip() {
+                    ip
+                } else {
+                    log::warn!("⚠️  Could not determine local IP for UPnP");
+                    "127.0.0.1".parse().unwrap()
+                };
+
+                let local_addr = format!("{}:24100", local_ip)
+                    .parse()
+                    .unwrap_or_else(|_| "127.0.0.1:24100".parse().unwrap());
+
+                let upnp_mgr = Arc::new(tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(time_network::UpnpManager::new(local_addr))
+                }));
+
+                // Try to get external IP via UPnP
+                let upnp_clone = upnp_mgr.clone();
+                tokio::spawn(async move {
+                    if let Ok(external_ip) = upnp_clone.get_external_ip().await {
+                        log::info!("✓ External IP via UPnP: {}", external_ip);
+                    }
+
+                    // Setup port forwarding for wallet (24100 for P2P listening)
+                    let _ = upnp_clone.setup_time_node_ports(24100, 24101).await;
+
+                    // Spawn renewal task
+                    upnp_clone.clone().spawn_renewal_task(24100, 24101);
+                });
+
+                self.upnp_manager = Some(upnp_mgr);
             }
 
             // Initialize network manager if not already done

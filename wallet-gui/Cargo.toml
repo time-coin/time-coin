@@ -32,6 +32,7 @@ zeroize = { version = "1.8", features = ["derive"] }
 # Networking
 reqwest = { workspace = true }
 socket2 = "0.5"
+local-ip-address = { workspace = true }
 
 # Logging
 log = "0.4"
