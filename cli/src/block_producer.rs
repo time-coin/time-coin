@@ -2383,7 +2383,7 @@ impl BlockProducer {
     async fn reconcile_block_with_peers(
         &self,
         our_block: time_core::block::Block,
-        _block_num: u64,
+        block_num: u64,
     ) -> time_core::block::Block {
         let peers = self.peer_manager.get_peer_ips().await;
         if peers.is_empty() {
@@ -2392,7 +2392,7 @@ impl BlockProducer {
         }
 
         let our_hash = our_block.hash.clone();
-        let our_coinbase = &our_block.transactions[0]; // First tx is always coinbase
+        let our_coinbase = &our_block.transactions[0];
         let our_outputs_count = our_coinbase.outputs.len();
 
         println!("   📊 Our block hash: {}", &our_hash[..16]);
@@ -2401,71 +2401,92 @@ impl BlockProducer {
             our_outputs_count
         );
 
-        // In BFT with deterministic blocks, all nodes SHOULD create identical blocks
-        // If masternode lists are synced, hashes will match
-        // If not, we need to detect the difference and resync
-
-        // Count peer agreement with 2-second timeout per peer, 5-second total
+        // Fetch blocks from peers with timeout
         let mut tasks = Vec::new();
         for peer in peers.iter().take(5) {
-            // Limit to 5 peers max for speed
             let peer_manager = self.peer_manager.clone();
             let peer = peer.clone();
+            let block_height = block_num;
+
             let task = tokio::spawn(async move {
                 match tokio::time::timeout(
                     Duration::from_secs(2),
-                    peer_manager.request_blockchain_info(&peer),
+                    peer_manager.request_block_by_height(&peer, block_height),
                 )
                 .await
                 {
-                    Ok(Ok(Some(_height))) => Some(true),
-                    Ok(Ok(None)) | Ok(Err(_)) | Err(_) => Some(false),
+                    Ok(Ok(block)) => Some((peer, block)),
+                    _ => None,
                 }
             });
             tasks.push(task);
         }
 
-        // Wait for all tasks with overall 5-second timeout
         let results =
             match tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(tasks))
                 .await
             {
                 Ok(results) => results,
                 Err(_) => {
-                    println!("   ⚠️  Block reconciliation timed out (5s) - using our block");
+                    println!("   ⚠️  Block reconciliation timed out - using our block");
                     return our_block;
                 }
             };
 
-        let mut matching_peers = 0;
-        let mut differing_peers = 0;
-
+        // Count matching blocks
+        let mut peer_blocks: Vec<(String, time_core::block::Block)> = Vec::new();
         for result in results {
-            if let Ok(Some(true)) = result {
-                matching_peers += 1;
-            } else if let Ok(Some(false)) = result {
-                differing_peers += 1;
+            if let Ok(Some((peer, block))) = result {
+                peer_blocks.push((peer, block));
             }
         }
 
-        let total_polled = matching_peers + differing_peers;
-        if total_polled > 0 {
-            let agreement_pct = (matching_peers as f32 / total_polled as f32) * 100.0;
-            println!(
-                "   📊 Peer consensus: {:.0}% agreement ({}/{})",
-                agreement_pct, matching_peers, total_polled
-            );
+        if peer_blocks.is_empty() {
+            println!("   ℹ️  No peer blocks received - using our block");
+            return our_block;
         }
 
-        // Deterministic consensus: All nodes with same state produce identical blocks
-        // Since we synced masternodes before block creation, blocks should match
-        // Use our block as it contains rewards for ALL registered masternodes
-        println!("   ✓ Block reconciliation complete - using deterministic block");
-        println!(
-            "   ✓ All {} registered masternodes will receive rewards",
-            our_outputs_count - 1
-        ); // -1 for treasury
+        // Find consensus block (most common)
+        let mut block_votes: std::collections::HashMap<String, (usize, time_core::block::Block)> =
+            std::collections::HashMap::new();
 
-        our_block
+        for (_peer, block) in peer_blocks {
+            let hash = block.hash.clone();
+            block_votes
+                .entry(hash.clone())
+                .and_modify(|(count, _)| *count += 1)
+                .or_insert((1, block));
+        }
+
+        // Add our vote
+        block_votes
+            .entry(our_hash.clone())
+            .and_modify(|(count, _)| *count += 1)
+            .or_insert((1, our_block.clone()));
+
+        // Find block with most votes
+        let (consensus_hash, (vote_count, consensus_block)) = block_votes
+            .into_iter()
+            .max_by_key(|(_, (count, _))| *count)
+            .unwrap();
+
+        let total_nodes = peers.len() + 1; // peers + us
+        let agreement_pct = (vote_count as f32 / total_nodes as f32) * 100.0;
+
+        println!(
+            "   📊 Consensus: {:.0}% ({}/{})",
+            agreement_pct, vote_count, total_nodes
+        );
+
+        if consensus_hash == our_hash {
+            println!("   ✓ Our block matches consensus");
+            our_block
+        } else {
+            println!(
+                "   ⚠️  Using network consensus block (hash: {})",
+                &consensus_hash[..16]
+            );
+            consensus_block
+        }
     }
 }
