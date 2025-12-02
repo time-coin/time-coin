@@ -2929,15 +2929,14 @@ async fn load_wallet_balance(wallet_address: &str, blockchain: Arc<RwLock<Blockc
             println!("ℹ️  Wallet has zero balance");
         }
     } else {
-        println!(
-            "ℹ️  No saved balance found - use 'time-cli wallet rescan' to sync from blockchain"
-        );
+        // No balance in database - recalculate from UTXO set
+        println!("ℹ️  No saved balance found - calculating from UTXOs...");
+        drop(blockchain_read);
+        sync_wallet_balance(wallet_address, blockchain).await;
     }
 }
 
 /// Sync wallet balance from blockchain UTXO set and save to database
-/// Note: Currently unused - wallet balance sync handled by API handlers
-#[allow(dead_code)]
 async fn sync_wallet_balance(
     wallet_address: &str,
     blockchain: Arc<RwLock<BlockchainState>>,
