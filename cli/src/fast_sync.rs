@@ -117,7 +117,7 @@ impl FastSync {
 
         // Query peers with overall timeout to prevent hanging
         let timeout_duration = std::time::Duration::from_secs(30);
-        
+
         let query_all = async {
             let mut chains = Vec::new();
             for peer_ip in peer_ips {
@@ -145,7 +145,7 @@ impl FastSync {
     async fn probe_peer_height(&self, peer_ip: &str) -> Option<(u64, String)> {
         // Use timeout to prevent hanging
         let timeout_duration = std::time::Duration::from_secs(10);
-        
+
         match tokio::time::timeout(timeout_duration, self.probe_peer_height_inner(peer_ip)).await {
             Ok(result) => result,
             Err(_) => {
@@ -154,7 +154,7 @@ impl FastSync {
             }
         }
     }
-    
+
     async fn probe_peer_height_inner(&self, peer_ip: &str) -> Option<(u64, String)> {
         // Start with a reasonable upper bound (1 year of 10-minute blocks ~ 52560)
         let mut high = 100_000u64;
@@ -172,7 +172,9 @@ impl FastSync {
 
             // Add timeout for each individual request
             let request_timeout = std::time::Duration::from_millis(500);
-            match tokio::time::timeout(request_timeout, self.get_peer_block_hash(peer_ip, mid)).await {
+            match tokio::time::timeout(request_timeout, self.get_peer_block_hash(peer_ip, mid))
+                .await
+            {
                 Ok(Some(block_hash)) => {
                     // Block exists at this height
                     best_height = mid;
