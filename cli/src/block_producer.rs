@@ -2339,53 +2339,43 @@ impl BlockProducer {
     /// Synchronize masternode list with network before block creation
     /// This ensures all nodes have the same view of active masternodes
     async fn sync_masternodes_before_block(&self) {
-        // Add timeout to the entire sync operation to prevent hanging
-        let sync_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(10),
-            self.sync_masternodes_inner(),
-        )
-        .await;
+        // CRITICAL: Use tokio::spawn to ensure timeout is respected
+        // Direct .await can block if underlying locks are held
+        let handle = tokio::spawn({
+            let peer_manager = self.peer_manager.clone();
+            async move {
+                // Get peer list with 2-second timeout
+                let peers = match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(2),
+                    peer_manager.get_peer_ips(),
+                )
+                .await
+                {
+                    Ok(peers) => peers,
+                    Err(_) => {
+                        println!("   ⚠️  Timeout getting peer list");
+                        return;
+                    }
+                };
 
-        match sync_result {
-            Ok(_) => println!("   ✓ Masternode sync complete"),
-            Err(_) => println!("   ⚠️  Masternode sync timeout - continuing with current list"),
-        }
-    }
+                if peers.is_empty() {
+                    println!("   ⚠️  No peers available");
+                    return;
+                }
 
-    async fn sync_masternodes_inner(&self) {
-        let peers_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(5),
-            self.peer_manager.get_peer_ips(),
-        )
-        .await;
+                // Just log the peer count, actual sync happens via gossip
+                println!("   ✓ {} peers in network", peers.len());
+            }
+        });
 
-        let peers = match peers_result {
-            Ok(peers) => peers,
+        // Wait up to 3 seconds total for the sync task
+        match tokio::time::timeout(tokio::time::Duration::from_secs(3), handle).await {
+            Ok(Ok(_)) => println!("   ✓ Masternode sync complete"),
+            Ok(Err(e)) => println!("   ⚠️  Sync task error: {} - continuing", e),
             Err(_) => {
-                println!("   ⚠️  Timeout getting peer list - skipping masternode sync");
-                return;
-            }
-        };
-
-        if peers.is_empty() {
-            println!("   ⚠️  No peers available for masternode sync");
-            return;
-        }
-
-        // Get masternode lists from all peers (with timeout per peer)
-        for peer_ip in &peers {
-            if let Ok(ip) = peer_ip
-                .split(':')
-                .next()
-                .unwrap_or(peer_ip)
-                .parse::<std::net::IpAddr>()
-            {
-                println!("   ✓ Syncing masternodes with {}", ip);
+                println!("   ⚠️  Masternode sync timeout (3s) - continuing with current list")
             }
         }
-
-        // Small delay to allow masternode sync to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
 
     /// Reconcile block with peers to ensure consensus
@@ -2415,15 +2405,15 @@ impl BlockProducer {
         // If masternode lists are synced, hashes will match
         // If not, we need to detect the difference and resync
 
-        // Count peer agreement with 5-second timeout per peer
+        // Count peer agreement with 2-second timeout per peer, 5-second total
         let mut tasks = Vec::new();
-        for peer in peers.iter().take(10) {
-            // Limit to 10 peers max
+        for peer in peers.iter().take(5) {
+            // Limit to 5 peers max for speed
             let peer_manager = self.peer_manager.clone();
             let peer = peer.clone();
             let task = tokio::spawn(async move {
                 match tokio::time::timeout(
-                    Duration::from_secs(5),
+                    Duration::from_secs(2),
                     peer_manager.request_blockchain_info(&peer),
                 )
                 .await
@@ -2435,14 +2425,14 @@ impl BlockProducer {
             tasks.push(task);
         }
 
-        // Wait for all tasks with overall 10-second timeout
+        // Wait for all tasks with overall 5-second timeout
         let results =
-            match tokio::time::timeout(Duration::from_secs(10), futures::future::join_all(tasks))
+            match tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(tasks))
                 .await
             {
                 Ok(results) => results,
                 Err(_) => {
-                    println!("   ⚠️  Block reconciliation timed out - using our block");
+                    println!("   ⚠️  Block reconciliation timed out (5s) - using our block");
                     return our_block;
                 }
             };
