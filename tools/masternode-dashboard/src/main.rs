@@ -35,6 +35,8 @@ struct PeerInfo {
 #[derive(Debug, Deserialize)]
 struct MempoolStatus {
     size: usize,
+    #[serde(default)]
+    transactions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,7 +64,10 @@ const BOLD: &str = "\x1b[1m";
 const CLEAR_LINE: &str = "\x1b[2K"; // Clear entire line
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::builder().timeout(Duration::from_secs(2)).build()?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5)) // Increased timeout for slow endpoints
+        .connect_timeout(Duration::from_secs(3))
+        .build()?;
     let api_url = "http://localhost:24101";
 
     // Setup Ctrl+C handler
