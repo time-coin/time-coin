@@ -192,13 +192,13 @@ impl Dashboard {
         if let Some(bal_response) = balance {
             let confirmed = bal_response.balance as f64 / 100_000_000.0;
             let unconfirmed = bal_response.unconfirmed_balance as f64 / 100_000_000.0;
-            
+
             println!(
                 "│ {:<20} {} TIME",
                 "Confirmed Balance:".bright_black(),
                 format!("{:.8}", confirmed).bright_yellow().bold()
             );
-            
+
             if unconfirmed > 0.0 {
                 println!(
                     "│ {:<20} {} TIME",
@@ -320,10 +320,7 @@ impl Dashboard {
         match self.fetch_blockchain_info().await {
             Ok(info) => {
                 // Fetch balance for the wallet address
-                let balance = self
-                    .fetch_balance(&info.wallet_address)
-                    .await
-                    .ok();
+                let balance = self.fetch_balance(&info.wallet_address).await.ok();
                 self.render_blockchain(&info, balance);
             }
             Err(e) => self.render_error(&format!("Blockchain info error: {}", e)),

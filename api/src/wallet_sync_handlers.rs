@@ -244,6 +244,168 @@ pub async fn get_pending_transactions(
     Ok(Json(pending_txs))
 }
 
+/// Simple balance query by xpub
+#[derive(Debug, Serialize)]
+pub struct BalanceResponse {
+    pub confirmed: u64,
+    pub pending: u64,
+    pub total: u64,
+}
+
+/// Get balance for an xpub (thin client endpoint)
+pub async fn get_xpub_balance(
+    State(state): State<ApiState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<BalanceResponse>, ApiError> {
+    let xpub = params
+        .get("xpub")
+        .ok_or_else(|| ApiError::BadRequest("Missing xpub parameter".to_string()))?;
+
+    // Use existing sync logic to get balance
+    let sync_request = WalletSyncXpubRequest {
+        xpub: xpub.clone(),
+        start_index: 0,
+    };
+
+    let sync_response = sync_wallet_xpub(State(state.clone()), Json(sync_request)).await?;
+
+    // Calculate pending balance from mempool
+    let mempool = state.mempool.as_ref();
+    let pending = if let Some(mempool) = mempool {
+        let transactions = mempool.get_all_transactions().await;
+        transactions.iter()
+            .flat_map(|tx| &tx.outputs)
+            .filter(|output| {
+                // Check if output address belongs to any address from xpub
+                sync_response.utxos.contains_key(&output.address)
+            })
+            .map(|output| output.amount)
+            .sum()
+    } else {
+        0u64
+    };
+
+    Ok(Json(BalanceResponse {
+        confirmed: sync_response.total_balance,
+        pending,
+        total: sync_response.total_balance + pending,
+    }))
+}
+
+/// Get transaction list for xpub (thin client endpoint)
+pub async fn get_xpub_transactions(
+    State(state): State<ApiState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Vec<TransactionNotification>>, ApiError> {
+    let xpub = params
+        .get("xpub")
+        .ok_or_else(|| ApiError::BadRequest("Missing xpub parameter".to_string()))?;
+
+    let limit: usize = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
+
+    // Use existing sync logic to get transactions
+    let sync_request = WalletSyncXpubRequest {
+        xpub: xpub.clone(),
+        start_index: 0,
+    };
+
+    let sync_response = sync_wallet_xpub(State(state), Json(sync_request)).await?;
+
+    // Return transactions limited by the requested amount
+    let mut transactions = sync_response.recent_transactions;
+    transactions.truncate(limit);
+
+    Ok(Json(transactions))
+}
+
+/// Get UTXOs for xpub (thin client endpoint)  
+pub async fn get_xpub_utxos(
+    State(state): State<ApiState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Vec<UtxoInfo>>, ApiError> {
+    let xpub = params
+        .get("xpub")
+        .ok_or_else(|| ApiError::BadRequest("Missing xpub parameter".to_string()))?;
+
+    // Use existing sync logic to get UTXOs
+    let sync_request = WalletSyncXpubRequest {
+        xpub: xpub.clone(),
+        start_index: 0,
+    };
+
+    let sync_response = sync_wallet_xpub(State(state), Json(sync_request)).await?;
+
+    // Flatten all UTXOs into a single list
+    let all_utxos: Vec<UtxoInfo> = sync_response
+        .utxos
+        .into_values()
+        .flatten()
+        .collect();
+
+    Ok(Json(all_utxos))
+}
+
+/// Broadcast transaction request (thin client endpoint)
+#[derive(Debug, Deserialize)]
+pub struct BroadcastTransactionRequest {
+    pub tx: String, // Hex-encoded transaction
+}
+
+/// Broadcast transaction response
+#[derive(Debug, Serialize)]
+pub struct BroadcastTransactionResponse {
+    pub txid: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// Broadcast a signed transaction to the network
+pub async fn broadcast_transaction(
+    State(state): State<ApiState>,
+    Json(request): Json<BroadcastTransactionRequest>,
+) -> Result<Json<BroadcastTransactionResponse>, ApiError> {
+    // Decode transaction
+    let tx_bytes = hex::decode(&request.tx)
+        .map_err(|_| ApiError::BadRequest("Invalid hex encoding".to_string()))?;
+
+    let tx: CoreTransaction = serde_json::from_slice(&tx_bytes)
+        .map_err(|_| ApiError::BadRequest("Invalid transaction format".to_string()))?;
+
+    let txid = tx.txid.clone();
+
+    // Validate transaction
+    let blockchain = state.blockchain.read().await;
+    if let Err(e) = blockchain.validate_transaction(&tx) {
+        return Ok(Json(BroadcastTransactionResponse {
+            txid: txid.clone(),
+            success: false,
+            error: Some(format!("Validation failed: {}", e)),
+        }));
+    }
+    drop(blockchain);
+
+    // Add to mempool
+    if let Some(mempool) = &state.mempool {
+        mempool.add_transaction(tx).await
+            .map_err(|e| ApiError::Internal(format!("Failed to add to mempool: {}", e)))?;
+        
+        Ok(Json(BroadcastTransactionResponse {
+            txid,
+            success: true,
+            error: None,
+        }))
+    } else {
+        Ok(Json(BroadcastTransactionResponse {
+            txid,
+            success: false,
+            error: Some("Mempool not available".to_string()),
+        }))
+    }
+}
+
 /// Register xpub for real-time transaction monitoring
 #[derive(Debug, Deserialize)]
 pub struct RegisterXpubRequest {

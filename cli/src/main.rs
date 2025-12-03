@@ -2149,21 +2149,21 @@ async fn main() {
                                                     let blockchain_guard = blockchain_listen.read().await;
                                                     let chain_height = blockchain_guard.chain_tip_height();
                                                     let has_genesis = !blockchain_guard.genesis_hash().is_empty();
-                                                    
+
                                                     // Sanity check: ignore requests way beyond our chain
                                                     if start_height > chain_height + 1000 {
-                                                        eprintln!("⚠️  Ignoring unrealistic GetBlocks request from {} (heights {}-{}, we only have {})", 
+                                                        eprintln!("⚠️  Ignoring unrealistic GetBlocks request from {} (heights {}-{}, we only have {})",
                                                             peer_ip_listen, start_height, end_height, chain_height);
                                                         drop(blockchain_guard);
                                                         continue;
                                                     }
-                                                    
+
                                                     // Only log reasonable requests
                                                     if start_height <= chain_height + 10 {
                                                         println!("📦 Received GetBlocks request from {} (heights {}-{})", peer_ip_listen, start_height, end_height);
                                                         println!("   🔍 Our blockchain: height={}", if has_genesis { chain_height.to_string() } else { "no genesis".to_string() });
                                                     }
-                                                    
+
                                                     let mut blocks = Vec::new();
 
                                                     // Limit the range to prevent abuse

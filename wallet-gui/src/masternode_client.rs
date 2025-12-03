@@ -102,16 +102,14 @@ impl MasternodeClient {
 
         let body = serde_json::json!({ "tx": tx_hex });
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&body).send().await?;
 
         if !response.status().is_success() {
             log::error!("❌ Transaction broadcast failed: {}", response.status());
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(ClientError::BroadcastFailed(error_text));
         }
 

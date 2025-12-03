@@ -361,14 +361,18 @@ impl ChainSync {
             let p2p_port = self.get_p2p_port();
             let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
 
-            // Get peer info and extract values immediately to avoid Send issues
-            let peer_info = self
-                .peer_manager
-                .request_blockchain_info(&peer_addr_with_port)
-                .await
-                .ok();
+            // Get peer info with aggressive 3-second timeout
+            let peer_info = tokio::time::timeout(
+                tokio::time::Duration::from_secs(3),
+                self.peer_manager
+                    .request_blockchain_info(&peer_addr_with_port),
+            )
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .flatten();
 
-            if let Some(Some(height)) = peer_info {
+            if let Some(height) = peer_info {
                 // Get the hash too - for now use a placeholder until we extend the protocol
                 // The height is what matters most for sync
                 peer_heights.push((peer_ip.clone(), height, String::new()));
@@ -378,15 +382,20 @@ impl ChainSync {
         peer_heights
     }
 
-    /// Download a specific block from a peer
+    /// Download a specific block from a peer with timeout
     async fn download_block(&self, peer_ip: &str, height: u64) -> Option<Block> {
         let p2p_port = self.get_p2p_port();
         let peer_addr_with_port = format!("{}:{}", peer_ip, p2p_port);
 
-        self.peer_manager
-            .request_block_by_height(&peer_addr_with_port, height)
-            .await
-            .ok()
+        // Add 5-second timeout for block downloads
+        tokio::time::timeout(
+            tokio::time::Duration::from_secs(5),
+            self.peer_manager
+                .request_block_by_height(&peer_addr_with_port, height),
+        )
+        .await
+        .ok()
+        .and_then(|r| r.ok())
     }
 
     /// Validate a block before importing
@@ -868,10 +877,27 @@ impl ChainSync {
         Ok(synced_blocks)
     }
 
-    /// Detect and resolve blockchain forks
+    /// Detect and resolve blockchain forks with aggressive timeout
     /// Returns Ok(true) if rollback occurred (caller should skip sync)
     /// Returns Ok(false) if fork resolved normally
     pub async fn detect_and_resolve_forks(&self) -> Result<bool, String> {
+        // CRITICAL: Add 30-second timeout to prevent indefinite hanging
+        match tokio::time::timeout(
+            tokio::time::Duration::from_secs(30),
+            self.detect_and_resolve_forks_impl()
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                println!("⚠️  Fork detection timed out after 30 seconds - continuing with sync");
+                Ok(false)
+            }
+        }
+    }
+
+    /// Internal implementation of fork detection
+    async fn detect_and_resolve_forks_impl(&self) -> Result<bool, String> {
         let (our_height, our_genesis) = {
             let blockchain = self.blockchain.read().await;
             (
