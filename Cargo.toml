@@ -61,8 +61,8 @@ crossterm = "0.29"
 futures = "0.3"
 
 [profile.release]
-opt-level = "z"       # Optimize for size instead of speed
-lto = true            # Link Time Optimization
-codegen-units = 1     # Better optimization, single codegen unit
-strip = true          # Strip symbols
-panic = "abort"       # Remove unwinding code
+opt-level = 3           # Maximum optimization (speed over size)
+lto = "fat"             # Full link-time optimization across all crates
+codegen-units = 1       # Better optimization, single codegen unit
+strip = true            # Strip symbols for smaller binary
+panic = "abort"         # Remove unwinding code
