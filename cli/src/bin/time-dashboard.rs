@@ -210,7 +210,7 @@ impl Dashboard {
             println!(
                 "│ {:<20} {}",
                 "Wallet Balance:".bright_black(),
-                "Loading...".bright_black()
+                "⚠️  Unable to fetch wallet balance".bright_red()
             );
         }
 
@@ -320,7 +320,13 @@ impl Dashboard {
         match self.fetch_blockchain_info().await {
             Ok(info) => {
                 // Fetch balance for the wallet address
-                let balance = self.fetch_balance(&info.wallet_address).await.ok();
+                let balance = match self.fetch_balance(&info.wallet_address).await {
+                    Ok(bal) => Some(bal),
+                    Err(e) => {
+                        eprintln!("⚠️  Balance fetch error: {}", e);
+                        None
+                    }
+                };
                 self.render_blockchain(&info, balance);
             }
             Err(e) => self.render_error(&format!("Blockchain info error: {}", e)),
