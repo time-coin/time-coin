@@ -315,7 +315,7 @@ pub async fn get_xpub_transactions(
     let sync_response = sync_wallet_xpub(State(state), Json(sync_request)).await?;
 
     // Return transactions limited by the requested amount
-    let mut transactions = sync_response.recent_transactions;
+    let mut transactions = sync_response.0.recent_transactions.clone();
     transactions.truncate(limit);
 
     Ok(Json(transactions))
@@ -339,8 +339,9 @@ pub async fn get_xpub_utxos(
     let sync_response = sync_wallet_xpub(State(state), Json(sync_request)).await?;
 
     // Flatten all UTXOs into a single list
-    let all_utxos: Vec<UtxoInfo> = sync_response
+    let all_utxos: Vec<UtxoInfo> = sync_response.0
         .utxos
+        .clone()
         .into_values()
         .flatten()
         .collect();

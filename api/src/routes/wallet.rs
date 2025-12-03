@@ -2,7 +2,7 @@
 
 use crate::wallet_send_handler::wallet_send;
 use crate::wallet_sync_handlers::{
-    broadcast_transaction, get_xpub_balance, get_xpub_transactions, get_xpub_utxos,
+    get_xpub_balance, get_xpub_transactions, get_xpub_utxos,
     register_xpub, sync_wallet_addresses, sync_wallet_xpub,
 };
 use crate::ApiState;

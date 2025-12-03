@@ -42,6 +42,8 @@ pub fn create_routes() -> Router<ApiState> {
         .nest("/wallet", wallet::wallet_routes())
         .nest("/masternode", masternode::masternode_routes())
         .nest("/rpc", rpc::rpc_routes())
+        // Transaction broadcast endpoint (thin client support)
+        .nest("/transaction", transaction_routes())
         // Legacy route redirects for backward compatibility
         .route("/peers", get(network::get_peers_legacy))
         .route(
@@ -52,6 +54,15 @@ pub fn create_routes() -> Router<ApiState> {
             "/node/wallet",
             get(|| async { axum::response::Redirect::permanent("/masternode/wallet") }),
         )
+}
+
+/// Transaction routes (thin client support)
+fn transaction_routes() -> Router<ApiState> {
+    use crate::wallet_sync_handlers::broadcast_transaction;
+    use axum::routing::post;
+    
+    Router::new()
+        .route("/broadcast", post(broadcast_transaction))
 }
 
 // Root endpoints
