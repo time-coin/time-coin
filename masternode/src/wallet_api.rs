@@ -81,6 +81,7 @@ pub struct WalletApiHandler {
 
 /// In-memory blockchain state (replace with actual blockchain integration)
 pub struct BlockchainState {
+    #[allow(dead_code)]
     blocks: Vec<Block>,
     utxo_set: HashMap<String, HashMap<u32, UTXO>>, // txid -> vout -> UTXO
     address_txs: HashMap<String, Vec<String>>,     // address -> [txids]
@@ -104,32 +105,44 @@ impl WalletApiHandler {
     /// Create a new handler with mock test data (for development)
     pub async fn new_with_test_data() -> Self {
         let handler = Self::new();
-        
+
         // Add some test data
         let test_xpub = "xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKrhko4egpiMZbpiaQL2jkwSB1icqYh2cfDfVxdx4df189oLKnC5fSwqPfgyP3hooxujYzAu3fDVmz";
         let test_addresses = vec![
             "tc1q0000000000000000000000000000000000001".to_string(),
             "tc1q0000000000000000000000000000000000002".to_string(),
         ];
-        
-        handler.register_xpub(test_xpub, test_addresses.clone()).await.ok();
-        
+
+        handler
+            .register_xpub(test_xpub, test_addresses.clone())
+            .await
+            .ok();
+
         // Add test transactions
-        handler.add_test_transaction(&test_addresses[0], 100_000_000).await.ok(); // 1 TIME
-        handler.add_test_transaction(&test_addresses[0], 50_000_000).await.ok();  // 0.5 TIME
-        handler.add_test_transaction(&test_addresses[1], 25_000_000).await.ok();  // 0.25 TIME
-        
+        handler
+            .add_test_transaction(&test_addresses[0], 100_000_000)
+            .await
+            .ok(); // 1 TIME
+        handler
+            .add_test_transaction(&test_addresses[0], 50_000_000)
+            .await
+            .ok(); // 0.5 TIME
+        handler
+            .add_test_transaction(&test_addresses[1], 25_000_000)
+            .await
+            .ok(); // 0.25 TIME
+
         log::info!("✅ Test data initialized for xpub: {}", test_xpub);
         log::info!("   Addresses: {:?}", test_addresses);
         log::info!("   Total balance: 1.75 TIME");
-        
+
         handler
     }
 
     /// Get balance for an xpub (extended public key)
     pub async fn get_balance(&self, xpub: &str) -> Result<Balance, MasternodeError> {
         let blockchain = self.blockchain.read().await;
-        
+
         // Get all addresses derived from this xpub
         let addresses = blockchain
             .xpub_addresses
@@ -171,7 +184,7 @@ impl WalletApiHandler {
         limit: u32,
     ) -> Result<Vec<TransactionRecord>, MasternodeError> {
         let blockchain = self.blockchain.read().await;
-        
+
         // Get all addresses for this xpub
         let addresses = blockchain
             .xpub_addresses
@@ -209,7 +222,7 @@ impl WalletApiHandler {
     /// Get UTXOs for an xpub
     pub async fn get_utxos(&self, xpub: &str) -> Result<Vec<UTXO>, MasternodeError> {
         let blockchain = self.blockchain.read().await;
-        
+
         // Get all addresses for this xpub
         let addresses = blockchain
             .xpub_addresses
@@ -236,8 +249,8 @@ impl WalletApiHandler {
     /// Broadcast a signed transaction
     pub async fn broadcast_transaction(&self, tx_hex: &str) -> Result<String, MasternodeError> {
         // Decode transaction from hex
-        let tx_bytes = hex::decode(tx_hex)
-            .map_err(|e| MasternodeError::InvalidTransaction(e.to_string()))?;
+        let tx_bytes =
+            hex::decode(tx_hex).map_err(|e| MasternodeError::InvalidTransaction(e.to_string()))?;
 
         // Parse transaction (simplified - use actual deserialization)
         let tx = self.parse_transaction(&tx_bytes)?;

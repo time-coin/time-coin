@@ -15,6 +15,7 @@ use wallet::NetworkType;
 
 mod config;
 mod encryption;
+mod hybrid_client; // NEW: TCP with HTTP fallback
 mod masternode_client; // NEW: Thin client for masternode communication
 mod mnemonic_ui;
 mod monitoring;

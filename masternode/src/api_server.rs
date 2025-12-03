@@ -2,7 +2,7 @@
 //!
 //! Provides REST API endpoints for thin wallet clients.
 
-use crate::wallet_api::{Balance, TransactionRecord, WalletApiHandler, UTXO, AddressInfo};
+use crate::wallet_api::{AddressInfo, Balance, TransactionRecord, WalletApiHandler, UTXO};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -195,7 +195,7 @@ pub async fn start_server(
     let app = create_router(wallet_handler);
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    
+
     log::info!("🚀 Masternode Wallet API listening on {}", bind_addr);
     log::info!("📡 Endpoints:");
     log::info!("   GET  /wallet/balance?xpub=<xpub>");

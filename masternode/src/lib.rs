@@ -361,16 +361,16 @@ pub mod violations;
 
 // Supporting modules
 pub mod address_monitor;
+pub mod api_server;
 pub mod blockchain_scanner;
 pub mod error;
 pub mod node;
 pub mod reputation;
 pub mod utxo_integration;
 pub mod utxo_tracker;
+pub mod wallet_api;
 pub mod wallet_dat;
 pub mod wallet_manager;
-pub mod wallet_api;
-pub mod api_server;
 
 pub use blockchain_scanner::BlockchainScanner;
 pub use registry::MasternodeRegistry;

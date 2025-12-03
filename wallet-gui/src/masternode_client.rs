@@ -1,48 +1,185 @@
-//! Simple HTTP client for masternode communication
+//! Masternode client with TCP primary and HTTP fallback
 //!
 //! This is a thin client that delegates all blockchain operations to masternodes.
 //! The wallet only handles key management and transaction signing locally.
+//!
+//! Protocol priority:
+//! 1. Try TCP (faster, lower overhead)
+//! 2. Fallback to HTTP on TCP failure
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 #[derive(Debug, Clone)]
 pub struct MasternodeClient {
-    endpoint: String,
+    tcp_endpoint: String,
+    http_endpoint: String,
     client: Client,
+    prefer_tcp: bool,
 }
 
 impl MasternodeClient {
     pub fn new(endpoint: String) -> Self {
+        // Parse endpoint to create both TCP and HTTP versions
+        let (tcp_endpoint, http_endpoint) = Self::parse_endpoint(&endpoint);
+
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to create HTTP client");
 
-        log::info!("📡 Masternode client initialized: {}", endpoint);
-        Self { endpoint, client }
+        log::info!("📡 Masternode client initialized");
+        log::info!("   TCP: {}", tcp_endpoint);
+        log::info!("   HTTP: {}", http_endpoint);
+
+        Self {
+            tcp_endpoint,
+            http_endpoint,
+            client,
+            prefer_tcp: true,
+        }
+    }
+
+    fn parse_endpoint(endpoint: &str) -> (String, String) {
+        // If it's http/https, derive TCP from it
+        if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+            let http_endpoint = endpoint.to_string();
+            // Extract host:port for TCP (remove scheme and path)
+            let without_scheme = endpoint
+                .trim_start_matches("http://")
+                .trim_start_matches("https://");
+            // Remove any path components
+            let tcp_endpoint = without_scheme
+                .split('/')
+                .next()
+                .unwrap_or(without_scheme)
+                .to_string();
+            (tcp_endpoint, http_endpoint)
+        } else {
+            // If it's just host:port, create both
+            let tcp_endpoint = endpoint.to_string();
+            let http_endpoint = format!("http://{}", endpoint);
+            (tcp_endpoint, http_endpoint)
+        }
+    }
+
+    pub fn endpoint(&self) -> &str {
+        &self.http_endpoint
+    }
+
+    /// Try TCP request with automatic HTTP fallback
+    async fn request_with_fallback<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Vec<u8>>,
+    ) -> Result<T, ClientError> {
+        // Try TCP first
+        if self.prefer_tcp {
+            match self.tcp_request(method, path, body.clone()).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    log::warn!("⚠️ TCP request failed, falling back to HTTP: {}", e);
+                }
+            }
+        }
+
+        // Fallback to HTTP
+        self.http_request(method, path, body).await
+    }
+
+    /// Make TCP request
+    async fn tcp_request<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Vec<u8>>,
+    ) -> Result<T, ClientError> {
+        let mut stream = TcpStream::connect(&self.tcp_endpoint).await?;
+
+        // Build request
+        let request = if let Some(body) = body {
+            format!(
+                "{} {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\n\r\n{}",
+                method,
+                path,
+                self.tcp_endpoint,
+                body.len(),
+                String::from_utf8_lossy(&body)
+            )
+        } else {
+            format!(
+                "{} {} HTTP/1.1\r\nHost: {}\r\n\r\n",
+                method, path, self.tcp_endpoint
+            )
+        };
+
+        // Send request
+        stream.write_all(request.as_bytes()).await?;
+
+        // Read response
+        let mut buffer = Vec::new();
+        stream.read_to_end(&mut buffer).await?;
+
+        // Parse HTTP response
+        let response_str = String::from_utf8_lossy(&buffer);
+        let body_start = response_str
+            .find("\r\n\r\n")
+            .ok_or_else(|| ClientError::InvalidResponse("No response body found".to_string()))?
+            + 4;
+
+        let body = &response_str[body_start..];
+        serde_json::from_str(body)
+            .map_err(|e| ClientError::InvalidResponse(format!("JSON parse error: {}", e)))
+    }
+
+    /// Make HTTP request
+    async fn http_request<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Vec<u8>>,
+    ) -> Result<T, ClientError> {
+        let url = format!("{}{}", self.http_endpoint, path);
+
+        let request = match method {
+            "GET" => self.client.get(&url),
+            "POST" => {
+                let mut req = self.client.post(&url);
+                if let Some(body) = body {
+                    req = req.body(body);
+                }
+                req
+            }
+            _ => {
+                return Err(ClientError::InvalidResponse(
+                    "Unsupported method".to_string(),
+                ))
+            }
+        };
+
+        let response = request.send().await?;
+
+        if !response.status().is_success() {
+            return Err(ClientError::http(response.status().as_u16()));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| ClientError::InvalidResponse(format!("JSON parse error: {}", e)))
     }
 
     /// Get balance for an xpub
     pub async fn get_balance(&self, xpub: &str) -> Result<Balance, ClientError> {
-        let url = format!("{}/wallet/balance", self.endpoint);
-        log::debug!("→ GET {}", url);
+        let path = format!("/wallet/balance?xpub={}", xpub);
+        log::debug!("→ GET {}", path);
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("xpub", xpub)])
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            log::error!("❌ Balance fetch failed: {}", response.status());
-            return Err(ClientError::http(response.status().as_u16()));
-        }
-
-        let balance = response.json().await?;
+        let balance: Balance = self.request_with_fallback("GET", &path, None).await?;
         log::info!("✅ Balance retrieved: {:?}", balance);
         Ok(balance)
     }
@@ -53,132 +190,75 @@ impl MasternodeClient {
         xpub: &str,
         limit: u32,
     ) -> Result<Vec<TransactionRecord>, ClientError> {
-        let url = format!("{}/wallet/transactions", self.endpoint);
-        log::debug!("→ GET {} (limit: {})", url, limit);
+        let path = format!("/wallet/transactions?xpub={}&limit={}", xpub, limit);
+        log::debug!("→ GET {} (limit: {})", path, limit);
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("xpub", xpub), ("limit", &limit.to_string())])
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            log::error!("❌ Transaction fetch failed: {}", response.status());
-            return Err(ClientError::http(response.status().as_u16()));
-        }
-
-        let transactions: Vec<TransactionRecord> = response.json().await?;
+        let transactions: Vec<TransactionRecord> =
+            self.request_with_fallback("GET", &path, None).await?;
         log::info!("✅ Retrieved {} transactions", transactions.len());
         Ok(transactions)
     }
 
     /// Get UTXOs for an xpub
     pub async fn get_utxos(&self, xpub: &str) -> Result<Vec<Utxo>, ClientError> {
-        let url = format!("{}/wallet/utxos", self.endpoint);
-        log::debug!("→ GET {}", url);
+        let path = format!("/wallet/utxos?xpub={}", xpub);
+        log::debug!("→ GET {}", path);
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("xpub", xpub)])
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            log::error!("❌ UTXO fetch failed: {}", response.status());
-            return Err(ClientError::http(response.status().as_u16()));
-        }
-
-        let utxos: Vec<Utxo> = response.json().await?;
+        let utxos: Vec<Utxo> = self.request_with_fallback("GET", &path, None).await?;
         log::info!("✅ Retrieved {} UTXOs", utxos.len());
         Ok(utxos)
     }
 
     /// Broadcast a signed transaction
     pub async fn broadcast_transaction(&self, tx_hex: &str) -> Result<String, ClientError> {
-        let url = format!("{}/transaction/broadcast", self.endpoint);
-        log::debug!("→ POST {}", url);
+        let path = "/transaction/broadcast";
+        log::debug!("→ POST {}", path);
 
         let body = serde_json::json!({ "tx": tx_hex });
+        let body_bytes = serde_json::to_vec(&body)?;
 
-        let response = self.client.post(&url).json(&body).send().await?;
-
-        if !response.status().is_success() {
-            log::error!("❌ Transaction broadcast failed: {}", response.status());
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(ClientError::BroadcastFailed(error_text));
-        }
-
-        let result: BroadcastResponse = response.json().await?;
+        let result: BroadcastResponse = self
+            .request_with_fallback("POST", path, Some(body_bytes))
+            .await?;
         log::info!("✅ Transaction broadcast: {}", result.txid);
         Ok(result.txid)
     }
 
     /// Get address information
     pub async fn get_address_info(&self, address: &str) -> Result<AddressInfo, ClientError> {
-        let url = format!("{}/address/{}", self.endpoint, address);
-        log::debug!("→ GET {}", url);
+        let path = format!("/address/{}", address);
+        log::debug!("→ GET {}", path);
 
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            log::error!("❌ Address info fetch failed: {}", response.status());
-            return Err(ClientError::http(response.status().as_u16()));
-        }
-
-        let info = response.json().await?;
+        let info: AddressInfo = self.request_with_fallback("GET", &path, None).await?;
         log::debug!("✅ Address info retrieved: {:?}", info);
         Ok(info)
     }
 
     /// Check if masternode is reachable
     pub async fn health_check(&self) -> Result<HealthStatus, ClientError> {
-        let url = format!("{}/health", self.endpoint);
-        log::debug!("→ GET {}", url);
+        let path = "/health";
+        log::debug!("→ GET {}", path);
 
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            log::warn!("⚠️ Health check failed: {}", response.status());
-            return Err(ClientError::http(response.status().as_u16()));
-        }
-
-        let status: HealthStatus = response.json().await?;
+        let status: HealthStatus = self.request_with_fallback("GET", path, None).await?;
         log::info!("✅ Masternode healthy: {:?}", status);
         Ok(status)
     }
 
     /// Get current blockchain height
     pub async fn get_block_height(&self) -> Result<u64, ClientError> {
-        let url = format!("{}/blockchain/height", self.endpoint);
-        log::debug!("→ GET {}", url);
+        let path = "/blockchain/height";
+        log::debug!("→ GET {}", path);
 
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(ClientError::http(response.status().as_u16()));
-        }
-
-        let result: BlockHeightResponse = response.json().await?;
+        let result: BlockHeightResponse = self.request_with_fallback("GET", path, None).await?;
         Ok(result.height)
     }
 
     /// Validate an address
     pub async fn validate_address(&self, address: &str) -> Result<bool, ClientError> {
-        let url = format!("{}/address/validate/{}", self.endpoint, address);
-        log::debug!("→ GET {}", url);
+        let path = format!("/address/validate/{}", address);
+        log::debug!("→ GET {}", path);
 
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(ClientError::http(response.status().as_u16()));
-        }
-
-        let result: AddressValidation = response.json().await?;
+        let result: AddressValidation = self.request_with_fallback("GET", &path, None).await?;
         Ok(result.valid)
     }
 }
@@ -277,6 +357,12 @@ pub enum ClientError {
 
     #[error("Masternode unavailable")]
     Unavailable,
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 // Fix the HTTP error construction
