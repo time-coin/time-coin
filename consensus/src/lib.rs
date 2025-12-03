@@ -31,6 +31,7 @@ pub mod leader_election;
 pub mod monitoring;
 pub mod phased_protocol;
 pub mod proposals;
+pub mod quorum;
 pub mod tx_validation;
 pub mod utxo_state_protocol;
 
@@ -372,7 +373,7 @@ impl ConsensusEngine {
 
                 if let Some(vote_list) = self.pending_votes.get(block_hash) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
-                    let required = (total_nodes * 2).div_ceil(3); // Ceiling of 2/3
+                    let required = crate::quorum::required_for_bft(total_nodes);
                     approvals >= required
                 } else {
                     false
@@ -401,13 +402,13 @@ impl ConsensusEngine {
 
         let (approvals, rejections) = if let Some(vote_list) = self.pending_votes.get(block_hash) {
             let app = vote_list.iter().filter(|v| v.approve).count();
-            let rej = vote_list.iter().filter(|v| !v.approve).count();
+        let rej = vote_list.iter().filter(|v| !v.approve).count();
             (app, rej)
         } else {
             (0, 0)
         };
 
-        let required = (total_nodes * 2).div_ceil(3);
+        let required = crate::quorum::required_for_bft(total_nodes);
         let has_quorum = approvals >= required;
 
         (has_quorum, approvals, rejections, total_nodes)
@@ -528,7 +529,7 @@ impl ConsensusEngine {
 
                 if let Some(vote_list) = self.transaction_votes.get(txid) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
-                    let required = (total_nodes * 2).div_ceil(3); // Ceiling of 2/3
+                    let required = crate::quorum::required_for_bft(total_nodes);
                     approvals >= required
                 } else {
                     false
@@ -978,7 +979,7 @@ pub mod block_consensus {
             if let Some(height_votes) = self.votes.get(&block_height) {
                 if let Some(vote_list) = height_votes.get(block_hash) {
                     let approvals = vote_list.iter().filter(|v| v.approve).count();
-                    let required = (total_nodes * 2).div_ceil(3);
+                    let required = crate::quorum::required_for_bft(total_nodes);
                     let has_consensus = approvals >= required;
                     return (has_consensus, approvals, total_nodes);
                 }
@@ -1112,7 +1113,7 @@ pub mod block_consensus {
                     })
                     .unwrap_or(0);
 
-                let required_active = (active_count * 2).div_ceil(3);
+                let required_active = crate::quorum::required_for_bft(active_count);
 
                 if active_approvals >= required_active {
                     println!(
@@ -1167,7 +1168,7 @@ pub mod block_consensus {
                         })
                         .unwrap_or(0);
 
-                    let required_latest_version = (latest_version_count * 2).div_ceil(3);
+                    let required_latest_version = crate::quorum::required_for_bft(latest_version_count);
 
                     if latest_version_approvals >= required_latest_version {
                         println!(
@@ -1809,7 +1810,7 @@ pub mod block_consensus {
                         .filter(|v| v.approve && eligible_nodes.contains(&v.voter))
                         .count();
 
-                    let required = (total_nodes * 2).div_ceil(3);
+                    let required = crate::quorum::required_for_bft(total_nodes);
                     let has_consensus = approvals >= required;
                     return (has_consensus, approvals, total_nodes);
                 }

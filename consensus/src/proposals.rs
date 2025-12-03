@@ -64,12 +64,12 @@ impl Proposal {
         let total_votes = self.votes_for.len() + self.votes_against.len();
 
         // Need at least 2/3 of masternodes to have voted
-        if total_votes < (total_masternodes * 2).div_ceil(3) {
+        if total_votes < crate::quorum::required_for_bft(total_masternodes) {
             return false;
         }
 
         // Need 2/3+ approval from those who voted
-        let required = (total_votes * 2).div_ceil(3);
+        let required = crate::quorum::required_for_bft(total_votes);
         self.votes_for.len() >= required
     }
 
@@ -80,7 +80,7 @@ impl Proposal {
         }
 
         // If more than 1/3 reject, proposal is dead
-        let rejection_threshold = total_masternodes.div_ceil(3);
+        let rejection_threshold = crate::quorum::rejection_threshold(total_masternodes);
         self.votes_against.len() > rejection_threshold
     }
 }

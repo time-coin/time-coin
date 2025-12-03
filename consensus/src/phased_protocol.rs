@@ -180,7 +180,7 @@ impl PhasedProtocolManager {
         let received = heartbeats.len();
 
         // Need at least 2/3 of expected nodes
-        let threshold = (expected_nodes * 2).div_ceil(3);
+        let threshold = crate::quorum::required_for_bft(expected_nodes);
         received >= threshold
     }
 
@@ -227,7 +227,7 @@ impl PhasedProtocolManager {
         }
 
         // Check if 67% threshold met (2/3 + 1)
-        let threshold = (total_weight * 2).div_ceil(3);
+        let threshold = crate::quorum::required_for_bft(total_weight as usize) as u64;
         let has_consensus = approval_weight >= threshold;
 
         (has_consensus, approval_weight, total_weight)

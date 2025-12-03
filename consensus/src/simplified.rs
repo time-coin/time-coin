@@ -212,12 +212,12 @@ impl SimplifiedConsensus {
                 .map(|v| format!("{}: {:?}", v.voter, v.reason))
                 .collect();
 
-            let required = (total * 2).div_ceil(3); // Ceiling of 2/3
+            let required = crate::quorum::required_for_bft(total);
             let has_consensus = approvals >= required;
 
             (has_consensus, approvals, required, rejections)
         } else {
-            (false, 0, (total * 2).div_ceil(3), Vec::new())
+            (false, 0, crate::quorum::required_for_bft(total), Vec::new())
         }
     }
 

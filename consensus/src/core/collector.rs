@@ -227,7 +227,7 @@ mod tests {
         collector.record_vote(100, "hash1".to_string(), vote2);
 
         // 2 out of 4 votes (50%) - not enough for 2/3
-        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1").await.await;
+        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1").await;
         assert!(!has_consensus);
         assert_eq!(approvals, 2);
         assert_eq!(required, 3); // ceil(4 * 2 / 3) = 3
@@ -235,7 +235,7 @@ mod tests {
         collector.record_vote(100, "hash1".to_string(), vote3);
 
         // 3 out of 4 votes (75%) - meets 2/3 threshold
-        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1").await.await;
+        let (has_consensus, approvals, required) = collector.check_consensus(100, "hash1").await;
         assert!(has_consensus);
         assert_eq!(approvals, 3);
         assert_eq!(required, 3);
