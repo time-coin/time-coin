@@ -344,10 +344,7 @@ impl FastSync {
                     };
                     let peer_addr = format!("{}:{}", peer_clone, p2p_port);
 
-                    peer_manager
-                        .request_block_by_height(&peer_addr, height)
-                        .await
-                        .ok()
+                    (height, peer_manager.request_block_by_height(&peer_addr, height).await)
                 }));
             }
 
@@ -355,9 +352,41 @@ impl FastSync {
             let results = futures::future::join_all(tasks).await;
 
             let mut batch_blocks = Vec::new();
+            let mut failed_heights = Vec::new();
+            
             for result in results {
-                if let Ok(Some(block)) = result {
-                    batch_blocks.push(block);
+                match result {
+                    Ok((height, Ok(block))) => batch_blocks.push(block),
+                    Ok((height, Err(e))) => {
+                        eprintln!("      ⚠️  Failed to download block {}: {}", height, e);
+                        failed_heights.push(height);
+                    }
+                    Err(e) => {
+                        eprintln!("      ⚠️  Task panicked: {}", e);
+                    }
+                }
+            }
+            
+            // Retry failed downloads once
+            if !failed_heights.is_empty() {
+                eprintln!("      🔄 Retrying {} failed blocks...", failed_heights.len());
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                
+                for height in failed_heights {
+                    let p2p_port = match self.peer_manager.network {
+                        time_network::discovery::NetworkType::Mainnet => 24000,
+                        time_network::discovery::NetworkType::Testnet => 24100,
+                    };
+                    let peer_addr = format!("{}:{}", peer, p2p_port);
+                    
+                    if let Ok(block) = self.peer_manager
+                        .request_block_by_height(&peer_addr, height)
+                        .await
+                    {
+                        batch_blocks.push(block);
+                    } else {
+                        eprintln!("      ❌ Retry failed for block {}", height);
+                    }
                 }
             }
 
