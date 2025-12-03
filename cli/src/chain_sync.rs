@@ -884,7 +884,7 @@ impl ChainSync {
         // CRITICAL: Add 30-second timeout to prevent indefinite hanging
         match tokio::time::timeout(
             tokio::time::Duration::from_secs(30),
-            self.detect_and_resolve_forks_impl()
+            self.detect_and_resolve_forks_impl(),
         )
         .await
         {

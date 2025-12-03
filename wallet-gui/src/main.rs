@@ -15,7 +15,7 @@ use wallet::NetworkType;
 
 mod config;
 mod encryption;
-mod masternode_client;  // NEW: Thin client for masternode communication
+mod masternode_client; // NEW: Thin client for masternode communication
 mod mnemonic_ui;
 mod monitoring;
 mod network;
@@ -347,7 +347,7 @@ impl Default for WalletApp {
             is_syncing_transactions: false,
             refresh_in_progress: false,
             masternode_client: Some(masternode_client::MasternodeClient::new(
-                config.api_endpoint.clone() // Use api_endpoint for now
+                config.api_endpoint.clone(), // Use api_endpoint for now
             )),
             network_status: "Connecting to masternode...".to_string(),
             network_manager: None,
@@ -428,55 +428,60 @@ impl WalletApp {
                     // THIN CLIENT: Simple masternode health check (replaces complex network init)
                     // ========================================================================
                     log::info!("🚀 Thin client mode: checking masternode connectivity...");
-                    
+
                     // Get xpub BEFORE manager is moved
                     let wallet_xpub = manager.get_xpub().to_string();
-                    
+
                     // Store manager
                     self.wallet_manager = Some(manager);
                     log::info!("Wallet auto-loaded successfully");
-                    
+
                     // Create channels for transaction notifications
                     let (tx_notif_tx, tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
                     self.tx_notification_rx = Some(tx_notif_rx);
-                    
+
                     // Check masternode health in background
                     if let Some(client) = &self.masternode_client {
                         let client_clone = client.clone();
                         let state_tx = self.state_tx.clone();
-                        
+
                         tokio::spawn(async move {
                             log::info!("🏥 Checking masternode health...");
-                            
+
                             match client_clone.health_check().await {
                                 Ok(status) => {
-                                    log::info!("✅ Masternode healthy: {} (height: {}, peers: {})", 
-                                        status.status, status.block_height, status.peer_count);
-                                    
+                                    log::info!(
+                                        "✅ Masternode healthy: {} (height: {}, peers: {})",
+                                        status.status,
+                                        status.block_height,
+                                        status.peer_count
+                                    );
+
                                     if let Some(tx) = state_tx {
                                         let _ = tx.send(AppStateUpdate::NetworkStatusChanged(
-                                            format!("Connected (height: {})", status.block_height)
+                                            format!("Connected (height: {})", status.block_height),
                                         ));
                                     }
                                 }
                                 Err(e) => {
                                     log::error!("❌ Masternode health check failed: {}", e);
-                                    
+
                                     if let Some(tx) = state_tx {
-                                        let _ = tx.send(AppStateUpdate::ErrorOccurred(
-                                            format!("Masternode unavailable: {}", e)
-                                        ));
+                                        let _ = tx.send(AppStateUpdate::ErrorOccurred(format!(
+                                            "Masternode unavailable: {}",
+                                            e
+                                        )));
                                     }
                                 }
                             }
                         });
                     }
-                    
+
                     self.network_status = "Connected to masternode".to_string();
-                    
+
                     // Optional: Auto-refresh balance on startup
                     self.trigger_manual_refresh();
-                    
+
                     /* DEPRECATED: Old complex network initialization (Phase 3 - delete)
                     // Initialize peer manager
                     let peer_mgr = Arc::new(PeerManager::new(self.network));
@@ -606,7 +611,7 @@ impl WalletApp {
                         let network_mgr_for_connect = network_mgr_clone.clone();
                         tokio::spawn(async move {
                             use crate::timeout_util::{safe_timeout, timeouts};
-                            
+
                             log::info!("🔗 Connecting NetworkManager to peers...");
                             let result = safe_timeout(timeouts::NETWORK_SLOW, async {
                                 let mut net = network_mgr_for_connect.write().await;
@@ -794,7 +799,7 @@ impl WalletApp {
 
                                 let network_clone = network_refresh.clone();
                                 use crate::timeout_util::{safe_timeout, timeouts};
-                                
+
                                 let result = safe_timeout(timeouts::NETWORK_SLOW, async move {
                                     let mut manager = network_clone.write().await;
                                     manager.periodic_refresh().await
@@ -1168,10 +1173,10 @@ impl WalletApp {
 
                                                         // Run periodic refresh (latency, version, blockchain height)
                                                         let network_clone = network_refresh.clone();
-                                                        
+
                                                         // Note: Using spawn_blocking since RwLock is synchronous
                                                         tokio::task::spawn_blocking(move || {
-                                                            if let Ok(mut manager) = network_clone.write() {
+                                                            if let Ok(manager) = network_clone.write() {
                                                                 // Note: periodic_refresh is async but we can't await in spawn_blocking
                                                                 // This will be properly handled in Phase 3 thin client migration
                                                                 log::debug!("Periodic refresh triggered");
@@ -1596,7 +1601,8 @@ impl WalletApp {
                         ctx_clone.request_repaint();
                     });
                 }
-                */ // End DEPRECATED network initialization
+                */
+                // End DEPRECATED network initialization
 
                 // Force UI repaint to show new screen
                 log::info!("Requesting UI repaint");
@@ -4582,9 +4588,13 @@ impl WalletApp {
             // 1. Get balance (one HTTP call)
             match masternode_client.get_balance(&xpub).await {
                 Ok(balance) => {
-                    log::info!("✅ Balance: {} TIME (confirmed: {}, pending: {})", 
-                        balance.total, balance.confirmed, balance.pending);
-                    
+                    log::info!(
+                        "✅ Balance: {} TIME (confirmed: {}, pending: {})",
+                        balance.total,
+                        balance.confirmed,
+                        balance.pending
+                    );
+
                     // Send to UI via channel
                     if let Some(tx) = &state_tx {
                         let _ = tx.send(AppStateUpdate::BalanceUpdated(balance.total));
@@ -4593,9 +4603,10 @@ impl WalletApp {
                 Err(e) => {
                     log::error!("❌ Failed to fetch balance: {}", e);
                     if let Some(tx) = &state_tx {
-                        let _ = tx.send(AppStateUpdate::ErrorOccurred(
-                            format!("Failed to fetch balance: {}", e)
-                        ));
+                        let _ = tx.send(AppStateUpdate::ErrorOccurred(format!(
+                            "Failed to fetch balance: {}",
+                            e
+                        )));
                     }
                 }
             }
@@ -4603,8 +4614,10 @@ impl WalletApp {
             // 2. Get transactions (one HTTP call)
             match masternode_client.get_transactions(&xpub, 100).await {
                 Ok(transactions) => {
-                    log::info!("✅ Received {} transactions from masternode", 
-                        transactions.len());
+                    log::info!(
+                        "✅ Received {} transactions from masternode",
+                        transactions.len()
+                    );
 
                     // Save to local database
                     if let Some(db) = &wallet_db {
@@ -4617,12 +4630,15 @@ impl WalletApp {
                                 timestamp: tx.timestamp,
                                 block_height: Some(tx.confirmations as u64),
                                 status: match tx.status {
-                                    masternode_client::TransactionStatus::Confirmed => 
-                                        wallet_db::TransactionStatus::Confirmed,
-                                    masternode_client::TransactionStatus::Pending => 
-                                        wallet_db::TransactionStatus::Pending,
-                                    masternode_client::TransactionStatus::Failed => 
-                                        wallet_db::TransactionStatus::Confirmed, // Map to confirmed for now
+                                    masternode_client::TransactionStatus::Confirmed => {
+                                        wallet_db::TransactionStatus::Confirmed
+                                    }
+                                    masternode_client::TransactionStatus::Pending => {
+                                        wallet_db::TransactionStatus::Pending
+                                    }
+                                    masternode_client::TransactionStatus::Failed => {
+                                        wallet_db::TransactionStatus::Confirmed
+                                    } // Map to confirmed for now
                                 },
                                 notes: None,
                             };
@@ -4636,9 +4652,10 @@ impl WalletApp {
                 Err(e) => {
                     log::error!("❌ Failed to fetch transactions: {}", e);
                     if let Some(tx) = &state_tx {
-                        let _ = tx.send(AppStateUpdate::ErrorOccurred(
-                            format!("Failed to fetch transactions: {}", e)
-                        ));
+                        let _ = tx.send(AppStateUpdate::ErrorOccurred(format!(
+                            "Failed to fetch transactions: {}",
+                            e
+                        )));
                     }
                 }
             }
@@ -4655,7 +4672,7 @@ impl WalletApp {
         self.last_sync_time = Some(std::time::Instant::now());
 
         // Reset refresh flag after delay
-        let mut self_refresh = self.refresh_in_progress;
+        let self_refresh = self.refresh_in_progress;
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             // Note: refresh_in_progress will be set to false when SyncCompleted is received

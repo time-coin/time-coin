@@ -273,7 +273,8 @@ pub async fn get_xpub_balance(
     let mempool = state.mempool.as_ref();
     let pending = if let Some(mempool) = mempool {
         let transactions = mempool.get_all_transactions().await;
-        transactions.iter()
+        transactions
+            .iter()
             .flat_map(|tx| &tx.outputs)
             .filter(|output| {
                 // Check if output address belongs to any address from xpub
@@ -339,7 +340,8 @@ pub async fn get_xpub_utxos(
     let sync_response = sync_wallet_xpub(State(state), Json(sync_request)).await?;
 
     // Flatten all UTXOs into a single list
-    let all_utxos: Vec<UtxoInfo> = sync_response.0
+    let all_utxos: Vec<UtxoInfo> = sync_response
+        .0
         .utxos
         .clone()
         .into_values()
@@ -390,9 +392,11 @@ pub async fn broadcast_transaction(
 
     // Add to mempool
     if let Some(mempool) = &state.mempool {
-        mempool.add_transaction(tx).await
+        mempool
+            .add_transaction(tx)
+            .await
             .map_err(|e| ApiError::Internal(format!("Failed to add to mempool: {}", e)))?;
-        
+
         Ok(Json(BroadcastTransactionResponse {
             txid,
             success: true,

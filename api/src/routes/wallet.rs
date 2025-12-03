@@ -2,11 +2,14 @@
 
 use crate::wallet_send_handler::wallet_send;
 use crate::wallet_sync_handlers::{
-    get_xpub_balance, get_xpub_transactions, get_xpub_utxos,
-    register_xpub, sync_wallet_addresses, sync_wallet_xpub,
+    get_xpub_balance, get_xpub_transactions, get_xpub_utxos, register_xpub, sync_wallet_addresses,
+    sync_wallet_xpub,
 };
 use crate::ApiState;
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 
 /// Register wallet operation routes
 pub fn wallet_routes() -> Router<ApiState> {

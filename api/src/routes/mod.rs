@@ -60,9 +60,8 @@ pub fn create_routes() -> Router<ApiState> {
 fn transaction_routes() -> Router<ApiState> {
     use crate::wallet_sync_handlers::broadcast_transaction;
     use axum::routing::post;
-    
-    Router::new()
-        .route("/broadcast", post(broadcast_transaction))
+
+    Router::new().route("/broadcast", post(broadcast_transaction))
 }
 
 // Root endpoints

@@ -361,7 +361,7 @@ impl FastSync {
 
             for result in results {
                 match result {
-                    Ok((height, Ok(block))) => batch_blocks.push(block),
+                    Ok((_height, Ok(block))) => batch_blocks.push(block),
                     Ok((height, Err(e))) => {
                         eprintln!("      ⚠️  Failed to download block {}: {}", height, e);
                         failed_heights.push(height);
