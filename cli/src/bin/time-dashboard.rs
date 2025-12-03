@@ -25,7 +25,10 @@ struct BlockchainInfo {
 
 #[derive(Debug, Deserialize)]
 struct BalanceResponse {
-    balance: f64,
+    #[allow(dead_code)]
+    address: String,
+    balance: u64,
+    unconfirmed_balance: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,7 +162,7 @@ impl Dashboard {
         println!();
     }
 
-    fn render_blockchain(&self, info: &BlockchainInfo, balance: Option<f64>) {
+    fn render_blockchain(&self, info: &BlockchainInfo, balance: Option<BalanceResponse>) {
         println!(
             "{}",
             "┌─ Blockchain Status ──────────────────────────────────────────┐".blue()
@@ -186,12 +189,23 @@ impl Dashboard {
         );
 
         // Display balance if available
-        if let Some(bal) = balance {
+        if let Some(bal_response) = balance {
+            let confirmed = bal_response.balance as f64 / 100_000_000.0;
+            let unconfirmed = bal_response.unconfirmed_balance as f64 / 100_000_000.0;
+            
             println!(
                 "│ {:<20} {} TIME",
-                "Wallet Balance:".bright_black(),
-                format!("{:.8}", bal).bright_yellow().bold()
+                "Confirmed Balance:".bright_black(),
+                format!("{:.8}", confirmed).bright_yellow().bold()
             );
+            
+            if unconfirmed > 0.0 {
+                println!(
+                    "│ {:<20} {} TIME",
+                    "Unconfirmed:".bright_black(),
+                    format!("{:.8}", unconfirmed).bright_cyan()
+                );
+            }
         } else {
             println!(
                 "│ {:<20} {}",
@@ -309,8 +323,7 @@ impl Dashboard {
                 let balance = self
                     .fetch_balance(&info.wallet_address)
                     .await
-                    .ok()
-                    .map(|b| b.balance);
+                    .ok();
                 self.render_blockchain(&info, balance);
             }
             Err(e) => self.render_error(&format!("Blockchain info error: {}", e)),
