@@ -16,7 +16,7 @@ pub mod wallet_send_handler;
 pub mod wallet_sync_handlers;
 
 pub use error::{ApiError, ApiResult};
-pub use services::BlockchainService;
+pub use services::{BlockchainService, TreasuryService};
 pub use state::ApiState;
 
 // Re-export create_routes for testing

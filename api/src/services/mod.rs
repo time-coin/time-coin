@@ -7,5 +7,7 @@
 //! - Focused on domain logic
 
 pub mod blockchain;
+pub mod treasury;
 
 pub use blockchain::BlockchainService;
+pub use treasury::TreasuryService;
