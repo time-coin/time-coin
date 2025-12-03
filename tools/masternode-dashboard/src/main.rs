@@ -36,6 +36,7 @@ struct PeerInfo {
 struct MempoolStatus {
     size: usize,
     #[serde(default)]
+    #[allow(dead_code)] // Field is part of API response but not displayed
     transactions: Vec<String>,
 }
 
