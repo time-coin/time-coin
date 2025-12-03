@@ -61,8 +61,8 @@ crossterm = "0.29"
 futures = "0.3"
 
 [profile.release]
-opt-level = 3           # Maximum optimization (speed over size)
-lto = "fat"             # Full link-time optimization across all crates
-codegen-units = 1       # Better optimization, single codegen unit
+opt-level = 3           # Maximum optimization (speed)
+lto = "thin"            # Thin LTO (faster compile, still optimized)
+codegen-units = 16      # Parallel compilation (faster builds)
 strip = true            # Strip symbols for smaller binary
 panic = "abort"         # Remove unwinding code
