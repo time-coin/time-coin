@@ -1,7 +1,7 @@
 //! Blockchain information and query endpoints
 
 use crate::balance::calculate_mempool_balance;
-use crate::{ApiError, ApiResult, ApiState};
+use crate::{ApiError, ApiResult, ApiState, BlockchainService};
 use axum::{
     extract::{Path, State},
     routing::get,
@@ -84,10 +84,12 @@ async fn get_balance(
     State(state): State<ApiState>,
     Path(address): Path<String>,
 ) -> ApiResult<Json<BalanceResponse>> {
-    let blockchain = state.blockchain.read().await;
-    let balance = blockchain.get_balance(&address);
+    // Use service for business logic
+    let service = BlockchainService::new(state.blockchain.clone());
+    let balance = service.get_balance(&address).await?;
 
     let unconfirmed_balance = if let Some(mempool) = &state.mempool {
+        let blockchain = state.blockchain.read().await;
         calculate_mempool_balance(&address, &blockchain, mempool).await
     } else {
         0
@@ -117,18 +119,18 @@ async fn get_utxos_by_address(
     State(state): State<ApiState>,
     Path(address): Path<String>,
 ) -> ApiResult<Json<UtxoResponse>> {
-    let blockchain = state.blockchain.read().await;
-    let utxo_set = blockchain.utxo_set();
+    // Use service for business logic
+    let service = BlockchainService::new(state.blockchain.clone());
+    let utxos_data = service.get_utxos(&address).await?;
 
-    let mut utxos = Vec::new();
-
-    for (outpoint, output) in utxo_set.get_utxos_by_address(&address) {
-        utxos.push(UtxoInfo {
+    let utxos: Vec<UtxoInfo> = utxos_data
+        .iter()
+        .map(|(outpoint, output)| UtxoInfo {
             txid: outpoint.txid.clone(),
             vout: outpoint.vout,
             amount: output.amount,
-        });
-    }
+        })
+        .collect();
 
     Ok(Json(UtxoResponse { address, utxos }))
 }

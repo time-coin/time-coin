@@ -8,13 +8,15 @@ pub mod quarantine_handlers;
 mod response;
 mod routes;
 mod rpc_handlers;
+mod services;
 mod state;
 pub mod treasury_handlers;
-pub mod tx_sync_handlers; // 🆕 Transaction synchronization handlers
+pub mod tx_sync_handlers;
 pub mod wallet_send_handler;
 pub mod wallet_sync_handlers;
 
 pub use error::{ApiError, ApiResult};
+pub use services::BlockchainService;
 pub use state::ApiState;
 
 // Re-export create_routes for testing
