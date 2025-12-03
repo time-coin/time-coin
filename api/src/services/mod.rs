@@ -8,6 +8,8 @@
 
 pub mod blockchain;
 pub mod treasury;
+pub mod wallet;
 
 pub use blockchain::BlockchainService;
 pub use treasury::TreasuryService;
+pub use wallet::WalletService;
