@@ -369,6 +369,8 @@ pub mod utxo_integration;
 pub mod utxo_tracker;
 pub mod wallet_dat;
 pub mod wallet_manager;
+pub mod wallet_api;
+pub mod api_server;
 
 pub use blockchain_scanner::BlockchainScanner;
 pub use registry::MasternodeRegistry;

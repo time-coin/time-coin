@@ -67,6 +67,9 @@ pub enum MasternodeError {
 
     #[error("Address derivation error: {0}")]
     AddressDerivation(String),
+
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(String),
 }
 
 pub type Result<T> = std::result::Result<T, MasternodeError>;

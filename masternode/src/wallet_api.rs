@@ -101,6 +101,31 @@ impl WalletApiHandler {
         }
     }
 
+    /// Create a new handler with mock test data (for development)
+    pub async fn new_with_test_data() -> Self {
+        let handler = Self::new();
+        
+        // Add some test data
+        let test_xpub = "xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKrhko4egpiMZbpiaQL2jkwSB1icqYh2cfDfVxdx4df189oLKnC5fSwqPfgyP3hooxujYzAu3fDVmz";
+        let test_addresses = vec![
+            "tc1q0000000000000000000000000000000000001".to_string(),
+            "tc1q0000000000000000000000000000000000002".to_string(),
+        ];
+        
+        handler.register_xpub(test_xpub, test_addresses.clone()).await.ok();
+        
+        // Add test transactions
+        handler.add_test_transaction(&test_addresses[0], 100_000_000).await.ok(); // 1 TIME
+        handler.add_test_transaction(&test_addresses[0], 50_000_000).await.ok();  // 0.5 TIME
+        handler.add_test_transaction(&test_addresses[1], 25_000_000).await.ok();  // 0.25 TIME
+        
+        log::info!("✅ Test data initialized for xpub: {}", test_xpub);
+        log::info!("   Addresses: {:?}", test_addresses);
+        log::info!("   Total balance: 1.75 TIME");
+        
+        handler
+    }
+
     /// Get balance for an xpub (extended public key)
     pub async fn get_balance(&self, xpub: &str) -> Result<Balance, MasternodeError> {
         let blockchain = self.blockchain.read().await;

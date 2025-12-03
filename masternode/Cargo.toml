@@ -9,6 +9,10 @@ authors.workspace = true
 name = "time_masternode"
 path = "src/lib.rs"
 
+[[bin]]
+name = "masternode-api"
+path = "src/bin/api_server.rs"
+
 [dependencies]
 time-core = { version = "0.1.0", path = "../core" }
 time-crypto = { version = "0.1.0", path = "../crypto" }
@@ -33,6 +37,7 @@ reqwest = { workspace = true }
 base64 = "0.22"
 bincode = { workspace = true }
 dirs = "6.0"
+axum = "0.7"
 
 
 [dev-dependencies]
