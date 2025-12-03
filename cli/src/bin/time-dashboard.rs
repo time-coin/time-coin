@@ -116,7 +116,7 @@ impl Dashboard {
 
     async fn fetch_balance(&self, address: &str) -> Result<BalanceResponse, String> {
         self.client
-            .get(format!("{}/balance/{}", self.api_url, address))
+            .get(format!("{}/blockchain/balance/{}", self.api_url, address))
             .send()
             .await
             .map_err(|e| format!("Request failed: {}", e))?
