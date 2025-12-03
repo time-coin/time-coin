@@ -1736,17 +1736,12 @@ async fn main() {
                                         };
                                     let mut conn_guard = conn_arc.lock().await;
                                     if let Err(e) = conn_guard.send_message(sync_msg).await {
-                                        println!(
+                                        eprintln!(
                                             "⚠️  Failed to send masternode list to new peer {}: {}",
                                             peer_ip, e
                                         );
-                                    } else {
-                                        println!(
-                                            "✅ Sent {} masternodes to new peer {}",
-                                            masternodes.len(),
-                                            peer_ip
-                                        );
                                     }
+                                    // Reduced verbosity: only log at debug level
                                 }
                             }
 
