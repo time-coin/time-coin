@@ -75,7 +75,7 @@ impl<V: Vote> VoteCollector<V> {
     /// Check if consensus is reached for a specific key at height
     pub async fn check_consensus(&self, height: u64, key: &str) -> (bool, usize, usize) {
         let total_voters = *self.total_voters.read().await;
-        
+
         if total_voters < 3 {
             // Bootstrap mode - accept immediately
             return (true, 0, total_voters);
@@ -84,8 +84,8 @@ impl<V: Vote> VoteCollector<V> {
         if let Some(height_votes) = self.votes.get(&height) {
             if let Some(vote_list) = height_votes.get(key) {
                 let approvals = vote_list.iter().filter(|v| v.approve()).count();
-                let required = (total_voters * self.threshold_numerator)
-                    .div_ceil(self.threshold_denominator);
+                let required =
+                    (total_voters * self.threshold_numerator).div_ceil(self.threshold_denominator);
                 let has_consensus = approvals >= required;
                 return (has_consensus, approvals, required);
             }

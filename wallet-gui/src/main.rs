@@ -4,18 +4,19 @@
 #![allow(clippy::get_first)]
 #![allow(clippy::manual_while_let_some)]
 #![allow(clippy::empty_line_after_doc_comments)]
-#![allow(clippy::await_holding_lock)] // Safe in spawn_blocking contexts
 #![allow(unused_variables)]
 #![allow(non_snake_case)]
 use chrono::Timelike;
 use eframe::egui;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 use wallet::NetworkType;
 
 mod config;
 mod encryption;
+mod masternode_client;  // NEW: Thin client for masternode communication
 mod mnemonic_ui;
 mod monitoring;
 mod network;
@@ -23,8 +24,9 @@ mod password_ui;
 mod peer_manager;
 mod protocol_client;
 mod rate_limiter;
-mod simple_client; // New: Simple async TCP client (no blocking, no mutexes)
+mod simple_client;
 mod tcp_protocol_client;
+mod timeout_util;
 mod ui_components;
 mod utxo_manager;
 mod wallet_dat;
@@ -37,9 +39,22 @@ use mnemonic_ui::{MnemonicAction, MnemonicInterface};
 use network::NetworkManager;
 use peer_manager::PeerManager;
 use protocol_client::ProtocolClient;
+use timeout_util::DebounceTimer;
 use utxo_manager::{UtxoAction, UtxoManager};
 use wallet_db::{AddressContact, WalletDb};
 use wallet_manager::WalletManager;
+
+#[derive(Debug, Clone)]
+pub enum AppStateUpdate {
+    NetworkStatusChanged(String),
+    PeerCountChanged(usize),
+    BalanceUpdated(u64),
+    TransactionReceived(String),
+    SyncProgressUpdated(f32),
+    SyncCompleted,
+    ErrorOccurred(String),
+    SuccessMessage(String),
+}
 
 fn main() -> Result<(), eframe::Error> {
     // Initialize tokio runtime for async network operations
@@ -126,20 +141,29 @@ struct WalletApp {
     refresh_in_progress: bool,
 
     // UI state
-    // Network manager (wrapped for thread safety)
-    network_manager: Option<Arc<std::sync::Mutex<NetworkManager>>>,
+    // NEW: Simple masternode client (replaces complex network stack)
+    masternode_client: Option<masternode_client::MasternodeClient>,
     network_status: String,
 
-    // Peer manager for discovering and managing masternode peers
-    peer_manager: Option<Arc<PeerManager>>,
+    // DEPRECATED - Will be removed in Phase 3
+    // network_manager: Option<Arc<tokio::sync::RwLock<NetworkManager>>>,
+    // peer_manager: Option<Arc<PeerManager>>,
+    // upnp_manager: Option<Arc<time_network::UpnpManager>>,
+    // protocol_client: Option<Arc<ProtocolClient>>,
 
-    // UPnP manager for automatic port forwarding
-    upnp_manager: Option<Arc<time_network::UpnpManager>>,
+    // Channel for background task communication
+    state_tx: Option<mpsc::UnboundedSender<AppStateUpdate>>,
+    state_rx: Option<mpsc::UnboundedReceiver<AppStateUpdate>>,
 
-    // TIME Coin Protocol client for real-time notifications
-    protocol_client: Option<Arc<ProtocolClient>>,
-    // notification_rx: Option<mpsc::UnboundedReceiver<WalletNotification>>, // Removed - WebSocket notifications
-    // recent_notifications: Vec<WalletNotification>, // Removed - WebSocket notifications
+    // Cached state (updated via channel)
+    cached_peer_count: usize,
+    cached_balance: u64,
+    cached_sync_progress: f32,
+
+    // Debounce timers
+    balance_update_timer: DebounceTimer,
+    peer_count_timer: DebounceTimer,
+    transaction_list_timer: DebounceTimer,
 
     // Mnemonic setup - NEW enhanced interface
     mnemonic_interface: MnemonicInterface,
@@ -294,6 +318,8 @@ impl Default for WalletApp {
             Screen::Welcome
         };
 
+        let (state_tx, state_rx) = mpsc::unbounded_channel();
+
         let mut app = Self {
             current_screen: initial_screen,
             wallet_manager: None,
@@ -321,11 +347,18 @@ impl Default for WalletApp {
             last_sync_time: None,
             is_syncing_transactions: false,
             refresh_in_progress: false,
-            network_manager: None,
-            network_status: "Not connected".to_string(),
-            peer_manager: None,
-            upnp_manager: None,
-            protocol_client: None,
+            masternode_client: Some(masternode_client::MasternodeClient::new(
+                config.api_endpoint.clone() // Use api_endpoint for now
+            )),
+            network_status: "Connecting to masternode...".to_string(),
+            state_tx: Some(state_tx),
+            state_rx: Some(state_rx),
+            cached_peer_count: 0,
+            cached_balance: 0,
+            cached_sync_progress: 0.0,
+            balance_update_timer: DebounceTimer::new(500),
+            peer_count_timer: DebounceTimer::new(1000),
+            transaction_list_timer: DebounceTimer::new(2000),
             mnemonic_interface: MnemonicInterface::new(),
             mnemonic_confirmed: false,
             password_prompt: None,
@@ -388,6 +421,60 @@ impl WalletApp {
                         }
                     }
 
+                    // ========================================================================
+                    // THIN CLIENT: Simple masternode health check (replaces complex network init)
+                    // ========================================================================
+                    log::info!("🚀 Thin client mode: checking masternode connectivity...");
+                    
+                    // Get xpub BEFORE manager is moved
+                    let wallet_xpub = manager.get_xpub().to_string();
+                    
+                    // Store manager
+                    self.wallet_manager = Some(manager);
+                    log::info!("Wallet auto-loaded successfully");
+                    
+                    // Create channels for transaction notifications
+                    let (tx_notif_tx, tx_notif_rx) = tokio::sync::mpsc::unbounded_channel();
+                    self.tx_notification_rx = Some(tx_notif_rx);
+                    
+                    // Check masternode health in background
+                    if let Some(client) = &self.masternode_client {
+                        let client_clone = client.clone();
+                        let state_tx = self.state_tx.clone();
+                        
+                        tokio::spawn(async move {
+                            log::info!("🏥 Checking masternode health...");
+                            
+                            match client_clone.health_check().await {
+                                Ok(status) => {
+                                    log::info!("✅ Masternode healthy: {} (height: {}, peers: {})", 
+                                        status.status, status.block_height, status.peer_count);
+                                    
+                                    if let Some(tx) = state_tx {
+                                        let _ = tx.send(AppStateUpdate::NetworkStatusChanged(
+                                            format!("Connected (height: {})", status.block_height)
+                                        ));
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("❌ Masternode health check failed: {}", e);
+                                    
+                                    if let Some(tx) = state_tx {
+                                        let _ = tx.send(AppStateUpdate::ErrorOccurred(
+                                            format!("Masternode unavailable: {}", e)
+                                        ));
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    self.network_status = "Connected to masternode".to_string();
+                    
+                    // Optional: Auto-refresh balance on startup
+                    self.trigger_manual_refresh();
+                    
+                    /* DEPRECATED: Old complex network initialization (Phase 3 - delete)
                     // Initialize peer manager
                     let peer_mgr = Arc::new(PeerManager::new(self.network));
                     if let Some(db) = &self.wallet_db {
@@ -400,13 +487,13 @@ impl WalletApp {
                     self.peer_manager = Some(peer_mgr.clone());
 
                     // Initialize network manager
-                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
+                    let network_mgr = Arc::new(tokio::sync::RwLock::new(NetworkManager::new(
                         main_config.api_endpoint.clone(),
                     )));
 
                     // Connect network manager to peer manager
                     {
-                        let mut net = network_mgr.lock().unwrap();
+                        let mut net = network_mgr.write().await;
                         net.set_peer_manager(peer_mgr.clone());
                     }
 
@@ -512,49 +599,57 @@ impl WalletApp {
                             })
                             .collect();
 
-                        // Connect in a separate thread to avoid Send issues
+                        // Connect NetworkManager to peers using proper async spawn
                         let network_mgr_for_connect = network_mgr_clone.clone();
-                        std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async move {
-                                // Scope the lock to avoid holding across await
-                                // Safe in spawn_blocking/block_on context
-                                #[allow(clippy::await_holding_lock)]
-                                {
-                                    let mut net = network_mgr_for_connect.lock().unwrap();
-                                    log::info!("Acquired NetworkManager lock, calling connect_to_peers");
-                                    let result = net.connect_to_peers(peer_infos).await;
+                        tokio::spawn(async move {
+                            use crate::timeout_util::{safe_timeout, timeouts};
+                            
+                            log::info!("🔗 Connecting NetworkManager to peers...");
+                            let result = safe_timeout(timeouts::NETWORK_SLOW, async {
+                                let mut net = network_mgr_for_connect.write().await;
+                                net.connect_to_peers(peer_infos).await
+                            })
+                            .await;
+
+                            if result.timed_out {
+                                log::error!("⏱️ Connection timeout after 30s");
+                                return;
+                            }
+
+                            match result.value {
+                                Some(Ok(_)) => {
+                                    let net = network_mgr_for_connect.read().await;
                                     let peer_count = net.peer_count();
                                     drop(net);
+                                    log::info!(
+                                        "✅ NetworkManager connected to {} peers in {}ms",
+                                        peer_count, result.elapsed_ms
+                                    );
 
-                                    match result {
-                                        Ok(_) => {
-                                            log::info!(
-                                                "✅ NetworkManager connected to {} peers successfully", peer_count
-                                            );
+                                    // Now discover more peers from the connected ones
+                                    log::info!("🔍 Starting peer discovery...");
+                                    let discover_result = safe_timeout(timeouts::NETWORK_SLOW, async {
+                                        let mut net = network_mgr_for_connect.write().await;
+                                        net.discover_and_connect_peers().await
+                                    })
+                                    .await;
 
-                                            // Now discover more peers from the connected ones
-                                            log::info!("🔍 Starting peer discovery...");
-                                            let mut net = network_mgr_for_connect.lock().unwrap();
-                                            let discover_result =
-                                                net.discover_and_connect_peers().await;
-                                            drop(net);
-
-                                            if let Err(e) = discover_result {
-                                                log::warn!("⚠️ Peer discovery had issues: {}", e);
-                                            } else {
-                                                log::info!("✅ Peer discovery completed");
-                                            }
-                                        }
-                                        Err(e) => {
-                                            log::error!(
-                                                "❌ Failed to connect NetworkManager: {}",
-                                                e
-                                            );
-                                        }
+                                    if discover_result.timed_out {
+                                        log::warn!("⏱️ Peer discovery timeout");
+                                    } else if let Some(Err(e)) = discover_result.value {
+                                        log::warn!("⚠️ Peer discovery had issues: {}", e);
+                                    } else {
+                                        log::info!(
+                                            "✅ Peer discovery completed in {}ms",
+                                            discover_result.elapsed_ms
+                                        );
                                     }
                                 }
-                            });
+                                Some(Err(e)) => {
+                                    log::error!("❌ Failed to connect NetworkManager: {}", e);
+                                }
+                                None => {}
+                            }
                         });
 
                         // Start periodic peer discovery from PeerManager
@@ -695,21 +790,23 @@ impl WalletApp {
                                 tokio::time::sleep(refresh_interval).await;
 
                                 let network_clone = network_refresh.clone();
-                                tokio::task::spawn_blocking(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async move {
-                                        #[allow(clippy::await_holding_lock)]
-                                        {
-                                            let mut manager = network_clone.lock().unwrap();
-                                            manager.periodic_refresh().await
-                                        }
-                                    });
+                                use crate::timeout_util::{safe_timeout, timeouts};
+                                
+                                let result = safe_timeout(timeouts::NETWORK_SLOW, async move {
+                                    let mut manager = network_clone.write().await;
+                                    manager.periodic_refresh().await
                                 })
-                                .await
-                                .ok();
+                                .await;
+
+                                if result.timed_out {
+                                    log::warn!("⏱️ Periodic refresh timeout after 30s");
+                                } else if let Some(Ok(_)) = result.value {
+                                    log::info!("✅ Periodic refresh completed in {}ms", result.elapsed_ms);
+                                }
                             }
                         });
                     });
+                    */ // End DEPRECATED network initialization
                 }
             }
             Err(e) => {
@@ -1068,18 +1165,19 @@ impl WalletApp {
 
                                                         // Run periodic refresh (latency, version, blockchain height)
                                                         let network_clone = network_refresh.clone();
-                                                        tokio::task::spawn_blocking(move || {
-                                                            let rt = tokio::runtime::Runtime::new().unwrap();
-                                                            rt.block_on(async move {
-                                                                #[allow(clippy::await_holding_lock)]
-                                                                {
-                                                                    let mut manager = network_clone.lock().unwrap();
-                                                                    manager.periodic_refresh().await
-                                                                }
-                                                            });
-                                                        }).await.ok();
+                                                        use crate::timeout_util::{safe_timeout, timeouts};
+                                                        
+                                                        let result = safe_timeout(timeouts::NETWORK_SLOW, async move {
+                                                            let mut manager = network_clone.write().await;
+                                                            manager.periodic_refresh().await
+                                                        })
+                                                        .await;
 
-                                                        log::debug!("Scheduled refresh complete");
+                                                        if result.timed_out {
+                                                            log::warn!("⏱️ Scheduled refresh timeout");
+                                                        } else {
+                                                            log::debug!("Scheduled refresh complete");
+                                                        }
                                                     }
                                                 });
                                             }
@@ -1364,6 +1462,7 @@ impl WalletApp {
                 self.mnemonic_interface.clear();
                 self.mnemonic_confirmed = false;
 
+                /* DEPRECATED: Old network initialization (Phase 3 - delete)
                 // Load config and initialize network + peer manager
                 if let Ok(main_config) = Config::load() {
                     // Initialize peer manager
@@ -1390,13 +1489,13 @@ impl WalletApp {
                         peer_mgr_clone.clone().start_maintenance();
                     });
 
-                    let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
+                    let network_mgr = Arc::new(tokio::sync::RwLock::new(NetworkManager::new(
                         main_config.api_endpoint.clone(),
                     )));
 
                     // Connect network manager to peer manager
                     {
-                        let mut net = network_mgr.lock().unwrap();
+                        let mut net = network_mgr.write().await;
                         net.set_peer_manager(peer_mgr.clone());
                     }
 
@@ -1498,6 +1597,7 @@ impl WalletApp {
                         ctx_clone.request_repaint();
                     });
                 }
+                */ // End DEPRECATED network initialization
 
                 // Force UI repaint to show new screen
                 log::info!("Requesting UI repaint");
@@ -3811,12 +3911,12 @@ impl WalletApp {
 
             // Initialize network manager if not already done
             if self.network_manager.is_none() {
-                let network_mgr = Arc::new(Mutex::new(NetworkManager::new(
+                let network_mgr = Arc::new(tokio::sync::RwLock::new(NetworkManager::new(
                     main_config.api_endpoint.clone(),
                 )));
 
                 if let Some(peer_mgr) = &self.peer_manager {
-                    let mut net = network_mgr.lock().unwrap();
+                    let mut net = network_mgr.write().await;
                     net.set_peer_manager(peer_mgr.clone());
                 }
 
@@ -4452,7 +4552,7 @@ impl WalletApp {
             return;
         }
 
-        log::info!("🔄 Manual refresh triggered");
+        log::info!("🔄 Manual refresh triggered (thin client)");
         self.refresh_in_progress = true;
 
         // Get required data
@@ -4464,132 +4564,104 @@ impl WalletApp {
             return;
         };
 
-        let network_mgr = if let Some(mgr) = &self.network_manager {
-            mgr.clone()
+        let masternode_client = if let Some(client) = &self.masternode_client {
+            client.clone()
         } else {
-            log::warn!("No network manager available");
+            log::warn!("No masternode client available");
             self.refresh_in_progress = false;
             return;
         };
 
         let wallet_db = self.wallet_db.clone();
+        let state_tx = self.state_tx.clone();
 
-        // Spawn refresh task
+        // Spawn simple refresh task (just TWO HTTP calls!)
         tokio::spawn(async move {
-            log::info!("📡 Requesting wallet transactions from masternodes...");
+            log::info!("📡 Fetching balance and transactions from masternode...");
 
-            // Refresh peer latencies and blockchain height (with timeout to prevent hang)
-            let network_mgr_clone = network_mgr.clone();
-            let refresh_task = tokio::spawn(async move {
-                // Call periodic_refresh by temporarily locking the mutex
-                // We need to extract the refresh logic to avoid holding the lock across await
-                let peers_to_check = {
-                    let net = network_mgr_clone.lock().unwrap();
-                    net.get_connected_peers()
-                };
-
-                // Just skip the expensive refresh for now - it's causing hangs
-                log::info!("📋 Connected to {} peers", peers_to_check.len());
-            });
-
-            // Timeout after 10 seconds to prevent GUI hang
-            match tokio::time::timeout(tokio::time::Duration::from_secs(10), refresh_task).await {
-                Ok(_) => log::info!("✅ Refresh completed"),
-                Err(_) => log::warn!("⏱️ Refresh timed out after 10 seconds"),
-            }
-
-            // Request transactions from connected peers
-            let peers = {
-                let net = network_mgr.lock().unwrap();
-                net.get_connected_peers()
-            };
-
-            for peer in peers.iter().take(3) {
-                let peer_ip = peer.address.split(':').next().unwrap_or(&peer.address);
-                let peer_addr = format!("{}:24100", peer_ip);
-
-                log::info!("📬 Requesting transactions from {}...", peer_addr);
-
-                // Request wallet transactions via protocol client with shorter timeout
-                let client = protocol_client::ProtocolClient::new(
-                    peer_addr.clone(),
-                    wallet::NetworkType::Testnet, // TODO: Make configurable
-                );
-
-                // Use timeout for the entire request
-                match tokio::time::timeout(
-                    tokio::time::Duration::from_secs(5),
-                    tokio::task::spawn_blocking({
-                        let xpub = xpub.clone();
-                        move || client.request_wallet_transactions(xpub)
-                    }),
-                )
-                .await
-                {
-                    Ok(Ok(Ok(response))) => {
-                        log::info!(
-                            "✅ Received {} transactions from {}",
-                            response.transactions.len(),
-                            peer_addr
-                        );
-
-                        // Save to database if available
-                        if let Some(db) = &wallet_db {
-                            for tx in response.transactions {
-                                let tx_record = wallet_db::TransactionRecord {
-                                    tx_hash: tx.tx_hash.clone(),
-                                    from_address: Some(tx.from_address),
-                                    to_address: tx.to_address,
-                                    amount: tx.amount,
-                                    timestamp: tx.timestamp as i64,
-                                    block_height: Some(tx.block_height),
-                                    status: wallet_db::TransactionStatus::Confirmed,
-                                    notes: None,
-                                };
-
-                                if let Err(e) = db.save_transaction(&tx_record) {
-                                    log::warn!("Failed to save transaction: {}", e);
-                                }
-                            }
-                        }
-
-                        break; // Got transactions from one peer, that's enough
+            // 1. Get balance (one HTTP call)
+            match masternode_client.get_balance(&xpub).await {
+                Ok(balance) => {
+                    log::info!("✅ Balance: {} TIME (confirmed: {}, pending: {})", 
+                        balance.total, balance.confirmed, balance.pending);
+                    
+                    // Send to UI via channel
+                    if let Some(tx) = &state_tx {
+                        let _ = tx.send(AppStateUpdate::BalanceUpdated(balance.total));
                     }
-                    Ok(Ok(Err(e))) => {
-                        log::warn!("Failed to get transactions from {}: {}", peer_addr, e);
-                    }
-                    Ok(Err(e)) => {
-                        log::warn!("Task error from {}: {}", peer_addr, e);
-                    }
-                    Err(_) => {
-                        log::warn!("Timeout getting transactions from {} (5s)", peer_addr);
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to fetch balance: {}", e);
+                    if let Some(tx) = &state_tx {
+                        let _ = tx.send(AppStateUpdate::ErrorOccurred(
+                            format!("Failed to fetch balance: {}", e)
+                        ));
                     }
                 }
             }
 
-            log::info!("✅ Manual refresh completed");
+            // 2. Get transactions (one HTTP call)
+            match masternode_client.get_transactions(&xpub, 100).await {
+                Ok(transactions) => {
+                    log::info!("✅ Received {} transactions from masternode", 
+                        transactions.len());
+
+                    // Save to local database
+                    if let Some(db) = &wallet_db {
+                        for tx in transactions {
+                            let tx_record = wallet_db::TransactionRecord {
+                                tx_hash: tx.txid.clone(),
+                                from_address: tx.from.first().cloned(),
+                                to_address: tx.to.first().cloned().unwrap_or_default(),
+                                amount: tx.amount,
+                                timestamp: tx.timestamp,
+                                block_height: Some(tx.confirmations as u64),
+                                status: match tx.status {
+                                    masternode_client::TransactionStatus::Confirmed => 
+                                        wallet_db::TransactionStatus::Confirmed,
+                                    masternode_client::TransactionStatus::Pending => 
+                                        wallet_db::TransactionStatus::Pending,
+                                    masternode_client::TransactionStatus::Failed => 
+                                        wallet_db::TransactionStatus::Confirmed, // Map to confirmed for now
+                                },
+                                notes: None,
+                            };
+
+                            if let Err(e) = db.save_transaction(&tx_record) {
+                                log::warn!("Failed to save transaction: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to fetch transactions: {}", e);
+                    if let Some(tx) = &state_tx {
+                        let _ = tx.send(AppStateUpdate::ErrorOccurred(
+                            format!("Failed to fetch transactions: {}", e)
+                        ));
+                    }
+                }
+            }
+
+            // Signal completion
+            if let Some(tx) = &state_tx {
+                let _ = tx.send(AppStateUpdate::SyncCompleted);
+            }
+
+            log::info!("✅ Manual refresh completed (thin client)");
         });
 
         // Update last sync time
         self.last_sync_time = Some(std::time::Instant::now());
 
-        // Reset refresh flag after a delay (we do this immediately in the UI thread)
-        let refresh_flag = Arc::new(std::sync::Mutex::new(false));
-        let refresh_flag_clone = refresh_flag.clone();
-
+        // Reset refresh flag after delay
+        let mut self_refresh = self.refresh_in_progress;
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            *refresh_flag_clone.lock().unwrap() = true;
+            // Note: refresh_in_progress will be set to false when SyncCompleted is received
         });
 
-        // Schedule flag reset - we'll check this flag in the update loop
-        // For now, reset after 3 seconds as a safety
-        let start_time = std::time::Instant::now();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-        });
-
-        self.set_success("Refreshing wallet data...".to_string());
+        self.set_success("Refreshing wallet data from masternode...".to_string());
     }
 
     fn check_message_timeout(&mut self) {

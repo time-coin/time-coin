@@ -14,7 +14,7 @@ pub fn has_quorum(active_nodes: usize) -> bool {
 }
 
 /// Calculate required votes for a threshold
-/// 
+///
 /// # Arguments
 /// * `total` - Total number of voters
 /// * `numerator` - Threshold numerator (e.g., 2 for 2/3)

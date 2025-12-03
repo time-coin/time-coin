@@ -79,6 +79,12 @@ pub struct ConsensusEngine {
     /// Pending votes for transactions (instant finality) - lock-free concurrent access
     transaction_votes: Arc<DashMap<String, Vec<Vote>>>, // txid -> votes
 
+    /// Cached vote counts for O(1) consensus checks
+    vote_counts: Arc<DashMap<String, VoteCount>>, // block_hash -> counts
+
+    /// Cached transaction vote counts for O(1) consensus checks
+    transaction_vote_counts: Arc<DashMap<String, VoteCount>>, // txid -> counts
+
     /// Proposal manager for treasury grants
     proposal_manager: Option<Arc<crate::proposals::ProposalManager>>,
 
@@ -100,6 +106,8 @@ impl ConsensusEngine {
             state: Arc::new(RwLock::new(None)),
             pending_votes: Arc::new(DashMap::new()),
             transaction_votes: Arc::new(DashMap::new()),
+            vote_counts: Arc::new(DashMap::new()),
+            transaction_vote_counts: Arc::new(DashMap::new()),
             proposal_manager: None,
             vrf_selector: DefaultVRFSelector,
         }
@@ -344,11 +352,19 @@ impl ConsensusEngine {
             .entry(block_hash.clone())
             .or_default()
             .push(Vote {
-                block_hash,
+                block_hash: block_hash.clone(),
                 voter,
                 approve,
                 timestamp: chrono::Utc::now().timestamp(),
             });
+
+        // Update vote count cache for O(1) consensus checks
+        let mut count = self.vote_counts.entry(block_hash).or_default();
+        if approve {
+            count.approvals += 1;
+        } else {
+            count.rejections += 1;
+        }
 
         Ok(())
     }
@@ -371,10 +387,10 @@ impl ConsensusEngine {
                     return true; // Shouldn't happen in BFT mode but handle gracefully
                 }
 
-                if let Some(vote_list) = self.pending_votes.get(block_hash) {
-                    let approvals = vote_list.iter().filter(|v| v.approve).count();
+                // O(1) lookup using cached vote counts
+                if let Some(count) = self.vote_counts.get(block_hash) {
                     let required = crate::quorum::required_for_bft(total_nodes);
-                    approvals >= required
+                    count.approvals >= required
                 } else {
                     false
                 }
@@ -400,10 +416,9 @@ impl ConsensusEngine {
         let total_nodes = masternodes.len();
         drop(masternodes);
 
-        let (approvals, rejections) = if let Some(vote_list) = self.pending_votes.get(block_hash) {
-            let app = vote_list.iter().filter(|v| v.approve).count();
-        let rej = vote_list.iter().filter(|v| !v.approve).count();
-            (app, rej)
+        // O(1) lookup using cached vote counts
+        let (approvals, rejections) = if let Some(count) = self.vote_counts.get(block_hash) {
+            (count.approvals, count.rejections)
         } else {
             (0, 0)
         };
@@ -416,10 +431,9 @@ impl ConsensusEngine {
 
     /// Get vote counts for a block
     pub async fn get_vote_count(&self, block_hash: &str) -> (usize, usize) {
-        if let Some(vote_list) = self.pending_votes.get(block_hash) {
-            let approvals = vote_list.iter().filter(|v| v.approve).count();
-            let rejections = vote_list.iter().filter(|v| !v.approve).count();
-            (approvals, rejections)
+        // O(1) lookup using cached vote counts
+        if let Some(count) = self.vote_counts.get(block_hash) {
+            (count.approvals, count.rejections)
         } else {
             (0, 0)
         }
@@ -506,6 +520,17 @@ impl ConsensusEngine {
                 timestamp: chrono::Utc::now().timestamp(),
             });
 
+        // Update transaction vote count cache for O(1) consensus checks
+        let mut count = self
+            .transaction_vote_counts
+            .entry(txid.to_string())
+            .or_default();
+        if approve {
+            count.approvals += 1;
+        } else {
+            count.rejections += 1;
+        }
+
         Ok(())
     }
 
@@ -527,10 +552,10 @@ impl ConsensusEngine {
                     return true; // Accept in bootstrap mode
                 }
 
-                if let Some(vote_list) = self.transaction_votes.get(txid) {
-                    let approvals = vote_list.iter().filter(|v| v.approve).count();
+                // O(1) lookup using cached transaction vote counts
+                if let Some(count) = self.transaction_vote_counts.get(txid) {
                     let required = crate::quorum::required_for_bft(total_nodes);
-                    approvals >= required
+                    count.approvals >= required
                 } else {
                     false
                 }
@@ -615,6 +640,13 @@ pub struct Vote {
     pub voter: String,
     pub approve: bool,
     pub timestamp: i64,
+}
+
+/// Cached vote counts for O(1) consensus checks
+#[derive(Debug, Clone, Default)]
+struct VoteCount {
+    approvals: usize,
+    rejections: usize,
 }
 
 #[derive(Debug)]
@@ -764,7 +796,7 @@ pub mod tx_consensus {
             let mut masternodes = self.masternodes.write().await;
             *masternodes = nodes.clone();
             drop(masternodes);
-            
+
             // Update vote collector with new count
             self.vote_collector.set_total_voters(nodes.len()).await;
         }
@@ -800,7 +832,9 @@ pub mod tx_consensus {
             block_height: u64,
             merkle_root: &str,
         ) -> (bool, usize, usize) {
-            self.vote_collector.check_consensus(block_height, merkle_root).await
+            self.vote_collector
+                .check_consensus(block_height, merkle_root)
+                .await
         }
 
         pub async fn get_agreed_tx_set(&self, block_height: u64) -> Option<TransactionProposal> {
@@ -1168,7 +1202,8 @@ pub mod block_consensus {
                         })
                         .unwrap_or(0);
 
-                    let required_latest_version = crate::quorum::required_for_bft(latest_version_count);
+                    let required_latest_version =
+                        crate::quorum::required_for_bft(latest_version_count);
 
                     if latest_version_approvals >= required_latest_version {
                         println!(
@@ -1333,46 +1368,45 @@ pub mod block_consensus {
             required_votes: usize,
             timeout_secs: u64,
         ) -> (usize, usize) {
-            let iterations = (timeout_secs * 10) as usize; // Check every 100ms
-
             // Get total masternodes that should be voting
             let masternodes = self.masternodes.read().await;
             let total_masternodes = masternodes.len();
             drop(masternodes);
 
-            for _ in 0..iterations {
-                if let Some(height_votes) = self.votes.get(&block_height) {
-                    let mut approved = 0;
-                    for entry in height_votes.iter() {
-                        let vote_list = entry.value();
-                        for vote in vote_list {
-                            if vote.approve {
-                                approved += 1;
-                            }
-                        }
-                    }
-                    // Return approved votes vs total masternodes
-                    if approved >= required_votes {
-                        return (approved, total_masternodes);
-                    }
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
+            // Helper to count approved votes for a block height
+            let count_approved = |block_height: u64, votes_map: &BlockVotesMap| -> usize {
+                votes_map
+                    .get(&block_height)
+                    .map(|height_votes| {
+                        height_votes
+                            .iter()
+                            .flat_map(|entry| entry.value().clone())
+                            .filter(|vote| vote.approve)
+                            .count()
+                    })
+                    .unwrap_or(0)
+            };
 
-            // Timeout reached - return whatever votes we have vs total masternodes
-            if let Some(height_votes) = self.votes.get(&block_height) {
-                let mut approved = 0;
-                for entry in height_votes.iter() {
-                    let vote_list = entry.value();
-                    for vote in vote_list {
-                        if vote.approve {
-                            approved += 1;
-                        }
+            // Poll for votes with timeout
+            let poll_future = async {
+                loop {
+                    let approved = count_approved(block_height, &self.votes);
+                    if approved >= required_votes {
+                        return approved;
                     }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
-                (approved, total_masternodes)
-            } else {
-                (0, total_masternodes)
+            };
+
+            match tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), poll_future)
+                .await
+            {
+                Ok(approved) => (approved, total_masternodes),
+                Err(_) => {
+                    // Timeout reached - return whatever votes we have
+                    let approved = count_approved(block_height, &self.votes);
+                    (approved, total_masternodes)
+                }
             }
         }
 
