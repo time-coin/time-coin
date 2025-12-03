@@ -77,6 +77,7 @@ async fn get_block_by_height(
 struct BalanceResponse {
     address: String,
     balance: u64,
+    balance_time: String,
     unconfirmed_balance: u64,
 }
 
@@ -95,9 +96,13 @@ async fn get_balance(
         0
     };
 
+    // Convert balance to TIME (8 decimal places)
+    let balance_time = format!("{:.8}", balance as f64 / 100_000_000.0);
+
     Ok(Json(BalanceResponse {
         address,
         balance,
+        balance_time,
         unconfirmed_balance,
     }))
 }
