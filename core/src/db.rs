@@ -24,10 +24,42 @@ struct BlockV1 {
     pub hash: String,
 }
 
-#[derive(Debug, Clone)]
+// Type alias to simplify complex type
+type BlockObserver = Arc<dyn Fn(&Block) + Send + Sync>;
+
 pub struct BlockchainDB {
     db: sled::Db,
     path: String,
+    block_observers: Arc<RwLock<Vec<BlockObserver>>>,
+}
+
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+impl std::fmt::Debug for BlockchainDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockchainDB")
+            .field("path", &self.path)
+            .field(
+                "observers_count",
+                &self
+                    .block_observers
+                    .try_read()
+                    .map(|o| o.len())
+                    .unwrap_or(0),
+            )
+            .finish()
+    }
+}
+
+impl Clone for BlockchainDB {
+    fn clone(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            path: self.path.clone(),
+            block_observers: self.block_observers.clone(),
+        }
+    }
 }
 
 impl BlockchainDB {
@@ -43,12 +75,25 @@ impl BlockchainDB {
             .open()
             .map_err(|e| StateError::IoError(format!("Failed to open database: {}", e)))?;
 
-        Ok(BlockchainDB { db, path: path_str })
+        Ok(BlockchainDB {
+            db,
+            path: path_str,
+            block_observers: Arc::new(RwLock::new(Vec::new())),
+        })
     }
 
     /// Get the database path
     pub fn path(&self) -> &str {
         &self.path
+    }
+
+    /// Register a callback to be notified when blocks are saved
+    pub async fn register_block_observer<F>(&self, observer: F)
+    where
+        F: Fn(&Block) + Send + Sync + 'static,
+    {
+        let mut observers = self.block_observers.write().await;
+        observers.push(Arc::new(observer));
     }
 
     /// Save a block to disk
@@ -79,6 +124,16 @@ impl BlockchainDB {
             "   ✅ Block {} saved to disk (path: {})",
             block.header.block_number, self.path
         );
+
+        // Notify all observers (async operations spawned as background tasks)
+        let observers = self.block_observers.clone();
+        let block_clone = block.clone();
+        tokio::spawn(async move {
+            let observers_guard = observers.read().await;
+            for observer in observers_guard.iter() {
+                observer(&block_clone);
+            }
+        });
 
         Ok(())
     }

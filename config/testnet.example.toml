@@ -6,8 +6,8 @@
 # Production: Full BFT consensus with multiple masternodes
 mode = "dev"
 name = "testnet-node"
-data_dir = "$HOME/time-coin-node/data"
-log_dir = "$HOME/time-coin-node/logs"
+data_dir = "$HOME/.timecoin/data"
+log_dir = "$HOME/.timecoin/logs"
 
 [network]
 network_type = "testnet"
@@ -23,8 +23,8 @@ port = 24101
 
 [blockchain]
 # Path to genesis block
-genesis_file = "$HOME/time-coin-node/data/genesis.json"
-data_dir = "$HOME/time-coin-node/data/blockchain"
+genesis_file = "$HOME/.timecoin/data/genesis.json"
+data_dir = "$HOME/.timecoin/data/blockchain"
 
 [consensus]
 # Dev mode settings
@@ -66,6 +66,6 @@ midnight_window_check_consensus = true
 
 [logging]
 level = "info"
-file = "$HOME/time-coin-node/logs/node.log"
+file = "$HOME/.timecoin/logs/node.log"
 max_size = "100MB"
 max_backups = 5

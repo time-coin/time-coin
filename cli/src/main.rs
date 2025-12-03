@@ -708,14 +708,20 @@ async fn main() {
     // STEP 1: Get data directory and ensure it exists
     // ═══════════════════════════════════════════════════════════════
 
-    // Get data directory from config or use default
+    // Get data directory from config or use default (Bitcoin-style paths)
     // Determine data directory
     let data_dir = std::env::var("TIME_COIN_DATA_DIR").unwrap_or_else(|_| {
         if cfg!(windows) {
-            let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
-            format!("{}\\AppData\\Local\\time-coin", home)
+            // Windows: %APPDATA%\timecoin (e.g., C:\Users\username\AppData\Roaming\timecoin)
+            let appdata = std::env::var("APPDATA").unwrap_or_else(|_| {
+                let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
+                format!("{}\\AppData\\Roaming", home)
+            });
+            format!("{}\\timecoin", appdata)
         } else {
-            "/var/lib/time-coin".to_string()
+            // Linux/Mac: ~/.timecoin (e.g., /root/.timecoin or /home/user/.timecoin)
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            format!("{}/.timecoin", home)
         }
     });
 
@@ -1146,7 +1152,68 @@ async fn main() {
     println!("\n{}", "✓ Blockchain initialized".green());
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 6: Initialize Chain Sync
+    // STEP 6: Initialize UTXO Tracker and register block observer
+    // ═══════════════════════════════════════════════════════════════
+
+    println!("{}", "🔍 Initializing UTXO tracker...".cyan());
+    let utxo_tracker = Arc::new(time_masternode::UtxoTracker::new());
+
+    // Register UTXO tracker to be notified when blocks are saved
+    {
+        let blockchain_read = blockchain.read().await;
+        let db = blockchain_read.db();
+        let utxo_tracker_clone = utxo_tracker.clone();
+
+        db.register_block_observer(move |block| {
+            let tracker = utxo_tracker_clone.clone();
+            let block_clone = block.clone();
+            tokio::spawn(async move {
+                if let Err(e) = tracker.process_block(&block_clone).await {
+                    eprintln!("❌ Failed to process block for UTXO tracker: {}", e);
+                }
+            });
+        })
+        .await;
+    }
+
+    // Perform initial blockchain scan for existing blocks
+    {
+        println!(
+            "{}",
+            "   🔍 Scanning existing blocks for UTXOs...".bright_black()
+        );
+        let blockchain_read = blockchain.read().await;
+        let db = blockchain_read.db();
+
+        match db.load_all_blocks() {
+            Ok(blocks) => {
+                if !blocks.is_empty() {
+                    println!(
+                        "{}",
+                        format!("   📦 Processing {} existing blocks...", blocks.len())
+                            .bright_black()
+                    );
+                    for block in blocks {
+                        if let Err(e) = utxo_tracker.process_block(&block).await {
+                            eprintln!(
+                                "   ⚠️  Failed to process block {}: {}",
+                                block.header.block_number, e
+                            );
+                        }
+                    }
+                    println!("{}", "   ✓ Initial UTXO scan complete".green());
+                }
+            }
+            Err(e) => {
+                eprintln!("   ⚠️  Failed to load blocks for UTXO scan: {}", e);
+            }
+        }
+    }
+
+    println!("{}", "✓ UTXO tracker initialized and registered".green());
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 7: Initialize Chain Sync
     // ═══════════════════════════════════════════════════════════════
 
     // Create shared state for block producer activity
@@ -1598,7 +1665,8 @@ async fn main() {
         .with_block_consensus(block_consensus.clone())
         .with_tx_broadcaster(tx_broadcaster.clone())
         .with_quarantine(quarantine.clone())
-        .with_approval_manager(approval_manager.clone());
+        .with_approval_manager(approval_manager.clone())
+        .with_utxo_tracker(utxo_tracker.clone());
 
         // Start Peer Listener for incoming connections
         let p2p_bind_addr = "0.0.0.0:24100".parse().unwrap();

@@ -1,6 +1,91 @@
 # TIME Coin Masternode Setup Scripts
 
-## Available Scripts
+## Complete Masternode Installation (Recommended)
+
+### install-masternode.sh
+Complete automated installation script for fresh Ubuntu servers. This single script handles everything from dependency installation to masternode activation.
+
+**Features:**
+- Clones TIME Coin repository (if not present)
+- Installs all system dependencies
+- Installs Rust toolchain
+- Builds and installs binaries
+- Creates systemd service
+- Applies for testnet grant
+- Generates masternode keypair
+- Activates masternode with collateral
+- Creates complete configuration
+
+**Usage:**
+
+```bash
+# On a fresh Ubuntu server (22.04+ or 25.04):
+wget -O install-masternode.sh https://raw.githubusercontent.com/your-org/time-coin/main/scripts/install-masternode.sh
+sudo bash install-masternode.sh
+```
+
+Or if you already have the repository:
+
+```bash
+cd ~/time-coin/scripts
+sudo ./install-masternode.sh
+```
+
+**What happens:**
+1. ✅ Checks for root permissions
+2. ✅ Clones repository (if needed)
+3. ✅ Installs dependencies (build tools, Rust, etc.)
+4. ✅ Builds timed and time-cli binaries
+5. ✅ Installs binaries to /usr/local/bin
+6. ✅ Creates node configuration
+7. ✅ Sets up systemd service
+8. ✅ Starts the node
+9. ✅ Prompts for your email
+10. ✅ Applies for testnet grant
+11. ✅ Verifies email automatically
+12. ✅ Generates masternode keypair
+13. ✅ Activates masternode with 1000 TIME
+14. ✅ Updates config with credentials
+15. ✅ Restarts node with new configuration
+16. ✅ Saves credentials securely
+
+**Requirements:**
+- Fresh Ubuntu server (22.04+)
+- Internet connection
+- Email address (for testnet grant)
+
+**What you get:**
+- Fully operational masternode
+- 1000 TIME testnet collateral
+- Complete configuration at `~/.timecoin/` (Bitcoin-style)
+- Credentials saved to `~/.timecoin/masternode-credentials.txt`
+- Systemd service running as `timed`
+
+**After installation:**
+
+```bash
+# Check service status
+sudo systemctl status timed
+
+# View live logs
+sudo journalctl -u timed -f
+
+# Check node status
+time-cli status
+
+# View your credentials
+cat ~/.timecoin/masternode-credentials.txt
+
+# Check balance
+time-cli balance YOUR_ADDRESS
+```
+
+---
+
+## Other Scripts
+
+### setup-masternode.sh
+Legacy script for setting up masternode on an already-running node. Use `install-masternode.sh` instead for new installations.
 
 ### reset-blockchain.sh
 Resets the blockchain to a fresh state with the new genesis block (October 12, 2024).
@@ -25,69 +110,22 @@ The script will:
 7. Restart the node service
 
 **What's Preserved:**
-- Wallet data (`/var/lib/time-coin/wallets`)
-- Logs (`/var/lib/time-coin/logs`)
+- Wallet data (`~/.timecoin/data/wallets`)
+- Logs (`~/.timecoin/logs`)
 
 **What's Removed:**
-- Blockchain database (`/var/lib/time-coin/blockchain`)
-- Genesis file (`/var/lib/time-coin/genesis.json`)
+- Blockchain database (`~/.timecoin/data/blockchain`)
+- Genesis file (`~/.timecoin/data/genesis.json`)
 
 **Backups:** Created automatically in `/var/backups/time-coin-YYYYMMDD-HHMMSS/`
 
+**Note:** The script automatically detects your data directory:
+- New installations: `~/.timecoin` (Bitcoin-style)
+- Legacy installations: `/var/lib/time-coin` (still supported)
+
 ---
 
-## Quick Start
-
-To set up a masternode with a 1000 TIME grant:
-
-```bash
-# Download the script
-curl -O https://raw.githubusercontent.com/time-coin/time-coin/main/scripts/setup-masternode.sh
-
-# Make it executable
-chmod +x setup-masternode.sh
-
-# Run it
-./setup-masternode.sh
-```
-
-The script will:
-1. Apply for a grant with your email
-2. Verify your email automatically
-3. Generate your masternode keypair
-4. Activate your masternode with 1000 TIME
-5. Update your node configuration
-6. Restart your node
-7. Save your credentials securely
-
-## What You Need
-
-- Ubuntu/Linux server
-- TIME Coin node running
-- Email address
-
-## What You Get
-
-- 1000 TIME locked to your masternode
-- Entry tier masternode status
-- Credentials saved to `~/time-coin-node/masternode-credentials.txt`
-- Auto-configured node
-
-## After Setup
-
-Check your masternode:
-```bash
-# View credentials
-cat ~/time-coin-node/masternode-credentials.txt
-
-# Check balance
-curl http://localhost:24101/balance/YOUR_ADDRESS
-
-# View logs
-tail -f ~/time-coin-node/logs/node.log
-```
-
-## Security
+## Security Notes
 
 ⚠️ **IMPORTANT:**
 - Backup your credentials file immediately

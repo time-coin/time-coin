@@ -27,10 +27,24 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVICE_NAME="timed"
-DATA_DIR="/var/lib/time-coin"
-BLOCKCHAIN_DIR="$DATA_DIR/blockchain"
-GENESIS_FILE="$DATA_DIR/genesis.json"
-WALLET_DIR="$DATA_DIR/wallets"
+
+# Detect data directory (Bitcoin-style: ~/.timecoin)
+if [ -n "$TIME_COIN_DATA_DIR" ]; then
+    DATA_DIR="$TIME_COIN_DATA_DIR"
+elif [ -d "$HOME/.timecoin" ]; then
+    DATA_DIR="$HOME/.timecoin"
+elif [ -d "/var/lib/time-coin" ]; then
+    # Legacy path support
+    DATA_DIR="/var/lib/time-coin"
+    echo -e "${YELLOW}⚠️  Using legacy path: /var/lib/time-coin${NC}"
+    echo -e "${YELLOW}⚠️  Consider migrating to: ~/.timecoin${NC}"
+else
+    DATA_DIR="$HOME/.timecoin"
+fi
+
+BLOCKCHAIN_DIR="$DATA_DIR/data/blockchain"
+GENESIS_FILE="$DATA_DIR/data/genesis.json"
+WALLET_DIR="$DATA_DIR/data/wallets"
 LOGS_DIR="$DATA_DIR/logs"
 BACKUP_BASE_DIR="/var/backups"
 CONFIG_GENESIS="$REPO_DIR/config/genesis-testnet.json"

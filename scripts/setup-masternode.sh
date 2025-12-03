@@ -11,8 +11,9 @@ RED="\033[0;31m"
 NC="\033[0m"
 
 API="http://localhost:24101"
-CONFIG_FILE="$HOME/time-coin-node/config/testnet.toml"
-CREDS_FILE="$HOME/time-coin-node/masternode-credentials.txt"
+# Use Bitcoin-style data directory
+CONFIG_FILE="$HOME/.timecoin/config/testnet.toml"
+CREDS_FILE="$HOME/.timecoin/masternode-credentials.txt"
 
 echo -e "${BLUE}════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}   TIME Coin Masternode Setup${NC}"
@@ -56,7 +57,7 @@ fi
 # STEP 2: Extract token
 echo -e "\n${BLUE}Step 2/7: Extracting verification token...${NC}"
 sleep 2
-TOKEN=$(tail -50 ~/time-coin-node/logs/node.log | grep "Grant application: $EMAIL" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | tail -1)
+TOKEN=$(tail -50 ~/.timecoin/logs/node.log | grep "Grant application: $EMAIL" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | tail -1)
 
 if [ -z "$TOKEN" ]; then
     echo -e "${RED}✗ Could not find verification token${NC}"
@@ -116,8 +117,8 @@ cat > "$CONFIG_FILE" << CONFIG_EOF
 [node]
 mode = "dev"
 name = "masternode-$ADDRESS"
-data_dir = "$HOME/time-coin-node/data"
-log_dir = "$HOME/time-coin-node/logs"
+data_dir = "$HOME/.timecoin/data"
+log_dir = "$HOME/.timecoin/logs"
 
 [network]
 port = 24100
@@ -141,10 +142,10 @@ port = 24101
 
 [logging]
 level = "info"
-file = "$HOME/time-coin-node/logs/node.log"
+file = "$HOME/.timecoin/logs/node.log"
 
 [blockchain]
-genesis_file = "\$HOME/time-coin-node/data/genesis-testnet.json"
+genesis_file = "\$HOME/.timecoin/data/genesis-testnet.json"
 
 [consensus]
 dev_mode = true

@@ -5283,6 +5283,7 @@ dependencies = [
  "time-consensus",
  "time-core 0.1.0",
  "time-crypto",
+ "time-masternode",
  "time-mempool",
  "time-network",
  "tokio",

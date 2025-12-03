@@ -28,6 +28,8 @@ pub struct ApiState {
     pub instant_finality: Option<Arc<time_consensus::instant_finality::InstantFinalityManager>>,
     /// Transaction approval manager
     pub approval_manager: Option<Arc<time_consensus::TransactionApprovalManager>>,
+    /// UTXO tracker for wallet balance queries
+    pub utxo_tracker: Option<Arc<time_masternode::UtxoTracker>>,
 }
 
 impl ApiState {
@@ -59,6 +61,7 @@ impl ApiState {
             quarantine: None,
             instant_finality: None,
             approval_manager: None,
+            utxo_tracker: None,
         };
 
         // Spawn cleanup task for recent_broadcasts
@@ -129,6 +132,11 @@ impl ApiState {
         self
     }
 
+    pub fn with_utxo_tracker(mut self, utxo_tracker: Arc<time_masternode::UtxoTracker>) -> Self {
+        self.utxo_tracker = Some(utxo_tracker);
+        self
+    }
+
     pub fn instant_finality_manager(
         &self,
     ) -> Option<Arc<time_consensus::instant_finality::InstantFinalityManager>> {
@@ -169,6 +177,7 @@ impl Clone for ApiState {
             quarantine: self.quarantine.clone(),
             instant_finality: self.instant_finality.clone(),
             approval_manager: self.approval_manager.clone(),
+            utxo_tracker: self.utxo_tracker.clone(),
         }
     }
 }
