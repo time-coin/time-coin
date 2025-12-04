@@ -8,16 +8,18 @@
 //! The consensus engine uses a Verifiable Random Function (VRF) for secure and
 //! unpredictable leader selection. Key features:
 //!
-//! - **Unpredictable**: Uses SHA256-based VRF with previous block hash as seed
+//! - **Unpredictable**: Uses SHA256-based VRF with block height as seed
 //! - **Verifiable**: Cryptographic proof allows anyone to verify selection
-//! - **Deterministic**: Same inputs always produce same leader
+//! - **Deterministic**: Same block height always produces same leader across all nodes
 //! - **Fair**: Weighted selection based on node characteristics
+//! - **Consensus-Safe**: Uses only block height to ensure nodes at different
+//!   sync states agree on the leader
 //!
 //! ## Security Properties
 //!
-//! - Attackers cannot predict future validator selections
-//! - Cannot manipulate selection without controlling previous block
-//! - Grinding attacks prevented by using previous block hash
+//! - Attackers cannot predict future validator selections beyond brute-force
+//! - Leader selection is deterministic for a given block height
+//! - All nodes agree on the leader regardless of sync state
 //! - Each selection includes verifiable cryptographic proof
 
 // Core shared abstractions (new)

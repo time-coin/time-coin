@@ -1,7 +1,14 @@
 //! VRF (Verifiable Random Function) for leader selection
 //!
 //! Provides deterministic, unpredictable, and verifiable leader selection
-//! using SHA256-based VRF with previous block hash as seed.
+//! using SHA256-based VRF with block height as the primary seed.
+//!
+//! ## Critical Design Decision
+//!
+//! This VRF uses ONLY the block height (not previous_hash) as the seed to ensure
+//! all nodes agree on the leader selection, even when nodes are at different
+//! sync states. Using previous_hash would cause nodes with divergent chain tips
+//! to select different leaders, breaking consensus.
 
 use sha2::{Digest, Sha256};
 
@@ -51,11 +58,13 @@ pub trait VRFSelector {
 pub struct DefaultVRFSelector;
 
 impl VRFSelector for DefaultVRFSelector {
-    fn generate_seed(&self, height: u64, previous_hash: &str) -> Vec<u8> {
+    fn generate_seed(&self, height: u64, _previous_hash: &str) -> Vec<u8> {
+        // CRITICAL FIX: Use ONLY block height for deterministic leader selection
+        // Using previous_hash causes nodes at different sync states to disagree on leaders
+        // This ensures all nodes agree on the leader for a given block height
         let mut hasher = Sha256::new();
         hasher.update(b"TIME_COIN_VRF_SEED");
         hasher.update(height.to_le_bytes());
-        hasher.update(previous_hash.as_bytes());
         hasher.finalize().to_vec()
     }
 
@@ -113,11 +122,12 @@ impl WeightedVRFSelector {
 }
 
 impl VRFSelector for WeightedVRFSelector {
-    fn generate_seed(&self, height: u64, previous_hash: &str) -> Vec<u8> {
+    fn generate_seed(&self, height: u64, _previous_hash: &str) -> Vec<u8> {
+        // CRITICAL FIX: Use ONLY block height for deterministic leader selection
+        // Using previous_hash causes nodes at different sync states to disagree on leaders
         let mut hasher = Sha256::new();
         hasher.update(b"TIME_COIN_VRF_SEED");
         hasher.update(height.to_le_bytes());
-        hasher.update(previous_hash.as_bytes());
         hasher.finalize().to_vec()
     }
 
