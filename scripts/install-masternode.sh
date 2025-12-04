@@ -308,8 +308,8 @@ testnet = true
 
 [masternode]
 enabled = true
-tier = "entry"
-collateral = 100000000000
+tier = "free"
+collateral = 0
 testnet_mode = true
 public_ip = "${SERVER_IP}"
 public_port = ${P2P_PORT}
@@ -366,7 +366,8 @@ setup_masternode_credentials() {
     print_header "Setting Up Masternode Credentials"
     
     echo ""
-    echo -e "${BLUE}Generating masternode credentials for testnet...${NC}"
+    echo -e "${BLUE}Setting up free tier masternode for testnet...${NC}"
+    echo -e "${BLUE}No collateral required - using free tier for testing.${NC}"
     echo ""
 
     print_info "Generating new keypair..."
@@ -388,6 +389,7 @@ setup_masternode_credentials() {
     
     print_success "Keypair generated"
     print_info "Address: $MASTERNODE_ADDRESS"
+    print_info "Tier: Free (testnet)"
 }
 
     
@@ -406,6 +408,7 @@ setup_masternode_credentials() {
 TIME COIN MASTERNODE CREDENTIALS
 Generated: $(date)
 
+Tier: Free (testnet - no collateral required)
 Address: $MASTERNODE_ADDRESS
 Public Key: $MASTERNODE_PUBLIC_KEY
 Private Key: $MASTERNODE_PRIVATE_KEY
@@ -536,11 +539,12 @@ show_summary() {
     echo -e "${BLUE}                    Masternode Details${NC}"
     echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
+    echo "Tier:              Free (testnet)"
     echo "Address:           $MASTERNODE_ADDRESS"
     echo "Server IP:         $SERVER_IP"
     echo "P2P Port:          $P2P_PORT"
     echo "API Port:          $API_PORT"
-    echo "Status:            Running (testnet)"
+    echo "Status:            Running"
     echo "Credentials File:  $NODE_DIR/masternode-credentials.txt"
     echo ""
     echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"

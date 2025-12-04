@@ -50,6 +50,31 @@ pub enum NetworkError {
 
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("State error: {0}")]
+    StateError(#[from] time_core::StateError),
+
+    // Sync-related errors
+    #[error("No peers available for synchronization")]
+    NoPeersAvailable,
+
+    #[error("No consensus reached among peers")]
+    NoConsensusReached,
+
+    #[error("Timeout waiting for response")]
+    Timeout,
+
+    #[error("Block not found")]
+    BlockNotFound,
+
+    #[error("Sync gap too large: {0} blocks")]
+    SyncGapTooLarge(u64),
+
+    #[error("Critical sync required - manual intervention needed")]
+    CriticalSyncRequired,
+
+    #[error("Feature not yet implemented")]
+    NotImplemented,
 }
 
 /// Convert NetworkError to String for backward compatibility
