@@ -195,7 +195,7 @@ impl FastSync {
         }
     }
 
-    /// Find network consensus chain (most peers on same chain)
+    /// Find network consensus chain (most peers on same chain, then longest chain)
     async fn find_consensus_chain(&self, chains: &[PeerChain]) -> Result<PeerChain, String> {
         if chains.is_empty() {
             return Err("No peer chains available".to_string());
@@ -211,16 +211,62 @@ impl FastSync {
                 .push(chain.peer.clone());
         }
 
-        // Find the chain with most peers (consensus)
-        chain_counts
+        // Get our current height to compare against network
+        let our_height = {
+            let blockchain = self.blockchain.read().await;
+            blockchain.chain_tip_height()
+        };
+
+        // Find the chain with most peers (consensus), with tie-breaking by height
+        let mut best_chain = chain_counts
             .into_iter()
-            .max_by_key(|(_, peers)| peers.len())
+            .max_by(|(a, a_peers), (b, b_peers)| {
+                // First priority: number of peers (consensus)
+                match a_peers.len().cmp(&b_peers.len()) {
+                    std::cmp::Ordering::Equal => {
+                        // Tie-breaker: longest chain wins
+                        a.0.cmp(&b.0)
+                    }
+                    other => other,
+                }
+            })
             .map(|((height, tip_hash), peers)| PeerChain {
                 peer: peers[0].clone(), // Use first peer with this chain
                 height,
                 tip_hash,
             })
-            .ok_or_else(|| "Could not determine consensus chain".to_string())
+            .ok_or_else(|| "Could not determine consensus chain".to_string())?;
+
+        // CRITICAL: Don't rollback to a shorter chain unless there's strong consensus
+        // If we have a longer chain and only 1 peer disagrees, keep our chain
+        if best_chain.height < our_height {
+            let total_peers = chains.len();
+            let peers_on_shorter_chain = chains
+                .iter()
+                .filter(|c| c.height == best_chain.height && c.tip_hash == best_chain.tip_hash)
+                .count();
+
+            // Require majority (>50%) to accept shorter chain
+            if peers_on_shorter_chain <= total_peers / 2 {
+                println!(
+                    "   ⚠️  Rejecting shorter chain: only {}/{} peers agree, keeping our longer chain at height {}",
+                    peers_on_shorter_chain, total_peers, our_height
+                );
+                // Return a synthetic chain representing "no sync needed"
+                best_chain = PeerChain {
+                    peer: "localhost".to_string(),
+                    height: our_height,
+                    tip_hash: String::new(),
+                };
+            } else {
+                println!(
+                    "   ⚠️  Majority consensus ({}/{} peers) on shorter chain at height {}, rolling back from {}",
+                    peers_on_shorter_chain, total_peers, best_chain.height, our_height
+                );
+            }
+        }
+
+        Ok(best_chain)
     }
 
     /// Find common ancestor between our chain and network chain
