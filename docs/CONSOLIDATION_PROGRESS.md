@@ -37,6 +37,28 @@
 - Build optimization techniques
 - Verification and testing
 - Platform-specific troubleshooting
+
+### ✅ TROUBLESHOOTING_GUIDE.md
+**Status**: Created  
+**Files Consolidated**: 8 → 1
+- DATA_DIRECTORY_MIGRATION.md
+- TESTNET_GENESIS_MIGRATION.md
+- TESTNET_RESET_GUIDE.md
+- QUICK_MIGRATION.md
+- MISSING_TRANSACTION_1000TIME.md
+- fork-detection-and-recovery.md
+- DOUBLE_SPEND_PREVENTION.md
+- SELECTIVE_BLOCK_RESYNC.md
+
+**Content Includes**:
+- Data directory migration (Bitcoin-style paths)
+- Testnet reset and genesis migration procedures
+- Common issues (node won't start, no peers, sync issues)
+- Balance and transaction troubleshooting
+- Fork detection and recovery
+- Double spend prevention
+- Selective block resync
+- Quick migration checklist
 - HD-WALLET.md
 - WALLET_ARCHITECTURE.md
 - WALLET_BALANCE_PERSISTENCE.md
@@ -177,9 +199,10 @@ From 94 files:
 - ✅ WALLET_GUIDE.md consolidates 18 files
 - ✅ DASHBOARD_GUIDE.md consolidates 3 files
 - ✅ BUILD_AND_INSTALL.md consolidates 6 files
-- **Current**: 67 files remaining
+- ✅ TROUBLESHOOTING_GUIDE.md consolidates 8 files
+- **Current**: 59 files remaining
 - **Target**: ~30 files total
-- **Progress**: 29% complete
+- **Progress**: 37% complete
 
 ---
 
@@ -211,5 +234,5 @@ From 94 files:
 ---
 
 **Last Updated**: 2024-12-04
-**Status**: Phase 2 Complete (3 of 10 guides done)
-**Next**: Create remaining 7 comprehensive guides
+**Status**: Phase 3 Complete (4 of 10 guides done)
+**Next**: Create remaining 6 comprehensive guides
