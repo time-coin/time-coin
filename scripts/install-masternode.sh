@@ -179,17 +179,29 @@ install_rust() {
 
     if command -v cargo >/dev/null 2>&1 && command -v rustc >/dev/null 2>&1; then
         print_success "Rust already installed: $(rustc --version)"
-    else
-        print_warning "Rust not found. Installing rustup + stable toolchain..."
-        # Non-interactive rustup install
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-        # Source cargo env for THIS session so cargo works below
-        if [ -f "$HOME/.cargo/env" ]; then
-            source "$HOME/.cargo/env"
-        fi
-
+        return 0
+    fi
+    
+    print_warning "Rust not found. Installing rustup + stable toolchain..."
+    
+    # Non-interactive rustup install
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    
+    # Source cargo env for THIS session so cargo works below
+    export PATH="$HOME/.cargo/bin:$PATH"
+    
+    if [ -f "$HOME/.cargo/env" ]; then
+        source "$HOME/.cargo/env"
+    fi
+    
+    # Verify installation
+    if command -v cargo >/dev/null 2>&1; then
         print_success "Rust installed: $(rustc --version)"
+        print_success "Cargo version: $(cargo --version)"
+    else
+        print_error "Failed to install Rust/Cargo"
+        print_info "Please install manually: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        exit 1
     fi
 }
 
