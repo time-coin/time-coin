@@ -218,7 +218,7 @@ impl FastSync {
         };
 
         // Find the chain with most peers (consensus), with tie-breaking by height
-        let mut best_chain = chain_counts
+        let best_chain = chain_counts
             .into_iter()
             .max_by(|(a, a_peers), (b, b_peers)| {
                 // First priority: number of peers (consensus)
@@ -252,12 +252,8 @@ impl FastSync {
                     "   ⚠️  Rejecting shorter chain: only {}/{} peers agree, keeping our longer chain at height {}",
                     peers_on_shorter_chain, total_peers, our_height
                 );
-                // Return a synthetic chain representing "no sync needed"
-                best_chain = PeerChain {
-                    peer: "localhost".to_string(),
-                    height: our_height,
-                    tip_hash: String::new(),
-                };
+                // No sync needed - we already have the longest chain
+                return Err(format!("Already on longest chain at height {}", our_height));
             } else {
                 println!(
                     "   ⚠️  Majority consensus ({}/{} peers) on shorter chain at height {}, rolling back from {}",
