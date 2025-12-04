@@ -41,6 +41,7 @@ pub struct BlockProducer {
     allow_block_recreation: bool,
     quarantine: Arc<time_network::PeerQuarantine>,
     uptime_tracker: Arc<RwLock<time_core::MasternodeUptimeTracker>>,
+    sync_manager: Option<Arc<time_network::NetworkSyncManager>>,
 }
 
 impl BlockProducer {
@@ -58,6 +59,10 @@ impl BlockProducer {
         quarantine: Arc<time_network::PeerQuarantine>,
         uptime_tracker: Arc<RwLock<time_core::MasternodeUptimeTracker>>,
     ) -> Self {
+        // Create sync manager for three-tier synchronization
+        let sync_manager =
+            time_network::NetworkSyncManager::new(peer_manager.clone(), blockchain.clone());
+
         BlockProducer {
             node_id,
             peer_manager,
@@ -69,6 +74,7 @@ impl BlockProducer {
             allow_block_recreation,
             quarantine,
             uptime_tracker,
+            sync_manager: Some(Arc::new(sync_manager)),
         }
     }
 
@@ -221,6 +227,7 @@ impl BlockProducer {
             allow_block_recreation: self.allow_block_recreation,
             quarantine: self.quarantine.clone(),
             uptime_tracker: self.uptime_tracker.clone(),
+            sync_manager: self.sync_manager.clone(),
         };
 
         tokio::spawn(async move {
@@ -877,6 +884,26 @@ impl BlockProducer {
             block_num.to_string().cyan().bold()
         );
         println!("────────────────────────────────────────────────────────────────");
+
+        // THREE-TIER SYNC CHECK: Ensure node is synchronized before producing block
+        if let Some(sync_manager) = &self.sync_manager {
+            println!("   🔄 Running pre-production sync check...");
+            match sync_manager.sync_before_production().await {
+                Ok(true) => {
+                    println!("   ✅ Sync check passed - node is in sync");
+                }
+                Ok(false) => {
+                    println!("   ⚠️  Skipping block production - sync in progress");
+                    println!("   ℹ️  Node is catching up with network");
+                    return;
+                }
+                Err(e) => {
+                    println!("   ⚠️  Skipping block production - sync error: {}", e);
+                    println!("   ℹ️  Will retry on next block round");
+                    return;
+                }
+            }
+        }
 
         // Check if node is synced before producing blocks
         let blockchain = self.blockchain.read().await;

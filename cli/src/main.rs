@@ -2720,6 +2720,22 @@ async fn main() {
         uptime_tracker.clone(),
     );
 
+    // Perform initial sync on network join
+    println!("🔄 Performing initial network synchronization...");
+    let sync_manager =
+        time_network::NetworkSyncManager::new(peer_manager.clone(), blockchain.clone());
+
+    match sync_manager.sync_on_join().await {
+        Ok(()) => {
+            println!("✅ Initial sync complete - node is ready");
+        }
+        Err(e) => {
+            println!("⚠️  Initial sync encountered issues: {}", e);
+            println!("ℹ️  Node will continue and retry sync before block production");
+        }
+    }
+    println!();
+
     tokio::spawn(async move {
         block_producer.start().await;
     });
