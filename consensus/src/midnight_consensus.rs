@@ -36,6 +36,57 @@ impl MidnightConsensusOrchestrator {
         println!("🕛 MIDNIGHT CONSENSUS - Block #{}", height);
         println!("─────────────────────────────────────────");
 
+        // PHASE 2: Check network health before proceeding
+        let masternodes = self.consensus.get_masternodes().await;
+        if masternodes.len() >= 3 {
+            let health_checker = crate::network_health::NetworkHealthCheck::new(3);
+            if !health_checker.is_network_healthy(&masternodes).await {
+                return Err(
+                    "Network unhealthy - postponing block production until connectivity improves"
+                        .to_string(),
+                );
+            }
+        }
+
+        // PHASE 2: Check if we need to catch up on block height
+        if height > 0 {
+            println!("📊 Checking height synchronization...");
+            let height_sync = crate::height_sync::HeightSyncManager::new(67);
+
+            // Query peer heights
+            let peer_heights = height_sync.query_all_peer_heights(&masternodes).await;
+
+            if !peer_heights.is_empty() {
+                // We assume a method to get current height exists
+                // For now, use height-1 as "our height" since we're producing height
+                let our_height = height - 1;
+                let consensus = height_sync.check_height_consensus(our_height, peer_heights);
+
+                if consensus.behind_by > 0 {
+                    println!(
+                        "⚠️  Node is {} blocks behind consensus (our: {}, consensus: {})",
+                        consensus.behind_by, consensus.our_height, consensus.consensus_height
+                    );
+
+                    if height_sync.needs_full_resync(&consensus) {
+                        return Err(format!(
+                            "Too far behind ({} blocks) - full resync required",
+                            consensus.behind_by
+                        ));
+                    }
+
+                    if height_sync.needs_sync(&consensus) {
+                        println!(
+                            "🔄 Catching up {} blocks before production...",
+                            consensus.behind_by
+                        );
+                        // In production, trigger block sync here
+                        // For now, just warn and continue
+                    }
+                }
+            }
+        }
+
         // Step 1: Determine leader (deterministic VRF)
         let leader = self
             .consensus

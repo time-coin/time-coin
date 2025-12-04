@@ -28,6 +28,7 @@ pub mod core;
 // Public modules
 pub mod fallback;
 pub mod foolproof_block;
+pub mod height_sync;
 pub mod instant_finality;
 pub mod leader_election;
 pub mod monitoring;
@@ -673,6 +674,47 @@ impl ConsensusEngine {
         // For now, just return empty lists
         let _ = (height, tip_hash, peers);
         (true, Vec::new(), Vec::new())
+    }
+
+    /// Get current block height from state
+    pub async fn get_current_height(&self) -> u64 {
+        if let Some(state) = self.state.read().await.as_ref() {
+            state.chain_tip_height()
+        } else {
+            0
+        }
+    }
+
+    /// Get block hash at specific height from state
+    pub async fn get_block_hash_at_height(&self, height: u64) -> Option<String> {
+        if let Some(state) = self.state.read().await.as_ref() {
+            state
+                .get_block_by_height(height)
+                .map(|block| block.hash.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Verify block at height matches consensus across peers
+    pub async fn verify_block_consensus(
+        &self,
+        height: u64,
+        verification_threshold_percent: u64,
+    ) -> Result<bool, String> {
+        let our_hash = self
+            .get_block_hash_at_height(height)
+            .await
+            .ok_or_else(|| format!("No block at height {}", height))?;
+
+        let peers = self.get_masternodes().await;
+
+        let verifier =
+            crate::height_sync::BlockVerificationManager::new(verification_threshold_percent);
+
+        verifier
+            .verify_block_consensus(height, &our_hash, &peers)
+            .await
     }
 }
 

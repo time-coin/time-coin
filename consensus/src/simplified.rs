@@ -79,6 +79,11 @@ impl SimplifiedConsensus {
         );
     }
 
+    /// Get current masternode list
+    pub async fn get_masternodes(&self) -> Vec<String> {
+        self.masternodes.read().await.clone()
+    }
+
     /// Add transaction to known set
     pub async fn add_known_transaction(&self, txid: String) {
         let mut known = self._known_transactions.write().await;
