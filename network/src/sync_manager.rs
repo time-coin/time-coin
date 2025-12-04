@@ -87,10 +87,20 @@ impl HeightSyncManager {
         let peers = self.peer_manager.get_connected_peers().await;
         let heights = Vec::new();
 
-        for peer in peers {
-            // TODO: Implement actual height query via network protocol
-            // For now, return empty to satisfy compilation
+        for peer in &peers {
             debug!(peer = %peer.address, "querying height");
+
+            // TODO: Send HeightRequest message to peer and await HeightResponse
+            // This requires integration with the connection/message handler infrastructure
+            // For now, we return empty to allow compilation
+            //
+            // Example implementation:
+            // if let Ok(response) = send_height_request(&peer.address.to_string()).await {
+            //     heights.push(PeerHeightInfo {
+            //         address: peer.address.to_string(),
+            //         height: response.0,
+            //     });
+            // }
         }
 
         Ok(heights)
@@ -197,9 +207,13 @@ impl BlockSyncManager {
                 "requesting block"
             );
 
-            // TODO: Implement actual block request via network protocol
-            // For now, return error to satisfy compilation
-            // In real implementation, this would send a BlockRequest message
+            // TODO: Send BlockRequest message to peer and await BlockResponse
+            // This requires integration with the connection/message handler infrastructure
+            //
+            // Example implementation:
+            // if let Ok(Some(block)) = send_block_request(&peer.address.to_string(), height).await {
+            //     return Ok(block);
+            // }
         }
 
         Err(NetworkError::BlockNotFound)
@@ -297,8 +311,22 @@ impl ChainSyncManager {
     ) -> Result<Vec<time_core::block::Block>, NetworkError> {
         info!(peer = peer_address, "requesting full chain");
 
-        // TODO: Implement full chain request via network protocol
-        // This would send a ChainRequest message and receive all blocks
+        // TODO: Send ChainRequest message to peer and collect ChainResponse batches
+        // This would send a ChainRequest message starting from genesis (height 0)
+        // and receive multiple ChainResponse messages until complete = true
+        //
+        // Example implementation:
+        // let mut all_blocks = Vec::new();
+        // let mut from_height = 0;
+        // loop {
+        //     let blocks = send_chain_request(peer_address, from_height).await?;
+        //     all_blocks.extend(blocks);
+        //     if response.complete {
+        //         break;
+        //     }
+        //     from_height += blocks.len() as u64;
+        // }
+        // Ok(all_blocks)
 
         Err(NetworkError::NotImplemented)
     }

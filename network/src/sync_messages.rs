@@ -1,0 +1,236 @@
+//! Synchronization message handler
+//!
+//! Handles HeightRequest/Response, BlockRequest/Response, and ChainRequest/Response messages
+//! for the three-tier network synchronization strategy.
+
+use crate::error::NetworkError;
+use crate::protocol::NetworkMessage;
+use std::sync::Arc;
+use time_core::state::BlockchainState;
+use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
+
+/// Handler for synchronization-related network messages
+pub struct SyncMessageHandler {
+    blockchain: Arc<RwLock<BlockchainState>>,
+}
+
+impl SyncMessageHandler {
+    /// Create a new sync message handler
+    pub fn new(blockchain: Arc<RwLock<BlockchainState>>) -> Self {
+        Self { blockchain }
+    }
+
+    /// Handle incoming sync message and generate response
+    pub async fn handle_message(
+        &self,
+        message: NetworkMessage,
+    ) -> Result<Option<NetworkMessage>, NetworkError> {
+        match message {
+            // Tier 1: Height queries
+            NetworkMessage::HeightRequest => self.handle_height_request().await,
+
+            // Tier 2: Block queries
+            NetworkMessage::BlockRequest { height } => self.handle_block_request(height).await,
+
+            // Tier 3: Chain queries
+            NetworkMessage::ChainRequest { from_height } => {
+                self.handle_chain_request(from_height).await
+            }
+
+            // Handle responses (for client side)
+            NetworkMessage::HeightResponse { .. }
+            | NetworkMessage::BlockResponse { .. }
+            | NetworkMessage::ChainResponse { .. } => {
+                // Responses are handled by the requesting side
+                Ok(None)
+            }
+
+            _ => Ok(None), // Not a sync message
+        }
+    }
+
+    /// Handle height request - return current blockchain height
+    async fn handle_height_request(&self) -> Result<Option<NetworkMessage>, NetworkError> {
+        let blockchain = self.blockchain.read().await;
+        let height = blockchain.chain_tip_height();
+        let best_block_hash = blockchain.chain_tip_hash().to_string();
+
+        debug!(height, hash = %best_block_hash, "responding to height request");
+
+        Ok(Some(NetworkMessage::HeightResponse {
+            height,
+            best_block_hash,
+        }))
+    }
+
+    /// Handle block request - return specific block by height
+    async fn handle_block_request(
+        &self,
+        height: u64,
+    ) -> Result<Option<NetworkMessage>, NetworkError> {
+        let blockchain = self.blockchain.read().await;
+
+        match blockchain.get_block_by_height(height) {
+            Some(block) => {
+                debug!(height, "sending block");
+                Ok(Some(NetworkMessage::BlockResponse {
+                    block: Some(block.clone()),
+                }))
+            }
+            None => {
+                warn!(height, "block not found");
+                Ok(Some(NetworkMessage::BlockResponse { block: None }))
+            }
+        }
+    }
+
+    /// Handle chain request - return blocks starting from height
+    async fn handle_chain_request(
+        &self,
+        from_height: u64,
+    ) -> Result<Option<NetworkMessage>, NetworkError> {
+        let blockchain = self.blockchain.read().await;
+        let current_height = blockchain.chain_tip_height();
+
+        // Limit batch size to prevent overwhelming the network
+        const MAX_BATCH_SIZE: u64 = 100;
+
+        let end_height = (from_height + MAX_BATCH_SIZE).min(current_height);
+        let mut blocks = Vec::new();
+
+        for height in from_height..=end_height {
+            if let Some(block) = blockchain.get_block_by_height(height) {
+                blocks.push(block.clone());
+            } else {
+                warn!(height, "block not found in chain request");
+                break;
+            }
+        }
+
+        let complete = end_height >= current_height;
+
+        info!(
+            from = from_height,
+            to = end_height,
+            count = blocks.len(),
+            complete,
+            "sending chain response"
+        );
+
+        Ok(Some(NetworkMessage::ChainResponse { blocks, complete }))
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Helper functions for sending sync requests
+// ═══════════════════════════════════════════════════════════════
+
+/// Send height request to peer
+pub async fn send_height_request(peer_address: &str) -> Result<(u64, String), NetworkError> {
+    // TODO: Implement actual network send/receive
+    // This is a placeholder that will be integrated with the existing connection infrastructure
+    debug!(peer = peer_address, "sending height request");
+
+    // For now, return an error indicating this needs integration
+    Err(NetworkError::NotImplemented)
+}
+
+/// Send block request to peer
+pub async fn send_block_request(
+    peer_address: &str,
+    height: u64,
+) -> Result<Option<time_core::block::Block>, NetworkError> {
+    debug!(peer = peer_address, height, "sending block request");
+
+    // TODO: Implement actual network send/receive
+    Err(NetworkError::NotImplemented)
+}
+
+/// Send chain request to peer
+pub async fn send_chain_request(
+    peer_address: &str,
+    from_height: u64,
+) -> Result<Vec<time_core::block::Block>, NetworkError> {
+    debug!(peer = peer_address, from_height, "sending chain request");
+
+    // TODO: Implement actual network send/receive
+    Err(NetworkError::NotImplemented)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time_core::block::Block;
+    use time_core::checkpoint::Checkpoint;
+
+    #[tokio::test]
+    async fn test_height_request_response() {
+        // Create test blockchain
+        let checkpoint = Checkpoint::new_with_data_dir("test_sync_height".to_string());
+        let blockchain = Arc::new(RwLock::new(
+            BlockchainState::new_with_checkpoint(checkpoint).unwrap(),
+        ));
+
+        let handler = SyncMessageHandler::new(blockchain.clone());
+
+        // Test height request
+        let response = handler
+            .handle_message(NetworkMessage::HeightRequest)
+            .await
+            .unwrap();
+
+        match response {
+            Some(NetworkMessage::HeightResponse { height, .. }) => {
+                assert_eq!(height, 0); // Genesis block
+            }
+            _ => panic!("Expected HeightResponse"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_block_request_genesis() {
+        let checkpoint = Checkpoint::new_with_data_dir("test_sync_block".to_string());
+        let blockchain = Arc::new(RwLock::new(
+            BlockchainState::new_with_checkpoint(checkpoint).unwrap(),
+        ));
+
+        let handler = SyncMessageHandler::new(blockchain.clone());
+
+        // Request genesis block
+        let response = handler
+            .handle_message(NetworkMessage::BlockRequest { height: 0 })
+            .await
+            .unwrap();
+
+        match response {
+            Some(NetworkMessage::BlockResponse { block: Some(_) }) => {
+                // Success
+            }
+            _ => panic!("Expected BlockResponse with genesis block"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_block_request_not_found() {
+        let checkpoint = Checkpoint::new_with_data_dir("test_sync_notfound".to_string());
+        let blockchain = Arc::new(RwLock::new(
+            BlockchainState::new_with_checkpoint(checkpoint).unwrap(),
+        ));
+
+        let handler = SyncMessageHandler::new(blockchain.clone());
+
+        // Request non-existent block
+        let response = handler
+            .handle_message(NetworkMessage::BlockRequest { height: 9999 })
+            .await
+            .unwrap();
+
+        match response {
+            Some(NetworkMessage::BlockResponse { block: None }) => {
+                // Expected - block not found
+            }
+            _ => panic!("Expected BlockResponse with None"),
+        }
+    }
+}

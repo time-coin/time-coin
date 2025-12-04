@@ -748,6 +748,40 @@ pub enum NetworkMessage {
         height: Option<u64>, // None = no genesis yet, Some(0) = genesis exists
         best_block_hash: String,
     },
+
+    // ═══════════════════════════════════════════════════════════════
+    // NETWORK SYNCHRONIZATION MESSAGES (Three-Tier Sync Strategy)
+    // ═══════════════════════════════════════════════════════════════
+
+    // Tier 1: Height Synchronization
+    /// Request current blockchain height from peer
+    HeightRequest,
+    /// Response with current blockchain height
+    HeightResponse {
+        height: u64,
+        best_block_hash: String,
+    },
+
+    // Tier 2: Block Synchronization
+    /// Request a specific block by height
+    BlockRequest {
+        height: u64,
+    },
+    /// Response with requested block
+    BlockResponse {
+        block: Option<time_core::block::Block>,
+    },
+
+    // Tier 3: Full Chain Synchronization
+    /// Request entire chain from genesis
+    ChainRequest {
+        from_height: u64,
+    },
+    /// Response with blocks starting from requested height
+    ChainResponse {
+        blocks: Vec<time_core::block::Block>,
+        complete: bool, // true if this is the final batch
+    },
     PeerList(Vec<PeerAddress>),
 
     // Transaction consensus messages

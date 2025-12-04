@@ -15,6 +15,7 @@ pub mod rate_limiter;
 pub mod sync;
 pub mod sync_gate; // Fork prevention: Block creation gating
 pub mod sync_manager; // Three-tier network synchronization strategy
+pub mod sync_messages; // Sync protocol message handlers
 pub mod tx_broadcast;
 pub mod tx_sync; // 🆕 Transaction synchronization for block proposals
 pub mod unified_connection;
@@ -42,6 +43,7 @@ pub use sync_gate::SyncGate; // Export for consensus layer
 pub use sync_manager::{
     BlockSyncManager, ChainSyncManager, HeightSyncManager, NetworkSyncManager, SyncStatus,
 }; // Three-tier sync
+pub use sync_messages::SyncMessageHandler; // Sync message handler
 pub use tx_broadcast::TransactionBroadcaster;
 pub use tx_sync::TransactionSyncManager; // 🆕 Export transaction sync manager
 pub use upnp::UpnpManager;
