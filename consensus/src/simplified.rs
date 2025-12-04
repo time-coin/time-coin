@@ -69,8 +69,14 @@ impl SimplifiedConsensus {
     /// Update masternode list
     pub async fn set_masternodes(&self, nodes: Vec<String>) {
         let mut masternodes = self.masternodes.write().await;
+        let old_count = masternodes.len();
         *masternodes = nodes;
         masternodes.sort(); // Keep deterministic
+        println!(
+            "📋 Simplified consensus: masternode list updated {} → {} nodes",
+            old_count,
+            masternodes.len()
+        );
     }
 
     /// Add transaction to known set
@@ -93,9 +99,26 @@ impl SimplifiedConsensus {
             return None;
         }
 
-        // Use VRF trait for deterministic selection
-        self.vrf_selector
-            .select_leader(&masternodes, height, previous_hash)
+        println!(
+            "🔐 SimplifiedConsensus: Leader election for block {}:",
+            height
+        );
+        println!(
+            "   Prev hash: {}... (note: NOT used in VRF seed)",
+            &previous_hash[..previous_hash.len().min(16)]
+        );
+        println!("   Masternode count: {}", masternodes.len());
+
+        // Use VRF trait for deterministic selection (uses ONLY height internally)
+        let leader = self
+            .vrf_selector
+            .select_leader(&masternodes, height, previous_hash);
+
+        if let Some(ref l) = leader {
+            println!("👑 SimplifiedConsensus: Selected leader: {}", l);
+        }
+
+        leader
     }
 
     /// Leader proposes a block

@@ -31,6 +31,7 @@ pub mod foolproof_block;
 pub mod instant_finality;
 pub mod leader_election;
 pub mod monitoring;
+pub mod network_health;
 pub mod phased_protocol;
 pub mod proposals;
 pub mod quorum;
@@ -100,9 +101,9 @@ impl ConsensusEngine {
     }
 
     pub fn new_with_network(dev_mode: bool, network: String) -> Self {
-        Self {
+        let engine = Self {
             dev_mode,
-            network,
+            network: network.clone(),
             masternodes: Arc::new(RwLock::new(Vec::new())),
             wallet_addresses: Arc::new(RwLock::new(HashMap::new())),
             state: Arc::new(RwLock::new(None)),
@@ -112,7 +113,15 @@ impl ConsensusEngine {
             transaction_vote_counts: Arc::new(DashMap::new()),
             proposal_manager: None,
             vrf_selector: DefaultVRFSelector,
-        }
+        };
+
+        // Log VRF configuration for debugging synchronization issues
+        println!("🔍 VRF Configuration:");
+        println!("   Network: {}", network);
+        println!("   Dev mode: {}", dev_mode);
+        println!("   Selector: DefaultVRFSelector (SHA256-based, height-only seed)");
+
+        engine
     }
 
     /// Set the proposal manager
@@ -186,8 +195,26 @@ impl ConsensusEngine {
     /// Sync masternode list with current peers (replaces existing list)
     pub async fn sync_masternodes(&self, peer_ips: Vec<String>) {
         let mut masternodes = self.masternodes.write().await;
-        *masternodes = peer_ips;
-        masternodes.sort(); // Keep deterministic ordering
+
+        // Sort for deterministic ordering
+        let mut sorted = peer_ips;
+        sorted.sort();
+
+        // Only accept if count >= 3 (BFT requirement), unless in dev mode
+        if sorted.len() >= 3 || self.dev_mode {
+            let old_count = masternodes.len();
+            *masternodes = sorted;
+            println!(
+                "📋 Masternode list synced: {} → {} nodes",
+                old_count,
+                masternodes.len()
+            );
+        } else {
+            println!(
+                "⚠️  Rejecting masternode list: only {} nodes (need 3+ for BFT)",
+                sorted.len()
+            );
+        }
     }
 
     /// Get block producer for a given block height using VRF-based selection
@@ -253,15 +280,28 @@ impl ConsensusEngine {
             return None;
         }
 
-        // Get previous block hash for VRF seed
+        // CRITICAL FIX: Use canonical seed independent of node state
+        // The VRF selector uses ONLY block_height (not previous_hash) to ensure
+        // all nodes agree on the leader regardless of their chain sync state
         let previous_hash = if let Some(state) = self.state.read().await.as_ref() {
             state.chain_tip_hash().to_string()
         } else {
             "genesis".to_string()
         };
 
-        // VRF-based selection
+        // Log the seed components for debugging divergence
+        println!("🔐 Leader election for block {}:", block_height);
+        println!(
+            "   Prev hash: {}... (note: NOT used in VRF seed)",
+            &previous_hash[..previous_hash.len().min(16)]
+        );
+        println!("   Masternode count: {}", masternodes.len());
+
+        // VRF-based selection (uses ONLY height internally)
         let leader = self.select_leader_vrf(&masternodes, block_height, &previous_hash);
+
+        println!("👑 Selected leader: {}", leader);
+
         Some(leader)
     }
 
@@ -658,6 +698,7 @@ pub enum ConsensusError {
     DuplicateVote,
     InvalidBlock,
     QuorumNotReached,
+    MasternodeNotMature,
 }
 
 impl std::fmt::Display for ConsensusError {
@@ -668,6 +709,9 @@ impl std::fmt::Display for ConsensusError {
             ConsensusError::DuplicateVote => write!(f, "Duplicate vote detected"),
             ConsensusError::InvalidBlock => write!(f, "Invalid block"),
             ConsensusError::QuorumNotReached => write!(f, "Quorum not reached"),
+            ConsensusError::MasternodeNotMature => {
+                write!(f, "Masternode not mature enough to vote")
+            }
         }
     }
 }
