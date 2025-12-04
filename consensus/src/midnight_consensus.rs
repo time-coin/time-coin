@@ -80,8 +80,36 @@ impl MidnightConsensusOrchestrator {
                             "🔄 Catching up {} blocks before production...",
                             consensus.behind_by
                         );
-                        // In production, trigger block sync here
-                        // For now, just warn and continue
+
+                        // PHASE 3: Actually sync the blocks
+                        let sync_manager = crate::block_sync::BlockSyncManager::new();
+                        let our_height = consensus.our_height;
+                        let target_height = consensus.consensus_height;
+
+                        match sync_manager
+                            .sync_blocks(&masternodes, our_height + 1, target_height)
+                            .await
+                        {
+                            Ok(blocks) => {
+                                // Verify block chain continuity
+                                if let Err(e) =
+                                    crate::block_sync::BlockSyncManager::verify_block_chain(&blocks)
+                                {
+                                    return Err(format!("Block verification failed: {}", e));
+                                }
+
+                                println!("✅ Synced and verified {} blocks", blocks.len());
+
+                                // TODO: Insert blocks into blockchain
+                                // This requires access to the blockchain state
+                                // For now, we just verify them
+                                println!("⚠️  Note: Block insertion not yet implemented");
+                            }
+                            Err(e) => {
+                                println!("⚠️  Failed to sync blocks: {}", e);
+                                println!("   Continuing with consensus anyway...");
+                            }
+                        }
                     }
                 }
             }

@@ -13,7 +13,9 @@ use serde::Serialize;
 pub fn blockchain_routes() -> Router<ApiState> {
     Router::new()
         .route("/info", get(get_blockchain_info))
+        .route("/height", get(get_blockchain_height))
         .route("/block/{height}", get(get_block_by_height))
+        .route("/block/{height}/hash", get(get_block_hash_by_height))
         .route("/balance/{address}", get(get_balance))
         .route("/utxos/{address}", get(get_utxos_by_address))
 }
@@ -51,6 +53,12 @@ async fn get_blockchain_info(
     }))
 }
 
+/// Get current blockchain height (Phase 3 endpoint)
+async fn get_blockchain_height(State(state): State<ApiState>) -> ApiResult<Json<u64>> {
+    let blockchain = state.blockchain.read().await;
+    Ok(Json(blockchain.chain_tip_height()))
+}
+
 #[derive(Serialize)]
 struct BlockResponse {
     block: time_core::block::Block,
@@ -66,6 +74,22 @@ async fn get_block_by_height(
         Some(block) => Ok(Json(BlockResponse {
             block: block.clone(),
         })),
+        None => Err(ApiError::BlockNotFound(format!(
+            "Block at height {} not found",
+            height
+        ))),
+    }
+}
+
+/// Get block hash at specific height (Phase 3 endpoint)
+async fn get_block_hash_by_height(
+    State(state): State<ApiState>,
+    Path(height): Path<u64>,
+) -> ApiResult<String> {
+    let blockchain = state.blockchain.read().await;
+
+    match blockchain.get_block_by_height(height) {
+        Some(block) => Ok(block.hash.clone()),
         None => Err(ApiError::BlockNotFound(format!(
             "Block at height {} not found",
             height

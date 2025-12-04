@@ -26,6 +26,7 @@
 pub mod core;
 
 // Public modules
+pub mod block_sync;
 pub mod fallback;
 pub mod foolproof_block;
 pub mod height_sync;
