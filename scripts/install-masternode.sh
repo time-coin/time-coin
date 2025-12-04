@@ -345,20 +345,22 @@ CONFIGEOF
 #############################
 
 wait_for_api() {
-    print_info "Waiting for API to become available..."
-    local max_attempts=30
+    print_info "Waiting for node to initialize and API to become available..."
+    local max_attempts=60
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
         if curl -s "$API_URL/health" > /dev/null 2>&1; then
             print_success "API is responding"
+            sleep 5  # Extra time for full initialization
             return 0
         fi
         attempt=$((attempt + 1))
-        sleep 2
+        sleep 3
     done
     
-    print_error "API failed to start after $max_attempts attempts"
+    print_warning "API check timed out after $max_attempts attempts"
+    print_info "Node may still be initializing - this is normal during first sync"
     return 1
 }
 
@@ -586,13 +588,28 @@ show_summary() {
     echo "1. Monitor your masternode:"
     echo "   sudo journalctl -u ${SERVICE_NAME} -f"
     echo ""
-    echo "2. Check your balance:"
-    echo "   time-cli balance $MASTERNODE_ADDRESS"
-    echo ""
-    echo "3. View node status:"
-    echo "   time-cli status"
-    echo ""
-    echo "4. Join the TIME Coin community for support and updates"
+    
+    if [ -z "$MASTERNODE_ADDRESS" ]; then
+        echo "2. Generate masternode credentials (once node is fully synced):"
+        echo "   curl -X POST http://localhost:${API_PORT}/keypair/generate"
+        echo "   Then update the config at $CONFIG_DIR/testnet.toml"
+        echo ""
+        echo "3. Check your balance:"
+        echo "   time-cli balance <your_address>"
+        echo ""
+        echo "4. View node status:"
+        echo "   time-cli status"
+        echo ""
+        echo "5. Join the TIME Coin community for support and updates"
+    else
+        echo "2. Check your balance:"
+        echo "   time-cli balance $MASTERNODE_ADDRESS"
+        echo ""
+        echo "3. View node status:"
+        echo "   time-cli status"
+        echo ""
+        echo "4. Join the TIME Coin community for support and updates"
+    fi
     echo ""
     echo -e "${GREEN}🎉 Your masternode is now live on TIME Coin testnet!${NC}"
     echo -e "${GREEN}🚀 The node will sync with the network and participate in consensus.${NC}"
