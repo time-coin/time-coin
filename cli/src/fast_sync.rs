@@ -439,6 +439,12 @@ impl FastSync {
         let mut blockchain = self.blockchain.write().await;
 
         for (idx, block) in blocks.iter().enumerate() {
+            // Skip genesis block if it already exists (common case when resyncing)
+            if block.header.block_number == 0 && blockchain.has_block(&block.hash) {
+                println!("      ℹ️  Skipping genesis block (already exists)");
+                continue;
+            }
+
             blockchain.add_block(block.clone()).map_err(|e| {
                 format!(
                     "Failed to import block {}: {:?}",
