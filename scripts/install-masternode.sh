@@ -118,7 +118,8 @@ check_repo_dir() {
     
     # Repository not found, will need to clone it
     print_info "TIME Coin repository not found, will clone it"
-    return 1
+    REPO_DIR=""
+    return 0
 }
 
 #############################
