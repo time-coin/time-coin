@@ -46,6 +46,7 @@ pub fn create_routes() -> Router<ApiState> {
         .nest("/transaction", transaction_routes())
         // Legacy route redirects for backward compatibility
         .route("/peers", get(network::get_peers_legacy))
+        .route("/balance/{address}", get(blockchain::get_balance_legacy))
         .route(
             "/masternodes/list",
             get(|| async { axum::response::Redirect::permanent("/masternode/list") }),

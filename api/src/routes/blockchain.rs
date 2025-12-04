@@ -74,7 +74,7 @@ async fn get_block_by_height(
 }
 
 #[derive(Serialize)]
-struct BalanceResponse {
+pub struct BalanceResponse {
     address: String,
     balance: u64,
     balance_time: String,
@@ -105,6 +105,14 @@ async fn get_balance(
         balance_time,
         unconfirmed_balance,
     }))
+}
+
+/// Legacy endpoint for backward compatibility with CLI
+pub async fn get_balance_legacy(
+    state: State<ApiState>,
+    address: Path<String>,
+) -> ApiResult<Json<BalanceResponse>> {
+    get_balance(state, address).await
 }
 
 #[derive(Serialize)]
