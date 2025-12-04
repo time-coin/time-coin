@@ -390,12 +390,10 @@ setup_masternode_credentials() {
     print_success "Keypair generated"
     print_info "Address: $MASTERNODE_ADDRESS"
     print_info "Tier: Free (testnet)"
-}
-
-    
-    local config_file="$CONFIG_DIR/testnet.toml"
     
     # Update the config file with the generated credentials
+    local config_file="$CONFIG_DIR/testnet.toml"
+    
     sed -i "s|address = \"\"|address = \"$MASTERNODE_ADDRESS\"|" "$config_file"
     sed -i "s|public_key = \"\"|public_key = \"$MASTERNODE_PUBLIC_KEY\"|" "$config_file"
     sed -i "s|private_key = \"\"|private_key = \"$MASTERNODE_PRIVATE_KEY\"|" "$config_file"
