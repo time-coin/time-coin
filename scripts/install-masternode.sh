@@ -276,7 +276,7 @@ setup_masternode_config() {
 # TIME Coin Testnet Node Configuration
 
 [node]
-mode = "dev"
+mode = "masternode"
 network = "testnet"
 name = "masternode-node"
 data_dir = "${DATA_DIR}"
@@ -291,9 +291,9 @@ allow_genesis_load = true
 allow_block_recreation = false
 
 [consensus]
-# Dev mode for testnet - single node can produce blocks
-dev_mode = true
-auto_approve = true
+# Production consensus mode for testnet
+dev_mode = false
+auto_approve = false
 
 [rpc]
 enabled = true
