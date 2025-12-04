@@ -101,7 +101,19 @@ fn load_wallet_address(api_url: &str) -> Option<String> {
         }
     }
 
-    // Method 2: Try the masternode wallet endpoint directly (blocking call)
+    // Method 2: Try the blockchain info endpoint (most reliable)
+    let blockchain_url = format!("{}/blockchain/info", api_url);
+    if let Ok(response) = reqwest::blocking::get(&blockchain_url) {
+        if let Ok(json) = response.json::<serde_json::Value>() {
+            if let Some(address) = json.get("wallet_address").and_then(|v| v.as_str()) {
+                if !address.is_empty() {
+                    return Some(address.to_string());
+                }
+            }
+        }
+    }
+
+    // Method 3: Try the masternode wallet endpoint directly (blocking call)
     let wallet_url = format!("{}/masternode/wallet", api_url);
     if let Ok(response) = reqwest::blocking::get(&wallet_url) {
         if let Ok(json) = response.json::<serde_json::Value>() {
@@ -113,7 +125,7 @@ fn load_wallet_address(api_url: &str) -> Option<String> {
         }
     }
 
-    // Method 3: Try the legacy endpoint (with redirect)
+    // Method 4: Try the legacy endpoint (with redirect)
     let wallet_url = format!("{}/node/wallet", api_url);
     if let Ok(response) = reqwest::blocking::get(&wallet_url) {
         if let Ok(json) = response.json::<serde_json::Value>() {
@@ -143,8 +155,9 @@ fn run_dashboard(
     } else {
         println!("⚠️  No wallet address found. Checking:");
         println!("   1. WALLET_ADDRESS environment variable");
-        println!("   2. {}/masternode/wallet endpoint", api_url);
-        println!("   3. {}/node/wallet endpoint", api_url);
+        println!("   2. {}/blockchain/info endpoint", api_url);
+        println!("   3. {}/masternode/wallet endpoint", api_url);
+        println!("   4. {}/node/wallet endpoint", api_url);
         println!("\nℹ️  Wallet balance will not be displayed.");
         thread::sleep(Duration::from_secs(3));
     }

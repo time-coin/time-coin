@@ -12,6 +12,7 @@ use tracing as log;
 /// Register mempool routes
 pub fn mempool_routes() -> Router<ApiState> {
     Router::new()
+        .route("/", get(get_mempool_status)) // Add root endpoint for dashboard
         .route("/status", get(get_mempool_status))
         .route("/add", post(add_to_mempool))
         .route("/finalized", post(receive_finalized_transaction))
@@ -22,6 +23,7 @@ pub fn mempool_routes() -> Router<ApiState> {
 #[derive(Serialize)]
 struct MempoolStatusResponse {
     size: usize,
+    pending: usize, // Alias for dashboard compatibility
     transactions: Vec<String>,
 }
 
@@ -35,9 +37,11 @@ async fn get_mempool_status(
 
     let transactions = mempool.get_all_transactions().await;
     let tx_ids: Vec<String> = transactions.iter().map(|tx| tx.txid.clone()).collect();
+    let count = tx_ids.len();
 
     Ok(Json(MempoolStatusResponse {
-        size: tx_ids.len(),
+        size: count,
+        pending: count, // Same value for dashboard compatibility
         transactions: tx_ids,
     }))
 }
