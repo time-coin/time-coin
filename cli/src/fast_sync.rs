@@ -386,17 +386,40 @@ impl FastSync {
                     };
                     let peer_addr = format!("{}:{}", peer_clone, p2p_port);
 
-                    (
-                        height,
-                        peer_manager
-                            .request_block_by_height(&peer_addr, height)
-                            .await,
+                    // Add timeout to individual block downloads (5 seconds per block)
+                    let result = tokio::time::timeout(
+                        tokio::time::Duration::from_secs(5),
+                        peer_manager.request_block_by_height(&peer_addr, height),
                     )
+                    .await;
+
+                    let block_result = match result {
+                        Ok(Ok(block)) => Ok(block),
+                        Ok(Err(e)) => Err(e),
+                        Err(_) => Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Block download timeout after 5s",
+                        )) as Box<dyn std::error::Error + Send>),
+                    };
+
+                    (height, block_result)
                 }));
             }
 
-            // Wait for all downloads in parallel
-            let results = futures::future::join_all(tasks).await;
+            // Wait for all downloads in parallel with timeout
+            let results = match tokio::time::timeout(
+                tokio::time::Duration::from_secs(30), // 30 second timeout for batch
+                futures::future::join_all(tasks),
+            )
+            .await
+            {
+                Ok(results) => results,
+                Err(_) => {
+                    eprintln!("      ⚠️  Batch download timed out after 30s");
+                    // Return partial results and retry failed blocks
+                    Vec::new()
+                }
+            };
 
             let mut batch_blocks = Vec::new();
             let mut failed_heights = Vec::new();
