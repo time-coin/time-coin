@@ -18,6 +18,7 @@ const BATCH_TIMEOUT_SECS: u64 = 30; // Timeout per batch
 pub struct SimpleSync {
     blockchain: Arc<RwLock<BlockchainState>>,
     peer_manager: Arc<PeerManager>,
+    #[allow(dead_code)] // May be used for peer quarantine in future
     quarantine: Arc<PeerQuarantine>,
 }
 

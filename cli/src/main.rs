@@ -80,9 +80,6 @@ struct Config {
 
     #[serde(default)]
     rpc: RpcConfig,
-
-    #[serde(default)]
-    sync: SyncConfig,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -116,18 +113,6 @@ struct RpcConfig {
     bind: Option<String>,
     port: Option<u16>,
     admin_token: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct SyncConfig {
-    /// Enable midnight window sync skipping
-    midnight_window_enabled: Option<bool>,
-    /// Hour before midnight to start window (default: 23 = 11 PM)
-    midnight_window_start_hour: Option<u32>,
-    /// Hour after midnight to end window (default: 1 = 1 AM)
-    midnight_window_end_hour: Option<u32>,
-    /// Check consensus status before skipping (default: true)
-    midnight_window_check_consensus: Option<bool>,
 }
 
 fn load_config(path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
@@ -2226,11 +2211,6 @@ async fn main() {
                                                         println!("📦 Received block proposal for height {} from {}", proposal.block_height, peer_ip_listen);
 
                                                         // Check if we're behind and trigger sync
-                                                        let our_height = {
-                                                            let blockchain_guard = blockchain_listen.read().await;
-                                                            blockchain_guard.chain_tip_height()
-                                                        };
-
                                                         // Note: Periodic sync will catch up
                                                         // No event-driven sync needed
 
