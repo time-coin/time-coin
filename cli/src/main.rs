@@ -2563,21 +2563,6 @@ async fn main() {
 
     // Start Block Producer
 
-    // Sync block_height.txt with actual blockchain height on startup
-    {
-        let current_height = {
-            let blockchain = blockchain.read().await;
-            blockchain.chain_tip_height()
-        };
-
-        let height_file = format!("{}/block_height.txt", data_dir);
-        if let Err(e) = std::fs::write(&height_file, current_height.to_string()) {
-            eprintln!("⚠️  Failed to write block height file: {}", e);
-        } else {
-            println!("✓ Synced block height file: {} blocks", current_height);
-        }
-    }
-
     // Get allow_block_recreation flag from config
     // Default to true for testnet, false for mainnet
     let allow_block_recreation = config

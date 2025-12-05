@@ -30,7 +30,6 @@ echo "Clearing blockchain data..."
 sudo rm -rf /var/lib/time-coin/blockchain/*
 sudo rm -rf /var/lib/time-coin/blocks
 sudo rm -rf /var/lib/time-coin/chainstate
-sudo rm -rf /var/lib/time-coin/block_height.txt
 sudo rm -rf /var/lib/time-coin/utxo_snapshot.bin
 sudo rm -rf /var/lib/time-coin/quarantine.json
 

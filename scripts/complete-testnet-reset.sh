@@ -93,7 +93,6 @@ fi
 sudo rm -rf "$DATA_DIR/blocks" 2>/dev/null || true
 sudo rm -rf "$DATA_DIR/blockchain" 2>/dev/null || true
 sudo rm -rf "$DATA_DIR/chainstate" 2>/dev/null || true
-sudo rm -f "$DATA_DIR/block_height.txt" 2>/dev/null || true
 sudo rm -f "$DATA_DIR/current_height.txt" 2>/dev/null || true
 
 # Restore genesis block
