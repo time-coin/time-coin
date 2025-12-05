@@ -898,9 +898,21 @@ impl BlockProducer {
                     return;
                 }
                 Err(e) => {
-                    println!("   ⚠️  Skipping block production - sync error: {}", e);
-                    println!("   ℹ️  Will retry on next block round");
-                    return;
+                    // Allow block production if error is just "No peers available"
+                    // This happens when all nodes are synced to same height
+                    if e.to_string().contains("No peers available") {
+                        println!(
+                            "   ⚠️  Sync check failed ({}), but continuing with block production",
+                            e
+                        );
+                        println!(
+                            "   ℹ️  All nodes may be at same height - network needs new blocks"
+                        );
+                    } else {
+                        println!("   ⚠️  Skipping block production - sync error: {}", e);
+                        println!("   ℹ️  Will retry on next block round");
+                        return;
+                    }
                 }
             }
         }
