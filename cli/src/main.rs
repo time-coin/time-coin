@@ -528,7 +528,7 @@ async fn main() {
 
     let config_path = cli
         .config
-        .unwrap_or_else(|| PathBuf::from(expand_path("$HOME/time-coin-node/config/testnet.toml")));
+        .unwrap_or_else(|| PathBuf::from(expand_path("$HOME/.timecoin/config/testnet.toml")));
 
     let config = match load_config(&config_path) {
         Ok(cfg) => cfg,

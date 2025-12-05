@@ -1087,7 +1087,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Network: {}", network);
                 println!("✓ Configuration template created");
                 println!("\nNext steps:");
-                println!("1. Review configuration at ~/.time-coin/config.toml");
+                println!("1. Review configuration at ~/.timecoin/config.toml");
                 println!("2. Start node with: time-node");
             }
         }

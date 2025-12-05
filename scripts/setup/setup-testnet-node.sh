@@ -15,7 +15,7 @@ port = 24101
 
 [logging]
 level = "info"
-file = "$HOME/time-coin-node/logs/node.log"
+file = "$HOME/.timecoin/logs/node.log"
 max_size = "100MB"
 max_backups = 5
 EOF
@@ -33,14 +33,14 @@ After=network.target
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME/time-coin-node
-ExecStart=/usr/local/bin/timed --config $HOME/time-coin-node/config/testnet.toml
+WorkingDirectory=$HOME/.timecoin
+ExecStart=/usr/local/bin/timed --config $HOME/.timecoin/config/testnet.toml
 Restart=always
 RestartSec=10
 
 # Logging
-StandardOutput=append:$HOME/time-coin-node/logs/node.log
-StandardError=append:$HOME/time-coin-node/logs/error.log
+StandardOutput=append:$HOME/.timecoin/logs/node.log
+StandardError=append:$HOME/.timecoin/logs/error.log
 
 # Security
 NoNewPrivileges=true
