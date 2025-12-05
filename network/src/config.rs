@@ -114,6 +114,75 @@ impl NetworkConfig {
             peer_exchange_max_age: Duration::from_secs(259200),  // 3 days
         }
     }
+
+    /// Create config optimized for initial sync (Phase 1 optimization)
+    pub fn for_fast_sync() -> Self {
+        Self {
+            stale_peer_timeout: Duration::from_secs(30), // More aggressive
+            reaper_interval: Duration::from_secs(5),     // More frequent checks
+            connection_timeout: Duration::from_secs(2),  // Fail fast
+            min_connections: 8,
+            target_connections: 20, // More peers for faster sync
+            max_concurrent_connections: 25,
+            batch_timeout: Duration::from_secs(5),
+            tcp_keepalive_time: Duration::from_secs(30),
+            tcp_keepalive_interval: Duration::from_secs(15),
+            broadcast_cleanup_interval: Duration::from_secs(30),
+            broadcast_memory_duration: Duration::from_secs(180),
+            max_broadcasts_per_minute: 120,
+            peer_exchange_cleanup_interval: Duration::from_secs(1800),
+            peer_exchange_max_age: Duration::from_secs(259200),
+        }
+    }
+}
+
+/// Configuration for snapshot sync optimization (Phase 1)
+#[derive(Debug, Clone)]
+pub struct SnapshotSyncConfig {
+    /// Enable state snapshot sync
+    pub enabled: bool,
+
+    /// How many recent blocks to sync after snapshot
+    pub recent_blocks: u64,
+
+    /// Timeout for snapshot download
+    pub snapshot_timeout: Duration,
+
+    /// Minimum gap to use snapshot sync (blocks)
+    pub min_gap_for_snapshot: u64,
+
+    /// Enable compression for snapshots
+    pub compression_enabled: bool,
+
+    /// Compression threshold in bytes
+    pub compression_threshold: usize,
+}
+
+impl Default for SnapshotSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            recent_blocks: 10,
+            snapshot_timeout: Duration::from_secs(300), // 5 minutes
+            min_gap_for_snapshot: 1000,
+            compression_enabled: true,
+            compression_threshold: 1024, // Only compress >1KB
+        }
+    }
+}
+
+impl SnapshotSyncConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Disable snapshot sync (use traditional block sync)
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            ..Default::default()
+        }
+    }
 }
 
 #[cfg(test)]

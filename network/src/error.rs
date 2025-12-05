@@ -73,6 +73,12 @@ pub enum NetworkError {
     #[error("Critical sync required - manual intervention needed")]
     CriticalSyncRequired,
 
+    #[error("Invalid merkle root in snapshot")]
+    InvalidMerkleRoot,
+
+    #[error("Snapshot verification failed: {0}")]
+    SnapshotVerificationFailed(String),
+
     #[error("Feature not yet implemented")]
     NotImplemented,
 }

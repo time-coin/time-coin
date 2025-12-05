@@ -782,6 +782,21 @@ pub enum NetworkMessage {
         blocks: Vec<time_core::block::Block>,
         complete: bool, // true if this is the final batch
     },
+
+    // State Snapshot Synchronization (fastest initial sync)
+    /// Request state snapshot at specific height
+    StateSnapshotRequest {
+        height: u64,
+    },
+    /// Response with compressed state snapshot
+    StateSnapshotResponse {
+        height: u64,
+        utxo_merkle_root: String,
+        state_data: Vec<u8>, // Compressed UTXO state
+        compressed: bool,
+        snapshot_size_bytes: u64,
+    },
+
     PeerList(Vec<PeerAddress>),
 
     // Transaction consensus messages

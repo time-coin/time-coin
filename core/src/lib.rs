@@ -9,6 +9,7 @@ pub mod finalizer;
 pub mod masternode_tx;
 pub mod masternode_uptime;
 pub mod mempool;
+pub mod merkle;
 pub mod snapshot;
 pub mod snapshot_service;
 pub mod state;
@@ -31,6 +32,7 @@ pub use chain_selection::{
     validate_chain_vdf_proofs, ChainError, ChainSelection, ForkInfo,
 };
 pub use masternode_uptime::MasternodeUptimeTracker;
+pub use merkle::{calculate_utxo_merkle_root, MerkleProof, MerkleTree};
 pub use transaction::{
     OutPoint, SpecialTransaction, Transaction, TransactionError, TxInput, TxOutput,
 };

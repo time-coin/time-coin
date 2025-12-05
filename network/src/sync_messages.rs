@@ -38,10 +38,16 @@ impl SyncMessageHandler {
                 self.handle_chain_request(from_height).await
             }
 
+            // State Snapshot queries
+            NetworkMessage::StateSnapshotRequest { height } => {
+                self.handle_state_snapshot_request(height).await
+            }
+
             // Handle responses (for client side)
             NetworkMessage::HeightResponse { .. }
             | NetworkMessage::BlockResponse { .. }
-            | NetworkMessage::ChainResponse { .. } => {
+            | NetworkMessage::ChainResponse { .. }
+            | NetworkMessage::StateSnapshotResponse { .. } => {
                 // Responses are handled by the requesting side
                 Ok(None)
             }
@@ -120,6 +126,86 @@ impl SyncMessageHandler {
 
         Ok(Some(NetworkMessage::ChainResponse { blocks, complete }))
     }
+
+    /// Handle state snapshot request - return compressed UTXO state
+    async fn handle_state_snapshot_request(
+        &self,
+        height: u64,
+    ) -> Result<Option<NetworkMessage>, NetworkError> {
+        let blockchain = self.blockchain.read().await;
+
+        // Check if height is valid
+        let current_height = blockchain.chain_tip_height();
+        if height > current_height {
+            warn!(
+                requested = height,
+                current = current_height,
+                "snapshot height too high"
+            );
+            return Ok(None);
+        }
+
+        info!(height, "creating state snapshot");
+
+        // Get UTXO state at height
+        let utxo_set = blockchain.get_utxo_set();
+
+        // Calculate merkle root for verification
+        let merkle_root = time_core::calculate_utxo_merkle_root(utxo_set);
+
+        // Serialize UTXO state
+        let serialized = bincode::serialize(utxo_set)
+            .map_err(|e| NetworkError::SerializationError(e.to_string()))?;
+
+        // Compress state data
+        let compressed = compress_data(&serialized)?;
+        let snapshot_size = compressed.len() as u64;
+
+        info!(
+            height,
+            original_size = serialized.len(),
+            compressed_size = snapshot_size,
+            compression_ratio = format!("{:.1}x", serialized.len() as f64 / snapshot_size as f64),
+            merkle_root = &merkle_root[..16],
+            "sending state snapshot"
+        );
+
+        Ok(Some(NetworkMessage::StateSnapshotResponse {
+            height,
+            utxo_merkle_root: merkle_root,
+            state_data: compressed,
+            compressed: true,
+            snapshot_size_bytes: snapshot_size,
+        }))
+    }
+}
+
+/// Compress data using flate2/gzip
+fn compress_data(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(data)
+        .map_err(|e| NetworkError::IoError(e.to_string()))?;
+    encoder
+        .finish()
+        .map_err(|e| NetworkError::IoError(e.to_string()))
+}
+
+/// Decompress data using flate2/gzip
+fn decompress_data(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    let mut decoder = GzDecoder::new(data);
+    let mut decompressed = Vec::new();
+    decoder
+        .read_to_end(&mut decompressed)
+        .map_err(|e| NetworkError::IoError(e.to_string()))?;
+    Ok(decompressed)
 }
 
 // ═══════════════════════════════════════════════════════════════

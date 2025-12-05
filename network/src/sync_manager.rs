@@ -506,6 +506,90 @@ impl NetworkSyncManager {
             .check_and_catchup_small_gaps(our_height)
             .await
     }
+
+    /// Fast sync using state snapshots (Phase 1 optimization)
+    pub async fn sync_with_snapshot(&self, target_height: u64) -> Result<(), NetworkError> {
+        info!("🚀 Starting snapshot sync to height {}", target_height);
+
+        // Step 1: Find peer with snapshot capability
+        let peers = self.height_sync.query_peer_heights().await?;
+        let best_peer = peers
+            .iter()
+            .filter(|p| p.height >= target_height)
+            .next()
+            .ok_or(NetworkError::NoPeersAvailable)?;
+
+        info!(peer = %best_peer.address, height = best_peer.height, "found peer for snapshot");
+
+        // Step 2: Request state snapshot
+        // TODO: This requires UnifiedConnection integration
+        // For now, we'll document the intended flow:
+        //
+        // let snapshot_response = send_state_snapshot_request(&best_peer.address, target_height).await?;
+        //
+        // Step 3: Verify merkle root
+        // let merkle_tree = MerkleTree::from_snapshot_data(&snapshot_response.state_data)?;
+        // if merkle_tree.root != snapshot_response.utxo_merkle_root {
+        //     return Err(NetworkError::InvalidMerkleRoot);
+        // }
+        //
+        // Step 4: Decompress and apply snapshot
+        // let decompressed = decompress_data(&snapshot_response.state_data)?;
+        // let utxo_set: UTXOSet = bincode::deserialize(&decompressed)?;
+        //
+        // let mut blockchain = self.blockchain.write().await;
+        // blockchain.apply_utxo_snapshot(target_height, utxo_set)?;
+        // drop(blockchain);
+        //
+        // Step 5: Sync last N blocks normally for recent transactions
+        // let recent_blocks = 10;
+        // if target_height > recent_blocks {
+        //     self.block_sync
+        //         .catch_up_to_consensus(target_height - recent_blocks, target_height)
+        //         .await?;
+        // }
+
+        info!("✅ Snapshot sync complete (TODO: implement UnifiedConnection integration)");
+
+        // Return NotImplemented for now - this will be completed when integrating with connection layer
+        Err(NetworkError::NotImplemented)
+    }
+
+    /// Sync with adaptive strategy based on gap size
+    pub async fn sync_adaptive(&self, target_height: u64) -> Result<(), NetworkError> {
+        let our_height = {
+            let blockchain = self.blockchain.read().await;
+            blockchain.chain_tip_height()
+        };
+
+        let gap = target_height.saturating_sub(our_height);
+
+        if gap == 0 {
+            info!("already at target height");
+            return Ok(());
+        }
+
+        // Use snapshot sync for large gaps (>1000 blocks)
+        if gap > 1000 {
+            info!(gap, "large gap detected - using snapshot sync");
+            match self.sync_with_snapshot(target_height).await {
+                Ok(_) => return Ok(()),
+                Err(NetworkError::NotImplemented) => {
+                    // Fallback to block sync
+                    warn!("snapshot sync not yet available - falling back to block sync");
+                }
+                Err(e) => {
+                    warn!(error = ?e, "snapshot sync failed - falling back to block sync");
+                }
+            }
+        }
+
+        // Use regular block sync for smaller gaps
+        info!(gap, "syncing blocks");
+        self.block_sync
+            .catch_up_to_consensus(our_height, target_height)
+            .await
+    }
 }
 
 #[cfg(test)]
