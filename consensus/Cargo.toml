@@ -12,6 +12,7 @@ sha2 = "0.10"
 rand = "0.9"
 chrono = "0.4"
 tokio = { workspace = true }
+rayon = { workspace = true }
 time-core = { version = "0.1.0", path = "../core" }
 time-mempool = { version = "0.1.0", path = "../mempool" }
 reqwest = { workspace = true }

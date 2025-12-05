@@ -25,6 +25,9 @@
 // Core shared abstractions (new)
 pub mod core;
 
+// Phase 3 optimization - parallel validation
+pub mod parallel_validation;
+
 // Public modules
 pub mod block_sync;
 pub mod fallback;
