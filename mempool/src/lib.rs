@@ -387,15 +387,15 @@ impl Mempool {
             .map(|entry| entry.transaction.clone())
             .collect()
     }
-    
+
     /// Select transactions using priority queue (faster for large mempools) - O(k log n)
     /// where k = max_count
     pub async fn select_transactions_fast(&self, max_count: usize) -> Vec<Transaction> {
         let pool = self.transactions.read().await;
-        
+
         // Build priority queue from mempool entries
         let mut pq = PriorityQueueManager::new();
-        
+
         for entry in pool.values() {
             pq.add(PriorityTransaction {
                 transaction: entry.transaction.clone(),
@@ -404,19 +404,19 @@ impl Mempool {
                 finalized: entry.finalized,
             });
         }
-        
+
         // Select top transactions
         pq.select_for_block(max_count)
     }
-    
+
     /// Get priority distribution stats
     pub async fn get_priority_stats(&self) -> PriorityStats {
         let pool = self.transactions.read().await;
-        
+
         let mut high = 0;
         let mut standard = 0;
         let mut low = 0;
-        
+
         for entry in pool.values() {
             if entry.priority > 1000 {
                 high += 1;
@@ -426,7 +426,7 @@ impl Mempool {
                 low += 1;
             }
         }
-        
+
         PriorityStats {
             high_priority_count: high,
             standard_count: standard,

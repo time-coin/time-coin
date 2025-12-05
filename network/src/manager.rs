@@ -2053,6 +2053,53 @@ impl PeerManager {
         utxo_handler.handle_message(message, peer_ip).await
     }
 
+    /// Request state snapshot from peer (Phase 1 optimization)
+    pub async fn request_state_snapshot(
+        &self,
+        peer_addr: SocketAddr,
+        height: u64,
+    ) -> Result<crate::protocol::NetworkMessage, String> {
+        info!(
+            "🚀 Requesting state snapshot at height {} from {}",
+            height, peer_addr
+        );
+
+        let request = crate::protocol::NetworkMessage::StateSnapshotRequest { height };
+
+        // Use longer timeout for snapshots (they can be large)
+        let timeout_secs = 300; // 5 minutes
+
+        match self
+            .send_message_to_peer_with_response(peer_addr, request, timeout_secs)
+            .await?
+        {
+            Some(crate::protocol::NetworkMessage::StateSnapshotResponse {
+                height: response_height,
+                utxo_merkle_root,
+                state_data,
+                compressed,
+                snapshot_size_bytes,
+            }) => {
+                info!(
+                    "✅ Received snapshot: height={}, size={}KB, compressed={}",
+                    response_height,
+                    snapshot_size_bytes / 1024,
+                    compressed
+                );
+
+                Ok(crate::protocol::NetworkMessage::StateSnapshotResponse {
+                    height: response_height,
+                    utxo_merkle_root,
+                    state_data,
+                    compressed,
+                    snapshot_size_bytes,
+                })
+            }
+            Some(other) => Err(format!("Unexpected response type: {:?}", other)),
+            None => Err("No response received for snapshot request".to_string()),
+        }
+    }
+
     /// Handle GetPeerList request - returns peer list
     pub async fn handle_get_peer_list(&self) -> crate::protocol::NetworkMessage {
         info!("📨 Received GetPeerList request");

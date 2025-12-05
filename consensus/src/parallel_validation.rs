@@ -18,10 +18,7 @@ use time_core::block::{Block, BlockError};
 /// let results = validate_blocks_parallel(&blocks);
 /// ```
 pub fn validate_blocks_parallel(blocks: &[Block]) -> Vec<Result<(), BlockError>> {
-    blocks
-        .par_iter()
-        .map(validate_block_basic)
-        .collect()
+    blocks.par_iter().map(validate_block_basic).collect()
 }
 
 /// Validate a single block (basic checks only - no state validation)
