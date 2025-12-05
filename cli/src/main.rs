@@ -11,11 +11,9 @@ use owo_colors::OwoColorize;
 use serde::Deserialize;
 
 mod block_producer;
-mod chain_sync;
-mod fast_sync;
+mod simple_sync;
 use block_producer::BlockProducer;
-use chain_sync::ChainSync;
-use fast_sync::FastSync;
+use simple_sync::SimpleSync;
 
 use std::path::PathBuf;
 
@@ -922,18 +920,25 @@ async fn main() {
             }
         };
 
-        // Create temporary chain sync to use download method
-        let temp_chain_sync = ChainSync::with_midnight_config(
+        // Create temporary simple sync for genesis download
+        let quarantine_temp = Arc::new(time_network::PeerQuarantine::new());
+        let temp_simple_sync = SimpleSync::new(
             Arc::clone(&temp_blockchain),
             Arc::clone(&peer_manager),
-            None,
-            Arc::new(RwLock::new(false)),
+            Arc::clone(&quarantine_temp),
         );
 
-        // Try to download genesis from all known peers
-        match temp_chain_sync.try_download_genesis_from_all_peers().await {
-            Ok(()) => {
+        // Try to download genesis block (height 0)
+        println!("   📥 Attempting to download genesis block...");
+        match temp_simple_sync.sync().await {
+            Ok(0) => {
                 println!("{}", "   ✅ Genesis block downloaded successfully!".green());
+            }
+            Ok(n) => {
+                println!(
+                    "{}",
+                    format!("   ✅ Downloaded {} block(s) including genesis!", n).green()
+                );
             }
             Err(e) => {
                 println!(
@@ -1219,26 +1224,8 @@ async fn main() {
     // Create shared state for block producer activity
     let block_producer_active_state = Arc::new(RwLock::new(false));
 
-    // Configure midnight window from config
-    let midnight_config = if config.sync.midnight_window_enabled.unwrap_or(true) {
-        Some(chain_sync::MidnightWindowConfig {
-            start_hour: config.sync.midnight_window_start_hour.unwrap_or(23),
-            end_hour: config.sync.midnight_window_end_hour.unwrap_or(1),
-            check_consensus: config.sync.midnight_window_check_consensus.unwrap_or(true),
-        })
-    } else {
-        None
-    };
-
-    let chain_sync = Arc::new(ChainSync::with_midnight_config(
-        Arc::clone(&blockchain),
-        Arc::clone(&peer_manager),
-        midnight_config,
-        block_producer_active_state.clone(),
-    ));
-
-    // Get quarantine reference for API and monitoring
-    let quarantine = chain_sync.quarantine();
+    // Create quarantine for peer management
+    let quarantine = Arc::new(time_network::PeerQuarantine::new());
 
     // If blockchain is empty (only genesis or nothing), clear quarantine to allow fresh downloads
     {
@@ -1246,69 +1233,36 @@ async fn main() {
         if blockchain_read.chain_tip_height() == 0 && blockchain_read.genesis_hash().is_empty() {
             println!(
                 "{}",
-                "   🔄 Empty blockchain detected - clearing peer quarantine for fresh start"
-                    .bright_black()
+                "   🔄 Empty blockchain detected - fresh start".bright_black()
             );
-            quarantine.clear_all().await;
         }
     }
 
-    // Run initial sync with LIGHTNING FAST sync
-    // Try fast sync first, fall back to regular sync if needed
-    println!("{}", "⚡ Attempting lightning-fast sync...".cyan());
+    // Create simplified sync system
+    let simple_sync = SimpleSync::new(
+        Arc::clone(&blockchain),
+        Arc::clone(&peer_manager),
+        Arc::clone(&quarantine),
+    );
 
-    let fast_sync = FastSync::new(blockchain.clone(), peer_manager.clone());
+    // Run initial sync
+    println!("{}", "🔄 Syncing blockchain with network...".cyan());
 
-    match fast_sync.lightning_sync().await {
+    // First, check for and resolve any forks
+    if let Err(e) = simple_sync.detect_and_resolve_forks().await {
+        println!("   {} Fork check failed: {}", "⚠️".yellow(), e);
+    }
+
+    // Then sync blocks
+    match simple_sync.sync().await {
         Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
-        Ok(n) => println!("   {} ⚡ Lightning synced {} blocks", "✓".green(), n),
+        Ok(n) => println!("   {} ✅ Synced {} blocks", "✓".green(), n),
         Err(e) => {
-            println!("   {} Fast sync not available: {}", "⚠️".yellow(), e);
-            println!("   {} Falling back to standard sync...", "🔄".yellow());
-
-            // Fall back to fork detection + regular sync
-            println!("{}", "🔍 Checking for blockchain forks...".cyan());
-            if let Err(e) = chain_sync.detect_and_resolve_forks().await {
-                println!("   {} Fork detection failed: {}", "⚠️".yellow(), e);
-            }
-
-            println!("{}", "🔄 Syncing blockchain with network...".cyan());
-            match chain_sync.sync_from_peers().await {
-                Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
-                Ok(n) => println!("   {} Synced {} blocks", "✓".green(), n),
-                Err(e) => {
-                    // Check if this is a fork-related error
-                    if e.contains("Fork detected") {
-                        println!("   {} {}", "⚠️".yellow(), e);
-                        println!("   {} Re-running fork resolution...", "🔄".yellow());
-                        if let Err(fork_err) = chain_sync.detect_and_resolve_forks().await {
-                            println!("   {} Fork resolution failed: {}", "⚠️".yellow(), fork_err);
-                        } else {
-                            // Try sync again after fork resolution
-                            match chain_sync.sync_from_peers().await {
-                                Ok(0) => println!(
-                                    "   {}",
-                                    "✓ Blockchain is up to date after fork resolution".green()
-                                ),
-                                Ok(n) => println!(
-                                    "   {} Synced {} blocks after fork resolution",
-                                    "✓".green(),
-                                    n
-                                ),
-                                Err(e2) => {
-                                    println!(
-                                        "   {} Sync failed: {} (will retry)",
-                                        "⚠️".yellow(),
-                                        e2
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        println!("   {} Sync failed: {} (will retry)", "⚠️".yellow(), e);
-                    }
-                }
-            }
+            println!(
+                "   {} Initial sync failed: {} (will retry periodically)",
+                "⚠️".yellow(),
+                e
+            );
         }
     }
 
@@ -1326,8 +1280,31 @@ async fn main() {
         );
     }
 
-    // Start periodic sync
-    chain_sync.clone().start_periodic_sync().await;
+    // Start periodic sync (every 5 minutes)
+    let simple_sync_periodic = simple_sync;
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300)); // 5 minutes
+        loop {
+            interval.tick().await;
+            println!("🔄 Running periodic chain sync...");
+
+            // Check for forks first
+            if let Err(e) = simple_sync_periodic.detect_and_resolve_forks().await {
+                println!("   ⚠️  Fork check failed: {}", e);
+            }
+
+            // Then sync
+            match simple_sync_periodic.sync().await {
+                Ok(0) => {} // Already up to date, no output
+                Ok(n) => println!("   ✅ Synced {} blocks", n),
+                Err(e) => println!(
+                    "   ⚠️  Sync failed: {}\n   ℹ️  Will retry on next sync interval (5 minutes)",
+                    e
+                ),
+            }
+        }
+    });
+
     println!(
         "{}",
         "✓ Periodic chain sync started (5 min interval)".green()
@@ -1691,7 +1668,6 @@ async fn main() {
                 let blockchain_clone = blockchain.clone();
                 let wallet_address_clone = wallet_address.clone();
                 let mempool_clone = mempool.clone();
-                let chain_sync_clone = chain_sync.clone();
                 let network_type_clone = network_type;
                 let approval_manager_clone = approval_manager.clone();
 
@@ -1776,10 +1752,6 @@ async fn main() {
                                 )
                                 .await;
 
-                            // Trigger genesis download if needed (event-driven)
-                            // Call directly to avoid race condition with connection storage
-                            chain_sync_clone.clone().on_peer_connected().await;
-
                             // CRITICAL: Sync masternodes on peer connect
                             // Send our masternode list to the new peer
                             {
@@ -1861,7 +1833,6 @@ async fn main() {
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
                             let wallet_address_listen = wallet_address_clone.clone();
                             let mempool_listen = Arc::clone(&mempool_clone);
-                            let chain_sync_listen = Arc::clone(&chain_sync_clone);
                             let approval_manager_listen = Arc::clone(&approval_manager_clone);
                             tokio::spawn(async move {
                                 loop {
@@ -1895,23 +1866,8 @@ async fn main() {
                                                     println!("📡 Peer {} announced new tip: block {} ({})",
                                                         peer_ip_listen, height, truncate_str(&hash, 16));
 
-                                                    // Trigger sync if we're behind (with rate limiting to prevent spam)
-                                                    let our_height = {
-                                                        let blockchain_guard = blockchain_listen.read().await;
-                                                        blockchain_guard.chain_tip_height()
-                                                    };
-
-                                                    // Only trigger sync if significantly behind (avoid triggering on every single block)
-                                                    if height > our_height + 2 {
-                                                        println!("   ℹ️  We're significantly behind (height {}), peer is at {} - triggering sync", our_height, height);
-                                                        // Trigger async sync without blocking message processing
-                                                        let chain_sync_trigger = chain_sync_listen.clone();
-                                                        tokio::spawn(async move {
-                                                            if let Err(e) = chain_sync_trigger.sync_from_peers().await {
-                                                                eprintln!("   ⚠️  Auto-sync failed: {}", e);
-                                                            }
-                                                        });
-                                                    }
+                                                    // Note: Periodic sync (every 5 min) will catch up
+                                                    // No need for event-driven sync on every update
                                                 }
                                                 time_network::protocol::NetworkMessage::GetPeerList => {
                                                     // Respond with our known peers directly on this connection
@@ -2275,17 +2231,8 @@ async fn main() {
                                                             blockchain_guard.chain_tip_height()
                                                         };
 
-                                                        // Only trigger sync if significantly behind (avoid spam)
-                                                        if proposal.block_height > our_height + 5 {
-                                                            println!("   ℹ️  We're significantly behind (height {}), peer is at {} - triggering sync", our_height, proposal.block_height);
-                                                            // Trigger async sync without blocking message processing
-                                                            let chain_sync_trigger = chain_sync_listen.clone();
-                                                            tokio::spawn(async move {
-                                                                if let Err(e) = chain_sync_trigger.sync_from_peers().await {
-                                                                    eprintln!("   ⚠️  Auto-sync failed: {}", e);
-                                                                }
-                                                            });
-                                                        }
+                                                        // Note: Periodic sync will catch up
+                                                        // No event-driven sync needed
 
                                                         block_consensus_listen.propose_block(proposal).await;
                                                     }

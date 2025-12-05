@@ -522,10 +522,13 @@ impl NetworkSyncManager {
 
         // Step 2: Request state snapshot
         let peer_manager = &self.height_sync.peer_manager;
-        let peer_addr: std::net::SocketAddr = best_peer.address
-            .parse()
-            .map_err(|e| NetworkError::InvalidAddress(format!("Failed to parse address {}: {}", best_peer.address, e)))?;
-        
+        let peer_addr: std::net::SocketAddr = best_peer.address.parse().map_err(|e| {
+            NetworkError::InvalidAddress(format!(
+                "Failed to parse address {}: {}",
+                best_peer.address, e
+            ))
+        })?;
+
         let snapshot_response = peer_manager
             .request_state_snapshot(peer_addr, target_height)
             .await

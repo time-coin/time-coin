@@ -312,23 +312,9 @@ impl BlockProducer {
             };
 
             if !has_genesis {
-                println!("   📥 No genesis block - triggering sync to download...");
-
-                // Create a chain sync instance and trigger sync
-                let sync = crate::chain_sync::ChainSync::new(
-                    self.blockchain.clone(),
-                    self.peer_manager.clone(),
-                );
-
-                // Attempt to sync genesis
-                match sync.sync_from_peers().await {
-                    Ok(_) => {
-                        println!("   ✅ Genesis sync completed!");
-                    }
-                    Err(e) => {
-                        println!("   ⚠️  Genesis sync failed: {}", e);
-                    }
-                }
+                println!("   📥 No genesis block - waiting for periodic sync...");
+                // Periodic sync will download genesis
+                return;
             }
         }
 
