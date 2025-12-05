@@ -9,6 +9,7 @@ authors.workspace = true
 sled = "0.34"
 # rocksdb = { workspace = true }  # Phase 2 - requires LLVM/clang
 bincode = { workspace = true }
+flate2 = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
