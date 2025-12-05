@@ -42,9 +42,9 @@ else
     DATA_DIR="$HOME/.timecoin"
 fi
 
-BLOCKCHAIN_DIR="$DATA_DIR/data/blockchain"
-GENESIS_FILE="$DATA_DIR/data/genesis.json"
-WALLET_DIR="$DATA_DIR/data/wallets"
+BLOCKCHAIN_DIR="$DATA_DIR/blockchain"
+GENESIS_FILE="$DATA_DIR/genesis.json"
+WALLET_DIR="$DATA_DIR/wallets"
 LOGS_DIR="$DATA_DIR/logs"
 BACKUP_BASE_DIR="/var/backups"
 CONFIG_GENESIS="$REPO_DIR/config/genesis-testnet.json"
