@@ -59,7 +59,7 @@ socket2 = "0.6"
 sysinfo = "0.37"
 crossterm = "0.29"
 futures = "0.3"
-rocksdb = "0.21"
+# rocksdb = "0.21"  # Disabled for now - requires LLVM/clang dev headers (Phase 2)
 flate2 = "1.0"
 rayon = "1.10"
 
