@@ -148,7 +148,7 @@ impl SyncMessageHandler {
         info!(height, "creating state snapshot");
 
         // Get UTXO state at height
-        let utxo_set = blockchain.get_utxo_set();
+        let utxo_set = blockchain.utxo_set();
 
         // Calculate merkle root for verification
         let merkle_root = time_core::calculate_utxo_merkle_root(utxo_set);
@@ -187,15 +187,12 @@ fn compress_data(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
     use std::io::Write;
 
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(data)
-        .map_err(|e| NetworkError::IoError(e.to_string()))?;
-    encoder
-        .finish()
-        .map_err(|e| NetworkError::IoError(e.to_string()))
+    encoder.write_all(data).map_err(NetworkError::IoError)?;
+    encoder.finish().map_err(NetworkError::IoError)
 }
 
 /// Decompress data using flate2/gzip
+#[allow(dead_code)]
 fn decompress_data(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
     use flate2::read::GzDecoder;
     use std::io::Read;
@@ -204,7 +201,7 @@ fn decompress_data(data: &[u8]) -> Result<Vec<u8>, NetworkError> {
     let mut decompressed = Vec::new();
     decoder
         .read_to_end(&mut decompressed)
-        .map_err(|e| NetworkError::IoError(e.to_string()))?;
+        .map_err(NetworkError::IoError)?;
     Ok(decompressed)
 }
 

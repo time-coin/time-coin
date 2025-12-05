@@ -515,8 +515,7 @@ impl NetworkSyncManager {
         let peers = self.height_sync.query_peer_heights().await?;
         let best_peer = peers
             .iter()
-            .filter(|p| p.height >= target_height)
-            .next()
+            .find(|p| p.height >= target_height)
             .ok_or(NetworkError::NoPeersAvailable)?;
 
         info!(peer = %best_peer.address, height = best_peer.height, "found peer for snapshot");

@@ -137,7 +137,7 @@ impl UTXOSet {
     pub fn utxos(&self) -> &HashMap<OutPoint, TxOutput> {
         &self.utxos
     }
-    
+
     /// Iterate over all UTXOs
     pub fn iter(&self) -> impl Iterator<Item = (&OutPoint, &TxOutput)> {
         self.utxos.iter()
