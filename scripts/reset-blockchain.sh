@@ -201,7 +201,7 @@ install_new_genesis() {
     print_header "Installing New Genesis Block"
     
     # Ensure data directory exists
-    mkdir -p "$DATA_DIR"
+    mkdir -p "$(dirname "$GENESIS_FILE")"
     
     # Check if config genesis file exists
     if [ ! -f "$CONFIG_GENESIS" ]; then
