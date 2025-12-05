@@ -6,6 +6,9 @@
 mod resource_monitor;
 pub use resource_monitor::*;
 
+mod priority_queue;
+pub use priority_queue::*;
+
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -365,7 +368,7 @@ impl Mempool {
             .collect()
     }
 
-    /// Select transactions for a block (by priority)
+    /// Select transactions for a block (by priority) - O(n log n)
     pub async fn select_transactions(&self, max_count: usize) -> Vec<Transaction> {
         let pool = self.transactions.read().await;
 
@@ -383,6 +386,53 @@ impl Mempool {
             .take(max_count)
             .map(|entry| entry.transaction.clone())
             .collect()
+    }
+    
+    /// Select transactions using priority queue (faster for large mempools) - O(k log n)
+    /// where k = max_count
+    pub async fn select_transactions_fast(&self, max_count: usize) -> Vec<Transaction> {
+        let pool = self.transactions.read().await;
+        
+        // Build priority queue from mempool entries
+        let mut pq = PriorityQueueManager::new();
+        
+        for entry in pool.values() {
+            pq.add(PriorityTransaction {
+                transaction: entry.transaction.clone(),
+                priority: entry.priority,
+                added_at: entry.added_at,
+                finalized: entry.finalized,
+            });
+        }
+        
+        // Select top transactions
+        pq.select_for_block(max_count)
+    }
+    
+    /// Get priority distribution stats
+    pub async fn get_priority_stats(&self) -> PriorityStats {
+        let pool = self.transactions.read().await;
+        
+        let mut high = 0;
+        let mut standard = 0;
+        let mut low = 0;
+        
+        for entry in pool.values() {
+            if entry.priority > 1000 {
+                high += 1;
+            } else if entry.priority >= 10 {
+                standard += 1;
+            } else {
+                low += 1;
+            }
+        }
+        
+        PriorityStats {
+            high_priority_count: high,
+            standard_count: standard,
+            low_priority_count: low,
+            total: pool.len(),
+        }
     }
 
     /// Get mempool size
