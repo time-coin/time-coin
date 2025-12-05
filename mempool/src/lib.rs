@@ -354,18 +354,31 @@ impl Mempool {
     /// Get all transactions (for broadcasting)
     pub async fn get_all_transactions(&self) -> Vec<Transaction> {
         let pool = self.transactions.read().await;
-        pool.values()
+        let mut transactions: Vec<Transaction> = pool
+            .values()
             .map(|entry| entry.transaction.clone())
-            .collect()
+            .collect();
+
+        // CRITICAL: Sort deterministically by txid to ensure all nodes
+        // create identical blocks (same transaction order = same merkle root)
+        transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
+
+        transactions
     }
 
     /// Get all unfinalized transactions (for retry mechanism)
     pub async fn get_unfinalized_transactions(&self) -> Vec<Transaction> {
         let pool = self.transactions.read().await;
-        pool.values()
+        let mut transactions: Vec<Transaction> = pool
+            .values()
             .filter(|entry| !entry.finalized)
             .map(|entry| entry.transaction.clone())
-            .collect()
+            .collect();
+
+        // CRITICAL: Sort deterministically by txid
+        transactions.sort_by(|a, b| a.txid.cmp(&b.txid));
+
+        transactions
     }
 
     /// Select transactions for a block (by priority) - O(n log n)
