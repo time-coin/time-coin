@@ -1139,8 +1139,26 @@ impl PeerManager {
                             self.peer_seen(peer_ip).await;
                             Ok(height)
                         }
-                        _ => Err(Box::new(std::io::Error::other("Unexpected response type"))
-                            as Box<dyn std::error::Error + Send>),
+                        msg => {
+                            let msg_type = match msg {
+                                crate::protocol::NetworkMessage::Ping => "Ping",
+                                crate::protocol::NetworkMessage::Pong => "Pong",
+                                crate::protocol::NetworkMessage::UpdateTip { .. } => "UpdateTip",
+                                crate::protocol::NetworkMessage::GetMempool => "GetMempool",
+                                crate::protocol::NetworkMessage::MempoolResponse(..) => {
+                                    "MempoolResponse"
+                                }
+                                crate::protocol::NetworkMessage::RequestFinalizedTransactions {
+                                    ..
+                                } => "RequestFinalizedTransactions",
+                                _ => "Other",
+                            };
+                            Err(Box::new(std::io::Error::other(format!(
+                                "Unexpected response type: {} (expected BlockchainInfo)",
+                                msg_type
+                            )))
+                                as Box<dyn std::error::Error + Send>)
+                        }
                     }
                 }
                 .await;
@@ -1166,7 +1184,23 @@ impl PeerManager {
 
         match response {
             Some(crate::protocol::NetworkMessage::BlockchainInfo { height, .. }) => Ok(height),
-            Some(_) => Err(Box::new(std::io::Error::other("Unexpected response type"))),
+            Some(msg) => {
+                let msg_type = match msg {
+                    crate::protocol::NetworkMessage::Ping => "Ping",
+                    crate::protocol::NetworkMessage::Pong => "Pong",
+                    crate::protocol::NetworkMessage::UpdateTip { .. } => "UpdateTip",
+                    crate::protocol::NetworkMessage::GetMempool => "GetMempool",
+                    crate::protocol::NetworkMessage::MempoolResponse(..) => "MempoolResponse",
+                    crate::protocol::NetworkMessage::RequestFinalizedTransactions { .. } => {
+                        "RequestFinalizedTransactions"
+                    }
+                    _ => "Other",
+                };
+                Err(Box::new(std::io::Error::other(format!(
+                    "Unexpected response type: {} (expected BlockchainInfo)",
+                    msg_type
+                ))))
+            }
             None => Err(Box::new(std::io::Error::other("No response received"))),
         }
     }
