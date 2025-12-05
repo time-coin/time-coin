@@ -225,8 +225,8 @@ impl WalletDat {
 
     /// Get the TIME Coin data directory
     pub fn get_data_dir() -> PathBuf {
-        if let Some(dir) = dirs::data_dir() {
-            dir.join("time-coin")
+        if let Some(dir) = dirs::home_dir() {
+            dir.join(".timecoin")
         } else {
             // Fallback to current directory
             PathBuf::from(".")

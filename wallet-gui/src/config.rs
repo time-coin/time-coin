@@ -34,10 +34,10 @@ fn default_network() -> String {
 }
 
 fn default_data_dir() -> PathBuf {
-    // Use AppData/Roaming for consistency with time-wallet.dat location
-    dirs::data_dir()
+    // Use home directory with .timecoin for consistency with node data directory
+    dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("time-coin")
+        .join(".timecoin")
 }
 
 fn default_rpc_port() -> u16 {
