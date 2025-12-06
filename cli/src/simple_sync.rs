@@ -125,15 +125,68 @@ impl SimpleSync {
         let mut synced = 0;
 
         for height in start_height..=end_height {
-            // Download single block
+            // Check if we have the parent block before attempting download
+            if height > 0 {
+                let has_parent = {
+                    let blockchain = self.blockchain.read().await;
+                    blockchain.get_block_by_height(height - 1).is_some()
+                };
+
+                if !has_parent {
+                    eprintln!(
+                        "   ⚠️  Missing parent block {} before syncing block {}, attempting to fill gap",
+                        height - 1,
+                        height
+                    );
+
+                    // Try to download missing parent blocks
+                    let gap_start = {
+                        let blockchain = self.blockchain.read().await;
+                        let mut check_height = height - 1;
+                        while check_height > 0
+                            && blockchain.get_block_by_height(check_height).is_none()
+                        {
+                            check_height -= 1;
+                        }
+                        check_height + 1
+                    };
+
+                    println!(
+                        "      🔍 Detected gap: blocks {} to {}",
+                        gap_start,
+                        height - 1
+                    );
+
+                    // Fill the gap
+                    for missing_height in gap_start..height {
+                        println!("      📥 Downloading missing block {}", missing_height);
+                        let missing_block = self.download_block(peer, missing_height).await?;
+                        self.import_block(missing_block).await?;
+                        synced += 1;
+                    }
+                }
+            }
+
+            // Download and import the target block
             let block = self
                 .download_block(peer, height)
                 .await
                 .map_err(|e| format!("Failed to download block {}: {}", height, e))?;
 
-            // Import immediately
-            self.import_block(block).await?;
-            synced += 1;
+            // Import with OrphanBlock handling
+            match self.import_block(block).await {
+                Ok(_) => {
+                    synced += 1;
+                }
+                Err(e) if e.contains("OrphanBlock") => {
+                    // If we still get OrphanBlock after gap detection, something is wrong
+                    return Err(format!(
+                        "OrphanBlock error persists after gap filling: {}",
+                        e
+                    ));
+                }
+                Err(e) => return Err(e),
+            }
 
             // Progress every 10 blocks
             if synced % 10 == 0 {
@@ -263,22 +316,52 @@ impl SimpleSync {
         Ok(blocks.into_iter().map(|(_, block)| block).collect())
     }
 
-    /// Download a single block from a peer
+    /// Download a single block from a peer with retry logic
     async fn download_block(&self, peer: &str, height: u64) -> Result<Block, String> {
+        const MAX_RETRIES: u32 = 3;
         let p2p_port = match self.peer_manager.network {
             time_network::discovery::NetworkType::Mainnet => 24000,
             time_network::discovery::NetworkType::Testnet => 24100,
         };
         let peer_addr = format!("{}:{}", peer, p2p_port);
 
-        tokio::time::timeout(
-            tokio::time::Duration::from_secs(BLOCK_TIMEOUT_SECS),
-            self.peer_manager
-                .request_block_by_height(&peer_addr, height),
-        )
-        .await
-        .map_err(|_| format!("Timeout downloading block {}", height))?
-        .map_err(|e| format!("Failed to download block {}: {}", height, e))
+        let mut last_error = String::new();
+        for attempt in 1..=MAX_RETRIES {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(BLOCK_TIMEOUT_SECS),
+                self.peer_manager
+                    .request_block_by_height(&peer_addr, height),
+            )
+            .await
+            {
+                Ok(Ok(block)) => return Ok(block),
+                Ok(Err(e)) => {
+                    last_error = format!("Failed to download block {}: {}", height, e);
+                    eprintln!(
+                        "   ⚠️  Block {} download attempt {}/{} failed: {}",
+                        height, attempt, MAX_RETRIES, e
+                    );
+                }
+                Err(_) => {
+                    last_error = format!(
+                        "Timeout downloading block {} after {}s",
+                        height, BLOCK_TIMEOUT_SECS
+                    );
+                    eprintln!(
+                        "   ⚠️  Block {} download attempt {}/{} timed out",
+                        height, attempt, MAX_RETRIES
+                    );
+                }
+            }
+
+            if attempt < MAX_RETRIES {
+                // Exponential backoff
+                let delay = tokio::time::Duration::from_millis(500 * (1 << (attempt - 1)));
+                tokio::time::sleep(delay).await;
+            }
+        }
+
+        Err(last_error)
     }
 
     /// Import a block into the blockchain
@@ -286,9 +369,19 @@ impl SimpleSync {
         let height = block.header.block_number;
         let mut blockchain = self.blockchain.write().await;
 
-        blockchain
-            .add_block(block)
-            .map_err(|e| format!("Failed to import block {}: {:?}", height, e))?;
+        blockchain.add_block(block).map_err(|e| {
+            // Provide more detailed error information
+            let err_str = format!("{:?}", e);
+            if err_str.contains("OrphanBlock") {
+                format!(
+                    "Failed to import block {} (OrphanBlock - missing parent block {})",
+                    height,
+                    height.saturating_sub(1)
+                )
+            } else {
+                format!("Failed to import block {}: {:?}", height, e)
+            }
+        })?;
 
         drop(blockchain);
 

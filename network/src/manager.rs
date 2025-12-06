@@ -1001,6 +1001,89 @@ impl PeerManager {
         }
     }
 
+    /// Check if connection to peer is healthy by sending a ping
+    async fn check_connection_health(&self, peer_ip: IpAddr) -> bool {
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).map(|u| u.connection.clone())
+        };
+
+        if let Some(conn_arc) = conn_arc {
+            let mut conn = conn_arc.lock().await;
+            if let Err(e) = conn.ping().await {
+                debug!(peer = %peer_ip, error = %e, "Connection health check failed");
+                return false;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Execute a network request with automatic connection health checking and retry
+    async fn request_with_retry<F, T>(
+        &self,
+        peer_addr: &str,
+        max_retries: u32,
+        request_fn: F,
+    ) -> Result<T, Box<dyn std::error::Error>>
+    where
+        F: Fn() -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<T, Box<dyn std::error::Error>>> + Send>,
+        >,
+    {
+        let peer_ip: IpAddr = peer_addr
+            .split(':')
+            .next()
+            .ok_or("Invalid peer address")?
+            .parse()?;
+
+        for attempt in 1..=max_retries {
+            // Check connection health before making request
+            if !self.check_connection_health(peer_ip).await {
+                warn!(peer = %peer_addr, attempt = attempt, "Connection health check failed, removing dead connection");
+                self.remove_dead_connection(peer_ip).await;
+
+                if attempt < max_retries {
+                    // Try to reconnect
+                    tokio::time::sleep(std::time::Duration::from_millis(100 * attempt as u64))
+                        .await;
+                    continue;
+                }
+            }
+
+            // Execute the request
+            match request_fn().await {
+                Ok(result) => {
+                    // Mark peer as seen on success
+                    self.peer_seen(peer_ip).await;
+                    return Ok(result);
+                }
+                Err(e) => {
+                    warn!(peer = %peer_addr, attempt = attempt, error = %e, "Request failed");
+
+                    // Remove dead connection if error suggests connection issue
+                    let err_str = e.to_string();
+                    if err_str.contains("Broken pipe")
+                        || err_str.contains("Connection")
+                        || err_str.contains("timeout")
+                    {
+                        self.remove_dead_connection(peer_ip).await;
+                    }
+
+                    if attempt >= max_retries {
+                        return Err(e);
+                    }
+
+                    // Exponential backoff
+                    tokio::time::sleep(std::time::Duration::from_millis(100 * attempt as u64))
+                        .await;
+                }
+            }
+        }
+
+        Err("Max retries exceeded".into())
+    }
+
     pub async fn request_genesis(
         &self,
         peer_addr: &str,
@@ -1038,7 +1121,17 @@ impl PeerManager {
                     self.peer_seen(peer_ip).await;
                     return Ok(genesis);
                 }
-                _ => return Err("Unexpected response type".into()),
+                other => {
+                    warn!(
+                        "Unexpected response from {}: expected GenesisBlock, got {:?}",
+                        peer_addr, other
+                    );
+                    return Err(format!(
+                        "Protocol error: received {:?} instead of GenesisBlock",
+                        other
+                    )
+                    .into());
+                }
             }
         }
 
@@ -1079,7 +1172,17 @@ impl PeerManager {
                 crate::protocol::NetworkMessage::MempoolResponse(transactions) => {
                     return Ok(transactions);
                 }
-                _ => return Err("Unexpected response type".into()),
+                other => {
+                    warn!(
+                        "Unexpected response from {}: expected MempoolResponse, got {:?}",
+                        peer_addr, other
+                    );
+                    return Err(format!(
+                        "Protocol error: received {:?} instead of MempoolResponse",
+                        other
+                    )
+                    .into());
+                }
             }
         }
 
@@ -1308,8 +1411,22 @@ impl PeerManager {
                     Err(Box::new(std::io::Error::other("No block in response")))
                 }
             }
-            Some(_) => Err(Box::new(std::io::Error::other("Unexpected response type"))),
-            None => Err(Box::new(std::io::Error::other("No response received"))),
+            Some(other) => {
+                warn!(
+                    "Unexpected response from {}: expected Blocks, got {:?}",
+                    peer_addr, other
+                );
+                Err(Box::new(std::io::Error::other(format!(
+                    "Protocol error: received {:?} instead of Blocks",
+                    other
+                ))))
+            }
+            None => {
+                warn!("No response from {} (connection may be dead)", peer_addr);
+                Err(Box::new(std::io::Error::other(
+                    "Connection failed - no response received",
+                )))
+            }
         }
     }
 
@@ -1358,7 +1475,14 @@ impl PeerManager {
                         .collect();
                     return Ok(paired);
                 }
-                _ => return Err("Unexpected response type".into()),
+                other => {
+                    warn!("Unexpected response from {}: expected FinalizedTransactionsResponse, got {:?}", peer_addr, other);
+                    return Err(format!(
+                        "Protocol error: received {:?} instead of FinalizedTransactionsResponse",
+                        other
+                    )
+                    .into());
+                }
             }
         }
 
@@ -1504,7 +1628,17 @@ impl PeerManager {
 
                     return Ok(peer_infos);
                 }
-                _ => return Err("Unexpected response type".into()),
+                other => {
+                    warn!(
+                        "Unexpected response from {}: expected PeerList, got {:?}",
+                        peer_addr, other
+                    );
+                    return Err(format!(
+                        "Protocol error: received {:?} instead of PeerList",
+                        other
+                    )
+                    .into());
+                }
             }
         }
 
