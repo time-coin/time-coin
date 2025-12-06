@@ -1787,6 +1787,10 @@ async fn main() {
                             // Send our masternode list to the new peer
                             {
                                 let blockchain_guard = blockchain_clone.read().await;
+                                // Don't send unsolicited masternode list - it can interfere with request-response cycles
+                                // Peers should request it explicitly with GetMasternodeList
+                                // This prevents "Protocol error: received MasternodeList instead of X" errors
+                                /*
                                 let masternodes = blockchain_guard
                                     .get_all_masternodes()
                                     .iter()
@@ -1812,8 +1816,9 @@ async fn main() {
                                             peer_ip, e
                                         );
                                     }
-                                    // Reduced verbosity: only log at debug level
                                 }
+                                */
+                                drop(blockchain_guard);
                             }
 
                             let prev_count = consensus_clone.masternode_count().await;
