@@ -402,7 +402,7 @@ impl PeerConnection {
     ) -> Result<crate::protocol::NetworkMessage, String> {
         // Clone the Arc before locking to avoid borrow checker issues
         let request_lock = self.request_lock.clone();
-        
+
         // Acquire request lock to serialize request/response pairs
         let _lock = request_lock.lock().await;
 

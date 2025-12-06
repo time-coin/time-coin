@@ -515,7 +515,16 @@ impl SimpleSync {
                             return Ok(());
                         }
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        // Check if this is a timeout or network error vs. block not found
+                        if e.contains("timeout") || e.contains("Timeout") {
+                            println!(
+                                "      ⚠️  Timeout downloading block {} for fork check - skipping fork detection",
+                                common_height
+                            );
+                            // Don't treat timeouts as forks - just skip fork detection this round
+                            return Ok(());
+                        }
                         // Peer doesn't have this block, try lower
                         common_height -= 1;
                         continue;
