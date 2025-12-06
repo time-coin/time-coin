@@ -853,7 +853,6 @@ impl BlockProducer {
 
     async fn create_and_propose_block(&self) {
         let now = Utc::now();
-        let block_num = self.load_block_height().await + 1;
 
         println!(
             "
@@ -864,12 +863,6 @@ impl BlockProducer {
             "⨯ BLOCK PRODUCTION TIME".cyan().bold(),
             now.format("%Y-%m-%d %H:%M:%S UTC")
         );
-        println!(
-            "{} {}",
-            "   Block Height:".bright_black(),
-            block_num.to_string().cyan().bold()
-        );
-        println!("────────────────────────────────────────────────────────────────");
 
         // THREE-TIER SYNC CHECK: Ensure node is synchronized before producing block
         if let Some(sync_manager) = &self.sync_manager {
@@ -902,6 +895,16 @@ impl BlockProducer {
                 }
             }
         }
+
+        // Get block height AFTER sync check (sync may have downloaded new blocks)
+        let block_num = self.load_block_height().await + 1;
+
+        println!(
+            "{} {}",
+            "   Block Height:".bright_black(),
+            block_num.to_string().cyan().bold()
+        );
+        println!("────────────────────────────────────────────────────────────────");
 
         // Check if node is synced before producing blocks
         let blockchain = self.blockchain.read().await;
