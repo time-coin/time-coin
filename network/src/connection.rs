@@ -59,8 +59,8 @@ use tokio::sync::Mutex;
 /// request/response pair is in-flight at a time, preventing protocol
 /// mismatch errors when responses arrive out of order.
 pub struct PeerConnection {
-    reader: Arc<Mutex<OwnedReadHalf>>,
-    writer: Arc<Mutex<OwnedWriteHalf>>,
+    pub(crate) reader: Arc<Mutex<OwnedReadHalf>>,
+    pub(crate) writer: Arc<Mutex<OwnedWriteHalf>>,
     peer_info: Arc<Mutex<PeerInfo>>,
     peer_addr: SocketAddr, // Cached peer address (split streams don't expose it)
     request_lock: Arc<Mutex<()>>, // Serialize request/response pairs

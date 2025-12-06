@@ -1,6 +1,7 @@
 //! TIME Coin Network Module - P2P Networking Layer
 pub mod config;
 pub mod connection;
+pub mod connection_v2; // 🆕 Protocol V2 connection wrapper
 pub mod discovery;
 pub mod error;
 pub mod heartbeat;
@@ -10,6 +11,7 @@ pub mod message_auth;
 pub mod message_handler;
 pub mod peer_info; // Canonical peer information structure
 pub mod protocol;
+pub mod protocol_v2; // 🆕 Protocol V2 with request/response correlation
 pub mod quarantine;
 pub mod rate_limiter;
 pub mod sync;
