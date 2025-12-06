@@ -206,6 +206,15 @@ impl PeerManager {
             return Err(format!("Peer {} is quarantined", peer_ip));
         }
 
+        // DEDUPLICATION: Check if we already have a connection to this peer
+        {
+            let connections = self.connections.read().await;
+            if connections.contains_key(&peer_ip) {
+                debug!(peer = %peer_ip, "Already connected to peer, skipping duplicate connection");
+                return Ok(());
+            }
+        }
+
         let peer_arc = Arc::new(tokio::sync::Mutex::new(peer.clone()));
 
         // CRITICAL FIX (Issue #6): Add connection timeout (5 seconds)
@@ -514,6 +523,32 @@ impl PeerManager {
 
         let peer_ip = peer.address.ip();
         let peer_addr = peer.address;
+
+        // DEDUPLICATION: Check if we already have a connection
+        // Use tie-breaking: lower IP connects to higher IP (discard reverse)
+        {
+            let connections = self.connections.read().await;
+            if let Some(_existing) = connections.get(&peer_ip) {
+                // If we already have a connection, decide which one to keep
+                let our_ip = self.public_addr.ip();
+
+                // Keep outbound connections (we initiated) if our IP is lower
+                // Keep incoming connections (they initiated) if their IP is lower
+                if our_ip < peer_ip {
+                    // We should be the one connecting out, drop this incoming connection
+                    debug!(
+                        peer = %peer_ip,
+                        "Duplicate connection detected - we are lower IP, keeping outbound connection"
+                    );
+                    return;
+                }
+                // Otherwise, we'll replace the existing connection with this incoming one
+                debug!(
+                    peer = %peer_ip,
+                    "Duplicate connection detected - they are lower IP, keeping incoming connection"
+                );
+            }
+        }
 
         let is_new_peer = {
             let connections = self.connections.read().await;
