@@ -1141,14 +1141,13 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
-            // Send request
-            conn.send_message(crate::protocol::NetworkMessage::GetGenesis)
+            // Use request_response to serialize the request/response pair
+            let response = conn
+                .request_response(
+                    crate::protocol::NetworkMessage::GetGenesis,
+                    std::time::Duration::from_secs(10),
+                )
                 .await?;
-
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(10), conn.receive_message())
-                    .await??;
 
             match response {
                 crate::protocol::NetworkMessage::GenesisBlock(json_str) => {
@@ -1196,14 +1195,13 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
-            // Send request
-            conn.send_message(crate::protocol::NetworkMessage::GetMempool)
+            // Use request_response to serialize the request/response pair
+            let response = conn
+                .request_response(
+                    crate::protocol::NetworkMessage::GetMempool,
+                    std::time::Duration::from_secs(30),
+                )
                 .await?;
-
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(30), conn.receive_message())
-                    .await??;
 
             match response {
                 crate::protocol::NetworkMessage::MempoolResponse(transactions) => {
@@ -1254,23 +1252,16 @@ impl PeerManager {
             } else {
                 // Try to use stored connection, but fall back to new connection if it fails
                 let result: Result<Option<u64>, Box<dyn std::error::Error + Send>> = async {
-                    // Send request
-                    conn.send_message(crate::protocol::NetworkMessage::GetBlockchainInfo)
+                    // Use request_response to serialize the request/response pair
+                    let response = conn
+                        .request_response(
+                            crate::protocol::NetworkMessage::GetBlockchainInfo,
+                            std::time::Duration::from_secs(5),
+                        )
                         .await
                         .map_err(|e| {
                             Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
                         })?;
-
-                    // Wait for response with timeout
-                    let response = tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        conn.receive_message(),
-                    )
-                    .await
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
-                    .map_err(|e| {
-                        Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>
-                    })?;
 
                     match response {
                         crate::protocol::NetworkMessage::BlockchainInfo { height, .. } => {
@@ -1489,16 +1480,15 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
-            // Send request
-            conn.send_message(
-                crate::protocol::NetworkMessage::RequestFinalizedTransactions { since_timestamp },
-            )
-            .await?;
-
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(30), conn.receive_message())
-                    .await??;
+            // Use request_response to serialize the request/response pair
+            let response = conn
+                .request_response(
+                    crate::protocol::NetworkMessage::RequestFinalizedTransactions {
+                        since_timestamp,
+                    },
+                    std::time::Duration::from_secs(30),
+                )
+                .await?;
 
             match response {
                 crate::protocol::NetworkMessage::FinalizedTransactionsResponse {
@@ -1624,14 +1614,13 @@ impl PeerManager {
         if let Some(conn_arc) = conn_arc {
             let mut conn = conn_arc.lock().await;
 
-            // Send request
-            conn.send_message(crate::protocol::NetworkMessage::GetPeerList)
+            // Use request_response to serialize the request/response pair
+            let response = conn
+                .request_response(
+                    crate::protocol::NetworkMessage::GetPeerList,
+                    std::time::Duration::from_secs(5),
+                )
                 .await?;
-
-            // Wait for response with timeout
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(5), conn.receive_message())
-                    .await??;
 
             match response {
                 crate::protocol::NetworkMessage::PeerList(peer_addresses) => {

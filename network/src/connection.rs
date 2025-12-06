@@ -54,11 +54,16 @@ use tokio::sync::Mutex;
 /// - Allows concurrent send/recv operations
 /// - Prevents slow peers from blocking broadcasts
 /// - Enables fire-and-forget message sending
+///
+/// REQUEST SERIALIZATION: Uses a request_lock to ensure only one
+/// request/response pair is in-flight at a time, preventing protocol
+/// mismatch errors when responses arrive out of order.
 pub struct PeerConnection {
     reader: Arc<Mutex<OwnedReadHalf>>,
     writer: Arc<Mutex<OwnedWriteHalf>>,
     peer_info: Arc<Mutex<PeerInfo>>,
     peer_addr: SocketAddr, // Cached peer address (split streams don't expose it)
+    request_lock: Arc<Mutex<()>>, // Serialize request/response pairs
 }
 
 impl PeerConnection {
@@ -172,6 +177,7 @@ impl PeerConnection {
             writer: Arc::new(Mutex::new(write_half)),
             peer_info: peer,
             peer_addr: cached_peer_addr,
+            request_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -384,6 +390,29 @@ impl PeerConnection {
         .map_err(|_| "Send timeout after 5s".to_string())??;
 
         Ok(())
+    }
+
+    /// Send a request and wait for response with request serialization
+    /// This prevents protocol mismatch errors by ensuring only one request/response
+    /// pair is in-flight at a time on this connection.
+    pub async fn request_response(
+        &mut self,
+        request: crate::protocol::NetworkMessage,
+        timeout: std::time::Duration,
+    ) -> Result<crate::protocol::NetworkMessage, String> {
+        // Clone the Arc before locking to avoid borrow checker issues
+        let request_lock = self.request_lock.clone();
+        
+        // Acquire request lock to serialize request/response pairs
+        let _lock = request_lock.lock().await;
+
+        // Send request
+        self.send_message(request).await?;
+
+        // Wait for response
+        tokio::time::timeout(timeout, self.receive_message())
+            .await
+            .map_err(|_| format!("Request timeout after {:?}", timeout))?
     }
 
     /// Receive a network message from the TCP connection with timeout
@@ -599,6 +628,7 @@ impl PeerListener {
             writer: Arc::new(Mutex::new(write_half)),
             peer_info: Arc::new(Mutex::new(peer_info)),
             peer_addr: cached_peer_addr,
+            request_lock: Arc::new(Mutex::new(())),
         })
     }
 }
