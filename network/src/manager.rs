@@ -1253,10 +1253,11 @@ impl PeerManager {
                 // Try to use stored connection, but fall back to new connection if it fails
                 let result: Result<Option<u64>, Box<dyn std::error::Error + Send>> = async {
                     // Use request_response to serialize the request/response pair
+                    // Increased timeout to handle message crossing delays
                     let response = conn
                         .request_response(
                             crate::protocol::NetworkMessage::GetBlockchainInfo,
-                            std::time::Duration::from_secs(5),
+                            std::time::Duration::from_secs(15),
                         )
                         .await
                         .map_err(|e| {
@@ -1296,8 +1297,13 @@ impl PeerManager {
 
                 match result {
                     Ok(info) => return Ok(info),
-                    Err(_e) => {
-                        // Silently fall through to create new connection
+                    Err(e) => {
+                        // Log the error for debugging but fall through to retry with new connection
+                        debug!(
+                            peer = %peer_socket_addr.ip(),
+                            error = %e,
+                            "GetBlockchainInfo failed on existing connection, retrying with new connection"
+                        );
                     }
                 }
             }
@@ -1308,7 +1314,7 @@ impl PeerManager {
             .send_message_to_peer_with_response(
                 peer_socket_addr,
                 crate::protocol::NetworkMessage::GetBlockchainInfo,
-                5,
+                15, // Increased timeout to handle message crossing delays
             )
             .await
             .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send>)?;
@@ -1618,7 +1624,7 @@ impl PeerManager {
             let response = conn
                 .request_response(
                     crate::protocol::NetworkMessage::GetPeerList,
-                    std::time::Duration::from_secs(5),
+                    std::time::Duration::from_secs(15), // Increased timeout
                 )
                 .await?;
 
