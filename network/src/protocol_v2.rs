@@ -84,6 +84,12 @@ pub struct MessageRouter {
     pending_requests: Arc<Mutex<HashMap<RequestId, PendingRequest>>>,
 }
 
+impl Default for MessageRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessageRouter {
     /// Create a new message router
     pub fn new() -> Self {
