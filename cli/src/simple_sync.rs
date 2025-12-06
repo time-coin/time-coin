@@ -53,10 +53,23 @@ impl SimpleSync {
             our_height, network_height, blocks_behind
         );
 
+        // Determine starting height - if we don't have genesis (height 0), start from 0
+        let start_height = if our_height == 0 {
+            let blockchain = self.blockchain.read().await;
+            if blockchain.genesis_hash().is_empty() {
+                println!("   🔍 No genesis block - will download from block 0");
+                0
+            } else {
+                1
+            }
+        } else {
+            our_height + 1
+        };
+
         // Try batch sync first
         println!("   ⚡ Attempting batch sync...");
         match self
-            .batch_sync(&best_peer, our_height + 1, network_height)
+            .batch_sync(&best_peer, start_height, network_height)
             .await
         {
             Ok(count) => {
@@ -68,7 +81,7 @@ impl SimpleSync {
                 println!("   🔄 Falling back to sequential sync...");
 
                 // Fall back to sequential sync
-                self.sequential_sync(&best_peer, our_height + 1, network_height)
+                self.sequential_sync(&best_peer, start_height, network_height)
                     .await
             }
         }
