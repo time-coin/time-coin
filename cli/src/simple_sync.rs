@@ -472,7 +472,16 @@ impl SimpleSync {
             return Ok(());
         }
 
-        let (network_height, best_peer) = self.get_network_consensus().await?;
+        // Try to get network consensus, but don't fail if we can't
+        // (might be during startup when connections are still establishing)
+        let (network_height, best_peer) = match self.get_network_consensus().await {
+            Ok(consensus) => consensus,
+            Err(e) => {
+                println!("      ⚠️  Fork check skipped: {}", e);
+                println!("      ℹ️  Will check again during periodic sync");
+                return Ok(());
+            }
+        };
 
         // Find common ancestor
         let mut common_height = our_height.min(network_height);
