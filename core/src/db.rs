@@ -144,20 +144,31 @@ impl BlockchainDB {
 
         match self.db.get(key.as_bytes()) {
             Ok(Some(data)) => {
-                eprintln!(
-                    "   🔍 Loading block {} from disk ({} bytes)",
-                    height,
-                    data.len()
-                );
+                // Only log in debug mode
+                if std::env::var("RUST_LOG")
+                    .unwrap_or_default()
+                    .contains("debug")
+                {
+                    eprintln!(
+                        "   🔍 Loading block {} from disk ({} bytes)",
+                        height,
+                        data.len()
+                    );
+                }
 
                 // Try to deserialize with new format first
                 match bincode::deserialize::<Block>(&data) {
                     Ok(block) => {
-                        eprintln!(
-                            "   ✅ Block {} loaded with {} transactions (new format)",
-                            height,
-                            block.transactions.len()
-                        );
+                        if std::env::var("RUST_LOG")
+                            .unwrap_or_default()
+                            .contains("debug")
+                        {
+                            eprintln!(
+                                "   ✅ Block {} loaded with {} transactions (new format)",
+                                height,
+                                block.transactions.len()
+                            );
+                        }
                         Ok(Some(block))
                     }
                     Err(e1) => {
@@ -235,10 +246,26 @@ impl BlockchainDB {
         let mut height = 0u64;
 
         eprintln!("   🔍 Loading blocks from disk (path: {})...", self.path);
+
+        // Show progress every 50 blocks or in debug mode
+        let debug_mode = std::env::var("RUST_LOG")
+            .unwrap_or_default()
+            .contains("debug");
+
         while let Some(block) = self.load_block(height)? {
             blocks.push(block);
             height += 1;
+
+            // Show progress indicator every 50 blocks (unless in debug mode)
+            if !debug_mode && height.is_multiple_of(50) {
+                eprint!("\r   📦 Loading... {} blocks", height);
+            }
         }
+
+        if !debug_mode && height > 0 {
+            eprint!("\r");
+        }
+
         eprintln!("   📦 Loaded {} blocks from disk", blocks.len());
 
         Ok(blocks)
