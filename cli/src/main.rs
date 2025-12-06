@@ -254,6 +254,29 @@ fn load_genesis_from_json(
     Ok(calculated_hash)
 }
 
+/// Check if a NetworkMessage is a response type (should not be handled by message listener)
+fn is_response_message(msg: &time_network::protocol::NetworkMessage) -> bool {
+    matches!(
+        msg,
+        time_network::protocol::NetworkMessage::Pong
+            | time_network::protocol::NetworkMessage::MempoolResponse(_)
+            | time_network::protocol::NetworkMessage::BlockchainInfo { .. }
+            | time_network::protocol::NetworkMessage::FinalizedTransactionsResponse { .. }
+            | time_network::protocol::NetworkMessage::PeerList(_)
+            | time_network::protocol::NetworkMessage::GenesisBlock(_)
+            | time_network::protocol::NetworkMessage::HeightResponse { .. }
+            | time_network::protocol::NetworkMessage::BlockResponse { .. }
+            | time_network::protocol::NetworkMessage::ChainResponse { .. }
+            | time_network::protocol::NetworkMessage::StateSnapshotResponse { .. }
+            | time_network::protocol::NetworkMessage::MissingTransactionsResponse { .. }
+            | time_network::protocol::NetworkMessage::WalletTransactionsResponse { .. }
+            | time_network::protocol::NetworkMessage::XpubRegistered { .. }
+            | time_network::protocol::NetworkMessage::BlocksData(_)
+            | time_network::protocol::NetworkMessage::Blocks { .. }
+            | time_network::protocol::NetworkMessage::BlockchainHeight(_)
+    )
+}
+
 /// Sync finalized transactions from connected peers
 async fn sync_finalized_transactions_from_peers(
     peer_manager: &Arc<time_network::PeerManager>,
@@ -1882,6 +1905,13 @@ async fn main() {
                                             // CRITICAL: Mark peer as seen on EVERY message receive
                                             // This prevents the reaper from removing active connections
                                             peer_manager_listen.peer_seen(peer_ip_listen).await;
+
+                                            // Skip response-type messages - they should only be consumed by request_response()
+                                            // This prevents message crossing when both sides make concurrent requests
+                                            if is_response_message(&msg) {
+                                                // Response messages are handled by request_response(), not here
+                                                continue;
+                                            }
 
                                             match msg {
                                                 time_network::protocol::NetworkMessage::Ping => {
