@@ -1002,6 +1002,7 @@ impl PeerManager {
     }
 
     /// Check if connection to peer is healthy by sending a ping
+    #[allow(dead_code)]
     async fn check_connection_health(&self, peer_ip: IpAddr) -> bool {
         let conn_arc = {
             let connections = self.connections.read().await;
@@ -1020,6 +1021,7 @@ impl PeerManager {
     }
 
     /// Execute a network request with automatic connection health checking and retry
+    #[allow(dead_code)]
     async fn request_with_retry<F, T>(
         &self,
         peer_addr: &str,

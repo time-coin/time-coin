@@ -1266,9 +1266,55 @@ async fn main() {
     }
 
     // Start periodic sync (every 5 minutes)
+    // BUT: Use more frequent syncs (30 seconds) for the first 10 minutes if blockchain is empty
     let simple_sync_periodic = simple_sync;
+    let peer_manager_for_sync = Arc::clone(&peer_manager);
+    let blockchain_for_sync = Arc::clone(&blockchain);
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300)); // 5 minutes
+        // Check if we need aggressive sync (no blockchain yet)
+        let needs_aggressive_sync = {
+            let bc = blockchain_for_sync.read().await;
+            bc.chain_tip_height() == 0 && bc.genesis_hash().is_empty()
+        };
+
+        if needs_aggressive_sync {
+            // Aggressive sync: Every 30 seconds for first 10 minutes
+            println!("   ℹ️  Starting aggressive sync mode (30s intervals for 10 min)");
+            for _ in 0..20 {
+                // 20 attempts * 30s = 10 minutes
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+                // Check if we have peers now
+                if peer_manager_for_sync.get_connected_peers().await.is_empty() {
+                    continue; // Skip if no peers
+                }
+
+                // Check if we got the blockchain
+                let has_blockchain = {
+                    let bc = blockchain_for_sync.read().await;
+                    bc.chain_tip_height() > 0 || !bc.genesis_hash().is_empty()
+                };
+
+                if has_blockchain {
+                    println!("   ✅ Blockchain acquired, switching to normal sync mode");
+                    break;
+                }
+
+                println!("🔄 Running aggressive chain sync...");
+                if let Err(e) = simple_sync_periodic.detect_and_resolve_forks().await {
+                    println!("   ⚠️  Fork check failed: {}", e);
+                }
+
+                match simple_sync_periodic.sync().await {
+                    Ok(0) => {} // Already up to date
+                    Ok(n) => println!("   ✅ Synced {} blocks", n),
+                    Err(e) => println!("   ⚠️  Sync failed: {} (will retry)", e),
+                }
+            }
+        }
+
+        // Normal periodic sync (every 5 minutes)
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
         loop {
             interval.tick().await;
             println!("🔄 Running periodic chain sync...");
