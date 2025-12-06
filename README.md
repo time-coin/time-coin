@@ -192,6 +192,8 @@ What these scripts typically do:
 - Configure a testnet masternode and systemd service
 - Configure firewall rules and management helpers
 
+> **⚠️ Important**: Do NOT use `apt install cargo` or `apt install rust`. The scripts install Rust via `rustup`, which provides the latest stable version and easy updates. Ubuntu's apt packages are outdated and incompatible with TIME Coin's dependencies.
+
 ### Step 2 — Install and configure the masternode
 
 Example (from your home directory):

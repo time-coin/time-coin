@@ -86,21 +86,33 @@ install_system_dependencies() {
 install_rust() {
     print_header "Installing Rust"
     
-    # Check if Rust is already installed
-    if su - $SUDO_USER -c "command -v rustc" &> /dev/null; then
+    # Check if cargo is from apt (outdated) - and remove it
+    if dpkg-query -W -f='${Status}' cargo 2>/dev/null | grep -q "install ok installed"; then
+        print_warning "Detected apt-installed cargo (outdated version)"
+        print_info "Removing apt packages..."
+        apt remove -y cargo rustc 2>/dev/null || true
+        apt autoremove -y 2>/dev/null || true
+        print_success "Old apt packages removed"
+    fi
+    
+    # Check if rustup is already installed for the user
+    if su - $SUDO_USER -c "command -v rustup" &> /dev/null; then
         RUST_VERSION=$(su - $SUDO_USER -c "rustc --version")
-        print_info "Rust is already installed: $RUST_VERSION"
-        read -p "Do you want to update it? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            su - $SUDO_USER -c "rustup update"
-            print_success "Rust updated"
-        fi
+        print_info "Rustup already installed: $RUST_VERSION"
+        print_info "Updating Rust to latest stable..."
+        su - $SUDO_USER -c "rustup update stable && rustup default stable"
+        print_success "Rust updated"
+    # Check if Rust is installed without rustup
+    elif su - $SUDO_USER -c "command -v rustc" &> /dev/null; then
+        RUST_VERSION=$(su - $SUDO_USER -c "rustc --version")
+        print_warning "Rust found but no rustup: $RUST_VERSION"
+        print_info "Installing rustup for better version management..."
+        su - $SUDO_USER -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+        print_success "Rustup installed"
     else
         # Install Rust as the non-root user
-        print_info "Installing Rust (this may take a minute)..."
+        print_info "Installing Rust via rustup (this may take a minute)..."
         su - $SUDO_USER -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-        
         print_success "Rust installed"
     fi
     

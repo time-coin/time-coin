@@ -177,8 +177,37 @@ install_dependencies() {
 install_rust() {
     print_header "Checking Rust Toolchain"
 
-    if command -v cargo >/dev/null 2>&1 && command -v rustc >/dev/null 2>&1; then
-        print_success "Rust already installed: $(rustc --version)"
+    # Check if cargo is from apt (outdated) - dpkg-query returns 0 if package is installed
+    if dpkg-query -W -f='${Status}' cargo 2>/dev/null | grep -q "install ok installed"; then
+        print_warning "Detected apt-installed cargo (outdated version)"
+        print_info "Removing apt packages and installing proper Rust toolchain..."
+        apt-get remove -y cargo rustc 2>/dev/null || true
+        apt-get autoremove -y 2>/dev/null || true
+        print_success "Old apt packages removed"
+    fi
+
+    # Check if rustup is installed
+    if command -v rustup >/dev/null 2>&1; then
+        print_success "Rustup found: $(rustup --version)"
+        print_info "Updating Rust to latest stable..."
+        rustup update stable
+        rustup default stable
+        
+        # Source cargo env
+        export PATH="$HOME/.cargo/bin:$PATH"
+        [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+        
+        print_success "Rust updated: $(rustc --version)"
+        print_success "Cargo version: $(cargo --version)"
+        return 0
+    fi
+    
+    # Check if cargo exists but rustup doesn't (manual install)
+    if command -v cargo >/dev/null 2>&1; then
+        local rust_ver=$(rustc --version | awk '{print $2}')
+        print_warning "Found Rust $rust_ver but no rustup"
+        print_info "Recommend installing rustup for easier updates"
+        print_info "Current version may work, continuing..."
         return 0
     fi
     
