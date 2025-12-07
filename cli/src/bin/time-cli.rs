@@ -1483,92 +1483,117 @@ async fn handle_wallet_command(
                 if json_output {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
-                    println!("\n⏳ Transaction submitted for approval...");
-                    println!("To:     {}", to);
-                    println!("Amount: {} TIME", amount);
+                    // Check if this is a success response
+                    if result
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
+                        println!("\n⏳ Transaction submitted for approval...");
+                        println!("To:     {}", to);
+                        println!("Amount: {} TIME", amount);
 
-                    if let Some(txid_val) = result.get("txid") {
-                        let txid = txid_val.as_str().unwrap_or("");
-                        println!("TxID:   {}", txid);
+                        if let Some(txid_val) = result.get("txid") {
+                            let txid = txid_val.as_str().unwrap_or("");
+                            println!("TxID:   {}", txid);
 
-                        // Poll for instant finality status
-                        println!("\n🔄 Waiting for masternode consensus...");
+                            // Poll for instant finality status
+                            println!("\n🔄 Waiting for masternode consensus...");
 
-                        let start = std::time::Instant::now();
-                        let max_wait = std::time::Duration::from_secs(10);
-                        let mut attempts = 0;
-                        let mut last_status = None;
+                            let start = std::time::Instant::now();
+                            let max_wait = std::time::Duration::from_secs(10);
+                            let mut attempts = 0;
+                            let mut last_status = None;
 
-                        while start.elapsed() < max_wait {
-                            attempts += 1;
+                            while start.elapsed() < max_wait {
+                                attempts += 1;
 
-                            // Check transaction status
-                            if let Ok(status_resp) = client
-                                .post(format!("{}/consensus/tx-status", api))
-                                .json(&json!({"txid": txid}))
-                                .send()
-                                .await
-                            {
-                                if let Ok(status_result) =
-                                    status_resp.json::<serde_json::Value>().await
+                                // Check transaction status
+                                if let Ok(status_resp) = client
+                                    .post(format!("{}/consensus/tx-status", api))
+                                    .json(&json!({"txid": txid}))
+                                    .send()
+                                    .await
                                 {
-                                    if let Some(status) = status_result.get("status") {
-                                        last_status = Some(status.clone());
+                                    if let Ok(status_result) =
+                                        status_resp.json::<serde_json::Value>().await
+                                    {
+                                        if let Some(status) = status_result.get("status") {
+                                            last_status = Some(status.clone());
 
-                                        // Check if finalized
-                                        if let Some(status_obj) = status.as_object() {
-                                            if status_obj.contains_key("Finalized") {
-                                                let elapsed = start.elapsed();
-                                                println!("\n✅ APPROVED by BFT consensus");
-                                                println!(
-                                                    "Transaction finalized in {:.1} seconds",
-                                                    elapsed.as_secs_f64()
-                                                );
-                                                println!("\n💡 Balance updated immediately - no need to wait for block confirmation");
-                                                break;
-                                            } else if status_obj.contains_key("Declined") {
-                                                let reason = status_obj
-                                                    .get("Declined")
-                                                    .and_then(|d| d.get("reason"))
-                                                    .and_then(|r| r.as_str())
-                                                    .unwrap_or("Unknown reason");
-                                                println!("\n❌ DECLINED by masternode consensus");
-                                                println!("Reason: {}", reason);
-                                                println!("Your coins remain in your wallet");
-                                                break;
+                                            // Check if finalized
+                                            if let Some(status_obj) = status.as_object() {
+                                                if status_obj.contains_key("Finalized") {
+                                                    let elapsed = start.elapsed();
+                                                    println!("\n✅ APPROVED by BFT consensus");
+                                                    println!(
+                                                        "Transaction finalized in {:.1} seconds",
+                                                        elapsed.as_secs_f64()
+                                                    );
+                                                    println!("\n💡 Balance updated immediately - no need to wait for block confirmation");
+                                                    break;
+                                                } else if status_obj.contains_key("Declined") {
+                                                    let reason = status_obj
+                                                        .get("Declined")
+                                                        .and_then(|d| d.get("reason"))
+                                                        .and_then(|r| r.as_str())
+                                                        .unwrap_or("Unknown reason");
+                                                    println!(
+                                                        "\n❌ DECLINED by masternode consensus"
+                                                    );
+                                                    println!("Reason: {}", reason);
+                                                    println!("Your coins remain in your wallet");
+                                                    break;
+                                                }
+                                            }
+
+                                            // Show progress for pending
+                                            if attempts % 2 == 0 {
+                                                print!(".");
+                                                use std::io::Write;
+                                                std::io::stdout().flush().ok();
                                             }
                                         }
+                                    }
+                                }
 
-                                        // Show progress for pending
-                                        if attempts % 2 == 0 {
-                                            print!(".");
-                                            use std::io::Write;
-                                            std::io::stdout().flush().ok();
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                            }
+
+                            // Timeout handling
+                            if start.elapsed() >= max_wait {
+                                if let Some(status) = last_status {
+                                    if let Some(status_obj) = status.as_object() {
+                                        if status_obj.contains_key("Pending") {
+                                            println!(
+                                                "\n\n⏰ Consensus taking longer than expected"
+                                            );
+                                            println!(
+                                                "Transaction is still pending masternode approval"
+                                            );
+                                            println!("\n💡 Check status with: time-cli instant-finality status --txid {}", txid);
                                         }
                                     }
+                                } else {
+                                    println!("\n\n⚠️  Unable to verify consensus status");
+                                    println!("Transaction was broadcast but status is unknown");
+                                    println!("\n💡 Check status with: time-cli instant-finality status --txid {}", txid);
                                 }
                             }
-
-                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        } else {
+                            println!("\n⚠️  No transaction ID returned");
+                            if let Some(msg) = result.get("message").and_then(|v| v.as_str()) {
+                                println!("Message: {}", msg);
+                            }
                         }
-
-                        // Timeout handling
-                        if start.elapsed() >= max_wait {
-                            if let Some(status) = last_status {
-                                if let Some(status_obj) = status.as_object() {
-                                    if status_obj.contains_key("Pending") {
-                                        println!("\n\n⏰ Consensus taking longer than expected");
-                                        println!(
-                                            "Transaction is still pending masternode approval"
-                                        );
-                                        println!("\n💡 Check status with: time-cli instant-finality status --txid {}", txid);
-                                    }
-                                }
-                            } else {
-                                println!("\n\n⚠️  Unable to verify consensus status");
-                                println!("Transaction was broadcast but status is unknown");
-                                println!("\n💡 Check status with: time-cli instant-finality status --txid {}", txid);
-                            }
+                    } else {
+                        // Not a success response
+                        println!("\n✗ Transaction failed");
+                        if let Some(msg) = result.get("message").and_then(|v| v.as_str()) {
+                            println!("Message: {}", msg);
+                        }
+                        if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+                            println!("Error: {}", error);
                         }
                     }
                 }
