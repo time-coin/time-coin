@@ -247,6 +247,19 @@ pub async fn wallet_send(
         crate::routes::mempool::trigger_instant_finality_for_received_tx(state.clone(), tx.clone())
             .await;
 
+        // Request instant finality votes from masternodes
+        if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
+            log::debug!("requesting_instant_finality_votes");
+            let votes_received = broadcaster
+                .request_instant_finality_votes(tx.clone(), state.consensus.clone())
+                .await;
+            log::info!(
+                txid = %&final_txid[..16],
+                votes = votes_received,
+                "instant_finality_votes_collected"
+            );
+        }
+
         // Broadcast to network
         if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
             broadcaster.broadcast_transaction(tx).await;
