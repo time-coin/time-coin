@@ -1425,23 +1425,28 @@ async fn handle_wallet_command(
             const TIME_UNIT: u64 = 100_000_000; // 1 TIME = 100,000,000 units
             let amount_units = (amount * TIME_UNIT as f64) as u64;
 
-            // Load wallet from wallets/node.json
-            let data_dir = get_data_dir();
-            let wallet_path = format!("{}/wallets/node.json", data_dir);
+            // Get node wallet address from API (same as balance command)
+            let client = reqwest::Client::new();
+            let info_response = client
+                .get(format!("{}/blockchain/info", api))
+                .send()
+                .await?;
 
-            let wallet_data = tokio::fs::read_to_string(&wallet_path)
-                .await
-                .map_err(|e| format!("Failed to load wallet from {}: {}", wallet_path, e))?;
-
-            let wallet_json: serde_json::Value = serde_json::from_str(&wallet_data)
-                .map_err(|e| format!("Failed to parse wallet JSON: {}", e))?;
-
-            let from_address = wallet_json["address"]
-                .as_str()
-                .ok_or_else(|| "No address found in wallet".to_string())?;
+            let from_address = if info_response.status().is_success() {
+                let info: serde_json::Value = info_response.json().await?;
+                info["wallet_address"]
+                    .as_str()
+                    .ok_or_else(|| "No wallet address found in node info".to_string())?
+                    .to_string()
+            } else {
+                return Err(format!(
+                    "Failed to get wallet address from node: {}",
+                    info_response.text().await?
+                )
+                .into());
+            };
 
             // Create transaction locally via API (which will sign it)
-            let client = reqwest::Client::new();
             let response = client
                 .post(format!("{}/transaction/create", api))
                 .json(&json!({
@@ -3319,20 +3324,6 @@ async fn handle_mempool_command(
     }
 
     Ok(())
-}
-
-fn get_data_dir() -> String {
-    if let Ok(dir) = std::env::var("TIME_DATA_DIR") {
-        return dir;
-    }
-
-    let home = if cfg!(windows) {
-        std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string())
-    } else {
-        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
-    };
-
-    format!("{}/.timecoin", home)
 }
 
 async fn handle_rpc_call(
