@@ -18,6 +18,7 @@ pub mod treasury_manager;
 pub mod utxo_disk_backed;
 pub mod utxo_locker;
 pub mod utxo_set;
+pub mod utxo_state_manager; // UTXO State Protocol for instant finality
 pub mod vdf;
 pub mod vdf_integration;
 

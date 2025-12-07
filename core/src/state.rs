@@ -14,7 +14,7 @@ use crate::utxo_set::UTXOSet;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use time_consensus::utxo_state_protocol::UTXOStateManager;
+use crate::utxo_state_manager::UTXOStateManager;
 
 #[derive(Debug, Clone)]
 pub enum StateError {

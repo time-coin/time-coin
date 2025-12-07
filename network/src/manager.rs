@@ -2230,7 +2230,7 @@ impl PeerManager {
     /// Broadcast UTXO state notification to all connected masternodes
     pub async fn broadcast_utxo_notification(
         &self,
-        notification: &time_consensus::utxo_state_protocol::UTXOStateNotification,
+        notification: &time_core::utxo_state_manager::UTXOStateNotification,
     ) {
         let notification_json = match serde_json::to_string(notification) {
             Ok(json) => json,
@@ -2251,7 +2251,7 @@ impl PeerManager {
     pub async fn send_utxo_notification_to_peer(
         &self,
         peer_ip: IpAddr,
-        notification: &time_consensus::utxo_state_protocol::UTXOStateNotification,
+        notification: &time_core::utxo_state_manager::UTXOStateNotification,
     ) -> Result<(), String> {
         let notification_json = serde_json::to_string(notification)
             .map_err(|e| format!("Failed to serialize notification: {}", e))?;

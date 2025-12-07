@@ -7,7 +7,7 @@ use crate::protocol::NetworkMessage;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
-use time_consensus::utxo_state_protocol::{
+use time_core::utxo_state_manager::{
     UTXOStateManager, UTXOStateNotification, UTXOSubscription,
 };
 use time_core::OutPoint;
@@ -257,13 +257,13 @@ impl UTXOProtocolHandler {
                     // Update local state based on notification
                     // This keeps our state in sync with the network
                     match &notif.new_state {
-                        time_consensus::utxo_state_protocol::UTXOState::Locked { txid, .. } => {
+                        time_core::utxo_state_manager::UTXOState::Locked { txid, .. } => {
                             let _ = self
                                 .utxo_manager
                                 .lock_utxo(&notif.outpoint, txid.clone())
                                 .await;
                         }
-                        time_consensus::utxo_state_protocol::UTXOState::SpentPending {
+                        time_core::utxo_state_manager::UTXOState::SpentPending {
                             txid,
                             votes,
                             total_nodes,
@@ -279,7 +279,7 @@ impl UTXOProtocolHandler {
                                 )
                                 .await;
                         }
-                        time_consensus::utxo_state_protocol::UTXOState::SpentFinalized {
+                        time_core::utxo_state_manager::UTXOState::SpentFinalized {
                             txid,
                             votes,
                             ..
@@ -289,7 +289,7 @@ impl UTXOProtocolHandler {
                                 .mark_spent_finalized(&notif.outpoint, txid.clone(), *votes)
                                 .await;
                         }
-                        time_consensus::utxo_state_protocol::UTXOState::Confirmed {
+                        time_core::utxo_state_manager::UTXOState::Confirmed {
                             txid,
                             block_height,
                             ..

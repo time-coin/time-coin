@@ -4,7 +4,7 @@
 //! wallet subscriptions, and instant finality.
 
 use std::sync::Arc;
-use time_consensus::utxo_state_protocol::UTXOStateManager;
+use time_core::utxo_state_manager::UTXOStateManager;
 use time_masternode::MasternodeUTXOIntegration;
 use time_network::discovery::NetworkType;
 use time_network::PeerManager;

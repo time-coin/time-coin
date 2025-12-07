@@ -6,7 +6,7 @@
 use crate::utxo_tracker::UtxoTracker;
 use std::net::IpAddr;
 use std::sync::Arc;
-use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOStateNotification};
+use time_core::utxo_state_manager::{UTXOStateManager, UTXOStateNotification};
 use time_mempool::Mempool;
 use time_network::voting::VoteTracker;
 use time_network::{PeerManager, UTXOProtocolHandler};
@@ -696,7 +696,7 @@ impl MasternodeUTXOIntegration {
     }
 
     /// Get UTXO statistics
-    pub async fn get_utxo_stats(&self) -> time_consensus::utxo_state_protocol::UTXOStateStats {
+    pub async fn get_utxo_stats(&self) -> time_core::utxo_state_manager::UTXOStateStats {
         self.utxo_manager.get_stats().await
     }
 

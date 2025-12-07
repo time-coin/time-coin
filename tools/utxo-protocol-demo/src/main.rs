@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use time_consensus::instant_finality::{
     InstantFinalityManager, TransactionStatus, TransactionVote,
 };
-use time_consensus::utxo_state_protocol::{UTXOStateManager, UTXOSubscription};
+use time_core::utxo_state_manager::{UTXOStateManager, UTXOSubscription};
 use time_core::{OutPoint, Transaction, TxInput, TxOutput};
 
 #[tokio::main]

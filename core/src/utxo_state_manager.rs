@@ -25,10 +25,10 @@
 //! 7. UTXO_A marked as Confirmed
 //! ```
 
+use crate::{OutPoint, Transaction, TxOutput};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use time_core::{OutPoint, Transaction, TxOutput};
 use tokio::sync::RwLock;
 
 /// Type alias for notification handler to reduce type complexity
@@ -164,6 +164,17 @@ pub struct UTXOStateManager {
     node_id: String,
     /// Callback for sending notifications (async closure)
     notification_handler: NotificationHandler,
+}
+
+// Manual Debug implementation since notification_handler cannot derive Debug
+impl std::fmt::Debug for UTXOStateManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UTXOStateManager")
+            .field("node_id", &self.node_id)
+            .field("utxo_count", &"<async>")
+            .field("subscription_count", &"<async>")
+            .finish()
+    }
 }
 
 impl UTXOStateManager {
