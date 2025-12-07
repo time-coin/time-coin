@@ -308,30 +308,40 @@ async fn sync_finalized_transactions_from_peers(
                 let mut blockchain_write = blockchain.write().await;
 
                 for (tx, _finalized_at) in transactions_with_timestamps {
-                    // Skip applying finalized transactions directly to UTXO set
-                    // They will be applied when included in blocks
-                    // Applying them here causes balance corruption as they may spend
-                    // UTXOs that shouldn't be spent yet or conflict with local state
+                    // Check if transaction outputs already exist in UTXO set
+                    // This prevents double-applying transactions that are in the snapshot
+                    let already_applied = tx.outputs.iter().enumerate().any(|(vout, _)| {
+                        let outpoint =
+                            time_core::transaction::OutPoint::new(tx.txid.clone(), vout as u32);
+                        blockchain_write.utxo_set().contains(&outpoint)
+                    });
 
-                    // Just save them to the finalized tx database for reference
-                    if let Err(e) = blockchain_write.save_finalized_tx(&tx, 0, 0) {
-                        println!(
-                            "      ⚠️  Failed to save finalized tx {} ({})",
-                            truncate_str(&tx.txid, 16),
-                            e
-                        );
-                    } else {
-                        total_synced += 1;
+                    if already_applied {
+                        // Transaction already in UTXO set, skip to avoid double-spend
+                        continue;
+                    }
+
+                    // Apply to UTXO set (TIME Coin uses UTXO-based consensus)
+                    match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
+                        Ok(_) => {
+                            total_synced += 1;
+                        }
+                        Err(e) => {
+                            println!(
+                                "      ⚠️  Skipped tx {} ({})",
+                                truncate_str(&tx.txid, 16),
+                                e
+                            );
+                        }
                     }
                 }
 
                 if total_synced > 0 {
-                    println!(
-                        "      ✓ Saved {} finalized transactions to database",
-                        total_synced
-                    );
-                    // Note: Transactions will be applied to UTXO set when included in blocks
-                    // Not saving UTXO snapshot here as we haven't modified the UTXO set
+                    println!("      ✓ Applied {} transactions", total_synced);
+                    // Save UTXO snapshot after applying synced transactions
+                    if let Err(e) = blockchain_write.save_utxo_snapshot() {
+                        println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                    }
                 }
 
                 drop(blockchain_write);
