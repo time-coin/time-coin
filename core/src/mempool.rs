@@ -4,8 +4,10 @@
 
 use crate::transaction::{Transaction, TransactionError};
 use crate::utxo_set::UTXOSet;
+use crate::utxo_state_manager::UTXOStateManager;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Maximum transactions in mempool
 const MAX_MEMPOOL_SIZE: usize = 10_000;
@@ -17,6 +19,7 @@ pub enum MempoolError {
     DuplicateTransaction,
     InvalidTransaction,
     ConflictingTransaction,
+    UTXOLocked(String), // UTXO is locked by another transaction
 }
 
 impl std::fmt::Display for MempoolError {
@@ -29,6 +32,7 @@ impl std::fmt::Display for MempoolError {
             MempoolError::ConflictingTransaction => {
                 write!(f, "Transaction conflicts with another in mempool")
             }
+            MempoolError::UTXOLocked(msg) => write!(f, "UTXO locked: {}", msg),
         }
     }
 }
@@ -50,7 +54,7 @@ struct MempoolTransaction {
 }
 
 /// Transaction pool for pending transactions
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Mempool {
     /// Pending transactions by txid
     transactions: HashMap<String, MempoolTransaction>,
@@ -60,6 +64,21 @@ pub struct Mempool {
 
     /// Maximum size
     max_size: usize,
+
+    /// Optional UTXO state manager for instant finality
+    utxo_state_manager: Option<Arc<UTXOStateManager>>,
+}
+
+// Manual Debug impl since UTXOStateManager doesn't derive Debug
+impl std::fmt::Debug for Mempool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mempool")
+            .field("transaction_count", &self.transactions.len())
+            .field("spent_outputs_count", &self.spent_outputs.len())
+            .field("max_size", &self.max_size)
+            .field("has_utxo_manager", &self.utxo_state_manager.is_some())
+            .finish()
+    }
 }
 
 impl Mempool {
@@ -69,6 +88,7 @@ impl Mempool {
             transactions: HashMap::new(),
             spent_outputs: HashSet::new(),
             max_size: MAX_MEMPOOL_SIZE,
+            utxo_state_manager: None,
         }
     }
 
@@ -78,11 +98,79 @@ impl Mempool {
             transactions: HashMap::new(),
             spent_outputs: HashSet::new(),
             max_size,
+            utxo_state_manager: None,
         }
     }
 
-    /// Add a transaction to the mempool
-    pub fn add_transaction(
+    /// Set the UTXO state manager (enables instant finality)
+    pub fn set_utxo_state_manager(&mut self, manager: Arc<UTXOStateManager>) {
+        self.utxo_state_manager = Some(manager);
+    }
+
+    /// Check if a UTXO is locked by another transaction
+    async fn check_utxo_locks(&self, tx: &Transaction) -> Result<(), MempoolError> {
+        if let Some(manager) = &self.utxo_state_manager {
+            for input in &tx.inputs {
+                // Check if UTXO is locked
+                if let Some(utxo_info) = manager.get_utxo_info(&input.previous_output).await {
+                    use crate::utxo_state_manager::UTXOState;
+                    match utxo_info.state {
+                        UTXOState::Locked { txid, .. } if txid != tx.txid => {
+                            return Err(MempoolError::UTXOLocked(format!(
+                                "UTXO {}:{} is locked by transaction {}",
+                                input.previous_output.txid, input.previous_output.vout, txid
+                            )));
+                        }
+                        UTXOState::SpentPending { txid, .. } if txid != tx.txid => {
+                            return Err(MempoolError::UTXOLocked(format!(
+                                "UTXO {}:{} is being spent by transaction {}",
+                                input.previous_output.txid, input.previous_output.vout, txid
+                            )));
+                        }
+                        UTXOState::SpentFinalized { txid, .. } => {
+                            return Err(MempoolError::UTXOLocked(format!(
+                                "UTXO {}:{} already spent by finalized transaction {}",
+                                input.previous_output.txid, input.previous_output.vout, txid
+                            )));
+                        }
+                        UTXOState::Confirmed { .. } => {
+                            return Err(MempoolError::UTXOLocked(format!(
+                                "UTXO {}:{} already confirmed as spent",
+                                input.previous_output.txid, input.previous_output.vout
+                            )));
+                        }
+                        _ => {} // Unspent or locked by this tx - OK
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Lock UTXOs for a transaction (if state manager available)
+    async fn lock_transaction_utxos(&self, tx: &Transaction) -> Result<(), MempoolError> {
+        if let Some(manager) = &self.utxo_state_manager {
+            for input in &tx.inputs {
+                manager
+                    .lock_utxo(&input.previous_output, tx.txid.clone())
+                    .await
+                    .map_err(|e| MempoolError::UTXOLocked(e))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Unlock UTXOs for a transaction (when removing from mempool)
+    async fn unlock_transaction_utxos(&self, tx: &Transaction) {
+        if let Some(manager) = &self.utxo_state_manager {
+            for input in &tx.inputs {
+                let _ = manager.unlock_utxo(&input.previous_output).await;
+            }
+        }
+    }
+
+    /// Add a transaction to the mempool (async version with UTXO locking)
+    pub async fn add_transaction_async(
         &mut self,
         tx: Transaction,
         utxo_set: &UTXOSet,
@@ -149,7 +237,26 @@ impl Mempool {
         Ok(())
     }
 
-    /// Remove a transaction from the mempool
+    /// Remove a transaction from the mempool (async version - unlocks UTXOs)
+    pub async fn remove_transaction_async(&mut self, txid: &str) -> Option<Transaction> {
+        if let Some(mempool_tx) = self.transactions.remove(txid) {
+            // **NEW: Unlock UTXOs**
+            self.unlock_transaction_utxos(&mempool_tx.transaction).await;
+
+            // Unmark spent outputs
+            for input in &mempool_tx.transaction.inputs {
+                let output_key = format!(
+                    "{}:{}",
+                    input.previous_output.txid, input.previous_output.vout
+                );
+                self.spent_outputs.remove(&output_key);
+            }
+            return Some(mempool_tx.transaction);
+        }
+        None
+    }
+
+    /// Remove a transaction from the mempool (legacy sync version)
     pub fn remove_transaction(&mut self, txid: &str) -> Option<Transaction> {
         if let Some(mempool_tx) = self.transactions.remove(txid) {
             // Unmark spent outputs
