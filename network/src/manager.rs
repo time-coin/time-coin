@@ -109,6 +109,11 @@ impl PeerManager {
         self.public_addr.ip().to_string()
     }
 
+    /// Get our node ID (public IP address)
+    pub async fn get_node_id(&self) -> Option<String> {
+        Some(self.public_addr.ip().to_string())
+    }
+
     /// Mark that we have recent evidence the peer is alive.
     /// UNIFIED POOL: Single lock, O(1) update
     pub async fn peer_seen(&self, addr: IpAddr) {

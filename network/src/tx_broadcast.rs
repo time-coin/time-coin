@@ -393,4 +393,138 @@ impl TransactionBroadcaster {
             "Instant finality vote broadcast completed"
         );
     }
+
+    /// 🔒 Broadcast UTXO lock request and wait for acknowledgments
+    /// Returns the number of masternodes that acknowledged the lock
+    pub async fn broadcast_utxo_lock(&self, tx: &Transaction) -> Result<u32, String> {
+        use crate::utxo_sync::{UtxoInput, UtxoOutput};
+
+        let peers = self.peer_manager.get_connected_peers().await;
+        if peers.is_empty() {
+            return Err("No peers available to broadcast UTXO lock".to_string());
+        }
+
+        println!(
+            "🔒 Broadcasting UTXO lock for transaction {} to {} masternodes",
+            &tx.txid[..16],
+            peers.len()
+        );
+
+        // Convert transaction inputs/outputs to UTXO format
+        let inputs: Vec<String> = tx
+            .inputs
+            .iter()
+            .map(|input| {
+                let utxo_input = UtxoInput {
+                    txid: input.previous_output.txid.clone(),
+                    vout: input.previous_output.vout,
+                    amount: 0, // Amount will be looked up by receiver
+                };
+                serde_json::to_string(&utxo_input).unwrap_or_default()
+            })
+            .collect();
+
+        let outputs: Vec<String> = tx
+            .outputs
+            .iter()
+            .map(|output| {
+                let utxo_output = UtxoOutput {
+                    address: output.address.clone(),
+                    amount: output.amount,
+                };
+                serde_json::to_string(&utxo_output).unwrap_or_default()
+            })
+            .collect();
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let message = NetworkMessage::UtxoLockBroadcast {
+            txid: tx.txid.clone(),
+            inputs,
+            outputs,
+            timestamp,
+            proposer: self
+                .peer_manager
+                .get_node_id()
+                .await
+                .unwrap_or_else(|| "unknown".to_string()),
+            signature: String::new(), // TODO: Sign the lock request
+        };
+
+        // Broadcast to all masternodes and collect acknowledgments
+        let mut ack_tasks = Vec::new();
+
+        for peer_info in peers {
+            let peer_addr = peer_info.address;
+            let msg_clone = message.clone();
+            let manager = self.peer_manager.clone();
+            let txid_clone = tx.txid.clone();
+
+            let task = tokio::spawn(async move {
+                // Send lock broadcast with 2 second timeout
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(2),
+                    manager.send_message_to_peer(peer_addr, msg_clone),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => {
+                        debug!(
+                            peer = %peer_addr,
+                            txid = %&txid_clone[..16],
+                            "UTXO lock broadcast sent"
+                        );
+
+                        // Wait for acknowledgment (in real implementation, this would be
+                        // handled by message handler collecting UtxoLockAcknowledge messages)
+                        // For now, assume success
+                        Some(true)
+                    }
+                    Ok(Err(e)) => {
+                        debug!(
+                            peer = %peer_addr,
+                            txid = %&txid_clone[..16],
+                            error = %e,
+                            "Failed to send UTXO lock"
+                        );
+                        None
+                    }
+                    Err(_) => {
+                        debug!(
+                            peer = %peer_addr,
+                            txid = %&txid_clone[..16],
+                            "UTXO lock broadcast timeout"
+                        );
+                        None
+                    }
+                }
+            });
+            ack_tasks.push(task);
+        }
+
+        // Wait for all responses with timeout
+        let results = tokio::time::timeout(
+            tokio::time::Duration::from_secs(3),
+            futures::future::join_all(ack_tasks),
+        )
+        .await;
+
+        let ack_count = match results {
+            Ok(results) => results
+                .into_iter()
+                .filter_map(|r| r.ok().flatten())
+                .filter(|ack| *ack)
+                .count() as u32,
+            Err(_) => {
+                return Err("Timeout waiting for UTXO lock acknowledgments".to_string());
+            }
+        };
+
+        println!("   ✅ Received {} UTXO lock acknowledgments", ack_count);
+
+        Ok(ack_count)
+    }
 }

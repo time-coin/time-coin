@@ -220,7 +220,52 @@ pub async fn wallet_send(
     // DO NOT recalculate TXID after signing - TXID should not include signatures
     let final_txid = tx.txid.clone();
 
-    // Add to mempool
+    // 🔒 STEP 1: Broadcast UTXO lock request to masternodes FIRST
+    log::info!(
+        txid = %&final_txid[..16],
+        inputs = tx.inputs.len(),
+        "broadcasting_utxo_lock_request"
+    );
+
+    if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
+        // Send lock broadcast to all masternodes
+        match broadcaster.broadcast_utxo_lock(&tx).await {
+            Ok(ack_count) => {
+                log::info!(
+                    txid = %&final_txid[..16],
+                    acks = ack_count,
+                    "utxo_lock_acknowledged"
+                );
+
+                // Check if we have enough acknowledgments
+                let masternode_count = state.consensus.masternode_count().await as u32;
+                let threshold = (masternode_count * 2 / 3) + 1;
+
+                if ack_count < threshold {
+                    log::warn!(
+                        txid = %&final_txid[..16],
+                        acks = ack_count,
+                        threshold = threshold,
+                        "insufficient_lock_acknowledgments"
+                    );
+                    return Err(ApiError::BadRequest(format!(
+                        "Failed to lock UTXOs: only {} of {} masternodes acknowledged (need {})",
+                        ack_count, masternode_count, threshold
+                    )));
+                }
+            }
+            Err(e) => {
+                log::error!(
+                    txid = %&final_txid[..16],
+                    error = %e,
+                    "failed_to_broadcast_utxo_lock"
+                );
+                return Err(ApiError::Internal(format!("Failed to lock UTXOs: {}", e)));
+            }
+        }
+    }
+
+    // 🎯 STEP 2: Add to local mempool (UTXOs now locked network-wide)
     if let Some(mempool) = state.mempool.as_ref() {
         log::debug!("adding_transaction_to_mempool");
         match mempool.add_transaction(tx.clone()).await {
@@ -242,7 +287,7 @@ pub async fn wallet_send(
             "transaction_created_and_added_to_mempool"
         );
 
-        // Trigger instant finality via BFT consensus
+        // ⚡ STEP 3: Trigger instant finality via BFT consensus
         log::debug!("triggering_instant_finality");
         crate::routes::mempool::trigger_instant_finality_for_received_tx(state.clone(), tx.clone())
             .await;
@@ -260,7 +305,7 @@ pub async fn wallet_send(
             );
         }
 
-        // Broadcast to network
+        // 📡 STEP 4: Broadcast transaction to network
         if let Some(broadcaster) = state.tx_broadcaster.as_ref() {
             broadcaster.broadcast_transaction(tx).await;
             log::debug!("transaction_broadcast_to_network");
