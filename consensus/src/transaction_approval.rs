@@ -270,8 +270,8 @@ impl TransactionApprovalManager {
             return Ok(TransactionStatus::Pending);
         }
 
-        let threshold = *self.threshold.read().await;
-        let required_approvals = ((total_masternodes as f64 * threshold).ceil()) as usize;
+        // Use fixed quorum size for scalability (defaults to 3)
+        let required_approvals = crate::quorum::calculate_quorum(total_masternodes);
 
         // Count approvals and declines
         let mut approval_count = 0;

@@ -2,11 +2,16 @@
 pub const MIN_MASTERNODES: usize = 3; // Minimum for BFT consensus (tolerates 0 Byzantine failures)
 pub const GRACE_PERIOD_SECS: i64 = 1800;
 
+/// Fixed quorum size for instant finality (independent of network size)
+/// This provides fast consensus even as the network grows
+pub const FIXED_QUORUM_SIZE: usize = 3;
+
 pub fn calculate_quorum(total_nodes: usize) -> usize {
     if total_nodes < MIN_MASTERNODES {
         return total_nodes;
     }
-    (total_nodes * 2 / 3) + 1
+    // Use fixed quorum size for scalability
+    FIXED_QUORUM_SIZE.min(total_nodes)
 }
 
 pub fn has_quorum(active_nodes: usize) -> bool {
@@ -23,9 +28,10 @@ pub fn calculate_required_votes(total: usize, numerator: usize, denominator: usi
     (total * numerator).div_ceil(denominator)
 }
 
-/// Calculate required votes for BFT consensus (2/3 threshold)
+/// Calculate required votes for BFT consensus
+/// Uses fixed quorum for scalability instead of 2/3 majority
 pub fn required_for_bft(total: usize) -> usize {
-    calculate_required_votes(total, 2, 3)
+    calculate_quorum(total)
 }
 
 /// Calculate required votes for simple majority (1/2 threshold)
