@@ -1411,9 +1411,10 @@ async fn handle_wallet_command(
                 // Try to parse as JSON error response
                 let error_msg =
                     if let Ok(json_err) = serde_json::from_str::<serde_json::Value>(&error_text) {
-                        if let Some(msg) = json_err.get("error").and_then(|v| v.as_str()) {
+                        // Prefer the detailed message field over the error type
+                        if let Some(msg) = json_err.get("message").and_then(|v| v.as_str()) {
                             msg.to_string()
-                        } else if let Some(msg) = json_err.get("message").and_then(|v| v.as_str()) {
+                        } else if let Some(msg) = json_err.get("error").and_then(|v| v.as_str()) {
                             msg.to_string()
                         } else {
                             error_text
@@ -1586,9 +1587,10 @@ async fn handle_wallet_command(
                 // Try to parse as JSON error response
                 let error_msg =
                     if let Ok(json_err) = serde_json::from_str::<serde_json::Value>(&error_text) {
-                        if let Some(msg) = json_err.get("error").and_then(|v| v.as_str()) {
+                        // Prefer the detailed message field over the error type
+                        if let Some(msg) = json_err.get("message").and_then(|v| v.as_str()) {
                             msg.to_string()
-                        } else if let Some(msg) = json_err.get("message").and_then(|v| v.as_str()) {
+                        } else if let Some(msg) = json_err.get("error").and_then(|v| v.as_str()) {
                             msg.to_string()
                         } else {
                             error_text
