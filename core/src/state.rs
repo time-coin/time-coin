@@ -1035,6 +1035,31 @@ impl BlockchainState {
         self.utxo_set.total_supply()
     }
 
+    /// Apply a finalized transaction directly to UTXO set (for instant finality)
+    /// This is called when receiving FinalizedTransactionBroadcast from peers
+    pub async fn apply_finalized_transaction(
+        &mut self,
+        tx: &Transaction,
+    ) -> Result<(), StateError> {
+        // Validate transaction first
+        self.validate_transaction(tx)?;
+
+        // Apply to UTXO set
+        self.utxo_set.apply_transaction(tx)?;
+
+        // Update UTXO state manager (mark as finalized with full votes)
+        let num_masternodes = 1; // Will be updated when masternode list is available
+        if let Err(e) = self
+            .utxo_state_manager
+            .finalize_transaction(tx, num_masternodes)
+            .await
+        {
+            eprintln!("⚠️  Failed to finalize transaction in state manager: {}", e);
+        }
+
+        Ok(())
+    }
+
     /// Save current UTXO state to disk for persistence between blocks
     /// This allows finalized transactions to persist across restarts
     pub fn save_utxo_snapshot(&self) -> Result<(), StateError> {

@@ -193,12 +193,22 @@ impl TransactionApprovalManager {
         // If finalized (approved or declined), move to finalized cache
         match &status {
             TransactionStatus::Approved { approvals, .. } => {
-                // **⚡ INSTANT FINALITY**: Mark UTXOs as SpentFinalized!
+                // **⚡ INSTANT FINALITY**: Apply transaction to UTXO state!
                 if let (Some(manager), Some(ref trans)) = (&self.utxo_state_manager, &transaction) {
+                    // Mark inputs as spent
                     for input in &trans.inputs {
                         let _ = manager
                             .mark_spent_finalized(&input.previous_output, txid.clone(), *approvals)
                             .await;
+                    }
+
+                    // Create new UTXOs for outputs
+                    for (index, output) in trans.outputs.iter().enumerate() {
+                        let outpoint = time_core::OutPoint {
+                            txid: trans.txid.clone(),
+                            vout: index as u32,
+                        };
+                        let _ = manager.add_utxo(outpoint, output.clone()).await;
                     }
                 }
 

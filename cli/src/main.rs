@@ -2313,6 +2313,26 @@ async fn main() {
                                                         }
                                                     }
                                                 }
+                                                time_network::protocol::NetworkMessage::FinalizedTransactionBroadcast(tx) => {
+                                                    println!("⚡ Received finalized transaction broadcast from {} for tx {}", peer_ip_listen, truncate_str(&tx.txid, 16));
+
+                                                    // Apply the finalized transaction to our UTXO set immediately
+                                                    let mut blockchain_guard = blockchain_listen.write().await;
+                                                    match blockchain_guard.apply_finalized_transaction(&tx).await {
+                                                        Ok(_) => {
+                                                            println!("   ✅ Applied finalized transaction to UTXO set");
+
+                                                            // Save UTXO snapshot to disk
+                                                            if let Err(e) = blockchain_guard.save_utxo_snapshot() {
+                                                                println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            println!("   ⚠️  Failed to apply finalized transaction: {}", e);
+                                                        }
+                                                    }
+                                                    drop(blockchain_guard);
+                                                }
                                                 time_network::protocol::NetworkMessage::InstantFinalityRequest(tx) => {
                                                     println!("⚡ Received transaction approval request from {} for tx {}", peer_ip_listen, truncate_str(&tx.txid, 16));
 

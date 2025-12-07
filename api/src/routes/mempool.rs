@@ -109,9 +109,8 @@ async fn receive_finalized_transaction(
         );
     }
 
-    if let Err(e) = blockchain.save_utxo_snapshot() {
-        log::warn!(error = %e, "failed_to_save_utxo_snapshot");
-    }
+    // Note: UTXO snapshot is saved at block creation time, not per-transaction
+    // This keeps the live UTXO state in memory for instant finality
 
     Ok(Json(serde_json::json!({
         "success": true,
