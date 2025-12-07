@@ -62,10 +62,12 @@ pub async fn wallet_send(
         .get_utxos_by_address(&from_address)
         .into_iter()
         .collect();
+    
+    let all_utxos_len = all_utxos.len();
 
     log::info!(
         from_address = %from_address,
-        utxo_count = all_utxos.len(),
+        utxo_count = all_utxos_len,
         "found_utxos_for_address"
     );
 
@@ -83,32 +85,54 @@ pub async fn wallet_send(
     }
 
     // ⚡ INSTANT FINALITY: Filter out locked/spent UTXOs
+    // Only filter if the UTXO is actively tracked by instant finality
+    // After restart, state manager is empty so all UTXOs return None (available)
     let utxo_manager = blockchain.utxo_state_manager();
     let mut sender_utxos = Vec::new();
+    let mut filtered_count = 0;
 
     for (outpoint, output) in all_utxos {
         let utxo_state = utxo_manager.get_state(&outpoint).await;
+
+        // CRITICAL FIX: Only filter if we have explicit state information
+        // None = not tracked = available (default assumption)
+        // Some(Unspent) = explicitly tracked as unspent = available
+        // Some(Locked/Spent) = explicitly locked or spent = NOT available
         let is_available = match utxo_state {
-            Some(UTXOState::Unspent) | None => true, // Unspent or no tracking
-            Some(_) => false,                        // Locked, Spent, etc.
+            None => true,                                    // Not tracked = available
+            Some(UTXOState::Unspent) => true,                // Explicitly unspent
+            Some(UTXOState::Locked { .. }) => false,         // Locked by pending tx
+            Some(UTXOState::SpentPending { .. }) => false,   // Spent but not finalized
+            Some(UTXOState::SpentFinalized { .. }) => false, // Spent and finalized
+            Some(UTXOState::Confirmed { .. }) => true,       // Confirmed = available
         };
 
         if is_available {
-            sender_utxos.push((outpoint, output));
-        } else if let Some(state) = utxo_state {
-            log::debug!(
+            sender_utxos.push((outpoint.clone(), output));
+        } else {
+            filtered_count += 1;
+            log::warn!(
                 txid = %outpoint.txid,
                 vout = outpoint.vout,
-                state = ?state,
-                "skipping_locked_or_spent_utxo"
+                state = ?utxo_state,
+                "utxo_filtered_out_by_instant_finality"
             );
         }
     }
 
+    log::info!(
+        total_utxos = all_utxos_len,
+        available_utxos = sender_utxos.len(),
+        filtered_out = filtered_count,
+        "utxo_filtering_complete"
+    );
+
     if sender_utxos.is_empty() {
         return Err(ApiError::BadRequest(format!(
-            "No unspent UTXOs available for address {} (all UTXOs are locked or spent)",
-            from_address
+            "No unspent UTXOs available for address {} (found {} UTXOs, but all {} are locked or spent by instant finality)",
+            from_address,
+            all_utxos_len,
+            filtered_count
         )));
     }
 
