@@ -1,10 +1,6 @@
 //! Wallet operations and synchronization endpoints
-//!
-//! Note: The `/wallet/send` endpoint has been removed because nodes do not have
-//! access to private keys. To send transactions:
-//! 1. Use the CLI wallet tool (`time-cli wallet send`)
-//! 2. Or submit signed transactions via `/transaction/send_raw`
 
+use crate::wallet_send_handler::wallet_send;
 use crate::wallet_sync_handlers::{
     get_xpub_balance, get_xpub_transactions, get_xpub_utxos, register_xpub, sync_wallet_addresses,
     sync_wallet_xpub,
@@ -18,6 +14,8 @@ use axum::{
 /// Register wallet operation routes
 pub fn wallet_routes() -> Router<ApiState> {
     Router::new()
+        // Node wallet transaction sending
+        .route("/send", post(wallet_send))
         // Wallet synchronization endpoints
         .route("/sync", post(sync_wallet_addresses))
         .route("/sync-xpub", post(sync_wallet_xpub))
