@@ -441,15 +441,22 @@ impl PeerConnection {
         use crate::protocol::NetworkMessage;
         matches!(
             (request, response),
-            (NetworkMessage::GetMempool, NetworkMessage::MempoolResponse(_))
-                | (
-                    NetworkMessage::RequestFinalizedTransactions { .. },
-                    NetworkMessage::FinalizedTransactionsResponse { .. },
-                )
-                | (NetworkMessage::HeightRequest, NetworkMessage::HeightResponse { .. })
-                | (NetworkMessage::BlockRequest { .. }, NetworkMessage::BlockResponse { .. })
-                | (NetworkMessage::GetBlockchainInfo, NetworkMessage::BlockchainInfo { .. })
-                | (NetworkMessage::GetGenesis, NetworkMessage::GenesisBlock(_))
+            (
+                NetworkMessage::GetMempool,
+                NetworkMessage::MempoolResponse(_)
+            ) | (
+                NetworkMessage::RequestFinalizedTransactions { .. },
+                NetworkMessage::FinalizedTransactionsResponse { .. },
+            ) | (
+                NetworkMessage::HeightRequest,
+                NetworkMessage::HeightResponse { .. }
+            ) | (
+                NetworkMessage::BlockRequest { .. },
+                NetworkMessage::BlockResponse { .. }
+            ) | (
+                NetworkMessage::GetBlockchainInfo,
+                NetworkMessage::BlockchainInfo { .. }
+            ) | (NetworkMessage::GetGenesis, NetworkMessage::GenesisBlock(_))
         )
     }
 
