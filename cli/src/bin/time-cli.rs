@@ -1445,32 +1445,11 @@ async fn handle_wallet_command(
             const TIME_UNIT: u64 = 100_000_000; // 1 TIME = 100,000,000 units
             let amount_units = (amount * TIME_UNIT as f64) as u64;
 
-            // Get node wallet address from API (same as balance command)
+            // Send transaction via wallet/send endpoint
             let client = reqwest::Client::new();
-            let info_response = client
-                .get(format!("{}/blockchain/info", api))
-                .send()
-                .await?;
-
-            let from_address = if info_response.status().is_success() {
-                let info: serde_json::Value = info_response.json().await?;
-                info["wallet_address"]
-                    .as_str()
-                    .ok_or_else(|| "No wallet address found in node info".to_string())?
-                    .to_string()
-            } else {
-                return Err(format!(
-                    "Failed to get wallet address from node: {}",
-                    info_response.text().await?
-                )
-                .into());
-            };
-
-            // Create transaction locally via API (which will sign it)
             let response = client
-                .post(format!("{}/transaction/create", api))
+                .post(format!("{}/wallet/send", api))
                 .json(&json!({
-                    "from": from_address,
                     "to": to,
                     "amount": amount_units
                 }))
