@@ -1402,16 +1402,36 @@ async fn handle_wallet_command(
                     }
                 }
             } else {
-                let error = response.text().await?;
+                let status = response.status();
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+
+                // Try to parse as JSON error response
+                let error_msg =
+                    if let Ok(json_err) = serde_json::from_str::<serde_json::Value>(&error_text) {
+                        if let Some(msg) = json_err.get("error").and_then(|v| v.as_str()) {
+                            msg.to_string()
+                        } else if let Some(msg) = json_err.get("message").and_then(|v| v.as_str()) {
+                            msg.to_string()
+                        } else {
+                            error_text
+                        }
+                    } else {
+                        error_text
+                    };
+
                 if json_output {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&json!({
-                            "error": error
+                            "error": error_msg,
+                            "status": status.as_u16()
                         }))?
                     );
                 } else {
-                    println!("✗ Failed to send transaction: {}", error);
+                    println!("✗ Failed to send transaction ({}): {}", status, error_msg);
                 }
             }
         }
@@ -1553,16 +1573,36 @@ async fn handle_wallet_command(
                     }
                 }
             } else {
-                let error = response.text().await?;
+                let status = response.status();
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+
+                // Try to parse as JSON error response
+                let error_msg =
+                    if let Ok(json_err) = serde_json::from_str::<serde_json::Value>(&error_text) {
+                        if let Some(msg) = json_err.get("error").and_then(|v| v.as_str()) {
+                            msg.to_string()
+                        } else if let Some(msg) = json_err.get("message").and_then(|v| v.as_str()) {
+                            msg.to_string()
+                        } else {
+                            error_text
+                        }
+                    } else {
+                        error_text
+                    };
+
                 if json_output {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&json!({
-                            "error": error
+                            "error": error_msg,
+                            "status": status.as_u16()
                         }))?
                     );
                 } else {
-                    println!("✗ Failed to send transaction: {}", error);
+                    println!("✗ Failed to send transaction ({}): {}", status, error_msg);
                 }
             }
         }
