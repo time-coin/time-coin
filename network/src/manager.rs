@@ -232,6 +232,7 @@ impl PeerManager {
                 None, // No blockchain for outgoing connections
                 None, // No consensus for outgoing connections
                 None, // No block_consensus for outgoing connections
+                None, // No approval_manager for outgoing connections
             ),
         )
         .await;

@@ -324,6 +324,14 @@ impl TransactionApprovalManager {
         *mn = masternodes;
     }
 
+    /// Add a masternode to the list
+    pub async fn add_masternode(&self, masternode: String) {
+        let mut mn = self.masternodes.write().await;
+        if !mn.contains(&masternode) {
+            mn.push(masternode);
+        }
+    }
+
     /// Get approval statistics for a transaction
     pub async fn get_approval_stats(&self, txid: &str) -> Option<(usize, usize, usize)> {
         let pending = self.pending.read().await;

@@ -1657,8 +1657,18 @@ async fn main() {
     println!("{}", "✓ Block consensus manager initialized".green());
 
     // Initialize Transaction Approval Manager
-    let approval_manager = Arc::new(TransactionApprovalManager::new());
-    approval_manager.set_masternodes(masternodes.clone()).await;
+    let mut approval_manager_instance = TransactionApprovalManager::new();
+    approval_manager_instance
+        .set_masternodes(masternodes.clone())
+        .await;
+
+    // Connect UTXO state manager for instant finality
+    {
+        let blockchain_read = blockchain.read().await;
+        approval_manager_instance
+            .set_utxo_state_manager(blockchain_read.utxo_state_manager().clone());
+    }
+    let approval_manager = Arc::new(approval_manager_instance);
     println!("{}", "✓ Transaction approval manager initialized".green());
 
     println!();
@@ -1700,6 +1710,7 @@ async fn main() {
             Some(blockchain.clone()),
             Some(consensus.clone()),
             Some(block_consensus.clone()),
+            Some(approval_manager.clone()),
         )
         .await
         {
