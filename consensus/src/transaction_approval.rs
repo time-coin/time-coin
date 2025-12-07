@@ -7,6 +7,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use time_core::utxo_state_manager::UTXOStateManager;
+use time_core::Transaction;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -42,6 +44,7 @@ pub enum TransactionStatus {
 struct PendingTransaction {
     approvals: HashMap<String, TransactionApproval>,
     created_at: DateTime<Utc>,
+    transaction: Option<Transaction>, // Store transaction for UTXO state updates
 }
 
 pub struct TransactionApprovalManager {
@@ -56,6 +59,9 @@ pub struct TransactionApprovalManager {
 
     /// Approval threshold (default 2/3)
     threshold: Arc<RwLock<f64>>,
+
+    /// UTXO State Manager for instant finality
+    utxo_state_manager: Option<Arc<UTXOStateManager>>,
 }
 
 impl TransactionApprovalManager {
@@ -65,10 +71,51 @@ impl TransactionApprovalManager {
             finalized: Arc::new(RwLock::new(HashMap::new())),
             masternodes: Arc::new(RwLock::new(Vec::new())),
             threshold: Arc::new(RwLock::new(2.0 / 3.0)),
+            utxo_state_manager: None,
         }
     }
 
-    /// Add a transaction to the approval queue
+    /// Set the UTXO state manager for instant finality
+    pub fn set_utxo_state_manager(&mut self, manager: Arc<UTXOStateManager>) {
+        self.utxo_state_manager = Some(manager);
+    }
+
+    /// Add a transaction to the approval queue (with UTXO state tracking)
+    pub async fn add_transaction_with_utxos(&self, tx: &Transaction) -> Result<(), String> {
+        let txid = tx.txid.clone();
+
+        let mut pending = self.pending.write().await;
+
+        if pending.contains_key(&txid) {
+            return Err("Transaction already in approval queue".to_string());
+        }
+
+        let pending_tx = PendingTransaction {
+            approvals: HashMap::new(),
+            created_at: Utc::now(),
+            transaction: Some(tx.clone()), // Store for UTXO updates
+        };
+
+        pending.insert(txid.clone(), pending_tx);
+        drop(pending); // Release lock before async call
+
+        // Mark UTXOs as SpentPending (if UTXO manager available)
+        if let Some(manager) = &self.utxo_state_manager {
+            let masternodes = self.masternodes.read().await;
+            let total_nodes = masternodes.len();
+            drop(masternodes);
+
+            for input in &tx.inputs {
+                let _ = manager
+                    .mark_spent_pending(&input.previous_output, txid.clone(), 0, total_nodes)
+                    .await;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add a transaction to the approval queue (legacy - no UTXO tracking)
     pub async fn add_transaction(&self, txid: String) -> Result<(), String> {
         let mut pending = self.pending.write().await;
 
@@ -79,6 +126,7 @@ impl TransactionApprovalManager {
         let tx = PendingTransaction {
             approvals: HashMap::new(),
             created_at: Utc::now(),
+            transaction: None, // No transaction stored for legacy
         };
 
         pending.insert(txid, tx);
@@ -117,12 +165,58 @@ impl TransactionApprovalManager {
         // Record the approval
         tx.approvals.insert(masternode, approval.clone());
 
+        // Get current approval count and transaction for UTXO state update
+        let approval_count = tx.approvals.len();
+        let transaction = tx.transaction.clone();
+        let total_masternodes = {
+            let masternodes = self.masternodes.read().await;
+            masternodes.len()
+        };
+
+        // Update UTXO state with vote count (SpentPending with updated votes)
+        if let (Some(manager), Some(ref trans)) = (&self.utxo_state_manager, &transaction) {
+            for input in &trans.inputs {
+                let _ = manager
+                    .mark_spent_pending(
+                        &input.previous_output,
+                        txid.clone(),
+                        approval_count,
+                        total_masternodes,
+                    )
+                    .await;
+            }
+        }
+
         // Check if we've reached threshold
         let status = self.check_approval_status(&txid).await?;
 
         // If finalized (approved or declined), move to finalized cache
         match &status {
-            TransactionStatus::Approved { .. } | TransactionStatus::Declined { .. } => {
+            TransactionStatus::Approved { approvals, .. } => {
+                // **⚡ INSTANT FINALITY**: Mark UTXOs as SpentFinalized!
+                if let (Some(manager), Some(ref trans)) = (&self.utxo_state_manager, &transaction) {
+                    for input in &trans.inputs {
+                        let _ = manager
+                            .mark_spent_finalized(&input.previous_output, txid.clone(), *approvals)
+                            .await;
+                    }
+                }
+
+                let _tx = pending.remove(&txid).ok_or("Transaction disappeared")?;
+                drop(pending);
+
+                let mut finalized = self.finalized.write().await;
+                finalized.insert(txid.clone(), status.clone());
+
+                // Cleanup old finalized transactions (keep last hour only)
+                let cutoff = Utc::now() - chrono::Duration::hours(1);
+                finalized.retain(|_, s| match s {
+                    TransactionStatus::Approved { approved_at, .. } => *approved_at > cutoff,
+                    TransactionStatus::Declined { declined_at, .. } => *declined_at > cutoff,
+                    _ => false,
+                });
+            }
+            TransactionStatus::Declined { .. } => {
                 let _tx = pending.remove(&txid).ok_or("Transaction disappeared")?;
                 drop(pending);
 
