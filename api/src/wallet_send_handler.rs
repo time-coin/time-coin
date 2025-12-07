@@ -62,7 +62,7 @@ pub async fn wallet_send(
         .get_utxos_by_address(&from_address)
         .into_iter()
         .collect();
-    
+
     let all_utxos_len = all_utxos.len();
 
     log::info!(
@@ -286,20 +286,36 @@ pub async fn wallet_send(
 
                 // Check if we have enough acknowledgments
                 let masternode_count = state.consensus.masternode_count().await as u32;
-                let threshold = (masternode_count * 2 / 3) + 1;
+
+                // For small networks (<=4 nodes), use simple majority (>50%)
+                // For larger networks, use BFT threshold (2/3+1)
+                let threshold = if masternode_count <= 4 {
+                    (masternode_count / 2) + 1 // Simple majority: 2/3, 3/4, 3/5
+                } else {
+                    (masternode_count * 2 / 3) + 1 // BFT: 3/4, 4/5, 5/7, etc.
+                };
 
                 if ack_count < threshold {
                     log::warn!(
                         txid = %&final_txid[..16],
                         acks = ack_count,
                         threshold = threshold,
+                        masternode_count = masternode_count,
                         "insufficient_lock_acknowledgments"
                     );
                     return Err(ApiError::BadRequest(format!(
-                        "Failed to lock UTXOs: only {} of {} masternodes acknowledged (need {})",
+                        "Failed to lock UTXOs: only {} of {} masternodes acknowledged (need {} for simple majority)",
                         ack_count, masternode_count, threshold
                     )));
                 }
+
+                log::info!(
+                    txid = %&final_txid[..16],
+                    acks = ack_count,
+                    threshold = threshold,
+                    masternode_count = masternode_count,
+                    "utxo_lock_threshold_met"
+                );
             }
             Err(e) => {
                 log::error!(
