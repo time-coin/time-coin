@@ -7,9 +7,7 @@ use crate::protocol::NetworkMessage;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
-use time_core::utxo_state_manager::{
-    UTXOStateManager, UTXOStateNotification, UTXOSubscription,
-};
+use time_core::utxo_state_manager::{UTXOStateManager, UTXOStateNotification, UTXOSubscription};
 use time_core::OutPoint;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};

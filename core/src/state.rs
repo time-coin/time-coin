@@ -11,10 +11,10 @@ use crate::block::{Block, BlockError, MasternodeCounts, MasternodeTier};
 use crate::db::BlockchainDB;
 use crate::transaction::{OutPoint, Transaction, TransactionError};
 use crate::utxo_set::UTXOSet;
+use crate::utxo_state_manager::UTXOStateManager;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use crate::utxo_state_manager::UTXOStateManager;
 
 #[derive(Debug, Clone)]
 pub enum StateError {
@@ -29,6 +29,7 @@ pub enum StateError {
     OrphanBlock,
     InvalidMasternodeCount,
     ChainValidationFailed(String),
+    InvalidTransaction(String), // For UTXO locking errors
 }
 
 impl std::fmt::Display for StateError {
@@ -45,6 +46,7 @@ impl std::fmt::Display for StateError {
             StateError::InvalidMasternodeCount => write!(f, "Invalid masternode count"),
             StateError::IoError(msg) => write!(f, "IO error: {}", msg),
             StateError::ChainValidationFailed(msg) => write!(f, "Chain validation failed: {}", msg),
+            StateError::InvalidTransaction(msg) => write!(f, "Invalid transaction: {}", msg),
         }
     }
 }
@@ -489,6 +491,95 @@ pub struct BlockchainState {
 }
 
 impl BlockchainState {
+    // ═══════════════════════════════════════════════════════════════
+    // UTXO State Management - Instant Finality Protocol
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Get reference to UTXO state manager
+    pub fn utxo_state_manager(&self) -> &Arc<UTXOStateManager> {
+        &self.utxo_state_manager
+    }
+
+    /// Lock all UTXOs used by a transaction (prevents double-spend)
+    /// Call this BEFORE broadcasting transaction to network
+    pub async fn lock_transaction_utxos(&self, tx: &Transaction) -> Result<(), StateError> {
+        for input in &tx.inputs {
+            self.utxo_state_manager
+                .lock_utxo(&input.previous_output, tx.txid.clone())
+                .await
+                .map_err(|e| {
+                    StateError::InvalidTransaction(format!("Failed to lock UTXO: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Unlock all UTXOs used by a transaction (for failed/rejected transactions)
+    pub async fn unlock_transaction_utxos(&self, tx: &Transaction) {
+        for input in &tx.inputs {
+            let _ = self
+                .utxo_state_manager
+                .unlock_utxo(&input.previous_output)
+                .await;
+        }
+    }
+
+    /// Mark transaction UTXOs as spent-pending (after broadcast, before consensus)
+    pub async fn mark_transaction_pending(
+        &self,
+        tx: &Transaction,
+        votes: usize,
+        total_nodes: usize,
+    ) -> Result<(), StateError> {
+        for input in &tx.inputs {
+            self.utxo_state_manager
+                .mark_spent_pending(&input.previous_output, tx.txid.clone(), votes, total_nodes)
+                .await
+                .map_err(|e| {
+                    StateError::InvalidTransaction(format!("Failed to mark pending: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Mark transaction UTXOs as spent-finalized (after BFT consensus reached)
+    pub async fn mark_transaction_finalized(
+        &self,
+        tx: &Transaction,
+        votes: usize,
+    ) -> Result<(), StateError> {
+        for input in &tx.inputs {
+            self.utxo_state_manager
+                .mark_spent_finalized(&input.previous_output, tx.txid.clone(), votes)
+                .await
+                .map_err(|e| {
+                    StateError::InvalidTransaction(format!("Failed to mark finalized: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Mark transaction UTXOs as confirmed (after included in block)
+    pub async fn mark_transaction_confirmed(
+        &self,
+        tx: &Transaction,
+        block_height: u64,
+    ) -> Result<(), StateError> {
+        for input in &tx.inputs {
+            self.utxo_state_manager
+                .mark_confirmed(&input.previous_output, tx.txid.clone(), block_height)
+                .await
+                .map_err(|e| {
+                    StateError::InvalidTransaction(format!("Failed to mark confirmed: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Blockchain Core Methods
+    // ═══════════════════════════════════════════════════════════════
+
     /// Create a new blockchain state, loading from disk or downloading from peers
     /// If blockchain exists on disk, loads it. Otherwise waits for sync to download genesis and chain.
     pub fn new_from_disk_or_sync(db_path: &str) -> Result<Self, StateError> {
@@ -578,7 +669,7 @@ impl BlockchainState {
         // Create UTXO state manager for instant finality
         let node_id = format!("node_{}", chrono::Utc::now().timestamp());
         let utxo_state_manager = Arc::new(UTXOStateManager::new(node_id));
-        
+
         Self {
             utxo_set: UTXOSet::new(),
             utxo_state_manager,
@@ -606,11 +697,11 @@ impl BlockchainState {
         blocks: Vec<Block>,
     ) -> Result<Self, StateError> {
         let genesis = &blocks[0];
-        
+
         // Create UTXO state manager for instant finality
         let node_id = format!("node_{}", chrono::Utc::now().timestamp());
         let utxo_state_manager = Arc::new(UTXOStateManager::new(node_id));
-        
+
         let mut state = Self {
             utxo_set: UTXOSet::new(),
             utxo_state_manager,
@@ -691,7 +782,7 @@ impl BlockchainState {
         // Create UTXO state manager for instant finality
         let node_id = format!("node_{}", chrono::Utc::now().timestamp());
         let utxo_state_manager = Arc::new(UTXOStateManager::new(node_id));
-        
+
         Self {
             utxo_set: UTXOSet::new(),
             utxo_state_manager,
