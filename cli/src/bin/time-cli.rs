@@ -337,11 +337,7 @@ enum WalletCommands {
 
     /// Reindex the entire blockchain and rebuild UTXO set from all blocks
     /// Use this if balance is incorrect after restart
-    Reindex {
-        /// Force reindex without confirmation
-        #[arg(short, long)]
-        force: bool,
-    },
+    Reindex,
 }
 
 #[derive(Subcommand)]
@@ -1565,35 +1561,7 @@ async fn handle_wallet_command(
             }
         }
 
-        WalletCommands::Reindex { force } => {
-            if !json_output && !force {
-                println!("\n⚠️  WARNING: Blockchain Reindex");
-                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                println!("This will rebuild the entire UTXO set from all blocks");
-                println!("stored in the blockchain database.");
-                println!();
-                println!("Use this if:");
-                println!("  • Balance shows 0 after restart");
-                println!("  • Balance is incorrect after node upgrade");
-                println!("  • UTXO set was corrupted");
-                println!();
-                println!("This operation may take a few seconds to minutes");
-                println!("depending on the number of blocks.");
-                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                println!();
-                print!("Continue with reindex? (yes/no): ");
-                use std::io::{self, Write};
-                io::stdout().flush()?;
-
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
-
-                if input.trim().to_lowercase() != "yes" {
-                    println!("Reindex cancelled.");
-                    return Ok(());
-                }
-            }
-
+        WalletCommands::Reindex => {
             if !json_output {
                 println!("\n🔨 Starting blockchain reindex...");
                 println!("This will rebuild the UTXO set from all blocks.\n");
@@ -1625,19 +1593,23 @@ async fn handle_wallet_command(
                     println!("Total Supply:      {} TIME", total_supply_time);
                     println!("Processing Time:   {} ms\n", processing_time);
 
-                    // Show wallet balances if available
-                    if let Some(balances) = result["wallet_balances"].as_object() {
-                        if !balances.is_empty() {
-                            println!("💰 Wallet Balances:");
-                            for (addr, balance) in balances {
-                                if let Some(bal) = balance.as_u64() {
-                                    let bal_time = bal as f64 / 100_000_000.0;
-                                    if bal_time > 0.0 {
-                                        println!("   {}: {} TIME", addr, bal_time);
+                    // Get node wallet address to show only that balance
+                    let wallet_response = client
+                        .get(format!("{}/blockchain/info", api))
+                        .send()
+                        .await?;
+
+                    if wallet_response.status().is_success() {
+                        let info: serde_json::Value = wallet_response.json().await?;
+                        if let Some(wallet_addr) = info["wallet_address"].as_str() {
+                            if let Some(balances) = result["wallet_balances"].as_object() {
+                                if let Some(balance) = balances.get(wallet_addr) {
+                                    if let Some(bal) = balance.as_u64() {
+                                        let bal_time = bal as f64 / 100_000_000.0;
+                                        println!("💰 Your Wallet Balance: {} TIME\n", bal_time);
                                     }
                                 }
                             }
-                            println!();
                         }
                     }
 

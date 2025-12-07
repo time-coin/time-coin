@@ -217,9 +217,9 @@ async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<Rei
         }
 
         for tx in &block.transactions {
-            utxo_set.apply_transaction(tx).map_err(|e| {
-                ApiError::Internal(format!("Failed to apply transaction: {}", e))
-            })?;
+            utxo_set
+                .apply_transaction(tx)
+                .map_err(|e| ApiError::Internal(format!("Failed to apply transaction: {}", e)))?;
         }
     }
 
@@ -250,9 +250,7 @@ async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<Rei
         blockchain
             .db()
             .save_wallet_balance(address, *balance)
-            .map_err(|e| {
-                ApiError::Internal(format!("Failed to save wallet balance: {}", e))
-            })?;
+            .map_err(|e| ApiError::Internal(format!("Failed to save wallet balance: {}", e)))?;
     }
 
     let processing_time = start.elapsed();
