@@ -308,27 +308,30 @@ async fn sync_finalized_transactions_from_peers(
                 let mut blockchain_write = blockchain.write().await;
 
                 for (tx, _finalized_at) in transactions_with_timestamps {
-                    // Apply to UTXO set
-                    match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
-                        Ok(_) => {
-                            total_synced += 1;
-                        }
-                        Err(e) => {
-                            println!(
-                                "      ⚠️  Skipped tx {} ({})",
-                                truncate_str(&tx.txid, 16),
-                                e
-                            );
-                        }
+                    // Skip applying finalized transactions directly to UTXO set
+                    // They will be applied when included in blocks
+                    // Applying them here causes balance corruption as they may spend
+                    // UTXOs that shouldn't be spent yet or conflict with local state
+
+                    // Just save them to the finalized tx database for reference
+                    if let Err(e) = blockchain_write.save_finalized_tx(&tx, 0, 0) {
+                        println!(
+                            "      ⚠️  Failed to save finalized tx {} ({})",
+                            truncate_str(&tx.txid, 16),
+                            e
+                        );
+                    } else {
+                        total_synced += 1;
                     }
                 }
 
                 if total_synced > 0 {
-                    println!("      ✓ Applied {} transactions", total_synced);
-                    // Save UTXO snapshot after applying synced transactions
-                    if let Err(e) = blockchain_write.save_utxo_snapshot() {
-                        println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
-                    }
+                    println!(
+                        "      ✓ Saved {} finalized transactions to database",
+                        total_synced
+                    );
+                    // Note: Transactions will be applied to UTXO set when included in blocks
+                    // Not saving UTXO snapshot here as we haven't modified the UTXO set
                 }
 
                 drop(blockchain_write);
