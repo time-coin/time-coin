@@ -5,7 +5,6 @@ use time_core::transaction::{Transaction, TxInput, TxOutput};
 use time_core::UTXOState;
 use tracing as log;
 use validator::Validate;
-use wallet::Wallet;
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct WalletSendRequest {
@@ -40,14 +39,8 @@ pub async fn wallet_send(
         ));
     }
 
-    // Load the node's wallet to get keypair
-    let wallet_path = std::env::var("WALLET_PATH")
-        .unwrap_or_else(|_| "/var/lib/time-coin/wallets/node.json".to_string());
-
-    let wallet = Wallet::load_from_file(&wallet_path)
-        .map_err(|e| ApiError::Internal(format!("Failed to load wallet: {}", e)))?;
-
-    let from_address = wallet.address_string();
+    // Get the node's wallet address from config
+    let from_address = state.wallet_address.clone();
 
     // Get blockchain state to find UTXOs
     let blockchain = state.blockchain.read().await;
@@ -157,6 +150,12 @@ pub async fn wallet_send(
 
     drop(blockchain);
 
+    // Load the node's wallet to get the keypair for signing
+    let wallet_path = format!("{}/wallets/node.json", state.data_dir);
+    let wallet = wallet::Wallet::load_from_file(&wallet_path).map_err(|e| {
+        ApiError::Internal(format!("Failed to load wallet: {}", e))
+    })?;
+    
     // Get keypair to use for signing
     let keypair = wallet.keypair();
     let public_key = keypair.public_key_bytes().to_vec();

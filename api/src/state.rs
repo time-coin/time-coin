@@ -10,6 +10,7 @@ use crate::{ApiError, ApiResult};
 pub struct ApiState {
     pub dev_mode: bool,
     pub network: String,
+    pub data_dir: String,
     pub discovery: Arc<RwLock<PeerDiscovery>>,
     pub peer_manager: Arc<PeerManager>,
     pub admin_token: Option<String>,
@@ -37,6 +38,7 @@ impl ApiState {
     pub fn new(
         dev_mode: bool,
         network: String,
+        data_dir: String,
         discovery: Arc<RwLock<PeerDiscovery>>,
         peer_manager: Arc<PeerManager>,
         admin_token: Option<String>,
@@ -47,6 +49,7 @@ impl ApiState {
         let state = Self {
             dev_mode,
             network,
+            data_dir,
             discovery,
             peer_manager,
             admin_token,
@@ -163,6 +166,7 @@ impl Clone for ApiState {
         Self {
             dev_mode: self.dev_mode,
             network: self.network.clone(),
+            data_dir: self.data_dir.clone(),
             discovery: self.discovery.clone(),
             peer_manager: self.peer_manager.clone(),
             admin_token: self.admin_token.clone(),

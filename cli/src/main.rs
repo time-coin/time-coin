@@ -1674,6 +1674,7 @@ async fn main() {
         let api_state = ApiState::new(
             is_dev_mode,
             network_name.to_lowercase(),
+            data_dir.clone(),
             discovery.clone(),
             peer_manager.clone(),
             admin_token,
