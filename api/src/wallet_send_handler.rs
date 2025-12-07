@@ -2,6 +2,7 @@ use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use time_core::transaction::{Transaction, TxInput, TxOutput};
+use time_core::UTXOState;
 use tracing as log;
 use validator::Validate;
 use wallet::Wallet;
@@ -53,19 +54,49 @@ pub async fn wallet_send(
     let utxo_set = blockchain.utxo_set();
 
     // Find UTXOs for the sender
-    let sender_utxos: Vec<_> = utxo_set
+    let all_utxos: Vec<_> = utxo_set
         .get_utxos_by_address(&from_address)
         .into_iter()
         .collect();
 
-    if sender_utxos.is_empty() {
+    if all_utxos.is_empty() {
         return Err(ApiError::BadRequest(format!(
             "No UTXOs found for address {}",
             from_address
         )));
     }
 
-    // Calculate total available balance
+    // ⚡ INSTANT FINALITY: Filter out locked/spent UTXOs
+    let utxo_manager = blockchain.utxo_state_manager();
+    let mut sender_utxos = Vec::new();
+    
+    for (outpoint, output) in all_utxos {
+        let utxo_state = utxo_manager.get_state(&outpoint).await;
+        let is_available = match utxo_state {
+            Some(UTXOState::Unspent) | None => true, // Unspent or no tracking
+            Some(_) => false, // Locked, Spent, etc.
+        };
+        
+        if is_available {
+            sender_utxos.push((outpoint, output));
+        } else if let Some(state) = utxo_state {
+            log::debug!(
+                txid = %outpoint.txid,
+                vout = outpoint.vout,
+                state = ?state,
+                "skipping_locked_or_spent_utxo"
+            );
+        }
+    }
+
+    if sender_utxos.is_empty() {
+        return Err(ApiError::BadRequest(format!(
+            "No unspent UTXOs available for address {} (all UTXOs are locked or spent)",
+            from_address
+        )));
+    }
+
+    // Calculate total available balance (only unspent UTXOs)
     let total_balance: u64 = sender_utxos.iter().map(|(_, output)| output.amount).sum();
 
     if total_balance < req.amount {
