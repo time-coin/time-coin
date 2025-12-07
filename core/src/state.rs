@@ -2,6 +2,7 @@
 //!
 //! Manages the blockchain state including:
 //! - UTXO set
+//! - UTXO state tracking (for instant finality)
 //! - Block chain
 //! - Masternode tracking
 //! - Chain tip and reorganization
@@ -13,6 +14,7 @@ use crate::utxo_set::UTXOSet;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use time_consensus::utxo_state_protocol::UTXOStateManager;
 
 #[derive(Debug, Clone)]
 pub enum StateError {
@@ -449,6 +451,9 @@ pub struct BlockchainState {
     /// Current UTXO set
     utxo_set: UTXOSet,
 
+    /// UTXO State Manager for instant finality protocol
+    utxo_state_manager: Arc<UTXOStateManager>,
+
     /// All blocks by hash
     blocks: HashMap<String, Block>,
 
@@ -570,8 +575,13 @@ impl BlockchainState {
     }
 
     fn create_empty_state(db: crate::db::BlockchainDB) -> Self {
+        // Create UTXO state manager for instant finality
+        let node_id = format!("node_{}", chrono::Utc::now().timestamp());
+        let utxo_state_manager = Arc::new(UTXOStateManager::new(node_id));
+        
         Self {
             utxo_set: UTXOSet::new(),
+            utxo_state_manager,
             blocks: HashMap::new(),
             blocks_by_height: HashMap::new(),
             chain_tip_height: 0,
@@ -596,8 +606,14 @@ impl BlockchainState {
         blocks: Vec<Block>,
     ) -> Result<Self, StateError> {
         let genesis = &blocks[0];
+        
+        // Create UTXO state manager for instant finality
+        let node_id = format!("node_{}", chrono::Utc::now().timestamp());
+        let utxo_state_manager = Arc::new(UTXOStateManager::new(node_id));
+        
         let mut state = Self {
             utxo_set: UTXOSet::new(),
+            utxo_state_manager,
             blocks: HashMap::new(),
             blocks_by_height: HashMap::new(),
             chain_tip_height: 0,
@@ -672,8 +688,13 @@ impl BlockchainState {
     }
 
     fn create_initial_state(genesis_block: Block, db: crate::db::BlockchainDB) -> Self {
+        // Create UTXO state manager for instant finality
+        let node_id = format!("node_{}", chrono::Utc::now().timestamp());
+        let utxo_state_manager = Arc::new(UTXOStateManager::new(node_id));
+        
         Self {
             utxo_set: UTXOSet::new(),
+            utxo_state_manager,
             blocks: HashMap::new(),
             blocks_by_height: HashMap::new(),
             chain_tip_height: 0,
