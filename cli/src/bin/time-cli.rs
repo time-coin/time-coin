@@ -328,11 +328,19 @@ enum WalletCommands {
         db_path: PathBuf,
     },
 
-    /// Rescan the blockchain to update wallet balance
+    /// Rescan the blockchain to update wallet balance from UTXO set
     Rescan {
         /// Wallet address to rescan (optional, defaults to node wallet)
         #[arg(short, long)]
         address: Option<String>,
+    },
+
+    /// Reindex the entire blockchain and rebuild UTXO set from all blocks
+    /// Use this if balance is incorrect after restart
+    Reindex {
+        /// Force reindex without confirmation
+        #[arg(short, long)]
+        force: bool,
     },
 }
 
@@ -1553,6 +1561,100 @@ async fn handle_wallet_command(
                     );
                 } else {
                     println!("✗ Failed to rescan: {}", error);
+                }
+            }
+        }
+
+        WalletCommands::Reindex { force } => {
+            if !json_output && !force {
+                println!("\n⚠️  WARNING: Blockchain Reindex");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("This will rebuild the entire UTXO set from all blocks");
+                println!("stored in the blockchain database.");
+                println!();
+                println!("Use this if:");
+                println!("  • Balance shows 0 after restart");
+                println!("  • Balance is incorrect after node upgrade");
+                println!("  • UTXO set was corrupted");
+                println!();
+                println!("This operation may take a few seconds to minutes");
+                println!("depending on the number of blocks.");
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!();
+                print!("Continue with reindex? (yes/no): ");
+                use std::io::{self, Write};
+                io::stdout().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if input.trim().to_lowercase() != "yes" {
+                    println!("Reindex cancelled.");
+                    return Ok(());
+                }
+            }
+
+            if !json_output {
+                println!("\n🔨 Starting blockchain reindex...");
+                println!("This will rebuild the UTXO set from all blocks.\n");
+            }
+
+            // Call the reindex API endpoint
+            let client = reqwest::Client::new();
+            let response = client
+                .post(format!("{}/blockchain/reindex", api))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let result: serde_json::Value = response.json().await?;
+
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    let blocks_processed = result["blocks_processed"].as_u64().unwrap_or(0);
+                    let utxo_count = result["utxo_count"].as_u64().unwrap_or(0);
+                    let total_supply = result["total_supply"].as_u64().unwrap_or(0);
+                    let processing_time = result["processing_time_ms"].as_u64().unwrap_or(0);
+
+                    let total_supply_time = total_supply as f64 / 100_000_000.0;
+
+                    println!("✅ Blockchain reindex complete!\n");
+                    println!("Blocks Processed:  {}", blocks_processed);
+                    println!("Total UTXOs:       {}", utxo_count);
+                    println!("Total Supply:      {} TIME", total_supply_time);
+                    println!("Processing Time:   {} ms\n", processing_time);
+
+                    // Show wallet balances if available
+                    if let Some(balances) = result["wallet_balances"].as_object() {
+                        if !balances.is_empty() {
+                            println!("💰 Wallet Balances:");
+                            for (addr, balance) in balances {
+                                if let Some(bal) = balance.as_u64() {
+                                    let bal_time = bal as f64 / 100_000_000.0;
+                                    if bal_time > 0.0 {
+                                        println!("   {}: {} TIME", addr, bal_time);
+                                    }
+                                }
+                            }
+                            println!();
+                        }
+                    }
+
+                    println!("The UTXO snapshot and wallet balances have been saved.");
+                    println!("Your balance should now be correct!");
+                }
+            } else {
+                let error = response.text().await?;
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "error": error
+                        }))?
+                    );
+                } else {
+                    println!("✗ Failed to reindex blockchain: {}", error);
                 }
             }
         }

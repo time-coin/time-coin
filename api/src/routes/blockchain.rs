@@ -4,7 +4,7 @@ use crate::balance::calculate_mempool_balance;
 use crate::{ApiError, ApiResult, ApiState, BlockchainService};
 use axum::{
     extract::{Path, State},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
@@ -18,6 +18,7 @@ pub fn blockchain_routes() -> Router<ApiState> {
         .route("/block/{height}/hash", get(get_block_hash_by_height))
         .route("/balance/{address}", get(get_balance))
         .route("/utxos/{address}", get(get_utxos_by_address))
+        .route("/reindex", post(reindex_blockchain))
 }
 
 #[derive(Serialize)]
@@ -170,4 +171,106 @@ async fn get_utxos_by_address(
         .collect();
 
     Ok(Json(UtxoResponse { address, utxos }))
+}
+
+#[derive(Serialize)]
+struct ReindexResponse {
+    success: bool,
+    blocks_processed: u64,
+    utxo_count: usize,
+    total_supply: u64,
+    wallet_balances: std::collections::HashMap<String, u64>,
+    processing_time_ms: u128,
+}
+
+/// Reindex the blockchain - rebuild UTXO set from all blocks
+async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<ReindexResponse>> {
+    let start = std::time::Instant::now();
+
+    eprintln!("🔨 Starting blockchain reindex...");
+
+    let mut blockchain = state.blockchain.write().await;
+
+    // Load all blocks from database
+    eprintln!("📦 Loading blocks from database...");
+    let blocks = blockchain
+        .db()
+        .load_all_blocks()
+        .map_err(|e| ApiError::Internal(format!("Failed to load blocks: {}", e)))?;
+
+    if blocks.is_empty() {
+        return Err(ApiError::Internal(
+            "No blocks found in database".to_string(),
+        ));
+    }
+
+    eprintln!("✅ Loaded {} blocks", blocks.len());
+
+    // Create a new empty UTXO set
+    eprintln!("🔨 Rebuilding UTXO set from blocks...");
+    let mut utxo_set = time_core::utxo_set::UTXOSet::new();
+
+    // Apply each block's transactions to rebuild UTXO set
+    for (i, block) in blocks.iter().enumerate() {
+        if i % 50 == 0 && i > 0 {
+            eprintln!("   Processed {}/{} blocks...", i, blocks.len());
+        }
+
+        for tx in &block.transactions {
+            utxo_set.apply_transaction(tx).map_err(|e| {
+                ApiError::Internal(format!("Failed to apply transaction: {}", e))
+            })?;
+        }
+    }
+
+    eprintln!("✅ UTXO set rebuilt: {} UTXOs", utxo_set.len());
+
+    // Replace the blockchain's UTXO set with the rebuilt one
+    let snapshot = utxo_set.snapshot();
+    blockchain.utxo_set_mut().restore(snapshot.clone());
+
+    // Save UTXO snapshot to database
+    eprintln!("💾 Saving UTXO snapshot...");
+    blockchain
+        .db()
+        .save_utxo_snapshot(&utxo_set)
+        .map_err(|e| ApiError::Internal(format!("Failed to save UTXO snapshot: {}", e)))?;
+
+    // Calculate and save wallet balances for all addresses
+    eprintln!("💾 Saving wallet balances...");
+    let mut wallet_balances = std::collections::HashMap::new();
+
+    for (_, output) in utxo_set.utxos() {
+        if output.address != "TREASURY" && output.address != "BURNED" {
+            *wallet_balances.entry(output.address.clone()).or_insert(0) += output.amount;
+        }
+    }
+
+    for (address, balance) in &wallet_balances {
+        blockchain
+            .db()
+            .save_wallet_balance(address, *balance)
+            .map_err(|e| {
+                ApiError::Internal(format!("Failed to save wallet balance: {}", e))
+            })?;
+    }
+
+    let processing_time = start.elapsed();
+
+    eprintln!("✅ Reindex complete in {:?}", processing_time);
+    eprintln!("   Blocks:       {}", blocks.len());
+    eprintln!("   UTXOs:        {}", utxo_set.len());
+    eprintln!(
+        "   Total Supply: {} TIME",
+        utxo_set.total_supply() as f64 / 100_000_000.0
+    );
+
+    Ok(Json(ReindexResponse {
+        success: true,
+        blocks_processed: blocks.len() as u64,
+        utxo_count: utxo_set.len(),
+        total_supply: utxo_set.total_supply(),
+        wallet_balances,
+        processing_time_ms: processing_time.as_millis(),
+    }))
 }
