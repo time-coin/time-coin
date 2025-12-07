@@ -439,20 +439,18 @@ impl PeerConnection {
         response: &crate::protocol::NetworkMessage,
     ) -> bool {
         use crate::protocol::NetworkMessage;
-        match (request, response) {
-            (NetworkMessage::GetMempool, NetworkMessage::MempoolResponse(_)) => true,
-            (
-                NetworkMessage::RequestFinalizedTransactions { .. },
-                NetworkMessage::FinalizedTransactionsResponse { .. },
-            ) => true,
-            (NetworkMessage::HeightRequest, NetworkMessage::HeightResponse { .. }) => true,
-            (NetworkMessage::BlockRequest { .. }, NetworkMessage::BlockResponse { .. }) => true,
-            (NetworkMessage::GetBlockchainInfo, NetworkMessage::BlockchainInfo { .. }) => true,
-            (NetworkMessage::RequestGenesisBlock, NetworkMessage::GenesisBlockResponse { .. }) => {
-                true
-            }
-            _ => false,
-        }
+        matches!(
+            (request, response),
+            (NetworkMessage::GetMempool, NetworkMessage::MempoolResponse(_))
+                | (
+                    NetworkMessage::RequestFinalizedTransactions { .. },
+                    NetworkMessage::FinalizedTransactionsResponse { .. },
+                )
+                | (NetworkMessage::HeightRequest, NetworkMessage::HeightResponse { .. })
+                | (NetworkMessage::BlockRequest { .. }, NetworkMessage::BlockResponse { .. })
+                | (NetworkMessage::GetBlockchainInfo, NetworkMessage::BlockchainInfo { .. })
+                | (NetworkMessage::GetGenesis, NetworkMessage::GenesisBlock(_))
+        )
     }
 
     /// Handle background messages that arrive during request/response
