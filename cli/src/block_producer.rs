@@ -1115,6 +1115,19 @@ impl BlockProducer {
             Ok(_) => {
                 println!("   💾 Block {} added to blockchain", block_num);
 
+                // ⚡ INSTANT FINALITY: Mark UTXOs as Confirmed in block
+                let utxo_manager = blockchain.utxo_state_manager();
+                for tx in &block.transactions {
+                    if !tx.inputs.is_empty() {
+                        // Skip coinbase
+                        for input in &tx.inputs {
+                            let _ = utxo_manager
+                                .mark_confirmed(&input.previous_output, tx.txid.clone(), block_num)
+                                .await;
+                        }
+                    }
+                }
+
                 // SECURITY FIX: UTXO consistency - save snapshot before removing from mempool
                 if let Err(e) = blockchain.save_utxo_snapshot() {
                     println!("   ❌ CRITICAL: Failed to save UTXO snapshot: {}", e);
@@ -1294,6 +1307,19 @@ impl BlockProducer {
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("   ✔ Block {} finalized", block_num);
+
+                // ⚡ INSTANT FINALITY: Mark UTXOs as Confirmed in block
+                let utxo_manager = blockchain.utxo_state_manager();
+                for tx in &block.transactions {
+                    if !tx.inputs.is_empty() {
+                        // Skip coinbase
+                        for input in &tx.inputs {
+                            let _ = utxo_manager
+                                .mark_confirmed(&input.previous_output, tx.txid.clone(), block_num)
+                                .await;
+                        }
+                    }
+                }
 
                 // Save UTXO snapshot to persist state
                 if let Err(e) = blockchain.save_utxo_snapshot() {
