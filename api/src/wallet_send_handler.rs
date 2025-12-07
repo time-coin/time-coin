@@ -287,12 +287,14 @@ pub async fn wallet_send(
                 // Check if we have enough acknowledgments
                 let masternode_count = state.consensus.masternode_count().await as u32;
 
-                // For small networks (<=4 nodes), use simple majority (>50%)
-                // For larger networks, use BFT threshold (2/3+1)
-                let threshold = if masternode_count <= 4 {
-                    (masternode_count / 2) + 1 // Simple majority: 2/3, 3/4, 3/5
+                // For small networks, be more lenient with thresholds
+                // This accommodates development/testnet scenarios
+                let threshold = if masternode_count <= 3 {
+                    1 // Any response is sufficient for 1-3 nodes
+                } else if masternode_count == 4 {
+                    2 // Need 2/4 = 50% for exactly 4 nodes
                 } else {
-                    (masternode_count * 2 / 3) + 1 // BFT: 3/4, 4/5, 5/7, etc.
+                    (masternode_count * 2 / 3) + 1 // BFT: 2/3+1 for 5+ nodes
                 };
 
                 if ack_count < threshold {
@@ -304,7 +306,7 @@ pub async fn wallet_send(
                         "insufficient_lock_acknowledgments"
                     );
                     return Err(ApiError::BadRequest(format!(
-                        "Failed to lock UTXOs: only {} of {} masternodes acknowledged (need {} for simple majority)",
+                        "Failed to lock UTXOs: only {} of {} masternodes acknowledged (need {})",
                         ack_count, masternode_count, threshold
                     )));
                 }
