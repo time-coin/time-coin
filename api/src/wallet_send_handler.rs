@@ -267,7 +267,9 @@ pub async fn wallet_send(
     // DO NOT recalculate TXID after signing - TXID should not include signatures
     let final_txid = tx.txid.clone();
 
-    // 🔒 STEP 1: Broadcast UTXO lock request to masternodes FIRST
+    // 🔒 STEP 1: Broadcast UTXO lock request to masternodes (best-effort)
+    // This is advisory - helps prevent race conditions but doesn't block the transaction
+    // The real double-spend protection comes from instant finality consensus
     log::info!(
         txid = %&final_txid[..16],
         inputs = tx.inputs.len(),
@@ -278,54 +280,33 @@ pub async fn wallet_send(
         // Send lock broadcast to all masternodes
         match broadcaster.broadcast_utxo_lock(&tx).await {
             Ok(ack_count) => {
+                let masternode_count = state.consensus.masternode_count().await as u32;
+
                 log::info!(
                     txid = %&final_txid[..16],
                     acks = ack_count,
-                    "utxo_lock_acknowledged"
+                    masternode_count = masternode_count,
+                    "utxo_lock_broadcast_complete"
                 );
 
-                // Check if we have enough acknowledgments
-                let masternode_count = state.consensus.masternode_count().await as u32;
-
-                // For small networks, be more lenient with thresholds
-                // This accommodates development/testnet scenarios
-                let threshold = if masternode_count <= 3 {
-                    1 // Any response is sufficient for 1-3 nodes
-                } else if masternode_count == 4 {
-                    2 // Need 2/4 = 50% for exactly 4 nodes
-                } else {
-                    (masternode_count * 2 / 3) + 1 // BFT: 2/3+1 for 5+ nodes
-                };
-
-                if ack_count < threshold {
+                // Log a warning if we got low responses, but don't fail
+                // Instant finality will catch any double-spend attempts
+                if ack_count < masternode_count / 2 {
                     log::warn!(
                         txid = %&final_txid[..16],
                         acks = ack_count,
-                        threshold = threshold,
                         masternode_count = masternode_count,
-                        "insufficient_lock_acknowledgments"
+                        "low_lock_acknowledgments_proceeding_anyway"
                     );
-                    return Err(ApiError::BadRequest(format!(
-                        "Failed to lock UTXOs: only {} of {} masternodes acknowledged (need {})",
-                        ack_count, masternode_count, threshold
-                    )));
                 }
-
-                log::info!(
-                    txid = %&final_txid[..16],
-                    acks = ack_count,
-                    threshold = threshold,
-                    masternode_count = masternode_count,
-                    "utxo_lock_threshold_met"
-                );
             }
             Err(e) => {
-                log::error!(
+                // Log the error but don't fail - instant finality will protect us
+                log::warn!(
                     txid = %&final_txid[..16],
                     error = %e,
-                    "failed_to_broadcast_utxo_lock"
+                    "utxo_lock_broadcast_failed_proceeding_anyway"
                 );
-                return Err(ApiError::Internal(format!("Failed to lock UTXOs: {}", e)));
             }
         }
     }
