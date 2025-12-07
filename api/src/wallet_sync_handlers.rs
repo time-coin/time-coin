@@ -140,9 +140,14 @@ pub async fn sync_wallet_addresses(
         }
 
         utxos_by_address.insert(address.clone(), address_utxos);
+    }
 
-        // Note: Wallet balance persistence is handled by the wallet component
-        // The blockchain state is temporary and will be recalculated on restart
+    // Save wallet balances to database for persistence
+    for address in &request.addresses {
+        let balance = blockchain.get_balance(address);
+        if let Err(e) = blockchain.db().save_wallet_balance(address, balance) {
+            eprintln!("⚠️  Failed to save wallet balance for {}: {}", address, e);
+        }
     }
 
     // Sort transactions by block height (most recent first)
