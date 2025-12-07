@@ -47,6 +47,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
+use tracing::{debug, warn};
 
 /// Peer connection with split TCP stream for concurrent I/O
 ///
@@ -407,12 +408,74 @@ impl PeerConnection {
         let _lock = request_lock.lock().await;
 
         // Send request
-        self.send_message(request).await?;
+        self.send_message(request.clone()).await?;
 
-        // Wait for response
-        tokio::time::timeout(timeout, self.receive_message())
-            .await
-            .map_err(|_| format!("Request timeout after {:?}", timeout))?
+        // Wait for response, handling background messages
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(format!("Request timeout after {:?}", timeout));
+            }
+
+            match tokio::time::timeout(remaining, self.receive_message()).await {
+                Ok(Ok(msg)) => {
+                    // Check if this is the expected response type
+                    if Self::is_response_for_request(&request, &msg) {
+                        return Ok(msg);
+                    }
+                    // Handle background messages (Ping, etc.)
+                    self.handle_background_message(msg).await;
+                }
+                Ok(Err(e)) => return Err(e),
+                Err(_) => return Err(format!("Request timeout after {:?}", timeout)),
+            }
+        }
+    }
+
+    /// Check if a message is the expected response for a request
+    fn is_response_for_request(
+        request: &crate::protocol::NetworkMessage,
+        response: &crate::protocol::NetworkMessage,
+    ) -> bool {
+        use crate::protocol::NetworkMessage;
+        match (request, response) {
+            (NetworkMessage::GetMempool, NetworkMessage::MempoolResponse(_)) => true,
+            (
+                NetworkMessage::RequestFinalizedTransactions { .. },
+                NetworkMessage::FinalizedTransactionsResponse { .. },
+            ) => true,
+            (NetworkMessage::HeightRequest, NetworkMessage::HeightResponse { .. }) => true,
+            (NetworkMessage::BlockRequest { .. }, NetworkMessage::BlockResponse { .. }) => true,
+            (NetworkMessage::GetBlockchainInfo, NetworkMessage::BlockchainInfo { .. }) => true,
+            (NetworkMessage::RequestGenesisBlock, NetworkMessage::GenesisBlockResponse { .. }) => {
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle background messages that arrive during request/response
+    async fn handle_background_message(&mut self, msg: crate::protocol::NetworkMessage) {
+        use crate::protocol::NetworkMessage;
+        match msg {
+            NetworkMessage::Ping => {
+                // Respond to ping immediately
+                if let Err(e) = self.send_message(NetworkMessage::Pong).await {
+                    warn!("Failed to send Pong response: {}", e);
+                }
+            }
+            NetworkMessage::Pong => {
+                // Ignore pongs during request/response
+            }
+            other => {
+                // Log unexpected messages but don't fail
+                debug!(
+                    "Received unexpected message during request/response: {:?}",
+                    other
+                );
+            }
+        }
     }
 
     /// Receive a network message from the TCP connection with timeout

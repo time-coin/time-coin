@@ -108,6 +108,7 @@ impl Mempool {
     }
 
     /// Check if a UTXO is locked by another transaction
+    #[allow(dead_code)]
     async fn check_utxo_locks(&self, tx: &Transaction) -> Result<(), MempoolError> {
         if let Some(manager) = &self.utxo_state_manager {
             for input in &tx.inputs {
@@ -148,13 +149,14 @@ impl Mempool {
     }
 
     /// Lock UTXOs for a transaction (if state manager available)
+    #[allow(dead_code)]
     async fn lock_transaction_utxos(&self, tx: &Transaction) -> Result<(), MempoolError> {
         if let Some(manager) = &self.utxo_state_manager {
             for input in &tx.inputs {
                 manager
                     .lock_utxo(&input.previous_output, tx.txid.clone())
                     .await
-                    .map_err(|e| MempoolError::UTXOLocked(e))?;
+                    .map_err(MempoolError::UTXOLocked)?;
             }
         }
         Ok(())

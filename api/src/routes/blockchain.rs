@@ -240,7 +240,7 @@ async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<Rei
     eprintln!("💾 Saving wallet balances...");
     let mut wallet_balances = std::collections::HashMap::new();
 
-    for (_, output) in utxo_set.utxos() {
+    for output in utxo_set.utxos().values() {
         if output.address != "TREASURY" && output.address != "BURNED" {
             *wallet_balances.entry(output.address.clone()).or_insert(0) += output.amount;
         }

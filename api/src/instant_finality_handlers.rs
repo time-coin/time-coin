@@ -289,20 +289,18 @@ pub async fn check_transaction_finality(
                                 .get_utxo_info(&input.previous_output)
                                 .await
                             {
-                                match info.state {
-                                    UTXOState::SpentPending {
-                                        votes, total_nodes, ..
-                                    } => {
-                                        return Ok(Json(TransactionFinalityResponse {
-                                            txid,
-                                            is_finalized: false,
-                                            finality_status: "pending".to_string(),
-                                            votes: Some(votes),
-                                            required_votes: Some((total_nodes * 2) / 3 + 1),
-                                            finalized_at: None,
-                                        }));
-                                    }
-                                    _ => {}
+                                if let UTXOState::SpentPending {
+                                    votes, total_nodes, ..
+                                } = info.state
+                                {
+                                    return Ok(Json(TransactionFinalityResponse {
+                                        txid,
+                                        is_finalized: false,
+                                        finality_status: "pending".to_string(),
+                                        votes: Some(votes),
+                                        required_votes: Some((total_nodes * 2) / 3 + 1),
+                                        finalized_at: None,
+                                    }));
                                 }
                             }
                         }

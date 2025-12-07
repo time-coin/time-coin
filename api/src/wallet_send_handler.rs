@@ -69,14 +69,14 @@ pub async fn wallet_send(
     // ⚡ INSTANT FINALITY: Filter out locked/spent UTXOs
     let utxo_manager = blockchain.utxo_state_manager();
     let mut sender_utxos = Vec::new();
-    
+
     for (outpoint, output) in all_utxos {
         let utxo_state = utxo_manager.get_state(&outpoint).await;
         let is_available = match utxo_state {
             Some(UTXOState::Unspent) | None => true, // Unspent or no tracking
-            Some(_) => false, // Locked, Spent, etc.
+            Some(_) => false,                        // Locked, Spent, etc.
         };
-        
+
         if is_available {
             sender_utxos.push((outpoint, output));
         } else if let Some(state) = utxo_state {

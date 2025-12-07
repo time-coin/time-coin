@@ -1208,31 +1208,6 @@ impl PeerManager {
                     return Ok(transactions);
                 }
                 other => {
-                    // If we got a different response type (likely from message crossing),
-                    // try receiving one more time to see if the real response arrives
-                    warn!(
-                        "Unexpected response from {}: expected MempoolResponse, got {:?}. Trying to receive again...",
-                        peer_addr, other
-                    );
-
-                    // Try to receive the actual response (with shorter timeout)
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        conn.receive_message(),
-                    )
-                    .await
-                    {
-                        Ok(Ok(crate::protocol::NetworkMessage::MempoolResponse(transactions))) => {
-                            return Ok(transactions);
-                        }
-                        Ok(Ok(msg)) => {
-                            warn!("Still got wrong message type: {:?}", msg);
-                        }
-                        _ => {
-                            // Timeout or error
-                        }
-                    }
-
                     return Err(format!(
                         "Protocol error: received {:?} instead of MempoolResponse",
                         other
