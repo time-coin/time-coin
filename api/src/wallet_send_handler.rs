@@ -42,9 +42,20 @@ pub async fn wallet_send(
     // Get the node's wallet address from config
     let from_address = state.wallet_address.clone();
 
+    log::info!(
+        from_address = %from_address,
+        "processing_wallet_send_request"
+    );
+
     // Get blockchain state to find UTXOs
     let blockchain = state.blockchain.read().await;
     let utxo_set = blockchain.utxo_set();
+
+    log::debug!(
+        total_utxos = utxo_set.len(),
+        total_supply = utxo_set.total_supply(),
+        "utxo_set_state"
+    );
 
     // Find UTXOs for the sender
     let all_utxos: Vec<_> = utxo_set
@@ -52,10 +63,22 @@ pub async fn wallet_send(
         .into_iter()
         .collect();
 
+    log::info!(
+        from_address = %from_address,
+        utxo_count = all_utxos.len(),
+        "found_utxos_for_address"
+    );
+
     if all_utxos.is_empty() {
+        log::warn!(
+            from_address = %from_address,
+            total_utxos_in_set = utxo_set.len(),
+            "no_utxos_found_for_address"
+        );
         return Err(ApiError::BadRequest(format!(
-            "No UTXOs found for address {}",
-            from_address
+            "No UTXOs found for address {} (total UTXOs in set: {})",
+            from_address,
+            utxo_set.len()
         )));
     }
 
