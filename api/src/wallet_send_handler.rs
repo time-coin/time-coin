@@ -152,10 +152,9 @@ pub async fn wallet_send(
 
     // Load the node's wallet to get the keypair for signing
     let wallet_path = format!("{}/wallets/node.json", state.data_dir);
-    let wallet = wallet::Wallet::load_from_file(&wallet_path).map_err(|e| {
-        ApiError::Internal(format!("Failed to load wallet: {}", e))
-    })?;
-    
+    let wallet = wallet::Wallet::load_from_file(&wallet_path)
+        .map_err(|e| ApiError::Internal(format!("Failed to load wallet: {}", e)))?;
+
     // Get keypair to use for signing
     let keypair = wallet.keypair();
     let public_key = keypair.public_key_bytes().to_vec();

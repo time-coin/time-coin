@@ -1425,13 +1425,13 @@ async fn handle_wallet_command(
             const TIME_UNIT: u64 = 100_000_000; // 1 TIME = 100,000,000 units
             let amount_units = (amount * TIME_UNIT as f64) as u64;
 
-            // Load wallet from node.json
+            // Load wallet from wallets/node.json
             let data_dir = get_data_dir();
-            let wallet_path = format!("{}/node.json", data_dir);
+            let wallet_path = format!("{}/wallets/node.json", data_dir);
 
-            let wallet_data = tokio::fs::read_to_string(&wallet_path).await.map_err(|e| {
-                format!("Failed to load wallet from {}: {}", wallet_path, e)
-            })?;
+            let wallet_data = tokio::fs::read_to_string(&wallet_path)
+                .await
+                .map_err(|e| format!("Failed to load wallet from {}: {}", wallet_path, e))?;
 
             let wallet_json: serde_json::Value = serde_json::from_str(&wallet_data)
                 .map_err(|e| format!("Failed to parse wallet JSON: {}", e))?;
