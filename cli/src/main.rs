@@ -1658,8 +1658,17 @@ async fn main() {
 
     // Initialize Transaction Approval Manager
     let mut approval_manager_instance = TransactionApprovalManager::new();
+    
+    // Get wallet addresses for approval manager (not IP addresses!)
+    let masternode_wallets: Vec<String> = consensus
+        .get_masternodes_with_wallets()
+        .await
+        .into_iter()
+        .map(|(_node_id, wallet)| wallet)
+        .collect();
+    
     approval_manager_instance
-        .set_masternodes(masternodes.clone())
+        .set_masternodes(masternode_wallets)
         .await;
 
     // Connect UTXO state manager for instant finality
