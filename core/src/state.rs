@@ -758,13 +758,17 @@ impl BlockchainState {
 
     fn merge_utxo_snapshot(&mut self) -> Result<(), StateError> {
         if let Some(snapshot) = self.db.load_utxo_snapshot()? {
-            eprintln!("🔄 Merging UTXO snapshot with blockchain state...");
-            let before_count = self.utxo_set.len();
-            self.utxo_set.merge_snapshot(snapshot);
-            let after_count = self.utxo_set.len();
+            eprintln!("🔄 Loading UTXO snapshot (authoritative state)...");
+            let block_count = self.utxo_set.len();
+
+            // UTXO snapshot is the authoritative source - it contains all finalized state
+            // Replace the UTXO set built from blocks with the snapshot
+            self.utxo_set.restore(snapshot);
+            let snapshot_count = self.utxo_set.len();
+
             eprintln!(
-                "✅ UTXO snapshot merged ({} → {} UTXOs)",
-                before_count, after_count
+                "✅ UTXO snapshot restored (blocks: {} UTXOs, snapshot: {} UTXOs)",
+                block_count, snapshot_count
             );
         }
         Ok(())
