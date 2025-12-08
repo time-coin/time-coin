@@ -85,52 +85,66 @@ impl HeightSyncManager {
     /// Query all peers for their current height
     pub async fn query_peer_heights(&self) -> Result<Vec<PeerHeightInfo>, NetworkError> {
         let peers = self.peer_manager.get_connected_peers().await;
-        let mut heights = Vec::new();
 
         debug!("Querying {} connected peers for heights", peers.len());
 
-        for peer in &peers {
-            debug!(peer = %peer.address, "querying height");
+        if peers.is_empty() {
+            warn!("No connected peers to query");
+            return Ok(Vec::new());
+        }
 
-            // Query blockchain info from peer with timeout
-            let result = tokio::time::timeout(
-                Duration::from_secs(10), // Increased from 5s to 10s
-                self.peer_manager
-                    .request_blockchain_info(&peer.address.to_string()),
-            )
-            .await;
+        // Query all peers in parallel with individual timeouts
+        let mut tasks = Vec::new();
+        for peer in peers {
+            let peer_manager = self.peer_manager.clone();
+            let peer_addr = peer.address.to_string();
 
-            match result {
-                Ok(Ok(Some(height))) => {
-                    heights.push(PeerHeightInfo {
-                        address: peer.address.to_string(),
-                        height,
-                    });
-                    debug!(peer = %peer.address, height, "✅ received height");
+            let task = tokio::spawn(async move {
+                match tokio::time::timeout(
+                    Duration::from_secs(10),
+                    peer_manager.request_blockchain_info(&peer_addr),
+                )
+                .await
+                {
+                    Ok(Ok(Some(height))) => {
+                        debug!(peer = %peer_addr, height, "✅ received height");
+                        Some(PeerHeightInfo {
+                            address: peer_addr,
+                            height,
+                        })
+                    }
+                    Ok(Ok(None)) => {
+                        debug!(peer = %peer_addr, "peer has no genesis");
+                        None
+                    }
+                    Ok(Err(e)) => {
+                        debug!(peer = %peer_addr, error = ?e, "❌ failed to query");
+                        None
+                    }
+                    Err(_) => {
+                        debug!(peer = %peer_addr, "⏱️ query timeout after 10s");
+                        None
+                    }
                 }
-                Ok(Ok(None)) => {
-                    debug!(peer = %peer.address, "peer has no genesis");
-                }
-                Ok(Err(e)) => {
-                    debug!(peer = %peer.address, error = ?e, "❌ failed to query");
-                }
-                Err(_) => {
-                    debug!(peer = %peer.address, "⏱️ query timeout after 10s");
-                }
+            });
+            tasks.push(task);
+        }
+
+        // Wait for all tasks to complete (they run in parallel)
+        let results = futures::future::join_all(tasks).await;
+
+        // Collect successful results
+        let mut heights = Vec::new();
+        for result in results {
+            if let Ok(Some(height_info)) = result {
+                heights.push(height_info);
             }
         }
 
         if heights.is_empty() {
-            warn!(
-                "No peers responded with heights (queried {} peers)",
-                peers.len()
-            );
+            warn!("No peers responded with heights");
         } else {
-            info!(
-                "Received heights from {}/{} peers",
-                heights.len(),
-                peers.len()
-            );
+            info!("Received heights from {} peer(s)", heights.len());
         }
 
         Ok(heights)
