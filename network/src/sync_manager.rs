@@ -9,9 +9,9 @@ use crate::PeerManager;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use time_core::state::BlockchainState;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
@@ -30,13 +30,25 @@ pub enum SyncStatus {
     Critical(String),
 }
 
+/// Cached peer height information
+#[derive(Clone)]
+struct CachedHeights {
+    heights: Vec<PeerHeightInfo>,
+    timestamp: Instant,
+}
+
 /// Tier 1: Lightweight height synchronization
 pub struct HeightSyncManager {
     peer_manager: Arc<PeerManager>,
     consensus_threshold: f64,
+    #[allow(dead_code)]
     timeout_secs: u64,
     #[allow(dead_code)]
     max_gap: u64,
+    /// Cache of peer heights with 30-second TTL
+    height_cache: Arc<Mutex<Option<CachedHeights>>>,
+    /// Prevent concurrent sync operations
+    sync_lock: Arc<Mutex<()>>,
 }
 
 /// Tier 2: Block-by-block synchronization
@@ -79,11 +91,41 @@ impl HeightSyncManager {
             consensus_threshold: 0.67,
             timeout_secs: 30,
             max_gap: 5,
+            height_cache: Arc::new(Mutex::new(None)),
+            sync_lock: Arc::new(Mutex::new(())),
         }
     }
 
-    /// Query all peers for their current height
+    /// Warm up the cache by querying peers once (fire and forget)
+    pub async fn warm_cache(&self) {
+        info!("🔥 Warming peer height cache...");
+        match self.query_peer_heights().await {
+            Ok(heights) => info!("✅ Cache warmed with {} peer heights", heights.len()),
+            Err(e) => warn!("⚠️  Cache warm failed: {:?}", e),
+        }
+    }
+
+    /// Query all peers for their current height (with 30-second cache)
     pub async fn query_peer_heights(&self) -> Result<Vec<PeerHeightInfo>, NetworkError> {
+        // Check cache first
+        {
+            let cache = self.height_cache.lock().await;
+            if let Some(cached) = &*cache {
+                let age = cached.timestamp.elapsed();
+                if age < Duration::from_secs(30) {
+                    info!(
+                        "📦 Using cached peer heights ({} peers, age: {:.1}s)",
+                        cached.heights.len(),
+                        age.as_secs_f32()
+                    );
+                    return Ok(cached.heights.clone());
+                }
+            }
+        }
+
+        // Acquire sync lock to prevent concurrent queries
+        let _lock = self.sync_lock.lock().await;
+
         let peers = self.peer_manager.get_connected_peers().await;
 
         info!("🔍 Querying {} connected peers for heights", peers.len());
@@ -94,6 +136,7 @@ impl HeightSyncManager {
         }
 
         // Query all peers in parallel with individual timeouts
+        // CRITICAL: Query timeout (20s) must be LONGER than request timeout (15s)
         let mut tasks = Vec::new();
         for peer in peers {
             let peer_manager = self.peer_manager.clone();
@@ -103,7 +146,7 @@ impl HeightSyncManager {
 
             let task = tokio::spawn(async move {
                 match tokio::time::timeout(
-                    Duration::from_secs(10),
+                    Duration::from_secs(20), // Increased from 10s to prevent premature timeout
                     peer_manager.request_blockchain_info(&peer_addr),
                 )
                 .await
@@ -124,7 +167,7 @@ impl HeightSyncManager {
                         None
                     }
                     Err(_) => {
-                        warn!("⏱️  {} query timeout after 10s", peer_addr);
+                        warn!("⏱️  {} query timeout after 20s", peer_addr);
                         None
                     }
                 }
@@ -157,6 +200,13 @@ impl HeightSyncManager {
             error!("❌ No peers responded with heights");
         } else {
             info!("✅ Received heights from {} peer(s)", heights.len());
+
+            // Update cache
+            let mut cache = self.height_cache.lock().await;
+            *cache = Some(CachedHeights {
+                heights: heights.clone(),
+                timestamp: Instant::now(),
+            });
         }
 
         Ok(heights)
@@ -195,33 +245,15 @@ impl HeightSyncManager {
         &self,
         our_height: u64,
     ) -> Result<SyncStatus, NetworkError> {
-        info!(
-            height = our_height,
-            "🔄 Starting tier 1 height sync (timeout: {}s)", self.timeout_secs
-        );
+        info!(height = our_height, "🔄 Starting tier 1 height sync");
 
-        info!("📞 About to call query_peer_heights()...");
-        let query_result = timeout(
-            Duration::from_secs(self.timeout_secs),
-            self.query_peer_heights(),
-        )
-        .await;
-        info!("📞 query_peer_heights() returned");
+        // No outer timeout - query_peer_heights has its own timeouts
+        let peer_heights = self.query_peer_heights().await?;
 
-        let peer_heights = match query_result {
-            Ok(Ok(heights)) => {
-                info!("✅ Query succeeded with {} peer height(s)", heights.len());
-                heights
-            }
-            Ok(Err(e)) => {
-                error!("❌ Query failed: {:?}", e);
-                return Err(e);
-            }
-            Err(_) => {
-                error!("⏱️  Query timeout after {}s", self.timeout_secs);
-                return Err(NetworkError::Timeout);
-            }
-        };
+        if peer_heights.is_empty() {
+            warn!("No peer heights available - treating as in sync");
+            return Ok(SyncStatus::InSync);
+        }
 
         let consensus_height = self.find_consensus_height(&peer_heights)?;
         let gap = consensus_height.saturating_sub(our_height);
@@ -473,6 +505,11 @@ impl NetworkSyncManager {
             chain_sync: ChainSyncManager::new(peer_manager, blockchain.clone()),
             blockchain,
         }
+    }
+
+    /// Warm up the peer height cache (call after peer connections are established)
+    pub async fn warm_cache(&self) {
+        self.height_sync.warm_cache().await;
     }
 
     /// Sync before block production (Tier 1 -> Tier 2 escalation)

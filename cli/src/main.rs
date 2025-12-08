@@ -1179,6 +1179,12 @@ async fn main() {
     let blockchain_sync =
         time_network::NetworkSyncManager::new(Arc::clone(&peer_manager), Arc::clone(&blockchain));
 
+    // Warm the peer height cache if we have connections
+    // This prevents the first sync call from timing out
+    if !peer_manager.get_connected_peers().await.is_empty() {
+        blockchain_sync.warm_cache().await;
+    }
+
     // Skip initial sync - let the periodic sync task handle it
     // This prevents multiple simultaneous sync attempts on startup
 
