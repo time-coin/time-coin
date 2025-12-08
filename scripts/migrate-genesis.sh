@@ -10,14 +10,16 @@ echo "════════════════════════�
 echo ""
 
 # Configuration - Check common locations
-if [ -d "/var/lib/time-coin" ]; then
+if [ -d "$HOME/.timecoin" ]; then
+    DEFAULT_DATA_DIR="$HOME/.timecoin/data"
+elif [ -d "/var/lib/time-coin" ]; then
     DEFAULT_DATA_DIR="/var/lib/time-coin"
 else
-    DEFAULT_DATA_DIR="$HOME/time-coin-node/data"
+    DEFAULT_DATA_DIR="$HOME/.timecoin/data"
 fi
 
 DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
-CONFIG_FILE="${CONFIG_FILE:-$HOME/time-coin-node/config/testnet.toml}"
+CONFIG_FILE="${CONFIG_FILE:-$HOME/.timecoin/config/testnet.toml}"
 REPO_DIR="${REPO_DIR:-$HOME/time-coin}"
 
 echo "📂 Configuration:"
@@ -62,11 +64,38 @@ else
 fi
 echo ""
 
-# Step 3: Delete old blockchain
+# Step 3: Ensure directories exist
 echo "════════════════════════════════════════════════════════════════"
-echo "STEP 3: Deleting old blockchain"
+echo "STEP 3: Creating necessary directories"
 echo "════════════════════════════════════════════════════════════════"
-if [ -d "$DATA_DIR/blockchain" ]; then
+echo "📁 Creating directory structure..."
+
+# Create main .timecoin directory
+sudo mkdir -p "$HOME/.timecoin"
+sudo chown -R $USER:$USER "$HOME/.timecoin"
+
+# Create subdirectories
+sudo mkdir -p "$DATA_DIR"
+sudo mkdir -p "$(dirname "$CONFIG_FILE")"
+sudo mkdir -p "$HOME/.timecoin/logs"
+sudo mkdir -p "$DATA_DIR/blockchain"
+
+# Set ownership
+sudo chown -R $USER:$USER "$HOME/.timecoin"
+sudo chown -R $USER:$USER "$DATA_DIR"
+
+echo "✅ Directories created:"
+echo "   - $HOME/.timecoin"
+echo "   - $DATA_DIR"
+echo "   - $(dirname "$CONFIG_FILE")"
+echo "   - $HOME/.timecoin/logs"
+echo ""
+
+# Step 4: Delete old blockchain
+echo "════════════════════════════════════════════════════════════════"
+echo "STEP 4: Deleting old blockchain"
+echo "════════════════════════════════════════════════════════════════"
+if [ -d "$DATA_DIR/blockchain" ] && [ "$(ls -A $DATA_DIR/blockchain 2>/dev/null)" ]; then
     echo "🗑️  Found blockchain at: $DATA_DIR/blockchain"
     echo "   This will delete all existing blocks"
     echo ""
@@ -81,13 +110,13 @@ if [ -d "$DATA_DIR/blockchain" ]; then
         exit 1
     fi
 else
-    echo "ℹ️  No blockchain directory found (already clean)"
+    echo "ℹ️  No blockchain data found (already clean)"
 fi
 echo ""
 
-# Step 4: Pull latest code
+# Step 5: Pull latest code
 echo "════════════════════════════════════════════════════════════════"
-echo "STEP 4: Pulling latest code"
+echo "STEP 5: Pulling latest code"
 echo "════════════════════════════════════════════════════════════════"
 cd "$REPO_DIR"
 echo "📥 Fetching latest code..."
@@ -100,9 +129,9 @@ echo "📊 Current commit:"
 git log --oneline -1
 echo ""
 
-# Step 5: Verify genesis file
+# Step 6: Verify genesis file
 echo "════════════════════════════════════════════════════════════════"
-echo "STEP 5: Verifying genesis file"
+echo "STEP 6: Verifying genesis file"
 echo "════════════════════════════════════════════════════════════════"
 GENESIS_FILE="$REPO_DIR/config/genesis-testnet.json"
 if [ -f "$GENESIS_FILE" ]; then
@@ -127,9 +156,9 @@ else
 fi
 echo ""
 
-# Step 6: Check config
+# Step 6: Verify genesis file
 echo "════════════════════════════════════════════════════════════════"
-echo "STEP 6: Checking config"
+echo "STEP 6: Verifying genesis file"
 echo "════════════════════════════════════════════════════════════════"
 if [ -f "$CONFIG_FILE" ]; then
     echo "📄 Config file: $CONFIG_FILE"
@@ -165,9 +194,9 @@ else
 fi
 echo ""
 
-# Step 7: Rebuild
+# Step 7: Check config
 echo "════════════════════════════════════════════════════════════════"
-echo "STEP 7: Rebuilding"
+echo "STEP 7: Checking config"
 echo "════════════════════════════════════════════════════════════════"
 cd "$REPO_DIR"
 echo "🔨 Building release binary..."
@@ -178,18 +207,18 @@ echo ""
 echo "✅ Build complete"
 echo ""
 
-# Step 8: Restart service
+# Step 8: Rebuild
 echo "════════════════════════════════════════════════════════════════"
-echo "STEP 8: Restarting service"
+echo "STEP 8: Rebuilding"
 echo "════════════════════════════════════════════════════════════════"
 echo "🚀 Starting timed service..."
 sudo systemctl start timed
 echo "✅ Service started"
 echo ""
 
-# Step 9: Verify
+# Step 9: Restart service
 echo "════════════════════════════════════════════════════════════════"
-echo "STEP 9: Verifying migration"
+echo "STEP 9: Restarting service"
 echo "════════════════════════════════════════════════════════════════"
 echo "📊 Service status:"
 sudo systemctl status timed --no-pager -l | head -n 10 || true
