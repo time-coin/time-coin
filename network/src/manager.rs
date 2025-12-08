@@ -800,19 +800,16 @@ impl PeerManager {
         Ok(())
     }
 
-    /// Send message to peer and wait for response
+    /// Send message to peer and wait for response (REUSES EXISTING CONNECTIONS)
     pub async fn send_message_to_peer_with_response(
         &self,
         peer_addr: SocketAddr,
         message: crate::protocol::NetworkMessage,
         timeout_secs: u64,
     ) -> Result<Option<crate::protocol::NetworkMessage>, String> {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::time::timeout;
-
         let peer_ip = peer_addr.ip();
 
-        // Try stored TCP connection first
+        // CRITICAL FIX: Try stored TCP connection first (prevents connection spam)
         let conn_arc = {
             let connections = self.connections.read().await;
             connections.get(&peer_ip).map(|u| u.connection.clone())
@@ -841,7 +838,12 @@ impl PeerManager {
             }
         }
 
-        // Create new connection for request-response pattern
+        // FALLBACK ONLY: Create new connection if no stored connection exists
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::time::timeout;
+
+        warn!(peer = %peer_addr, "No stored connection available, creating temporary connection");
+
         let mut stream = tokio::net::TcpStream::connect(peer_addr)
             .await
             .map_err(|e| format!("Failed to connect to {}: {}", peer_addr, e))?;
