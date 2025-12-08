@@ -584,10 +584,10 @@ impl BlockchainSync {
         // Use retry logic for reliability
         let (network_height, _) = match self.get_network_consensus_with_retry(2).await {
             Ok(consensus) => consensus,
-            Err(_) => {
-                // If we can't get consensus after retries, assume we're in sync
-                // This prevents false "behind" reports during network issues
-                return Ok(SyncStatus::InSync);
+            Err(e) => {
+                // If we can't get consensus after retries, we cannot determine sync status
+                // DO NOT assume we're in sync - this causes forks!
+                return Err(format!("Cannot verify network consensus: {}", e));
             }
         };
 
