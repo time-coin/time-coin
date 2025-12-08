@@ -55,15 +55,26 @@ impl BlockSyncManager {
 
             if let Some(block) = self.fetch_block_from_peer(peer, height).await {
                 // Basic validation
-                if block.header.block_number == height {
-                    println!("  ✓ Successfully fetched block {} from {}", height, peer);
-                    return Ok(block);
-                } else {
+                if block.header.block_number != height {
                     println!(
                         "  ✗ Block height mismatch from {} (got {}, expected {})",
                         peer, block.header.block_number, height
                     );
+                    continue;
                 }
+
+                // Validate timestamp (prevent accepting future blocks)
+                // Allow historical blocks since we're syncing old chain
+                if let Err(e) = block.validate_timestamp(None, true) {
+                    println!(
+                        "  ✗ Block {} from {} has invalid timestamp: {}",
+                        height, peer, e
+                    );
+                    continue;
+                }
+
+                println!("  ✓ Successfully fetched block {} from {}", height, peer);
+                return Ok(block);
             }
         }
 
@@ -144,6 +155,16 @@ impl BlockSyncManager {
                 return Err(format!(
                     "Invalid block hash at height {}",
                     curr_block.header.block_number
+                ));
+            }
+
+            // Validate timestamp (prevents accepting future blocks)
+            // Allow historical blocks since we're verifying synced chain
+            let prev_timestamp = Some(prev_block.header.timestamp.timestamp());
+            if let Err(e) = curr_block.validate_timestamp(prev_timestamp, true) {
+                return Err(format!(
+                    "Invalid timestamp at height {}: {}",
+                    curr_block.header.block_number, e
                 ));
             }
         }

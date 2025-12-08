@@ -322,20 +322,30 @@ impl Block {
     /// Ensures:
     /// 1. Block timestamp is not too far in the future (prevents time-based attacks)
     /// 2. Block timestamp is monotonically increasing (must be > previous block)
-    /// 3. Block timestamp is reasonable (not too far in the past)
-    pub fn validate_timestamp(&self, prev_block_timestamp: Option<i64>) -> Result<(), BlockError> {
+    /// 3. Block timestamp is reasonable (not too far in the past) - UNLESS syncing historical chain
+    ///
+    /// # Arguments
+    /// * `prev_block_timestamp` - Timestamp of previous block (for monotonic check)
+    /// * `allow_historical` - If true, skip "too old" check (for syncing years-old chains)
+    pub fn validate_timestamp(
+        &self,
+        prev_block_timestamp: Option<i64>,
+        allow_historical: bool,
+    ) -> Result<(), BlockError> {
         use crate::constants::{MAX_FUTURE_DRIFT_SECS, MAX_PAST_DRIFT_SECS};
 
         let now = Utc::now().timestamp();
         let block_time = self.header.timestamp.timestamp();
 
         // Check not too far in future (prevents miners creating future blocks)
+        // ALWAYS enforce this - never accept future blocks
         if block_time > now + MAX_FUTURE_DRIFT_SECS {
             return Err(BlockError::InvalidTimestamp);
         }
 
         // Check not too far in past (prevents old blocks being accepted)
-        if block_time < now - MAX_PAST_DRIFT_SECS {
+        // SKIP this check when syncing historical blockchain (allow_historical=true)
+        if !allow_historical && block_time < now - MAX_PAST_DRIFT_SECS {
             return Err(BlockError::InvalidTimestamp);
         }
 

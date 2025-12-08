@@ -380,14 +380,27 @@ impl BlockSyncManager {
         Err(NetworkError::BlockNotFound)
     }
 
-    /// Validate block before storing
-    fn validate_block(&self, _block: &time_core::block::Block) -> Result<(), NetworkError> {
-        // TODO: Implement block validation
+    /// Validate block before storing (during sync - allows historical blocks)
+    fn validate_block(&self, block: &time_core::block::Block) -> Result<(), NetworkError> {
+        // Validate timestamp with allow_historical=true (since we're syncing)
+        // This allows blocks that are years old (like genesis) but still rejects future blocks
+        let prev_timestamp = None; // TODO: Get from previous block if needed
+        block
+            .validate_timestamp(prev_timestamp, true)
+            .map_err(|e| {
+                error!(
+                    height = block.header.block_number,
+                    "Block failed timestamp validation: {:?}", e
+                );
+                NetworkError::SyncFailed(format!("Invalid block timestamp: {:?}", e))
+            })?;
+
+        // TODO: Additional validation
         // - Check block hash
         // - Verify merkle root
         // - Validate previous hash chain
-        // - Check timestamp
         // - Verify signatures
+
         Ok(())
     }
 

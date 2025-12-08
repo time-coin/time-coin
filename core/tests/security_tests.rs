@@ -98,8 +98,8 @@ fn test_reject_future_timestamp() {
         hash: "test_hash".to_string(),
     };
 
-    // Should reject block with future timestamp
-    let result = block.validate_timestamp(None);
+    // Should reject block with future timestamp (even when allowing historical)
+    let result = block.validate_timestamp(None, false);
     assert!(
         result.is_err(),
         "Should reject block with far-future timestamp"
@@ -145,9 +145,16 @@ fn test_reject_old_timestamp() {
         hash: "test_hash".to_string(),
     };
 
-    // Should reject block with old timestamp
-    let result = block.validate_timestamp(None);
+    // Should reject block with old timestamp (when not allowing historical)
+    let result = block.validate_timestamp(None, false);
     assert!(result.is_err(), "Should reject block with old timestamp");
+
+    // But should accept when allowing historical blocks
+    let result_historical = block.validate_timestamp(None, true);
+    assert!(
+        result_historical.is_ok(),
+        "Should accept old block when allow_historical=true"
+    );
 }
 
 /// Test timestamp validation - monotonic increase required
@@ -191,7 +198,7 @@ fn test_reject_nonmonotonic_timestamp() {
     // Previous block has same or later timestamp
     let prev_timestamp = now.timestamp();
 
-    let result = block.validate_timestamp(Some(prev_timestamp));
+    let result = block.validate_timestamp(Some(prev_timestamp), false);
     assert!(
         result.is_err(),
         "Should reject block with non-increasing timestamp"
