@@ -70,7 +70,9 @@ impl BlockchainSync {
         println!("🔄 Starting blockchain sync...");
 
         let our_height = self.get_local_height().await;
-        let (network_height, best_peer) = self.get_network_consensus().await?;
+
+        // Use retry logic for getting network consensus
+        let (network_height, best_peer) = self.get_network_consensus_with_retry(3).await?;
 
         if our_height >= network_height {
             println!("   ✓ Blockchain is up to date (height: {})", our_height);
@@ -99,15 +101,17 @@ impl BlockchainSync {
                 // Recalculate gap with new height
                 let new_gap = network_height - current_height;
                 println!("   📊 New gap: {} blocks", new_gap);
-                
+
                 // Continue with sync from new height
                 let start_height = current_height + 1;
                 let synced = if new_gap <= QUICK_SYNC_THRESHOLD {
                     println!("   🚀 Using quick sync");
-                    self.quick_sync(&best_peer, start_height, network_height).await?
+                    self.quick_sync(&best_peer, start_height, network_height)
+                        .await?
                 } else if new_gap <= BATCH_SYNC_THRESHOLD {
                     println!("   ⚡ Using batch sync");
-                    self.batch_sync(&best_peer, start_height, network_height).await?
+                    self.batch_sync(&best_peer, start_height, network_height)
+                        .await?
                 } else {
                     println!("   📦 Using snapshot sync");
                     self.snapshot_sync(network_height).await?
@@ -481,11 +485,13 @@ impl BlockchainSync {
 
         let mut peer_heights = Vec::new();
 
+        // Query peers with longer timeout for reliability
         for peer_ip in peers.iter() {
             let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
+            // Increased timeout from 3s to 10s for slow networks
             if let Ok(Ok(Some(height))) = tokio::time::timeout(
-                Duration::from_secs(3),
+                Duration::from_secs(10),
                 self.peer_manager.request_blockchain_info(&peer_addr),
             )
             .await
@@ -505,12 +511,49 @@ impl BlockchainSync {
         Ok((network_height, best_peer))
     }
 
+    /// Get network consensus with retry logic for reliability
+    async fn get_network_consensus_with_retry(
+        &self,
+        max_attempts: u32,
+    ) -> Result<(u64, String), String> {
+        let mut last_error = String::new();
+
+        for attempt in 1..=max_attempts {
+            match self.get_network_consensus().await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    last_error = e.clone();
+                    if attempt < max_attempts {
+                        let delay_secs = 5 * attempt;
+                        eprintln!(
+                            "      ⚠️  Attempt {}/{} failed: {}",
+                            attempt, max_attempts, e
+                        );
+                        eprintln!("      ⏳ Retrying in {} seconds...", delay_secs);
+                        tokio::time::sleep(Duration::from_secs(delay_secs as u64)).await;
+                    }
+                }
+            }
+        }
+
+        Err(format!(
+            "Failed to get network consensus after {} attempts: {}",
+            max_attempts, last_error
+        ))
+    }
+
     /// Get current sync status
     pub async fn get_sync_status(&self) -> Result<SyncStatus, String> {
         let our_height = self.get_local_height().await;
-        let (network_height, _) = match self.get_network_consensus().await {
+
+        // Use retry logic for reliability
+        let (network_height, _) = match self.get_network_consensus_with_retry(2).await {
             Ok(consensus) => consensus,
-            Err(_) => return Ok(SyncStatus::InSync),
+            Err(_) => {
+                // If we can't get consensus after retries, assume we're in sync
+                // This prevents false "behind" reports during network issues
+                return Ok(SyncStatus::InSync);
+            }
         };
 
         let gap = network_height.saturating_sub(our_height);
@@ -534,15 +577,30 @@ impl BlockchainSync {
             return Ok(());
         }
 
-        // Try to get network consensus
-        let (network_height, best_peer) = match self.get_network_consensus().await {
+        // Try to get network consensus with retry logic
+        let (network_height, best_peer) = match self.get_network_consensus_with_retry(3).await {
             Ok(consensus) => consensus,
             Err(e) => {
-                println!("      ⚠️  Fork check skipped: {}", e);
-                println!("      ℹ️  Will check again during sync");
-                return Ok(());
+                eprintln!("      ❌ Fork check failed after retries: {}", e);
+                eprintln!("      ⚠️  This could indicate network isolation or connectivity issues");
+                eprintln!("      ℹ️  Will retry on next sync cycle");
+                return Err(e);
             }
         };
+
+        println!(
+            "      📡 Network consensus: height {} from {}",
+            network_height, best_peer
+        );
+
+        // Check if we're ahead of network (potential fork)
+        if our_height > network_height {
+            eprintln!(
+                "      ⚠️  WARNING: We're ahead of network (our: {}, network: {})",
+                our_height, network_height
+            );
+            eprintln!("      🔍 Checking if we're on a fork...");
+        }
 
         self.detect_and_resolve_forks(&best_peer, our_height, network_height)
             .await

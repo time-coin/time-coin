@@ -1571,7 +1571,7 @@ impl BlockchainState {
         if let Some(target_block) = self.get_block_by_height(target_height) {
             let target_hash = target_block.hash.clone();
             let target_block_clone = target_block.clone();
-            
+
             self.chain_tip_hash = target_hash;
             self.chain_tip_height = target_height;
 
