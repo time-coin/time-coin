@@ -1176,8 +1176,10 @@ async fn main() {
     }
 
     // Create unified blockchain sync system
-    let blockchain_sync =
-        time_network::NetworkSyncManager::new(Arc::clone(&peer_manager), Arc::clone(&blockchain));
+    let blockchain_sync = Arc::new(time_network::NetworkSyncManager::new(
+        Arc::clone(&peer_manager),
+        Arc::clone(&blockchain),
+    ));
 
     // Warm the peer height cache if we have connections
     // This prevents the first sync call from timing out
@@ -1204,7 +1206,7 @@ async fn main() {
 
     // Start periodic sync (every 5 minutes)
     // BUT: Use more frequent syncs (30 seconds) for the first 10 minutes if blockchain is empty
-    let blockchain_sync_periodic = blockchain_sync;
+    let blockchain_sync_periodic = blockchain_sync.clone();
     let peer_manager_for_sync = Arc::clone(&peer_manager);
     let blockchain_for_sync = Arc::clone(&blockchain);
     tokio::spawn(async move {
@@ -1813,6 +1815,7 @@ async fn main() {
                             let conn_arc_clone = conn_arc.clone();
                             let peer_ip_listen = peer_ip;
                             let blockchain_listen = Arc::clone(&blockchain_clone);
+                            let blockchain_sync_listen = blockchain_sync.clone();
                             let block_consensus_listen = Arc::clone(&block_consensus_clone);
                             let wallet_address_listen = wallet_address_clone.clone();
                             let mempool_listen = Arc::clone(&mempool_clone);
@@ -1849,8 +1852,28 @@ async fn main() {
                                                     println!("📡 Peer {} announced new tip: block {} ({})",
                                                         peer_ip_listen, height, truncate_str(&hash, 16));
 
-                                                    // Note: Periodic sync (every 5 min) will catch up
-                                                    // No need for event-driven sync on every update
+                                                    // Check for fork: if peer's height is significantly different from ours
+                                                    let our_height = {
+                                                        let blockchain_guard = blockchain_listen.read().await;
+                                                        blockchain_guard.chain_tip_height()
+                                                    };
+
+                                                    if height > our_height + 1 {
+                                                        println!("🚨 Fork detected! Peer {} is at height {}, we're at {}",
+                                                            peer_ip_listen, height, our_height);
+                                                        println!("   ⚠️  Triggering immediate sync to resolve fork...");
+
+                                                        // Trigger immediate sync
+                                                        let sync_manager = blockchain_sync_listen.clone();
+
+                                                        tokio::spawn(async move {
+                                                            if let Err(e) = sync_manager.sync_on_join().await {
+                                                                println!("   ⚠️  Fork resolution sync failed: {}", e);
+                                                            } else {
+                                                                println!("   ✅ Fork resolved - chain synced");
+                                                            }
+                                                        });
+                                                    }
                                                 }
                                                 time_network::protocol::NetworkMessage::GetPeerList => {
                                                     // Respond with our known peers directly on this connection
