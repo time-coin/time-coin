@@ -41,7 +41,7 @@ pub use quarantine::{
     PeerQuarantine, QuarantineConfig, QuarantineReason, QuarantineSeverity, QuarantineStats,
 };
 pub use rate_limiter::{RateLimitError, RateLimiter, RateLimiterConfig};
-pub use sync::{BlockchainSync, SyncStatus}; // Unified sync API
+pub use sync::SyncStatus; // Unified sync API
 pub use sync_gate::SyncGate; // Export for consensus layer
 pub use sync_manager::{BlockSyncManager, ChainSyncManager, HeightSyncManager, NetworkSyncManager}; // Three-tier sync
 pub use sync_messages::SyncMessageHandler; // Sync message handler

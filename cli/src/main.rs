@@ -21,9 +21,7 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_network::{
-    BlockchainSync, NetworkType, PeerDiscovery, PeerListener, PeerManager, UpnpManager,
-};
+use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager, UpnpManager};
 
 use time_consensus::{ConsensusEngine, TransactionApprovalManager};
 
@@ -907,24 +905,16 @@ async fn main() {
         };
 
         // Create temporary blockchain sync for genesis download
-        let quarantine_temp = Arc::new(time_network::PeerQuarantine::new());
-        let temp_sync = BlockchainSync::new(
-            Arc::clone(&temp_blockchain),
+        let temp_sync = time_network::NetworkSyncManager::new(
             Arc::clone(&peer_manager),
-            Arc::clone(&quarantine_temp),
+            Arc::clone(&temp_blockchain),
         );
 
         // Try to download genesis block (height 0)
         println!("   📥 Attempting to download genesis block...");
-        match temp_sync.sync().await {
-            Ok(0) => {
+        match temp_sync.sync_on_join().await {
+            Ok(()) => {
                 println!("{}", "   ✅ Genesis block downloaded successfully!".green());
-            }
-            Ok(n) => {
-                println!(
-                    "{}",
-                    format!("   ✅ Downloaded {} block(s) including genesis!", n).green()
-                );
             }
             Err(e) => {
                 println!(
@@ -1225,19 +1215,15 @@ async fn main() {
     }
 
     // Create unified blockchain sync system
-    let blockchain_sync = BlockchainSync::new(
-        Arc::clone(&blockchain),
-        Arc::clone(&peer_manager),
-        Arc::clone(&quarantine),
-    );
+    let blockchain_sync =
+        time_network::NetworkSyncManager::new(Arc::clone(&peer_manager), Arc::clone(&blockchain));
 
     // Run initial sync
     println!("{}", "🔄 Syncing blockchain with network...".cyan());
 
     // Sync blocks (includes fork detection)
-    match blockchain_sync.sync().await {
-        Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
-        Ok(n) => println!("   {} ✅ Synced {} blocks", "✓".green(), n),
+    match blockchain_sync.sync_on_join().await {
+        Ok(()) => println!("   {}", "✓ Blockchain is up to date".green()),
         Err(e) => {
             println!(
                 "   {} Initial sync failed: {} (will retry periodically)",
@@ -1297,9 +1283,8 @@ async fn main() {
                 }
 
                 println!("🔄 Running aggressive chain sync...");
-                match blockchain_sync_periodic.sync().await {
-                    Ok(0) => {} // Already up to date
-                    Ok(n) => println!("   ✅ Synced {} blocks", n),
+                match blockchain_sync_periodic.sync_on_join().await {
+                    Ok(()) => println!("   ✅ Synced successfully"),
                     Err(e) => println!("   ⚠️  Sync failed: {} (will retry)", e),
                 }
             }
@@ -1312,9 +1297,8 @@ async fn main() {
             println!("🔄 Running periodic chain sync...");
 
             // Sync (includes fork detection)
-            match blockchain_sync_periodic.sync().await {
-                Ok(0) => {} // Already up to date, no output
-                Ok(n) => println!("   ✅ Synced {} blocks", n),
+            match blockchain_sync_periodic.sync_on_join().await {
+                Ok(()) => {} // Already up to date, no output
                 Err(e) => println!(
                     "   ⚠️  Sync failed: {}\n   ℹ️  Will retry on next sync interval (5 minutes)",
                     e
