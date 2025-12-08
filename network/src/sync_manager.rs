@@ -237,13 +237,25 @@ impl BlockSyncManager {
                 "requesting block"
             );
 
-            // TODO: Send BlockRequest message to peer and await BlockResponse
-            // This requires integration with the connection/message handler infrastructure
-            //
-            // Example implementation:
-            // if let Ok(Some(block)) = send_block_request(&peer.address.to_string(), height).await {
-            //     return Ok(block);
-            // }
+            // Use the existing request_block_by_height method
+            match self
+                .peer_manager
+                .request_block_by_height(&peer.address.to_string(), height)
+                .await
+            {
+                Ok(block) => {
+                    debug!(height, peer = %peer.address, "✅ received block");
+                    return Ok(block);
+                }
+                Err(e) => {
+                    debug!(height, peer = %peer.address, error = ?e, "❌ failed to get block");
+                    if retry == self.max_retries - 1 {
+                        return Err(NetworkError::BlockNotFound);
+                    }
+                    // Wait a bit before retry
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
         }
 
         Err(NetworkError::BlockNotFound)
