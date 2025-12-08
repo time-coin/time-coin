@@ -37,9 +37,12 @@ Quick navigation to all TIME Coin technical documentation.
 
 ## 🏗️ Architecture & Implementation
 
+- **[TIME_BASED_VALIDATION.md](TIME_BASED_VALIDATION.md)** - Time-based block validation system ⭐ **NEW**
+- **[PROOF_OF_TIME.md](PROOF_OF_TIME.md)** - VDF Proof-of-Time system
 - **[NETWORK_PROTOCOL.md](NETWORK_PROTOCOL.md)** - P2P network protocol details
 - **[WALLET_PROTOCOL_INTEGRATION.md](WALLET_PROTOCOL_INTEGRATION.md)** - Wallet integration guide
 - **[BLOCKCHAIN ARCHITECTURE](architecture/)** - Detailed architecture docs
+- **[UTXO_STORAGE.md](UTXO_STORAGE.md)** - UTXO storage implementation
 
 ## 💰 Economics & Governance
 
@@ -64,7 +67,9 @@ Quick navigation to all TIME Coin technical documentation.
 ## 🎯 Quick Links
 
 - **New to TIME Coin?** → [TIME_COIN_PROTOCOL.md](TIME_COIN_PROTOCOL.md)
-- **UTXO Protocol Details?** → [TIME_COIN_UTXO_PROTOCOL_SUMMARY.md](TIME_COIN_UTXO_PROTOCOL_SUMMARY.md) ⭐ **NEW**
+- **UTXO Protocol Details?** → [TIME_COIN_UTXO_PROTOCOL_SUMMARY.md](TIME_COIN_UTXO_PROTOCOL_SUMMARY.md) ⭐
+- **Time-Based Validation?** → [TIME_BASED_VALIDATION.md](TIME_BASED_VALIDATION.md) ⭐ **NEW**
+- **Proof-of-Time?** → [PROOF_OF_TIME.md](PROOF_OF_TIME.md)
 - **Need complete spec?** → [TIME-COIN-TECHNICAL-SPECIFICATION.md](TIME-COIN-TECHNICAL-SPECIFICATION.md)
 - **Academic research?** → [TIME_COIN_PROTOCOL_SPECIFICATION.md](TIME_COIN_PROTOCOL_SPECIFICATION.md)
 - **See demo?** → [tools/utxo-protocol-demo/](../tools/utxo-protocol-demo/)
@@ -73,10 +78,12 @@ Quick navigation to all TIME Coin technical documentation.
 
 ```
 docs/
-├── TIME_COIN_UTXO_PROTOCOL_SUMMARY.md    # ⭐ UTXO protocol summary (NEW)
+├── TIME_COIN_UTXO_PROTOCOL_SUMMARY.md    # ⭐ UTXO protocol summary
+├── TIME_BASED_VALIDATION.md              # ⭐ Time-based validation (NEW - Dec 2025)
 ├── TIME-COIN-TECHNICAL-SPECIFICATION.md  # Complete system spec v3.0
 ├── TIME_COIN_PROTOCOL_SPECIFICATION.md   # Formal mathematical spec
 ├── TIME_COIN_PROTOCOL.md                 # High-level overview
+├── PROOF_OF_TIME.md                      # VDF Proof-of-Time system
 ├── UTXO_STORAGE.md                       # UTXO storage implementation
 ├── NETWORK_PROTOCOL.md                   # Network details
 ├── architecture/                         # Architecture docs

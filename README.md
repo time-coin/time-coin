@@ -11,7 +11,8 @@ A next-generation cryptocurrency featuring 24-hour time blocks, instant transact
 ## Key features
 
 - ⚡ **Instant finality** — sub-3 second transaction confirmation via TIME Coin Protocol
-- ⏱️ **Proof-of-Time security** — VDF-based rollback protection (testnet: 10-min blocks, mainnet: 1-hour blocks)
+- ⏱️ **Time-based validation** — blocks validated against real-world time to prevent manipulation
+- 🔐 **Proof-of-Time security** — VDF-based rollback protection (testnet: 10-min blocks, mainnet: 1-hour blocks)
 - 🔷 **Deterministic consensus** — all nodes generate identical blocks, no single point of failure
 - 🏦 **UTXO model** — Bitcoin-compatible accounting with instant finality
 - 🔒 **Fork-resistant** — objective time-based chain selection prevents 51% rollback attacks
@@ -32,24 +33,31 @@ Transaction → UTXO Locked → Masternode Voting → 67%+ Consensus
 
 ## Architecture overview
 
-TIME separates transaction finality from block production:
+TIME separates transaction finality from block production with time-based validation:
 
 1. **Instant transactions** validated by masternodes in real time via TIME Coin Protocol
 2. **UTXO state tracking** prevents double-spends through immediate locking
-3. **Proof-of-Time blocks** provide objective immutable checkpoints
+3. **Time-based validation** ensures blocks match elapsed time since genesis
+   - Expected block height = (current_time - genesis_time) / block_time
+   - Testnet: 10-minute blocks (144 blocks/day expected)
+   - Mainnet: 1-hour blocks (24 blocks/day expected)
+   - Prevents nodes from claiming future blocks by manipulating system clock
+   - Auto-detects when node needs catch-up sync
+4. **Proof-of-Time blocks** provide objective immutable checkpoints
    - Testnet: 10-minute blocks with 2-minute VDF locks
    - Mainnet: 1-hour blocks with 5-minute VDF locks
    - Verifiable Delay Functions (VDF) prevent instant rollback attacks
-4. **Deterministic consensus**: all nodes independently generate identical blocks
+5. **Deterministic consensus**: all nodes independently generate identical blocks
    - No leader election or single point of failure
    - All nodes compare blocks with peers (<10 seconds)
    - 67% agreement threshold for instant finalization
    - Automatic reconciliation if differences detected
-5. **Fork resolution**: cumulative VDF time determines the canonical chain
+6. **Fork resolution**: cumulative VDF time + block height determines the canonical chain
    - Even 51% malicious masternodes cannot instant-rewrite history
    - Must invest actual time to create alternative chains
-6. **Masternode rewards**: block rewards distributed to masternodes by tier (with uptime requirements)
-7. **Treasury funding**: a portion of each block funds ecosystem development
+   - Cannot exceed time-based maximum block height
+7. **Masternode rewards**: block rewards distributed to masternodes by tier (with uptime requirements)
+8. **Treasury funding**: a portion of each block funds ecosystem development
 
 ## Masternode tiers
 
@@ -272,10 +280,25 @@ The node expands `$HOME` and `~` in config paths.
 
 ## Documentation
 
-- docs/whitepaper-technical.md — Technical whitepaper
-- docs/masternodes/setup-guide.md — Masternode setup guide
-- docs/api/README.md — API documentation
-- docs/architecture/README.md — Architecture overview
+Comprehensive documentation is available in the `/docs` directory:
+
+**Core Protocol:**
+- **[PROTOCOL_INDEX.md](docs/PROTOCOL_INDEX.md)** - Complete documentation index
+- **[TIME_COIN_UTXO_PROTOCOL_SUMMARY.md](docs/TIME_COIN_UTXO_PROTOCOL_SUMMARY.md)** - UTXO protocol summary
+- **[TIME_BASED_VALIDATION.md](docs/TIME_BASED_VALIDATION.md)** - Time-based validation system ⭐ **NEW**
+- **[PROOF_OF_TIME.md](docs/PROOF_OF_TIME.md)** - VDF Proof-of-Time system
+- **[TIME-COIN-TECHNICAL-SPECIFICATION.md](docs/TIME-COIN-TECHNICAL-SPECIFICATION.md)** - Technical specification v3.0
+
+**For Developers:**
+- [Building from Source](docs/BUILDING.md)
+- [Running a Masternode](docs/RUNNING_MASTERNODE.md)
+- [Wallet Integration](docs/WALLET_PROTOCOL_INTEGRATION.md)
+- [API Documentation](docs/api/README.md)
+- [Architecture Overview](docs/architecture/README.md)
+
+**Academic:**
+- [Technical Whitepaper](docs/whitepaper/Technical-Whitepaper-v3.0.md)
+- [Security Whitepaper](docs/whitepaper/Security-Whitepaper-V3.0.md)
 
 ## Contributing
 
