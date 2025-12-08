@@ -305,43 +305,31 @@ async fn sync_finalized_transactions_from_peers(
                     continue;
                 }
 
-                let mut blockchain_write = blockchain.write().await;
+                let blockchain_write = blockchain.write().await;
 
                 for (tx, _finalized_at) in transactions_with_timestamps {
-                    // Check if transaction outputs already exist in UTXO set
-                    // This prevents double-applying transactions that are in the snapshot
-                    let already_applied = tx.outputs.iter().enumerate().any(|(vout, _)| {
-                        let outpoint =
-                            time_core::transaction::OutPoint::new(tx.txid.clone(), vout as u32);
-                        blockchain_write.utxo_set().contains(&outpoint)
-                    });
+                    // DON'T apply finalized transactions to UTXO set
+                    // They will be applied when included in blocks
+                    // This prevents balance corruption during fork rollbacks
 
-                    if already_applied {
-                        // Transaction already in UTXO set, skip to avoid double-spend
-                        continue;
-                    }
-
-                    // Apply to UTXO set (TIME Coin uses UTXO-based consensus)
-                    match blockchain_write.utxo_set_mut().apply_transaction(&tx) {
-                        Ok(_) => {
-                            total_synced += 1;
-                        }
-                        Err(e) => {
-                            println!(
-                                "      ⚠️  Skipped tx {} ({})",
-                                truncate_str(&tx.txid, 16),
-                                e
-                            );
-                        }
+                    // Just save to database for reference and tracking
+                    if let Err(e) = blockchain_write.save_finalized_tx(&tx, 0, 0) {
+                        println!(
+                            "      ⚠️  Failed to save finalized tx {} ({})",
+                            truncate_str(&tx.txid, 16),
+                            e
+                        );
+                    } else {
+                        total_synced += 1;
                     }
                 }
 
                 if total_synced > 0 {
-                    println!("      ✓ Applied {} transactions", total_synced);
-                    // Save UTXO snapshot after applying synced transactions
-                    if let Err(e) = blockchain_write.save_utxo_snapshot() {
-                        println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
-                    }
+                    println!(
+                        "      ✓ Saved {} finalized transactions to database",
+                        total_synced
+                    );
+                    println!("      ℹ️  Transactions will be applied when included in blocks");
                 }
 
                 drop(blockchain_write);
@@ -2929,6 +2917,7 @@ async fn main() {
     let peer_mgr_heartbeat = peer_manager.clone();
     let mempool_heartbeat = mempool.clone();
     let tx_broadcaster_heartbeat = tx_broadcaster.clone();
+    let approval_manager_heartbeat = approval_manager.clone();
 
     loop {
         time::sleep(Duration::from_secs(60)).await;
@@ -3019,31 +3008,60 @@ async fn main() {
             );
         }
 
-        // Retry instant finality for pending transactions every 2 heartbeats (2 minutes)
-        // Spawn in background to avoid blocking heartbeat
-        if counter % 2 == 0 {
+        // Retry instant finality for pending transactions with exponential backoff
+        // Only rebroadcast if transaction has no approvals yet
+        // Every 5 heartbeats (5 minutes) instead of every 2 minutes
+        if counter % 5 == 0 {
             let mempool_clone = mempool_heartbeat.clone();
             let tx_broadcaster_clone = tx_broadcaster_heartbeat.clone();
+            let approval_manager_clone = approval_manager_heartbeat.clone();
 
             tokio::spawn(async move {
                 let pending_txs = mempool_clone.get_all_transactions().await;
-                if !pending_txs.is_empty() {
-                    println!(
-                        "   🔄 Retrying instant finality for {} pending transaction(s)...",
-                        pending_txs.len()
-                    );
+                if pending_txs.is_empty() {
+                    return;
+                }
 
-                    for tx in pending_txs {
-                        let txid = tx.txid.clone();
+                let mut rebroadcast_count = 0;
+                let now = chrono::Utc::now().timestamp();
+
+                for tx in pending_txs {
+                    let txid = tx.txid.clone();
+
+                    // Check if transaction has any approvals
+                    let approval_count = if let Some((approvals, _, _)) =
+                        approval_manager_clone.get_approval_stats(&txid).await
+                    {
+                        approvals
+                    } else {
+                        0
+                    };
+
+                    // Calculate transaction age in minutes
+                    let age_seconds = now - tx.timestamp;
+                    let age_minutes = age_seconds / 60;
+
+                    // Only rebroadcast if:
+                    // 1. No approvals yet, AND
+                    // 2. Age is small (first 5 minutes) OR is a power of 2 (exponential backoff), AND
+                    // 3. Not too old (max 30 minutes)
+                    let should_rebroadcast = approval_count == 0
+                        && age_minutes <= 30
+                        && (age_minutes <= 5 || (age_minutes & (age_minutes - 1)) == 0);
+
+                    if should_rebroadcast {
                         println!(
-                            "      ⚡ Re-broadcasting transaction {} to trigger voting...",
-                            truncate_str(&txid, 16)
+                            "      ⚡ Re-broadcasting tx {} (age: {}m, 0 approvals)",
+                            truncate_str(&txid, 16),
+                            age_minutes
                         );
-
-                        // Re-broadcast using tx_broadcaster - this will trigger instant finality
                         tx_broadcaster_clone.broadcast_transaction(tx).await;
-                        println!("         📡 Re-broadcasted to network");
+                        rebroadcast_count += 1;
                     }
+                }
+
+                if rebroadcast_count > 0 {
+                    println!("   🔄 Re-broadcasted {} transaction(s)", rebroadcast_count);
                 }
             });
         }
