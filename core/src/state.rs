@@ -1549,10 +1549,16 @@ impl BlockchainState {
             .copied()
             .collect();
 
-        // Remove blocks from memory and get their hashes for DB cleanup
+        // Remove blocks from memory and database
         for height in &blocks_to_remove {
             if let Some(hash) = self.blocks_by_height.remove(height) {
                 self.blocks.remove(&hash);
+
+                // CRITICAL FIX: Remove from database
+                if let Err(e) = self.db.delete_block(*height) {
+                    eprintln!("      ⚠️  Failed to remove block {} from DB: {}", height, e);
+                }
+
                 println!(
                     "      🗑️  Removed block {} (hash: {}...)",
                     height,
@@ -1563,7 +1569,10 @@ impl BlockchainState {
 
         // Update chain tip to target height
         if let Some(target_block) = self.get_block_by_height(target_height) {
-            self.chain_tip_hash = target_block.hash.clone();
+            let target_hash = target_block.hash.clone();
+            let target_block_clone = target_block.clone();
+            
+            self.chain_tip_hash = target_hash;
             self.chain_tip_height = target_height;
 
             // Rebuild UTXO set from scratch up to target height
@@ -1576,6 +1585,37 @@ impl BlockchainState {
                     for tx in &transactions {
                         self.utxo_set.apply_transaction(tx)?;
                     }
+                }
+            }
+
+            // CRITICAL FIX: Save UTXO snapshot after rollback
+            println!("      💾 Saving UTXO snapshot...");
+            self.save_utxo_snapshot()?;
+
+            // CRITICAL FIX: Verify target block exists in database
+            match self.db.load_block(target_height) {
+                Ok(Some(db_block)) => {
+                    if db_block.hash != target_block_clone.hash {
+                        eprintln!(
+                            "      ⚠️  WARNING: Block {} hash mismatch (memory vs DB)",
+                            target_height
+                        );
+                        eprintln!("         Memory: {}...", &target_block_clone.hash[..16]);
+                        eprintln!("         DB:     {}...", &db_block.hash[..16]);
+                        // Re-save the correct block
+                        self.db.save_block(&target_block_clone)?;
+                    }
+                }
+                Ok(None) => {
+                    eprintln!(
+                        "      ⚠️  WARNING: Block {} missing from DB after rollback, re-saving",
+                        target_height
+                    );
+                    // Save the target block to ensure it exists
+                    self.db.save_block(&target_block_clone)?;
+                }
+                Err(e) => {
+                    eprintln!("      ⚠️  Failed to verify block {}: {}", target_height, e);
                 }
             }
 

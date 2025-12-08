@@ -975,8 +975,12 @@ impl BlockProducer {
         println!("   🔷 Deterministic Consensus - all nodes generate identical block");
         println!("      Active masternodes: {}", masternodes.len());
 
-        // Get pending transactions
+        // Get pending transactions (sorted deterministically by txid in mempool)
         let mut transactions = self.mempool.get_all_transactions().await;
+        println!(
+            "   📋 Mempool contains {} transaction(s)",
+            transactions.len()
+        );
 
         // Handle approved treasury proposals
         if let Some(proposal_manager) = self.consensus.proposal_manager() {
@@ -1028,6 +1032,20 @@ impl BlockProducer {
         };
 
         println!("   📡 Creating block with BFT consensus...");
+
+        // Log transaction details for debugging
+        if !transactions.is_empty() {
+            println!(
+                "   📝 Block will include {} transaction(s):",
+                transactions.len()
+            );
+            for (i, tx) in transactions.iter().enumerate().take(5) {
+                println!("      {}. TX {}", i + 1, &tx.txid[..16]);
+            }
+            if transactions.len() > 5 {
+                println!("      ... and {} more", transactions.len() - 5);
+            }
+        }
 
         // Calculate total fees
         let total_fees = self.calculate_total_fees(&transactions).await;
@@ -2455,50 +2473,80 @@ impl BlockProducer {
             our_outputs_count
         );
 
-        // Fetch blocks from peers with timeout
-        let mut tasks = Vec::new();
-        for peer in peers.iter().take(5) {
-            let peer_manager = self.peer_manager.clone();
-            let peer = peer.clone();
-            let block_height = block_num;
+        // CRITICAL FIX: Wait for peers to create their blocks before requesting
+        // All nodes create blocks simultaneously, need time for creation + broadcast
+        println!("   ⏳ Waiting 8 seconds for peer block creation...");
+        tokio::time::sleep(Duration::from_secs(8)).await;
 
-            let task = tokio::spawn(async move {
-                match tokio::time::timeout(
-                    Duration::from_secs(2),
-                    peer_manager.request_block_by_height(&peer, block_height),
-                )
-                .await
-                {
-                    Ok(Ok(block)) => Some((peer, block)),
-                    _ => None,
-                }
-            });
-            tasks.push(task);
-        }
+        // Fetch blocks from peers with increased timeout and retry logic
+        const MAX_ATTEMPTS: usize = 3;
+        let mut peer_blocks: Vec<(String, time_core::block::Block)> = Vec::new();
 
-        let results =
-            match tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(tasks))
-                .await
+        for attempt in 1..=MAX_ATTEMPTS {
+            if attempt > 1 {
+                println!("   🔄 Retry attempt {}/{}", attempt, MAX_ATTEMPTS);
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+
+            let mut tasks = Vec::new();
+            for peer in peers.iter().take(5) {
+                let peer_manager = self.peer_manager.clone();
+                let peer = peer.clone();
+                let block_height = block_num;
+
+                let task = tokio::spawn(async move {
+                    match tokio::time::timeout(
+                        Duration::from_secs(5),
+                        peer_manager.request_block_by_height(&peer, block_height),
+                    )
+                    .await
+                    {
+                        Ok(Ok(block)) => Some((peer, block)),
+                        _ => None,
+                    }
+                });
+                tasks.push(task);
+            }
+
+            let results = match tokio::time::timeout(
+                Duration::from_secs(10),
+                futures::future::join_all(tasks),
+            )
+            .await
             {
                 Ok(results) => results,
                 Err(_) => {
-                    println!("   ⚠️  Block reconciliation timed out - using our block");
-                    return our_block;
+                    if attempt == MAX_ATTEMPTS {
+                        println!(
+                            "   ⚠️  Block reconciliation timed out after {} attempts",
+                            MAX_ATTEMPTS
+                        );
+                        return our_block;
+                    }
+                    continue;
                 }
             };
 
-        // Count matching blocks
-        let mut peer_blocks: Vec<(String, time_core::block::Block)> = Vec::new();
-        for result in results {
-            if let Ok(Some((peer, block))) = result {
-                peer_blocks.push((peer, block));
+            for result in results {
+                if let Ok(Some((peer, block))) = result {
+                    peer_blocks.push((peer, block));
+                }
+            }
+
+            if !peer_blocks.is_empty() {
+                break;
             }
         }
 
         if peer_blocks.is_empty() {
-            println!("   ℹ️  No peer blocks received - using our block");
+            println!(
+                "   ℹ️  No peer blocks received after {} attempts - using our block",
+                MAX_ATTEMPTS
+            );
             return our_block;
         }
+
+        println!("   ✓ Received {} peer block(s)", peer_blocks.len());
 
         // Find consensus block (most common)
         let mut block_votes: std::collections::HashMap<String, (usize, time_core::block::Block)> =

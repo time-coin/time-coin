@@ -138,6 +138,15 @@ impl BlockchainDB {
         Ok(())
     }
 
+    /// Delete a block from disk
+    pub fn delete_block(&self, height: u64) -> Result<(), StateError> {
+        let key = format!("block:{}", height);
+        self.db
+            .remove(key.as_bytes())
+            .map_err(|e| StateError::IoError(format!("Failed to delete block: {}", e)))?;
+        Ok(())
+    }
+
     /// Load a block from disk by height
     pub fn load_block(&self, height: u64) -> Result<Option<Block>, StateError> {
         let key = format!("block:{}", height);

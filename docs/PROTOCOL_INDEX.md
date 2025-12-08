@@ -4,34 +4,36 @@ Quick navigation to all TIME Coin technical documentation.
 
 ## 📚 Core Technical Documents
 
-### 1. **[TIME-COIN-TECHNICAL-SPECIFICATION.md](TIME-COIN-TECHNICAL-SPECIFICATION.md)** ⭐ **COMPREHENSIVE SPEC**
-   - **Complete technical specification** (consolidated)
-   - Protocol architecture and design
-   - UTXO model and instant finality mechanism
-   - Masternode BFT consensus
-   - Economic model and governance
+### 1. **[TIME_COIN_UTXO_PROTOCOL_SUMMARY.md](TIME_COIN_UTXO_PROTOCOL_SUMMARY.md)** ⭐ **AUTHORITATIVE SUMMARY**
+   - **Comprehensive UTXO protocol summary** (NEW - December 2025)
+   - Synthesizes all protocol documentation
+   - Complete UTXO model specification
+   - Instant finality mechanism details
+   - Masternode BFT consensus with deterministic blocks
    - Security analysis and proofs
-   - Implementation specifications
-   - **Start here for complete understanding**
+   - Implementation guidelines with code examples
+   - Performance benchmarks
+   - **Recommended starting point for developers**
 
-### 2. **[TIME_COIN_PROTOCOL_SPECIFICATION.md](TIME_COIN_PROTOCOL_SPECIFICATION.md)** 🔬 **FORMAL SPEC**
+### 2. **[TIME-COIN-TECHNICAL-SPECIFICATION.md](TIME-COIN-TECHNICAL-SPECIFICATION.md)** 📖 **COMPREHENSIVE SPEC**
+   - Complete technical specification v3.0
+   - Protocol architecture and design
+   - Economic model and governance
+   - Treasury and voting systems
+   - **For complete system understanding**
+
+### 3. **[TIME_COIN_PROTOCOL_SPECIFICATION.md](TIME_COIN_PROTOCOL_SPECIFICATION.md)** 🔬 **FORMAL SPEC**
    - Mathematical specification
    - UTXO state machine formal definition
    - BFT consensus proofs
    - Security theorems
    - **For academic/research purposes**
 
-### 3. **[TIME_COIN_PROTOCOL.md](TIME_COIN_PROTOCOL.md)** 📖 **OVERVIEW**
+### 4. **[TIME_COIN_PROTOCOL.md](TIME_COIN_PROTOCOL.md)** 📘 **OVERVIEW**
    - High-level protocol overview
    - Key features and innovations
    - Use cases and examples
    - **For quick understanding**
-
-### 4. **[TIME_COIN_PROTOCOL_QUICKSTART.md](TIME_COIN_PROTOCOL_QUICKSTART.md)** ⚡ **QUICK START**
-   - 5-minute quick start guide
-   - Basic code examples
-   - Integration snippets
-   - **For developers getting started**
 
 ## 🏗️ Architecture & Implementation
 
@@ -62,8 +64,8 @@ Quick navigation to all TIME Coin technical documentation.
 ## 🎯 Quick Links
 
 - **New to TIME Coin?** → [TIME_COIN_PROTOCOL.md](TIME_COIN_PROTOCOL.md)
+- **UTXO Protocol Details?** → [TIME_COIN_UTXO_PROTOCOL_SUMMARY.md](TIME_COIN_UTXO_PROTOCOL_SUMMARY.md) ⭐ **NEW**
 - **Need complete spec?** → [TIME-COIN-TECHNICAL-SPECIFICATION.md](TIME-COIN-TECHNICAL-SPECIFICATION.md)
-- **Want to build?** → [TIME_COIN_PROTOCOL_QUICKSTART.md](TIME_COIN_PROTOCOL_QUICKSTART.md)
 - **Academic research?** → [TIME_COIN_PROTOCOL_SPECIFICATION.md](TIME_COIN_PROTOCOL_SPECIFICATION.md)
 - **See demo?** → [tools/utxo-protocol-demo/](../tools/utxo-protocol-demo/)
 
@@ -71,13 +73,18 @@ Quick navigation to all TIME Coin technical documentation.
 
 ```
 docs/
-├── TIME-COIN-TECHNICAL-SPECIFICATION.md  # Main consolidated spec
+├── TIME_COIN_UTXO_PROTOCOL_SUMMARY.md    # ⭐ UTXO protocol summary (NEW)
+├── TIME-COIN-TECHNICAL-SPECIFICATION.md  # Complete system spec v3.0
 ├── TIME_COIN_PROTOCOL_SPECIFICATION.md   # Formal mathematical spec
 ├── TIME_COIN_PROTOCOL.md                 # High-level overview
-├── TIME_COIN_PROTOCOL_QUICKSTART.md      # Quick start guide
+├── UTXO_STORAGE.md                       # UTXO storage implementation
 ├── NETWORK_PROTOCOL.md                   # Network details
 ├── architecture/                         # Architecture docs
 ├── governance/                           # Governance docs
 ├── treasury/                            # Treasury docs
-└── whitepaper/                          # Academic papers
+├── whitepaper/                          # Academic papers
+└── archive/                             # Archived/obsolete docs
+    ├── completed-implementations/       # Completed task docs
+    ├── planning/                        # Planning documents
+    └── submissions/                     # Submission materials
 ```

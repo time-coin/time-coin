@@ -79,6 +79,9 @@ pub enum NetworkError {
     #[error("Snapshot verification failed: {0}")]
     SnapshotVerificationFailed(String),
 
+    #[error("Sync failed: {0}")]
+    SyncFailed(String),
+
     #[error("Feature not yet implemented")]
     NotImplemented,
 }
