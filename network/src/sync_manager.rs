@@ -40,6 +40,7 @@ struct CachedHeights {
 /// Tier 1: Lightweight height synchronization
 pub struct HeightSyncManager {
     peer_manager: Arc<PeerManager>,
+    blockchain: Arc<RwLock<BlockchainState>>,
     consensus_threshold: f64,
     #[allow(dead_code)]
     timeout_secs: u64,
@@ -85,9 +86,10 @@ pub struct PeerHeightInfo {
 }
 
 impl HeightSyncManager {
-    pub fn new(peer_manager: Arc<PeerManager>) -> Self {
+    pub fn new(peer_manager: Arc<PeerManager>, blockchain: Arc<RwLock<BlockchainState>>) -> Self {
         Self {
             peer_manager,
+            blockchain,
             consensus_threshold: 0.67,
             timeout_secs: 30,
             max_gap: 5,
@@ -260,8 +262,59 @@ impl HeightSyncManager {
 
         info!(our_height, consensus_height, gap, "height consensus found");
 
+        // CRITICAL: Even when heights match, check for forks!
+        if gap == 0 {
+            info!("Heights match - running fork detection");
+
+            // Check if we're on the same chain as peers by comparing hashes
+            let our_hash = {
+                let blockchain = self.blockchain.read().await;
+                blockchain
+                    .get_block_by_height(our_height)
+                    .map(|b| b.hash.clone())
+            };
+
+            if let Some(our_hash) = our_hash {
+                // Check if any peer has a different hash at our height
+                let mut fork_detected = false;
+                for peer_info in &peer_heights {
+                    // Request block at our height from this peer
+                    match self
+                        .peer_manager
+                        .request_block_by_height(&peer_info.address, our_height)
+                        .await
+                    {
+                        Ok(peer_block) => {
+                            if peer_block.hash != our_hash {
+                                warn!(
+                                    our_height,
+                                    our_hash = &our_hash[..16],
+                                    peer_hash = &peer_block.hash[..16],
+                                    peer = %peer_info.address,
+                                    "🚨 FORK DETECTED at current height!"
+                                );
+                                fork_detected = true;
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            debug!(peer = %peer_info.address, error = ?e, "failed to get block for fork check");
+                        }
+                    }
+                }
+
+                if fork_detected {
+                    // Return Critical status to trigger full fork resolution
+                    return Ok(SyncStatus::Critical(
+                        "Fork detected at current height".to_string(),
+                    ));
+                }
+            }
+
+            return Ok(SyncStatus::InSync);
+        }
+
         Ok(match gap {
-            0 => SyncStatus::InSync,
             1..=5 => SyncStatus::SmallGap(gap),
             6..=100 => SyncStatus::MediumGap(gap),
             101..=1000 => SyncStatus::LargeGap(gap),
@@ -500,7 +553,7 @@ impl ChainSyncManager {
 impl NetworkSyncManager {
     pub fn new(peer_manager: Arc<PeerManager>, blockchain: Arc<RwLock<BlockchainState>>) -> Self {
         Self {
-            height_sync: HeightSyncManager::new(peer_manager.clone()),
+            height_sync: HeightSyncManager::new(peer_manager.clone(), blockchain.clone()),
             block_sync: BlockSyncManager::new(peer_manager.clone(), blockchain.clone()),
             chain_sync: ChainSyncManager::new(peer_manager, blockchain.clone()),
             blockchain,
@@ -569,11 +622,33 @@ impl NetworkSyncManager {
                 }
             }
             SyncStatus::Critical(reason) => {
-                error!(
-                    reason,
-                    "critical sync issue - tier 3 manual resync required"
-                );
-                Ok(false) // Pause production
+                error!(reason, "critical sync issue detected");
+
+                // If it's a fork, try to resolve it
+                if reason.contains("Fork detected") {
+                    info!("attempting automatic fork resolution");
+
+                    // Use BlockchainSync from sync module for fork resolution
+                    let sync = crate::sync::BlockchainSync::new(
+                        Arc::clone(&self.blockchain),
+                        self.height_sync.peer_manager.clone(),
+                        self.height_sync.peer_manager.quarantine(),
+                    );
+
+                    match sync.detect_and_resolve_forks_public().await {
+                        Ok(_) => {
+                            info!("fork resolved successfully");
+                            Ok(true) // Allow production after fork resolution
+                        }
+                        Err(e) => {
+                            error!(error = %e, "fork resolution failed");
+                            Ok(false) // Pause production
+                        }
+                    }
+                } else {
+                    error!("manual resync required");
+                    Ok(false) // Pause production
+                }
             }
         }
     }
@@ -780,9 +855,17 @@ mod tests {
 
     #[test]
     fn test_consensus_height_calculation() {
-        let manager = HeightSyncManager::new(Arc::new(PeerManager::new(
-            std::net::SocketAddr::from(([127, 0, 0, 1], 8000)),
+        let blockchain = Arc::new(RwLock::new(BlockchainState::new(
+            NetworkType::Testnet,
+            std::path::PathBuf::from("/tmp/test_blockchain"),
         )));
+        let manager = HeightSyncManager::new(
+            Arc::new(PeerManager::new(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8000,
+            )))),
+            blockchain,
+        );
 
         let peer_heights = vec![
             PeerHeightInfo {
@@ -809,9 +892,17 @@ mod tests {
 
     #[test]
     fn test_no_consensus() {
-        let manager = HeightSyncManager::new(Arc::new(PeerManager::new(
-            std::net::SocketAddr::from(([127, 0, 0, 1], 8000)),
+        let blockchain = Arc::new(RwLock::new(BlockchainState::new(
+            NetworkType::Testnet,
+            std::path::PathBuf::from("/tmp/test_blockchain"),
         )));
+        let manager = HeightSyncManager::new(
+            Arc::new(PeerManager::new(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8000,
+            )))),
+            blockchain,
+        );
 
         let peer_heights = vec![
             PeerHeightInfo {

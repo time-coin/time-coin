@@ -138,6 +138,11 @@ impl PeerManager {
         self.rate_limiter.clone()
     }
 
+    /// Get quarantine for fork resolution
+    pub fn quarantine(&self) -> Arc<crate::quarantine::PeerQuarantine> {
+        self.quarantine.clone()
+    }
+
     /// Get connection pool statistics
     /// UNIFIED POOL: Single lock to gather all stats
     pub async fn get_pool_stats(&self) -> PoolStats {
