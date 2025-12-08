@@ -195,22 +195,30 @@ impl HeightSyncManager {
         &self,
         our_height: u64,
     ) -> Result<SyncStatus, NetworkError> {
-        info!(height = our_height, "starting tier 1 height sync");
+        info!(
+            height = our_height,
+            "🔄 Starting tier 1 height sync (timeout: {}s)", self.timeout_secs
+        );
 
+        info!("📞 About to call query_peer_heights()...");
         let query_result = timeout(
             Duration::from_secs(self.timeout_secs),
             self.query_peer_heights(),
         )
         .await;
+        info!("📞 query_peer_heights() returned");
 
         let peer_heights = match query_result {
-            Ok(Ok(heights)) => heights,
+            Ok(Ok(heights)) => {
+                info!("✅ Query succeeded with {} peer height(s)", heights.len());
+                heights
+            }
             Ok(Err(e)) => {
-                warn!(error = ?e, "failed to query peer heights");
+                error!("❌ Query failed: {:?}", e);
                 return Err(e);
             }
             Err(_) => {
-                warn!("tier 1 sync timeout after {}s", self.timeout_secs);
+                error!("⏱️  Query timeout after {}s", self.timeout_secs);
                 return Err(NetworkError::Timeout);
             }
         };
