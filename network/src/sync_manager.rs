@@ -107,6 +107,13 @@ impl HeightSyncManager {
         }
     }
 
+    /// Clear the cached peer heights (forces fresh query on next call)
+    pub async fn clear_cache(&self) {
+        let mut cache = self.height_cache.lock().await;
+        *cache = None;
+        debug!("🗑️  Cleared peer height cache");
+    }
+
     /// Query all peers for their current height (with 30-second cache)
     pub async fn query_peer_heights(&self) -> Result<Vec<PeerHeightInfo>, NetworkError> {
         // Check cache first
@@ -404,7 +411,59 @@ impl BlockSyncManager {
         Ok(())
     }
 
-    /// Synchronize blocks from our height to target height (Tier 2)
+    /// Download blocks in bulk (no gap limit) - for initial sync
+    pub async fn download_full_chain(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<(), NetworkError> {
+        let gap = to_height.saturating_sub(from_height);
+        info!(
+            from = from_height,
+            to = to_height,
+            gap,
+            "🔄 Starting full chain download"
+        );
+
+        if gap == 0 {
+            return Ok(());
+        }
+
+        for height in (from_height + 1)..=to_height {
+            if height % 100 == 0 || height == to_height {
+                info!(height, total = to_height, "📥 Downloading blocks...");
+            }
+
+            let block = timeout(
+                Duration::from_secs(self.timeout_per_block),
+                self.request_block_from_peers(height),
+            )
+            .await
+            .map_err(|_| {
+                error!(
+                    height,
+                    "⏱️ Timeout downloading block after {}s", self.timeout_per_block
+                );
+                NetworkError::Timeout
+            })??;
+
+            // Validate block (allows historical blocks, rejects future blocks)
+            self.validate_block(&block)?;
+
+            // Store block
+            let mut blockchain = self.blockchain.write().await;
+            blockchain.add_block(block.clone())?;
+            drop(blockchain);
+        }
+
+        info!(
+            synced_blocks = gap,
+            "✅ Full chain download complete - {} blocks downloaded", gap
+        );
+        Ok(())
+    }
+
+    /// Synchronize blocks from our height to target height (Tier 2 - small gaps only)
     pub async fn catch_up_to_consensus(
         &self,
         from_height: u64,
@@ -578,6 +637,12 @@ impl NetworkSyncManager {
         self.height_sync.warm_cache().await;
     }
 
+    /// Clear the peer height cache (forces fresh query on next sync check)
+    /// Call this after producing a block to ensure fork detection uses fresh data
+    pub async fn clear_cache(&self) {
+        self.height_sync.clear_cache().await;
+    }
+
     /// Sync before block production (Tier 1 -> Tier 2 escalation)
     pub async fn sync_before_production(&self) -> Result<bool, NetworkError> {
         let our_height = {
@@ -668,14 +733,40 @@ impl NetworkSyncManager {
 
     /// Sync when node is joining network
     pub async fn sync_on_join(&self) -> Result<(), NetworkError> {
-        let our_height = {
+        let (our_height, has_genesis) = {
             let blockchain = self.blockchain.read().await;
-            blockchain.chain_tip_height()
+            let height = blockchain.chain_tip_height();
+            let has_genesis = height > 0 || !blockchain.genesis_hash().is_empty();
+            (height, has_genesis)
         };
 
-        info!(height = our_height, "syncing on network join");
+        info!(height = our_height, has_genesis, "syncing on network join");
 
-        // First check how far behind we are
+        // If we have no genesis, we need to download the full chain
+        if !has_genesis {
+            info!("no genesis block - will download full chain from peers");
+
+            // Query network height
+            let peers = self.height_sync.query_peer_heights().await?;
+            if peers.is_empty() {
+                return Err(NetworkError::NoPeersAvailable);
+            }
+
+            let consensus_height = self.height_sync.find_consensus_height(&peers)?;
+
+            info!(
+                consensus_height,
+                "downloading full chain from genesis to network height"
+            );
+
+            // Download all blocks (no gap limit)
+            return self
+                .block_sync
+                .download_full_chain(0, consensus_height)
+                .await;
+        }
+
+        // Normal sync for nodes with genesis
         let status = self
             .height_sync
             .check_and_catchup_small_gaps(our_height)
@@ -686,18 +777,36 @@ impl NetworkSyncManager {
                 info!("already in sync");
                 Ok(())
             }
-            SyncStatus::SmallGap(gap) | SyncStatus::MediumGap(gap) | SyncStatus::LargeGap(gap) => {
+            SyncStatus::SmallGap(gap) | SyncStatus::MediumGap(gap) => {
                 let target_height = our_height + gap;
+                info!(gap, "downloading {} blocks", gap);
                 self.block_sync
                     .catch_up_to_consensus(our_height, target_height)
+                    .await
+            }
+            SyncStatus::LargeGap(gap) => {
+                warn!(gap, "large gap - using full chain download");
+                let target_height = our_height + gap;
+                self.block_sync
+                    .download_full_chain(our_height, target_height)
                     .await
             }
             SyncStatus::Critical(reason) => {
                 error!(
                     reason,
-                    "critical gap detected on join - manual tier 3 resync required"
+                    "critical gap detected on join - attempting full download"
                 );
-                Err(NetworkError::CriticalSyncRequired)
+
+                // Try to get network height and download
+                let peers = self.height_sync.query_peer_heights().await?;
+                if peers.is_empty() {
+                    return Err(NetworkError::NoPeersAvailable);
+                }
+
+                let consensus_height = self.height_sync.find_consensus_height(&peers)?;
+                self.block_sync
+                    .download_full_chain(our_height, consensus_height)
+                    .await
             }
         }
     }

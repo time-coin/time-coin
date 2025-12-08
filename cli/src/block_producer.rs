@@ -231,7 +231,8 @@ impl BlockProducer {
         };
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            // Run every 2 minutes to ensure we catch up faster than blocks are produced (10 min intervals)
+            let mut interval = tokio::time::interval(Duration::from_secs(120));
             interval.tick().await;
             loop {
                 interval.tick().await;
@@ -247,17 +248,69 @@ impl BlockProducer {
     async fn catch_up_missed_blocks(&self) {
         let _now = Utc::now();
 
-        // Get genesis date from blockchain state
-        let blockchain = self.blockchain.read().await;
-        let genesis_block = match blockchain.get_block_by_height(0) {
-            Some(block) => block.clone(),
-            None => {
-                // No genesis block yet - node is still syncing
-                println!("⏳ Waiting for genesis block to be downloaded...");
-                drop(blockchain);
-                return; // Exit catch-up, will retry on next cycle
-            }
+        // Check if we have genesis block
+        let has_genesis = {
+            let blockchain = self.blockchain.read().await;
+            blockchain.get_block_by_height(0).is_some()
         };
+
+        // If no genesis, attempt to download it
+        if !has_genesis {
+            println!("⏳ No genesis block - attempting to download from peers...");
+
+            // Try to download from peers
+            let peers = self.peer_manager.get_peer_ips().await;
+            if peers.is_empty() {
+                println!("   ⚠️  No peers available to download genesis from");
+                return;
+            }
+
+            for peer_ip in peers.iter().take(3) {
+                let p2p_port = match self.peer_manager.network {
+                    time_network::discovery::NetworkType::Mainnet => 24000,
+                    time_network::discovery::NetworkType::Testnet => 24100,
+                };
+                let peer_addr = format!("{}:{}", peer_ip, p2p_port);
+
+                println!("   🔗 Trying to download genesis from {}...", peer_ip);
+
+                match self
+                    .peer_manager
+                    .request_block_by_height(&peer_addr, 0)
+                    .await
+                {
+                    Ok(genesis_block) => {
+                        // Add genesis to blockchain
+                        let mut blockchain = self.blockchain.write().await;
+                        match blockchain.add_block(genesis_block.clone()) {
+                            Ok(_) => {
+                                println!("   ✅ Genesis block downloaded and added!");
+                                break;
+                            }
+                            Err(e) => {
+                                println!("   ⚠️  Failed to add genesis block: {}", e);
+                                continue;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("   ⚠️  Failed to download genesis from {}: {}", peer_ip, e);
+                        continue;
+                    }
+                }
+            }
+
+            // Check again if we got genesis
+            let blockchain = self.blockchain.read().await;
+            if blockchain.get_block_by_height(0).is_none() {
+                println!("   ⚠️  Failed to download genesis - will retry next cycle");
+                return;
+            }
+        }
+
+        // Now we have genesis, get it for timestamp info
+        let blockchain = self.blockchain.read().await;
+        let genesis_block = blockchain.get_block_by_height(0).unwrap().clone();
         drop(blockchain);
 
         let _genesis_timestamp = genesis_block.header.timestamp.timestamp();
@@ -377,9 +430,21 @@ impl BlockProducer {
 
             let mut synced_any = false;
 
-            // If we're at genesis (height 0), try to download the entire chain from one valid peer
+            // Check if we have genesis block
+            let has_genesis = self
+                .blockchain
+                .read()
+                .await
+                .get_block_by_height(0)
+                .is_some();
+
+            // If we don't have genesis or are at genesis height, try to download the entire chain from one valid peer
             if current_height == 0 {
-                println!("      🔄 At genesis - attempting full chain sync from longest chain...");
+                if has_genesis {
+                    println!("      🔄 At genesis height - attempting chain sync from height 1...");
+                } else {
+                    println!("      🔄 No genesis found - attempting full chain download from network...");
+                }
 
                 // Find peers with the longest valid chain
                 let mut peer_heights: Vec<(String, u64)> = Vec::new();
@@ -417,9 +482,10 @@ impl BlockProducer {
                     };
                     let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
-                    // Download blocks from genesis to sync_to_height
+                    // Download blocks from appropriate starting height
+                    let start_height = if has_genesis { 1 } else { 0 };
                     let mut downloaded_count = 0;
-                    for height in 0..=sync_to_height {
+                    for height in start_height..=sync_to_height {
                         match self
                             .peer_manager
                             .request_block_by_height(&peer_addr, height)
@@ -1181,6 +1247,12 @@ impl BlockProducer {
                 // Broadcast via UpdateTip message
                 let masternodes = self.consensus.get_masternodes().await;
                 self.broadcast_finalized_block(&block, &masternodes).await;
+
+                // Clear peer height cache to force fresh queries on next sync check
+                // This ensures fork detection gets up-to-date peer heights
+                if let Some(sync_manager) = &self.sync_manager {
+                    sync_manager.clear_cache().await;
+                }
             }
             Err(e) => {
                 println!("   ❌ Failed to add block {}: {:?}", block_num, e);
