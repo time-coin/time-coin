@@ -810,6 +810,37 @@ impl PeerManager {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::time::timeout;
 
+        let peer_ip = peer_addr.ip();
+
+        // Try stored TCP connection first
+        let conn_arc = {
+            let connections = self.connections.read().await;
+            connections.get(&peer_ip).map(|u| u.connection.clone())
+        };
+
+        if let Some(conn_arc) = conn_arc {
+            let mut conn = conn_arc.lock().await;
+
+            // Use request_response for better reliability
+            let timeout_duration = std::time::Duration::from_secs(timeout_secs);
+            match conn
+                .request_response(message.clone(), timeout_duration)
+                .await
+            {
+                Ok(response) => {
+                    drop(conn);
+                    self.peer_seen(peer_ip).await;
+                    return Ok(Some(response));
+                }
+                Err(e) => {
+                    // Connection failed, remove it and fall through to create new one
+                    debug!(peer = %peer_ip, error = %e, "Stored connection failed, creating new one");
+                    drop(conn);
+                    self.remove_dead_connection(peer_ip).await;
+                }
+            }
+        }
+
         // Create new connection for request-response pattern
         let mut stream = tokio::net::TcpStream::connect(peer_addr)
             .await

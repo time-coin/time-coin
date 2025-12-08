@@ -16,7 +16,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Get node directory
-NODE_DIR="${NODE_DIR:-/root/time-coin-node}"
+NODE_DIR="${NODE_DIR:-$HOME/.timecoin}"
 
 if [ ! -d "$NODE_DIR" ]; then
     echo "❌ Node directory not found: $NODE_DIR"

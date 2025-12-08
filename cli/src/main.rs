@@ -21,7 +21,9 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager, UpnpManager, BlockchainSync};
+use time_network::{
+    BlockchainSync, NetworkType, PeerDiscovery, PeerListener, PeerManager, UpnpManager,
+};
 
 use time_consensus::{ConsensusEngine, TransactionApprovalManager};
 

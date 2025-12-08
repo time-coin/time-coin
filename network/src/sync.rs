@@ -74,15 +74,16 @@ impl BlockchainSync {
 
         let our_height = self.get_local_height().await;
         let current_time = current_timestamp();
-        
+
         // Calculate time-based expected height
-        let expected_height = self.time_validator
+        let expected_height = self
+            .time_validator
             .calculate_expected_height(current_time)
             .map_err(|e| format!("Time calculation error: {}", e))?;
 
         // Use retry logic for getting network consensus
         let (network_height, best_peer) = self.get_network_consensus_with_retry(3).await?;
-        
+
         println!("   📊 Heights:");
         println!("      Current:  {} blocks", our_height);
         println!("      Expected: {} blocks (time-based)", expected_height);
@@ -90,10 +91,12 @@ impl BlockchainSync {
 
         // Determine target height
         let target_height = network_height.max(expected_height);
-        
+
         if target_height > network_height {
-            println!("   ⚠️  WARNING: Time-based expectation ({}) exceeds network ({})", 
-                     expected_height, network_height);
+            println!(
+                "   ⚠️  WARNING: Time-based expectation ({}) exceeds network ({})",
+                expected_height, network_height
+            );
             println!("      Network may be falling behind schedule!");
             println!("      Will sync to network height: {}", network_height);
         }
@@ -101,8 +104,10 @@ impl BlockchainSync {
         if our_height >= target_height {
             // Check if we're behind time expectations even though caught up with network
             if our_height < expected_height {
-                println!("   ⚠️  Synced with network but {} blocks behind time expectation", 
-                         expected_height - our_height);
+                println!(
+                    "   ⚠️  Synced with network but {} blocks behind time expectation",
+                    expected_height - our_height
+                );
             }
             println!("   ✓ Blockchain is up to date (height: {})", our_height);
             return Ok(0);
@@ -110,7 +115,7 @@ impl BlockchainSync {
 
         let gap = target_height - our_height;
         println!("   📊 Gap: {} blocks", gap);
-        
+
         if gap > 100 {
             println!("   🔄 CATCH-UP MODE: Significantly behind ({} blocks)", gap);
         }

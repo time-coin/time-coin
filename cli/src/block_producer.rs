@@ -877,21 +877,27 @@ impl BlockProducer {
                     return;
                 }
                 Err(e) => {
-                    // Allow block production if error is just "No peers available"
-                    // This happens when all nodes are synced to same height
-                    if e.to_string().contains("No peers available") {
+                    let error_str = e.to_string();
+
+                    // CRITICAL: Never allow block production if we can't verify network height
+                    // "No peers responded" or "No peers available" means we don't know if we're behind
+                    if error_str.contains("No peers responded")
+                        || error_str.contains("No peers available")
+                        || error_str.contains("NoConsensusReached")
+                    {
                         println!(
-                            "   ⚠️  Sync check failed ({}), but continuing with block production",
+                            "   ⚠️  Skipping block production - cannot verify network height: {}",
                             e
                         );
-                        println!(
-                            "   ℹ️  All nodes may be at same height - network needs new blocks"
-                        );
-                    } else {
-                        println!("   ⚠️  Skipping block production - sync error: {}", e);
-                        println!("   ℹ️  Will retry on next block round");
+                        println!("   ℹ️  Must sync with network before producing blocks");
+                        println!("   ℹ️  Ensure other nodes are online and responding to GetBlockchainInfo");
                         return;
                     }
+
+                    // For other sync errors, also skip block production
+                    println!("   ⚠️  Skipping block production - sync error: {}", e);
+                    println!("   ℹ️  Will retry on next block round");
+                    return;
                 }
             }
         }

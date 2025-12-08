@@ -85,22 +85,37 @@ impl HeightSyncManager {
     /// Query all peers for their current height
     pub async fn query_peer_heights(&self) -> Result<Vec<PeerHeightInfo>, NetworkError> {
         let peers = self.peer_manager.get_connected_peers().await;
-        let heights = Vec::new();
+        let mut heights = Vec::new();
 
         for peer in &peers {
             debug!(peer = %peer.address, "querying height");
 
-            // TODO: Send HeightRequest message to peer and await HeightResponse
-            // This requires integration with the connection/message handler infrastructure
-            // For now, we return empty to allow compilation
-            //
-            // Example implementation:
-            // if let Ok(response) = send_height_request(&peer.address.to_string()).await {
-            //     heights.push(PeerHeightInfo {
-            //         address: peer.address.to_string(),
-            //         height: response.0,
-            //     });
-            // }
+            // Query blockchain info from peer with timeout
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                self.peer_manager
+                    .request_blockchain_info(&peer.address.to_string()),
+            )
+            .await;
+
+            match result {
+                Ok(Ok(Some(height))) => {
+                    heights.push(PeerHeightInfo {
+                        address: peer.address.to_string(),
+                        height,
+                    });
+                    debug!(peer = %peer.address, height, "received height");
+                }
+                Ok(Ok(None)) => {
+                    debug!(peer = %peer.address, "peer has no genesis");
+                }
+                Ok(Err(e)) => {
+                    debug!(peer = %peer.address, error = ?e, "failed to query");
+                }
+                Err(_) => {
+                    debug!(peer = %peer.address, "query timeout");
+                }
+            }
         }
 
         Ok(heights)

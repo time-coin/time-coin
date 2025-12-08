@@ -35,16 +35,16 @@ pub use chain_selection::{
 };
 pub use masternode_uptime::MasternodeUptimeTracker;
 pub use merkle::{calculate_utxo_merkle_root, MerkleProof, MerkleTree};
+pub use time_validator::{
+    current_timestamp, CatchUpInfo, TimeValidationError, TimeValidator, GENESIS_TIMESTAMP,
+    MAINNET_BLOCK_TIME_SECONDS, TESTNET_BLOCK_TIME_SECONDS,
+};
 pub use transaction::{
     OutPoint, SpecialTransaction, Transaction, TransactionError, TxInput, TxOutput,
 };
 pub use utxo_locker::{CoinSelector, UTXOLocker, UTXOLockerError, UTXOStateUpdate};
 pub use utxo_set::{UTXOSet, UTXOSetSnapshot};
 pub use utxo_state_manager::{UTXOState, UTXOStateManager};
-pub use time_validator::{
-    TimeValidator, TimeValidationError, CatchUpInfo, current_timestamp,
-    GENESIS_TIMESTAMP, TESTNET_BLOCK_TIME_SECONDS, MAINNET_BLOCK_TIME_SECONDS,
-};
 pub use vdf::{compute_vdf, generate_vdf_input, verify_vdf, VDFError, VDFProof};
 pub use vdf_integration::{can_create_block, compute_block_vdf, validate_block_vdf, VDFConfig};
 
