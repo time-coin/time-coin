@@ -297,7 +297,7 @@ impl BlockSyncManager {
             from = from_height,
             to = to_height,
             gap,
-            "starting tier 2 block sync"
+            "🔄 Starting block download (tier 2)"
         );
 
         if gap > self.max_gap {
@@ -305,24 +305,36 @@ impl BlockSyncManager {
         }
 
         for height in (from_height + 1)..=to_height {
+            info!(height, "📥 Downloading block...");
+
             let block = timeout(
                 Duration::from_secs(self.timeout_per_block),
                 self.request_block_from_peers(height),
             )
             .await
-            .map_err(|_| NetworkError::Timeout)??;
+            .map_err(|_| {
+                error!(
+                    height,
+                    "⏱️ Timeout downloading block after {}s", self.timeout_per_block
+                );
+                NetworkError::Timeout
+            })??;
 
             // Validate block
             self.validate_block(&block)?;
 
             // Store block
             let mut blockchain = self.blockchain.write().await;
-            blockchain.add_block(block)?;
+            blockchain.add_block(block.clone())?;
+            drop(blockchain);
 
-            info!(height, "synced block");
+            info!(height, "✅ Block synced and saved");
         }
 
-        info!(synced_blocks = gap, "tier 2 sync complete");
+        info!(
+            synced_blocks = gap,
+            "✅ Tier 2 sync complete - {} blocks downloaded", gap
+        );
         Ok(())
     }
 }
