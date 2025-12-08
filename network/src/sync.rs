@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use time_core::block::Block;
 use time_core::state::BlockchainState;
+use time_core::{current_timestamp, TimeValidator};
 use tokio::sync::RwLock;
 
 const QUICK_SYNC_THRESHOLD: u64 = 100;
@@ -50,6 +51,7 @@ pub struct BlockchainSync {
     blockchain: Arc<RwLock<BlockchainState>>,
     peer_manager: Arc<PeerManager>,
     _quarantine: Arc<PeerQuarantine>,
+    time_validator: TimeValidator,
 }
 
 impl BlockchainSync {
@@ -62,6 +64,7 @@ impl BlockchainSync {
             blockchain,
             peer_manager,
             _quarantine: quarantine,
+            time_validator: TimeValidator::new_testnet(),
         }
     }
 
@@ -70,20 +73,47 @@ impl BlockchainSync {
         println!("🔄 Starting blockchain sync...");
 
         let our_height = self.get_local_height().await;
+        let current_time = current_timestamp();
+        
+        // Calculate time-based expected height
+        let expected_height = self.time_validator
+            .calculate_expected_height(current_time)
+            .map_err(|e| format!("Time calculation error: {}", e))?;
 
         // Use retry logic for getting network consensus
         let (network_height, best_peer) = self.get_network_consensus_with_retry(3).await?;
+        
+        println!("   📊 Heights:");
+        println!("      Current:  {} blocks", our_height);
+        println!("      Expected: {} blocks (time-based)", expected_height);
+        println!("      Network:  {} blocks (from peers)", network_height);
 
-        if our_height >= network_height {
+        // Determine target height
+        let target_height = network_height.max(expected_height);
+        
+        if target_height > network_height {
+            println!("   ⚠️  WARNING: Time-based expectation ({}) exceeds network ({})", 
+                     expected_height, network_height);
+            println!("      Network may be falling behind schedule!");
+            println!("      Will sync to network height: {}", network_height);
+        }
+
+        if our_height >= target_height {
+            // Check if we're behind time expectations even though caught up with network
+            if our_height < expected_height {
+                println!("   ⚠️  Synced with network but {} blocks behind time expectation", 
+                         expected_height - our_height);
+            }
             println!("   ✓ Blockchain is up to date (height: {})", our_height);
             return Ok(0);
         }
 
-        let gap = network_height - our_height;
-        println!(
-            "   📊 Local: {}, Network: {}, Gap: {} blocks",
-            our_height, network_height, gap
-        );
+        let gap = target_height - our_height;
+        println!("   📊 Gap: {} blocks", gap);
+        
+        if gap > 100 {
+            println!("   🔄 CATCH-UP MODE: Significantly behind ({} blocks)", gap);
+        }
 
         // CRITICAL: Check for fork before syncing
         // This prevents downloading blocks on wrong chain

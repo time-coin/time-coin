@@ -11,9 +11,7 @@ use owo_colors::OwoColorize;
 use serde::Deserialize;
 
 mod block_producer;
-mod simple_sync;
 use block_producer::BlockProducer;
-use simple_sync::SimpleSync;
 
 use std::path::PathBuf;
 
@@ -23,7 +21,7 @@ use time_api::{start_server, ApiState};
 
 use time_core::state::BlockchainState;
 
-use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager, UpnpManager};
+use time_network::{NetworkType, PeerDiscovery, PeerListener, PeerManager, UpnpManager, BlockchainSync};
 
 use time_consensus::{ConsensusEngine, TransactionApprovalManager};
 
@@ -906,9 +904,9 @@ async fn main() {
             }
         };
 
-        // Create temporary simple sync for genesis download
+        // Create temporary blockchain sync for genesis download
         let quarantine_temp = Arc::new(time_network::PeerQuarantine::new());
-        let temp_simple_sync = SimpleSync::new(
+        let temp_sync = BlockchainSync::new(
             Arc::clone(&temp_blockchain),
             Arc::clone(&peer_manager),
             Arc::clone(&quarantine_temp),
@@ -916,7 +914,7 @@ async fn main() {
 
         // Try to download genesis block (height 0)
         println!("   📥 Attempting to download genesis block...");
-        match temp_simple_sync.sync().await {
+        match temp_sync.sync().await {
             Ok(0) => {
                 println!("{}", "   ✅ Genesis block downloaded successfully!".green());
             }
@@ -1224,8 +1222,8 @@ async fn main() {
         }
     }
 
-    // Create simplified sync system
-    let simple_sync = SimpleSync::new(
+    // Create unified blockchain sync system
+    let blockchain_sync = BlockchainSync::new(
         Arc::clone(&blockchain),
         Arc::clone(&peer_manager),
         Arc::clone(&quarantine),
@@ -1234,13 +1232,8 @@ async fn main() {
     // Run initial sync
     println!("{}", "🔄 Syncing blockchain with network...".cyan());
 
-    // First, check for and resolve any forks
-    if let Err(e) = simple_sync.detect_and_resolve_forks().await {
-        println!("   {} Fork check failed: {}", "⚠️".yellow(), e);
-    }
-
-    // Then sync blocks
-    match simple_sync.sync().await {
+    // Sync blocks (includes fork detection)
+    match blockchain_sync.sync().await {
         Ok(0) => println!("   {}", "✓ Blockchain is up to date".green()),
         Ok(n) => println!("   {} ✅ Synced {} blocks", "✓".green(), n),
         Err(e) => {
@@ -1268,7 +1261,7 @@ async fn main() {
 
     // Start periodic sync (every 5 minutes)
     // BUT: Use more frequent syncs (30 seconds) for the first 10 minutes if blockchain is empty
-    let simple_sync_periodic = simple_sync;
+    let blockchain_sync_periodic = blockchain_sync;
     let peer_manager_for_sync = Arc::clone(&peer_manager);
     let blockchain_for_sync = Arc::clone(&blockchain);
     tokio::spawn(async move {
@@ -1302,11 +1295,7 @@ async fn main() {
                 }
 
                 println!("🔄 Running aggressive chain sync...");
-                if let Err(e) = simple_sync_periodic.detect_and_resolve_forks().await {
-                    println!("   ⚠️  Fork check failed: {}", e);
-                }
-
-                match simple_sync_periodic.sync().await {
+                match blockchain_sync_periodic.sync().await {
                     Ok(0) => {} // Already up to date
                     Ok(n) => println!("   ✅ Synced {} blocks", n),
                     Err(e) => println!("   ⚠️  Sync failed: {} (will retry)", e),
@@ -1320,13 +1309,8 @@ async fn main() {
             interval.tick().await;
             println!("🔄 Running periodic chain sync...");
 
-            // Check for forks first
-            if let Err(e) = simple_sync_periodic.detect_and_resolve_forks().await {
-                println!("   ⚠️  Fork check failed: {}", e);
-            }
-
-            // Then sync
-            match simple_sync_periodic.sync().await {
+            // Sync (includes fork detection)
+            match blockchain_sync_periodic.sync().await {
                 Ok(0) => {} // Already up to date, no output
                 Ok(n) => println!("   ✅ Synced {} blocks", n),
                 Err(e) => println!(

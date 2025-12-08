@@ -3,10 +3,13 @@
 //! Two sync methods:
 //! 1. Batch Sync (fast) - Parallel download of all missing blocks
 //! 2. Sequential Sync (fallback) - One block at a time for reliability
+//!
+//! Also includes time-based validation to detect when node should catch up
 
 use std::sync::Arc;
 use time_core::block::Block;
 use time_core::state::BlockchainState;
+use time_core::{current_timestamp, TimeValidator};
 use time_network::PeerManager;
 use time_network::PeerQuarantine;
 use tokio::sync::RwLock;
@@ -20,6 +23,7 @@ pub struct SimpleSync {
     peer_manager: Arc<PeerManager>,
     #[allow(dead_code)] // May be used for peer quarantine in future
     quarantine: Arc<PeerQuarantine>,
+    time_validator: TimeValidator,
 }
 
 impl SimpleSync {
@@ -32,6 +36,33 @@ impl SimpleSync {
             blockchain,
             peer_manager,
             quarantine,
+            time_validator: TimeValidator::new_testnet(),
+        }
+    }
+
+    /// Check if node should be in catch-up mode based on time
+    pub async fn check_time_based_sync_status(&self) -> Result<(), String> {
+        let our_height = self.get_local_height().await;
+        let current_time = current_timestamp();
+        
+        match self.time_validator.get_catch_up_info(our_height, current_time) {
+            Ok(info) => {
+                if info.should_catch_up {
+                    println!("⚠️  TIME-BASED VALIDATION:");
+                    println!("   {}", info.status_message());
+                    println!("   Expected height: {} blocks", info.expected_height);
+                    println!("   Current height:  {} blocks", info.local_height);
+                    println!("   Minimum required: {} blocks", info.minimum_height);
+                    println!("   🔄 Node should enter CATCH-UP MODE");
+                } else {
+                    println!("✓ Time-based validation: Node is in sync (height: {})", our_height);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                println!("⚠️  Time validation error: {}", e);
+                Err(format!("Time validation failed: {}", e))
+            }
         }
     }
 
@@ -40,18 +71,38 @@ impl SimpleSync {
         println!("🔄 Starting blockchain sync...");
 
         let our_height = self.get_local_height().await;
+        let current_time = current_timestamp();
+        
+        // Check time-based expected height
+        let expected_height = self.time_validator
+            .calculate_expected_height(current_time)
+            .map_err(|e| format!("Time calculation error: {}", e))?;
+        
+        println!("   📊 Time-based validation:");
+        println!("      Current height:  {} blocks", our_height);
+        println!("      Expected height: {} blocks (based on elapsed time)", expected_height);
+        
         let (network_height, best_peer) = self.get_network_consensus().await?;
+        println!("      Network height:  {} blocks (from peers)", network_height);
 
-        if our_height >= network_height {
+        // Determine target height (use the higher of network or expected)
+        let target_height = network_height.max(expected_height);
+        
+        if our_height >= target_height {
             println!("   ✓ Blockchain is up to date (height: {})", our_height);
             return Ok(0);
         }
 
-        let blocks_behind = network_height - our_height;
-        println!(
-            "   📊 Local: {}, Network: {}, Behind: {} blocks",
-            our_height, network_height, blocks_behind
-        );
+        let blocks_behind = target_height - our_height;
+        
+        if target_height > network_height {
+            println!("   ⚠️  WARNING: Expected height ({}) exceeds network height ({})", 
+                     expected_height, network_height);
+            println!("      This suggests the network is falling behind schedule");
+            println!("      Will sync to network height and continue monitoring");
+        }
+        
+        println!("   📊 Behind: {} blocks", blocks_behind);
 
         // Determine starting height - if we don't have genesis (height 0), start from 0
         let start_height = if our_height == 0 {
@@ -74,6 +125,14 @@ impl SimpleSync {
         {
             Ok(count) => {
                 println!("   ✅ Batch sync complete: {} blocks", count);
+                
+                // Check if we're still behind expected height
+                let final_height = self.get_local_height().await;
+                if final_height < expected_height {
+                    println!("   ℹ️  Note: Synced to network but still {} blocks behind time-based expectation", 
+                             expected_height - final_height);
+                }
+                
                 Ok(count)
             }
             Err(e) => {
@@ -425,22 +484,32 @@ impl SimpleSync {
             time_network::discovery::NetworkType::Testnet => 24100,
         };
 
-        // Query all peers for their height
-        let mut peer_heights = Vec::new();
+        // Query all peers for their height in parallel for better performance
+        let mut tasks = Vec::new();
 
         for peer_ip in peers.iter() {
             let peer_addr = format!("{}:{}", peer_ip, p2p_port);
+            let peer_manager = self.peer_manager.clone();
+            let peer_ip_clone = peer_ip.clone();
 
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(3),
-                self.peer_manager.request_blockchain_info(&peer_addr),
-            )
-            .await
-            {
-                Ok(Ok(Some(height))) => {
-                    peer_heights.push((peer_ip.clone(), height));
+            tasks.push(tokio::spawn(async move {
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_secs(10),
+                    peer_manager.request_blockchain_info(&peer_addr),
+                )
+                .await
+                {
+                    Ok(Ok(Some(height))) => Some((peer_ip_clone, height)),
+                    _ => None,
                 }
-                _ => continue,
+            }));
+        }
+
+        // Collect results
+        let mut peer_heights = Vec::new();
+        for task in tasks {
+            if let Ok(Some((peer_ip, height))) = task.await {
+                peer_heights.push((peer_ip, height));
             }
         }
 
