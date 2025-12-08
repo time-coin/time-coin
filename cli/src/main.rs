@@ -883,47 +883,8 @@ async fn main() {
     if !has_genesis_on_disk && !peer_manager.get_connected_peers().await.is_empty() {
         println!("{}", "🔍 No genesis block found - checking peers...".cyan());
 
-        // Create a temporary blockchain state to download into
-        let temp_blockchain = match BlockchainState::new_from_disk_or_sync(&db_path) {
-            Ok(state) => Arc::new(RwLock::new(state)),
-            Err(e) => {
-                eprintln!("⚠️  Failed to initialize temporary blockchain state: {}", e);
-                eprintln!("   This may be due to corrupted blocks on disk.");
-                eprintln!("   Starting with fresh blockchain state...");
-
-                // Delete the corrupted database and start fresh
-                if let Err(del_err) = std::fs::remove_dir_all(&db_path) {
-                    eprintln!("   ⚠️  Failed to delete corrupted database: {}", del_err);
-                }
-
-                // Create fresh state
-                Arc::new(RwLock::new(
-                    BlockchainState::new_from_disk_or_sync(&db_path)
-                        .expect("Failed to create fresh blockchain state"),
-                ))
-            }
-        };
-
-        // Create temporary blockchain sync for genesis download
-        let temp_sync = time_network::NetworkSyncManager::new(
-            Arc::clone(&peer_manager),
-            Arc::clone(&temp_blockchain),
-        );
-
-        // Try to download genesis block (height 0)
-        println!("   📥 Attempting to download genesis block...");
-        match temp_sync.sync_on_join().await {
-            Ok(()) => {
-                println!("{}", "   ✅ Genesis block downloaded successfully!".green());
-            }
-            Err(e) => {
-                println!(
-                    "{}",
-                    format!("   ⚠️  Could not download genesis yet: {}", e).yellow()
-                );
-                println!("{}", "   Will retry during periodic sync...".bright_black());
-            }
-        }
+        // Skip genesis download attempt - let periodic sync handle it
+        println!("   📥 Genesis will be downloaded during periodic sync...");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1218,20 +1179,8 @@ async fn main() {
     let blockchain_sync =
         time_network::NetworkSyncManager::new(Arc::clone(&peer_manager), Arc::clone(&blockchain));
 
-    // Run initial sync
-    println!("{}", "🔄 Syncing blockchain with network...".cyan());
-
-    // Sync blocks (includes fork detection)
-    match blockchain_sync.sync_on_join().await {
-        Ok(()) => println!("   {}", "✓ Blockchain is up to date".green()),
-        Err(e) => {
-            println!(
-                "   {} Initial sync failed: {} (will retry periodically)",
-                "⚠️".yellow(),
-                e
-            );
-        }
-    }
+    // Skip initial sync - let the periodic sync task handle it
+    // This prevents multiple simultaneous sync attempts on startup
 
     // FORK PREVENTION: Initialize SyncGate with current blockchain height
     {
@@ -2722,20 +2671,7 @@ async fn main() {
         uptime_tracker.clone(),
     );
 
-    // Perform initial sync on network join
-    println!("🔄 Performing initial network synchronization...");
-    let sync_manager =
-        time_network::NetworkSyncManager::new(peer_manager.clone(), blockchain.clone());
-
-    match sync_manager.sync_on_join().await {
-        Ok(()) => {
-            println!("✅ Initial sync complete - node is ready");
-        }
-        Err(e) => {
-            println!("⚠️  Initial sync encountered issues: {}", e);
-            println!("ℹ️  Node will continue and retry sync before block production");
-        }
-    }
+    // Skip uptime tracker initial sync - periodic sync task handles all syncing
     println!();
 
     tokio::spawn(async move {
