@@ -86,10 +86,10 @@ impl HeightSyncManager {
     pub async fn query_peer_heights(&self) -> Result<Vec<PeerHeightInfo>, NetworkError> {
         let peers = self.peer_manager.get_connected_peers().await;
 
-        debug!("Querying {} connected peers for heights", peers.len());
+        info!("🔍 Querying {} connected peers for heights", peers.len());
 
         if peers.is_empty() {
-            warn!("No connected peers to query");
+            error!("❌ No connected peers to query");
             return Ok(Vec::new());
         }
 
@@ -99,6 +99,8 @@ impl HeightSyncManager {
             let peer_manager = self.peer_manager.clone();
             let peer_addr = peer.address.to_string();
 
+            info!("   📡 Will query: {}", peer_addr);
+
             let task = tokio::spawn(async move {
                 match tokio::time::timeout(
                     Duration::from_secs(10),
@@ -107,22 +109,22 @@ impl HeightSyncManager {
                 .await
                 {
                     Ok(Ok(Some(height))) => {
-                        debug!(peer = %peer_addr, height, "✅ received height");
+                        info!("✅ {} responded with height {}", peer_addr, height);
                         Some(PeerHeightInfo {
                             address: peer_addr,
                             height,
                         })
                     }
                     Ok(Ok(None)) => {
-                        debug!(peer = %peer_addr, "peer has no genesis");
+                        warn!("ℹ️  {} has no genesis", peer_addr);
                         None
                     }
                     Ok(Err(e)) => {
-                        debug!(peer = %peer_addr, error = ?e, "❌ failed to query");
+                        error!("❌ {} query failed: {:?}", peer_addr, e);
                         None
                     }
                     Err(_) => {
-                        debug!(peer = %peer_addr, "⏱️ query timeout after 10s");
+                        warn!("⏱️  {} query timeout after 10s", peer_addr);
                         None
                     }
                 }
@@ -130,21 +132,31 @@ impl HeightSyncManager {
             tasks.push(task);
         }
 
+        info!("⏳ Waiting for {} query tasks...", tasks.len());
+
         // Wait for all tasks to complete (they run in parallel)
         let results = futures::future::join_all(tasks).await;
 
         // Collect successful results
         let mut heights = Vec::new();
-        for result in results {
-            if let Ok(Some(height_info)) = result {
-                heights.push(height_info);
+        for (idx, result) in results.into_iter().enumerate() {
+            match result {
+                Ok(Some(height_info)) => {
+                    heights.push(height_info);
+                }
+                Ok(None) => {
+                    debug!("Task {} returned no height", idx);
+                }
+                Err(e) => {
+                    error!("Task {} panicked: {:?}", idx, e);
+                }
             }
         }
 
         if heights.is_empty() {
-            warn!("No peers responded with heights");
+            error!("❌ No peers responded with heights");
         } else {
-            info!("Received heights from {} peer(s)", heights.len());
+            info!("✅ Received heights from {} peer(s)", heights.len());
         }
 
         Ok(heights)
