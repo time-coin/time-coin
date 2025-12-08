@@ -8,7 +8,7 @@ use std::error::Error;
 use std::fmt;
 
 /// Genesis block timestamp for testnet (December 1, 2025 00:00:00 UTC)
-pub const GENESIS_TIMESTAMP: i64 = 1733011200;
+pub const GENESIS_TIMESTAMP: i64 = 1764547200;
 
 /// Block time for testnet (10 minutes)
 pub const TESTNET_BLOCK_TIME_SECONDS: i64 = 600; // 10 minutes
@@ -31,15 +31,25 @@ pub const MIN_BLOCK_INTERVAL_SECONDS: i64 = TESTNET_BLOCK_TIME_SECONDS - 60; // 
 #[derive(Debug, Clone)]
 pub enum TimeValidationError {
     /// Node's system clock is too far off from network time
-    ClockDrift { local_time: i64, network_time: i64, drift_seconds: i64 },
+    ClockDrift {
+        local_time: i64,
+        network_time: i64,
+        drift_seconds: i64,
+    },
     /// Block timestamp is in the future
     FutureBlock { block_time: i64, current_time: i64 },
     /// Block height exceeds what's possible given elapsed time
     TooManyBlocks { block_height: u64, max_allowed: u64 },
     /// Block height is less than expected (node is behind)
-    InsufficientBlocks { block_height: u64, expected_min: u64 },
+    InsufficientBlocks {
+        block_height: u64,
+        expected_min: u64,
+    },
     /// Block created too quickly after previous block
-    BlockTooFast { time_since_previous: i64, minimum_required: i64 },
+    BlockTooFast {
+        time_since_previous: i64,
+        minimum_required: i64,
+    },
     /// Invalid genesis timestamp
     InvalidGenesis,
     /// Time calculation error
@@ -49,35 +59,53 @@ pub enum TimeValidationError {
 impl fmt::Display for TimeValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TimeValidationError::ClockDrift { local_time, network_time, drift_seconds } => {
+            TimeValidationError::ClockDrift {
+                local_time,
+                network_time,
+                drift_seconds,
+            } => {
                 write!(
                     f,
                     "Clock drift detected: local={}, network={}, drift={}s (max allowed: {}s)",
                     local_time, network_time, drift_seconds, MAX_TIME_DRIFT_SECONDS
                 )
             }
-            TimeValidationError::FutureBlock { block_time, current_time } => {
+            TimeValidationError::FutureBlock {
+                block_time,
+                current_time,
+            } => {
                 write!(
                     f,
                     "Block is from the future: block_time={}, current_time={}, diff={}s",
-                    block_time, current_time, block_time - current_time
+                    block_time,
+                    current_time,
+                    block_time - current_time
                 )
             }
-            TimeValidationError::TooManyBlocks { block_height, max_allowed } => {
+            TimeValidationError::TooManyBlocks {
+                block_height,
+                max_allowed,
+            } => {
                 write!(
                     f,
                     "Block height {} exceeds maximum allowed {} based on elapsed time",
                     block_height, max_allowed
                 )
             }
-            TimeValidationError::InsufficientBlocks { block_height, expected_min } => {
+            TimeValidationError::InsufficientBlocks {
+                block_height,
+                expected_min,
+            } => {
                 write!(
                     f,
                     "Node is behind: current height {} but should be at least {} (catch-up mode required)",
                     block_height, expected_min
                 )
             }
-            TimeValidationError::BlockTooFast { time_since_previous, minimum_required } => {
+            TimeValidationError::BlockTooFast {
+                time_since_previous,
+                minimum_required,
+            } => {
                 write!(
                     f,
                     "Block created too quickly: {}s since previous (minimum: {}s)",
@@ -130,14 +158,15 @@ impl TimeValidator {
     /// Formula: blocks = (current_time - genesis_time) / block_time
     pub fn calculate_expected_height(&self, current_time: i64) -> Result<u64, TimeValidationError> {
         if current_time < self.genesis_timestamp {
-            return Err(TimeValidationError::CalculationError(
-                format!("Current time {} is before genesis time {}", current_time, self.genesis_timestamp)
-            ));
+            return Err(TimeValidationError::CalculationError(format!(
+                "Current time {} is before genesis time {}",
+                current_time, self.genesis_timestamp
+            )));
         }
 
         let elapsed_seconds = current_time - self.genesis_timestamp;
         let blocks = elapsed_seconds / self.block_time_seconds;
-        
+
         Ok(blocks as u64)
     }
 
@@ -147,7 +176,7 @@ impl TimeValidator {
     /// Minimum is expected - 2 blocks to allow for reasonable variance
     pub fn calculate_minimum_height(&self, current_time: i64) -> Result<u64, TimeValidationError> {
         let expected = self.calculate_expected_height(current_time)?;
-        
+
         // Allow up to 2 blocks behind before considering node out of sync
         Ok(expected.saturating_sub(2))
     }
@@ -183,7 +212,7 @@ impl TimeValidator {
         current_time: i64,
     ) -> Result<bool, TimeValidationError> {
         let min_expected = self.calculate_minimum_height(current_time)?;
-        
+
         Ok(local_height < min_expected)
     }
 
@@ -195,10 +224,10 @@ impl TimeValidator {
     ) -> Result<CatchUpInfo, TimeValidationError> {
         let expected = self.calculate_expected_height(current_time)?;
         let min_expected = self.calculate_minimum_height(current_time)?;
-        
+
         let should_catch_up = local_height < min_expected;
         let blocks_behind = expected.saturating_sub(local_height);
-        
+
         Ok(CatchUpInfo {
             local_height,
             expected_height: expected,
@@ -353,7 +382,7 @@ pub fn datetime_to_timestamp(dt: DateTime<Utc>) -> i64 {
 
 /// Convert Unix timestamp to DateTime
 pub fn timestamp_to_datetime(ts: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp(ts, 0).unwrap_or_else(|| Utc::now())
+    DateTime::from_timestamp(ts, 0).unwrap_or_else(Utc::now)
 }
 
 #[cfg(test)]
@@ -363,7 +392,7 @@ mod tests {
     #[test]
     fn test_expected_height_calculation() {
         let validator = TimeValidator::new_testnet();
-        
+
         // Test: 1 hour after genesis (6 blocks at 10 min each)
         let one_hour_later = GENESIS_TIMESTAMP + 3600;
         let height = validator.calculate_expected_height(one_hour_later).unwrap();
@@ -399,7 +428,7 @@ mod tests {
     fn test_catch_up_detection() {
         let validator = TimeValidator::new_testnet();
         let current_time = GENESIS_TIMESTAMP + 86400; // 1 day later
-        
+
         // Should have ~144 blocks, but only have 50
         let should_catch_up = validator.should_catch_up(50, current_time).unwrap();
         assert!(should_catch_up);
@@ -413,7 +442,7 @@ mod tests {
     fn test_too_many_blocks_detection() {
         let validator = TimeValidator::new_testnet();
         let current_time = GENESIS_TIMESTAMP + 3600; // 1 hour later
-        
+
         // Should only have ~6 blocks, but claiming 100
         let result = validator.validate_block_height(100, current_time);
         assert!(result.is_err());
