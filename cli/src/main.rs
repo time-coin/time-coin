@@ -1439,8 +1439,8 @@ async fn main() {
             }
         }
 
-        // Normal periodic sync (every 5 minutes)
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+        // Normal periodic sync (every 60 seconds for responsive sync)
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
             println!("🔄 Running periodic chain sync...");
@@ -1449,7 +1449,7 @@ async fn main() {
             match blockchain_sync_periodic.sync_on_join().await {
                 Ok(()) => {} // Already up to date, no output
                 Err(e) => println!(
-                    "   ⚠️  Sync failed: {}\n   ℹ️  Will retry on next sync interval (5 minutes)",
+                    "   ⚠️  Sync failed: {}\n   ℹ️  Will retry on next sync interval (60 seconds)",
                     e
                 ),
             }
@@ -1458,7 +1458,7 @@ async fn main() {
 
     println!(
         "{}",
-        "✓ Periodic chain sync started (5 min interval)".green()
+        "✓ Periodic chain sync started (60 sec interval)".green()
     );
 
     // Note: Genesis is now downloaded proactively at startup (Step 2.5)
