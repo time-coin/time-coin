@@ -41,6 +41,7 @@ struct CachedHeights {
 pub struct HeightSyncManager {
     peer_manager: Arc<PeerManager>,
     blockchain: Arc<RwLock<BlockchainState>>,
+    #[allow(dead_code)]
     consensus_threshold: f64,
     #[allow(dead_code)]
     timeout_secs: u64,
