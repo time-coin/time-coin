@@ -396,12 +396,25 @@ impl BlockProducer {
             max_height
         };
 
-        // Use network consensus as expected height
-        let expected_height = network_max_height;
+        // Calculate ACTUAL expected height based on time since genesis
+        let time_validator = time_core::TimeValidator::new_testnet();
+        let current_time = chrono::Utc::now().timestamp();
+        let time_based_expected = match time_validator.calculate_expected_height(current_time) {
+            Ok(height) => height,
+            Err(e) => {
+                println!("   ⚠️  Failed to calculate expected height: {}", e);
+                network_max_height // Fallback to network height
+            }
+        };
+
+        // Use the HIGHER of time-based or network height
+        let expected_height = time_based_expected.max(network_max_height);
 
         println!("🔍 Catch-up check:");
         println!("   Current height: {}", actual_height);
-        println!("   Network consensus height: {}", expected_height);
+        println!("   Expected height (time-based): {}", time_based_expected);
+        println!("   Network consensus height: {}", network_max_height);
+        println!("   Using height: {}", expected_height);
 
         if actual_height >= expected_height {
             println!("   ✅ Node is synced with network");
