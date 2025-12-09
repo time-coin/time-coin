@@ -869,7 +869,7 @@ async fn main() {
 
     // Check if we have genesis before loading from file
     let db_path = format!("{}/blockchain", data_dir);
-    let mut has_genesis_on_disk = {
+    let has_genesis_on_disk = {
         match time_core::db::BlockchainDB::open(&db_path) {
             Ok(db) => {
                 // Just check if block 0 exists, don't load all blocks
@@ -963,7 +963,6 @@ async fn main() {
                 "{}",
                 "   ✅ Genesis download complete - blockchain will load on next step".green()
             );
-            has_genesis_on_disk = true;
         }
     }
 
