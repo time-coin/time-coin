@@ -606,13 +606,38 @@ pub fn create_coinbase_transaction(
     let base_masternode_rewards = calculate_total_masternode_reward(counts);
     let total_rewards = base_masternode_rewards + transaction_fees;
 
+    // CRITICAL FIX: If no rewards at all, create minimum treasury output
+    // This prevents empty coinbase transactions which fail validation
+    if total_rewards == 0 {
+        const MIN_TREASURY_OUTPUT: u64 = 1; // 1 satoshi minimum
+        outputs.push(crate::transaction::TxOutput::new(
+            MIN_TREASURY_OUTPUT,
+            "TREASURY".to_string(),
+        ));
+
+        eprintln!(
+            "⚠️  Block {} has no masternodes/fees - created minimal coinbase (1 satoshi to treasury)",
+            block_number
+        );
+
+        return crate::transaction::Transaction {
+            txid: format!("coinbase_{}", block_number),
+            version: 1,
+            inputs: vec![],
+            outputs,
+            lock_time: 0,
+            timestamp: block_timestamp,
+        };
+    }
+
     // Calculate treasury allocation (10% of total rewards)
     let treasury_amount = calculate_treasury_allocation(total_rewards);
 
     // Calculate actual masternode share (90% of total rewards)
     let masternode_total = calculate_masternode_share(total_rewards);
 
-    // Add treasury marker output first (special address to mark treasury allocation)
+    // CRITICAL FIX: Always add treasury output if we have rewards
+    // This ensures coinbase is never empty even if masternode distribution fails
     if treasury_amount > 0 {
         outputs.push(crate::transaction::TxOutput::new(
             treasury_amount,
@@ -624,7 +649,7 @@ pub fn create_coinbase_transaction(
     let mut masternode_list: Vec<(String, MasternodeTier)> = active_masternodes.to_vec();
     masternode_list.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by wallet address for determinism
 
-    if !masternode_list.is_empty() {
+    if !masternode_list.is_empty() && masternode_total > 0 {
         let total_weight = counts.total_weight();
         if total_weight > 0 {
             let per_weight = masternode_total / total_weight;
@@ -636,7 +661,52 @@ pub fn create_coinbase_transaction(
                     outputs.push(crate::transaction::TxOutput::new(reward, address.clone()));
                 }
             }
+        } else {
+            // CRITICAL FIX: No weight (all Free tier) but have rewards
+            // Send entire masternode share to treasury
+            eprintln!(
+                "⚠️  Block {} has {} Free tier masternodes - sending full reward to treasury",
+                block_number,
+                masternode_list.len()
+            );
+
+            if let Some(treasury_output) = outputs.iter_mut().find(|o| o.address == "TREASURY") {
+                treasury_output.amount = treasury_output.amount.saturating_add(masternode_total);
+            } else {
+                outputs.push(crate::transaction::TxOutput::new(
+                    masternode_total,
+                    "TREASURY".to_string(),
+                ));
+            }
         }
+    } else if masternode_total > 0 {
+        // CRITICAL FIX: No masternodes but have masternode rewards
+        // Send entire masternode share to treasury
+        eprintln!(
+            "⚠️  Block {} has no masternodes - sending {} satoshis to treasury",
+            block_number, masternode_total
+        );
+
+        if let Some(treasury_output) = outputs.iter_mut().find(|o| o.address == "TREASURY") {
+            treasury_output.amount = treasury_output.amount.saturating_add(masternode_total);
+        } else {
+            outputs.push(crate::transaction::TxOutput::new(
+                masternode_total,
+                "TREASURY".to_string(),
+            ));
+        }
+    }
+
+    // FINAL SAFETY CHECK: Ensure we always have at least one output
+    if outputs.is_empty() {
+        panic!(
+            "CRITICAL: Coinbase transaction would have 0 outputs! \
+             block={}, masternodes={}, counts={:?}, fees={}",
+            block_number,
+            masternode_list.len(),
+            counts,
+            transaction_fees
+        );
     }
 
     // Create coinbase transaction with DETERMINISTIC timestamp
@@ -1318,5 +1388,101 @@ mod tests {
         assert_eq!(block.header.block_number, 0);
         assert_eq!(block.transactions.len(), 1);
         assert!(block.transactions[0].is_coinbase());
+    }
+
+    #[test]
+    fn test_coinbase_zero_masternodes() {
+        // CRITICAL: Test that coinbase works with NO masternodes
+        let masternodes = vec![];
+        let counts = MasternodeCounts::default(); // All zeros
+
+        let tx = create_coinbase_transaction(100, &masternodes, &counts, 0, 1234567890);
+
+        // Should have at least 1 output
+        assert!(!tx.outputs.is_empty(), "Coinbase must have outputs");
+
+        // Should be treasury output
+        assert_eq!(tx.outputs[0].address, "TREASURY");
+        assert!(tx.outputs[0].amount > 0, "Treasury output must be > 0");
+
+        // Should be minimal (1 satoshi)
+        assert_eq!(tx.outputs[0].amount, 1);
+    }
+
+    #[test]
+    fn test_coinbase_only_free_tier() {
+        // CRITICAL: Test that coinbase works with only Free tier masternodes
+        let masternodes = vec![
+            ("addr1".to_string(), MasternodeTier::Free),
+            ("addr2".to_string(), MasternodeTier::Free),
+        ];
+        let counts = MasternodeCounts {
+            free: 2,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+        };
+
+        let tx = create_coinbase_transaction(100, &masternodes, &counts, 0, 1234567890);
+
+        // Should have treasury output (entire reward goes there since Free has 0 weight)
+        assert!(!tx.outputs.is_empty());
+        assert!(tx.outputs.iter().any(|o| o.address == "TREASURY"));
+
+        // Treasury should have full amount since Free tier has 0 weight
+        let treasury_total: u64 = tx
+            .outputs
+            .iter()
+            .filter(|o| o.address == "TREASURY")
+            .map(|o| o.amount)
+            .sum();
+
+        // Should be minimal (1 satoshi) since no rewards
+        assert_eq!(treasury_total, 1);
+    }
+
+    #[test]
+    fn test_coinbase_no_masternodes_with_fees() {
+        // Test that fees are properly allocated when no masternodes exist
+        let masternodes = vec![];
+        let counts = MasternodeCounts::default();
+        let fees = 100_000_000; // 1 TIME in fees
+
+        let tx = create_coinbase_transaction(100, &masternodes, &counts, fees, 1234567890);
+
+        // Should have treasury output with full fees (10% of fees as treasury, 90% also to treasury since no masternodes)
+        assert!(!tx.outputs.is_empty());
+        assert_eq!(tx.outputs[0].address, "TREASURY");
+
+        // Treasury should get 100% of fees (10% normal + 90% from unused masternode share)
+        assert_eq!(tx.outputs[0].amount, fees);
+    }
+
+    #[test]
+    fn test_coinbase_normal_operation_regression() {
+        // Regression test: Ensure normal operation still works correctly
+        let masternodes = vec![
+            ("addr1".to_string(), MasternodeTier::Bronze),
+            ("addr2".to_string(), MasternodeTier::Silver),
+        ];
+        let counts = MasternodeCounts {
+            free: 0,
+            bronze: 1,
+            silver: 1,
+            gold: 0,
+        };
+
+        let tx = create_coinbase_transaction(100, &masternodes, &counts, 50_000_000, 1234567890);
+
+        // Should have treasury + 2 masternode outputs = 3 total
+        assert_eq!(tx.outputs.len(), 3);
+
+        // All outputs must have amount > 0
+        for output in &tx.outputs {
+            assert!(output.amount > 0, "Output amount must be > 0");
+        }
+
+        // First should be treasury
+        assert_eq!(tx.outputs[0].address, "TREASURY");
     }
 }

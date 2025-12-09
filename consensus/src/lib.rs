@@ -159,38 +159,41 @@ impl ConsensusEngine {
     pub fn proposal_manager(&self) -> Option<Arc<crate::proposals::ProposalManager>> {
         self.proposal_manager.clone()
     }
-    
+
     /// Get Byzantine detector for external monitoring
     pub fn byzantine_detector(&self) -> Arc<ByzantineDetector> {
         Arc::clone(&self.byzantine_detector)
     }
-    
+
     /// Get rate limiter for external monitoring  
     pub fn rate_limiter(&self) -> Arc<VoteRateLimiter> {
         Arc::clone(&self.rate_limiter)
     }
-    
+
     /// Check if a node is Byzantine
     pub async fn is_byzantine(&self, node_id: &str) -> bool {
         self.byzantine_detector.is_byzantine(node_id).await
     }
-    
+
     /// Get all Byzantine nodes
     pub async fn get_byzantine_nodes(&self) -> Vec<String> {
         self.byzantine_detector.get_byzantine_nodes().await
     }
-    
+
     /// Remove Byzantine nodes from masternode list
     pub async fn remove_byzantine_nodes(&self) {
         let byzantine_nodes = self.get_byzantine_nodes().await;
         if byzantine_nodes.is_empty() {
             return;
         }
-        
+
         let mut masternodes = self.masternodes.write().await;
         masternodes.retain(|node| !byzantine_nodes.contains(node));
-        
-        println!("🚨 Removed {} Byzantine nodes from masternode list", byzantine_nodes.len());
+
+        println!(
+            "🚨 Removed {} Byzantine nodes from masternode list",
+            byzantine_nodes.len()
+        );
         for node in &byzantine_nodes {
             println!("   - {}", node);
         }
