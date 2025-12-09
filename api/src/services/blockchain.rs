@@ -135,14 +135,11 @@ mod tests {
             timestamp: Utc::now().timestamp(),
         };
 
-        let transactions = vec![coinbase_tx];
-        let merkle_root = time_core::calculate_merkle_root(&transactions);
-
         let genesis_header = BlockHeader {
             block_number: 0,
             timestamp: Utc::now(),
             previous_hash: "0".to_string(),
-            merkle_root,
+            merkle_root: String::new(), // Will be calculated
             validator_signature: "genesis".to_string(),
             validator_address: "genesis".to_string(),
             masternode_counts: MasternodeCounts::default(),
@@ -150,13 +147,15 @@ mod tests {
             checkpoints: vec![],
         };
 
-        let hash = time_core::calculate_block_hash(&genesis_header);
-
-        let genesis_block = Block {
+        let mut genesis_block = Block {
             header: genesis_header,
-            transactions,
-            hash,
+            transactions: vec![coinbase_tx],
+            hash: String::new(), // Will be calculated
         };
+
+        // Calculate merkle root and hash
+        genesis_block.header.merkle_root = genesis_block.calculate_merkle_root();
+        genesis_block.hash = genesis_block.calculate_hash();
 
         let db_path = format!("test_{}", db_suffix);
         (genesis_block, db_path)
