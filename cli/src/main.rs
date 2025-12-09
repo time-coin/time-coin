@@ -881,10 +881,83 @@ async fn main() {
 
     // If we don't have genesis and have connected peers, try to download it immediately
     if !has_genesis_on_disk && !peer_manager.get_connected_peers().await.is_empty() {
-        println!("{}", "🔍 No genesis block found - checking peers...".cyan());
+        println!(
+            "{}",
+            "🔍 No genesis block found - downloading from peers...".cyan()
+        );
 
-        // Skip genesis download attempt - let periodic sync handle it
-        println!("   📥 Genesis will be downloaded during periodic sync...");
+        // Try to download genesis from peers with retry logic
+        let max_attempts = 5;
+        let mut attempt = 0;
+        let mut genesis_downloaded = false;
+
+        while attempt < max_attempts && !genesis_downloaded {
+            attempt += 1;
+
+            if attempt > 1 {
+                println!(
+                    "   ⏳ Attempt {}/{} to download genesis...",
+                    attempt, max_attempts
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+
+            // Try to get genesis block (height 0) from any connected peer
+            let peers = peer_manager.get_connected_peers().await;
+
+            for peer in peers.iter().take(3) {
+                // Try up to 3 peers
+                let peer_addr = peer.address.to_string();
+                println!("   📡 Requesting genesis from {}...", peer_addr);
+
+                match peer_manager.request_block_by_height(&peer_addr, 0).await {
+                    Ok(genesis_block) => {
+                        println!("   ✅ Received genesis block from {}", peer_addr);
+
+                        // Save to disk
+                        let db =
+                            time_core::db::BlockchainDB::open(&format!("{}/blockchain", data_dir))
+                                .expect("Failed to open database");
+
+                        match db.save_block(&genesis_block, 0) {
+                            Ok(_) => {
+                                println!(
+                                    "{}",
+                                    format!(
+                                        "✅ Genesis block saved (hash: {}...)",
+                                        &genesis_block.hash[..16.min(genesis_block.hash.len())]
+                                    )
+                                    .green()
+                                );
+                                genesis_downloaded = true;
+                                break;
+                            }
+                            Err(e) => {
+                                eprintln!("   ⚠️  Failed to save genesis: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("   ⚠️  Failed to get genesis from {}: {}", peer_addr, e);
+                    }
+                }
+            }
+
+            if !genesis_downloaded && attempt < max_attempts {
+                println!("   ⚠️  Genesis download failed, will retry...");
+            }
+        }
+
+        if !genesis_downloaded {
+            eprintln!(
+                "{}",
+                "⚠️  Could not download genesis block after retries".yellow()
+            );
+            eprintln!(
+                "{}",
+                "   Will continue and retry during periodic sync".yellow()
+            );
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1078,10 +1151,34 @@ async fn main() {
     // ═══════════════════════════════════════════════════════════════
 
     if needs_sync && !peer_manager.get_peer_ips().await.is_empty() {
-        println!("{}", "📚 Downloading blockchain blocks...".cyan());
-        // TODO: Implement block-by-block sync
-        println!("{}", "  Block-by-block sync not yet implemented".yellow());
-        println!("  {}", "Continuing with current state".bright_black());
+        println!("{}", "📚 Downloading blockchain from network...".cyan());
+
+        match network::sync::download_blockchain_from_network(
+            &peer_manager,
+            &blockchain_arc,
+            &network_config,
+        )
+        .await
+        {
+            Ok(downloaded_count) => {
+                if downloaded_count > 0 {
+                    println!(
+                        "{}",
+                        format!("   ✅ Downloaded and validated {} blocks", downloaded_count)
+                            .green()
+                    );
+                } else {
+                    println!("{}", "   ℹ️  No new blocks to download".bright_black());
+                }
+            }
+            Err(e) => {
+                println!(
+                    "{}",
+                    format!("   ⚠️  Failed to download blockchain: {}", e).yellow()
+                );
+                println!("  {}", "Continuing with current state".bright_black());
+            }
+        }
     } else if needs_sync {
         println!(
             "{}",
@@ -1300,6 +1397,46 @@ async fn main() {
         "✓ Quarantine monitoring started (15 min logging)".green()
     );
 
+    // Start periodic time verification (every 1 hour)
+    let peer_manager_for_time = Arc::clone(&peer_manager);
+    tokio::spawn(async move {
+        // Wait 5 minutes before first check to let node establish connections
+        tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 1 hour
+        loop {
+            interval.tick().await;
+
+            // Try NTP first
+            match time_core::time_sync::check_ntp_time().await {
+                Ok(result) => {
+                    if result.is_acceptable {
+                        log::info!(
+                            "✓ System time verified via NTP (drift: {}s)",
+                            result.drift_seconds
+                        );
+                    } else if let Some(warning) = result.drift_warning() {
+                        log::error!("{}", warning);
+                        println!("\n{}", warning.red().bold());
+                        println!(
+                            "{}",
+                            "⚠️  Please sync your system clock with NTP servers!".yellow()
+                        );
+                    }
+                }
+                Err(e) => {
+                    log::debug!("NTP time check failed: {}", e);
+                    // Fall back to network consensus if NTP fails
+                    // (Implementation would go here if needed)
+                }
+            }
+        }
+    });
+    println!(
+        "{}",
+        "✓ Time verification started (1 hour interval)".green()
+    );
+
     // ═══════════════════════════════════════════════════════════════
     // STEP 5: Initialize consensus and services
     // ═══════════════════════════════════════════════════════════════
@@ -1408,6 +1545,12 @@ async fn main() {
 
     println!("\n{}", "✓ Masternode services starting".green());
     println!("Version: {}", time_network::protocol::full_version());
+
+    // ═══════════════════════════════════════════════════════════════
+    // Initialize Time Synchronization Service
+    // ═══════════════════════════════════════════════════════════════
+    let time_sync = Arc::new(time_network::TimeSyncService::new());
+    time_sync.clone().start_sync_loop();
 
     // Initialize mempool for pending transactions with dynamic sizing
     let mempool = Arc::new(time_mempool::Mempool::with_blockchain(
@@ -2698,6 +2841,7 @@ async fn main() {
         allow_block_recreation,
         quarantine.clone(),
         uptime_tracker.clone(),
+        time_sync.clone(),
     );
 
     // Skip uptime tracker initial sync - periodic sync task handles all syncing

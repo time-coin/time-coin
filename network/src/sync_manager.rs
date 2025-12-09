@@ -145,7 +145,7 @@ impl HeightSyncManager {
         }
 
         // Query all peers in parallel with individual timeouts
-        // CRITICAL: Query timeout (20s) must be LONGER than request timeout (15s)
+        // CRITICAL: Query timeout (45s) must be LONGER than request timeout (30s)
         let mut tasks = Vec::new();
         for peer in peers {
             let peer_manager = self.peer_manager.clone();
@@ -154,32 +154,73 @@ impl HeightSyncManager {
             info!("   📡 Will query: {}", peer_addr);
 
             let task = tokio::spawn(async move {
-                match tokio::time::timeout(
-                    Duration::from_secs(20), // Increased from 10s to prevent premature timeout
-                    peer_manager.request_blockchain_info(&peer_addr),
-                )
-                .await
-                {
-                    Ok(Ok(Some(height))) => {
-                        info!("✅ {} responded with height {}", peer_addr, height);
-                        Some(PeerHeightInfo {
-                            address: peer_addr,
-                            height,
-                        })
-                    }
-                    Ok(Ok(None)) => {
-                        warn!("ℹ️  {} has no genesis", peer_addr);
-                        None
-                    }
-                    Ok(Err(e)) => {
-                        error!("❌ {} query failed: {:?}", peer_addr, e);
-                        None
-                    }
-                    Err(_) => {
-                        warn!("⏱️  {} query timeout after 20s", peer_addr);
-                        None
+                // Try with exponential backoff
+                let mut attempt = 0;
+                let max_attempts = 3;
+
+                while attempt < max_attempts {
+                    let timeout = Duration::from_secs(15 * (1 << attempt)); // 15s, 30s, 60s
+
+                    match tokio::time::timeout(
+                        timeout,
+                        peer_manager.request_blockchain_info(&peer_addr),
+                    )
+                    .await
+                    {
+                        Ok(Ok(Some(height))) => {
+                            info!(
+                                "✅ {} responded with height {} (attempt {})",
+                                peer_addr,
+                                height,
+                                attempt + 1
+                            );
+                            return Some(PeerHeightInfo {
+                                address: peer_addr,
+                                height,
+                            });
+                        }
+                        Ok(Ok(None)) => {
+                            warn!("ℹ️  {} has no genesis", peer_addr);
+                            return None;
+                        }
+                        Ok(Err(e)) => {
+                            if attempt < max_attempts - 1 {
+                                warn!(
+                                    "⚠️  {} query failed (attempt {}): {:?}, retrying...",
+                                    peer_addr,
+                                    attempt + 1,
+                                    e
+                                );
+                                attempt += 1;
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                                continue;
+                            }
+                            error!(
+                                "❌ {} query failed after {} attempts: {:?}",
+                                peer_addr, max_attempts, e
+                            );
+                            return None;
+                        }
+                        Err(_) => {
+                            if attempt < max_attempts - 1 {
+                                warn!(
+                                    "⏱️  {} query timeout after {:?} (attempt {}), retrying...",
+                                    peer_addr,
+                                    timeout,
+                                    attempt + 1
+                                );
+                                attempt += 1;
+                                continue;
+                            }
+                            warn!(
+                                "⏱️  {} query timeout after {} attempts",
+                                peer_addr, max_attempts
+                            );
+                            return None;
+                        }
                     }
                 }
+                None
             });
             tasks.push(task);
         }

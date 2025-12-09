@@ -313,61 +313,88 @@ impl BlockchainSync {
             };
 
             if let Some(our_hash_str) = our_hash {
-                match self.download_block_with_retry(peer, common_height, 2).await {
-                    Ok(peer_block) => {
-                        if peer_block.hash == our_hash_str {
-                            // Found common ancestor - hashes match at this height
-                            if common_height < our_height {
-                                // We have blocks beyond common ancestor - that's a fork!
-                                let blocks_to_remove = our_height - common_height;
-                                println!(
-                                    "      ⚠️  FORK DETECTED at height {}!",
-                                    common_height + 1
-                                );
-                                println!("      🔄 Rolling back {} blocks...", blocks_to_remove);
+                // Use exponential backoff for retries
+                let mut retries = 0;
+                let max_retries = 3;
 
-                                let mut blockchain = self.blockchain.write().await;
-                                blockchain
-                                    .rollback_to_height(common_height)
-                                    .map_err(|e| format!("Rollback failed: {:?}", e))?;
-                                drop(blockchain);
-
-                                self.peer_manager
-                                    .sync_gate
-                                    .update_local_height(common_height)
-                                    .await;
-
-                                println!("      ✅ Rolled back to height {}", common_height);
-                            } else {
-                                println!("      ✓ No fork detected - chains match");
-                            }
-                            return Ok(());
-                        } else {
-                            // Hashes don't match - this is where the fork is!
-                            println!(
-                                "      ⚠️  Hash mismatch at height {} (our: {}..., peer: {}...)",
-                                common_height,
-                                &our_hash_str[..16.min(our_hash_str.len())],
-                                &peer_block.hash[..16.min(peer_block.hash.len())]
-                            );
-                            // Continue searching downward for common ancestor
-                            common_height -= 1;
-                            continue;
-                        }
+                loop {
+                    let backoff = std::time::Duration::from_secs(2u64.pow(retries));
+                    if retries > 0 {
+                        tokio::time::sleep(backoff).await;
                     }
-                    Err(e) => {
-                        // Check if timeout - don't treat as fork
-                        if e.contains("Timeout") || e.contains("timeout") {
-                            println!(
-                                "      ⚠️  Timeout downloading block {} for fork check",
-                                common_height
-                            );
-                            println!("      ℹ️  Skipping fork detection this round");
-                            return Ok(());
+
+                    match self.download_block_with_retry(peer, common_height, 2).await {
+                        Ok(peer_block) => {
+                            if peer_block.hash == our_hash_str {
+                                // Found common ancestor - hashes match at this height
+                                if common_height < our_height {
+                                    // We have blocks beyond common ancestor - that's a fork!
+                                    let blocks_to_remove = our_height - common_height;
+                                    println!(
+                                        "      ⚠️  FORK DETECTED at height {}!",
+                                        common_height + 1
+                                    );
+                                    println!(
+                                        "      🔄 Rolling back {} blocks...",
+                                        blocks_to_remove
+                                    );
+
+                                    let mut blockchain = self.blockchain.write().await;
+                                    blockchain
+                                        .rollback_to_height(common_height)
+                                        .map_err(|e| format!("Rollback failed: {:?}", e))?;
+                                    drop(blockchain);
+
+                                    self.peer_manager
+                                        .sync_gate
+                                        .update_local_height(common_height)
+                                        .await;
+
+                                    println!("      ✅ Rolled back to height {}", common_height);
+                                } else {
+                                    println!("      ✓ No fork detected - chains match");
+                                }
+                                return Ok(());
+                            } else {
+                                // Hashes don't match - this is where the fork is!
+                                println!(
+                                    "      ⚠️  Hash mismatch at height {} (our: {}..., peer: {}...)",
+                                    common_height,
+                                    &our_hash_str[..16.min(our_hash_str.len())],
+                                    &peer_block.hash[..16.min(peer_block.hash.len())]
+                                );
+                                // Continue searching downward for common ancestor
+                                common_height -= 1;
+                                break; // Exit retry loop, move to next height
+                            }
                         }
-                        // Peer doesn't have this block, try lower
-                        common_height -= 1;
-                        continue;
+                        Err(e) => {
+                            // Check if timeout - retry with backoff
+                            if (e.contains("Timeout") || e.contains("timeout"))
+                                && retries < max_retries
+                            {
+                                retries += 1;
+                                println!(
+                                    "      ⚠️  Timeout downloading block {} for fork check (attempt {}/{})",
+                                    common_height, retries, max_retries
+                                );
+                                continue; // Retry same height
+                            }
+
+                            // After retries exhausted or non-timeout error
+                            if retries >= max_retries {
+                                println!(
+                                    "      ⚠️  Failed to download block {} after {} attempts",
+                                    common_height, max_retries
+                                );
+                                println!("      ℹ️  Skipping fork detection this round");
+                                return Ok(());
+                            }
+
+                            // Peer doesn't have this block, try lower
+                            common_height -= 1;
+                            break; // Exit retry loop, move to next height
+                        }
                     }
                 }
             } else {
@@ -507,6 +534,7 @@ impl BlockchainSync {
     }
 
     /// Get network consensus height and best peer
+    /// This now includes fork detection by comparing block hashes
     async fn get_network_consensus(&self) -> Result<(u64, String), String> {
         let peers = self.peer_manager.get_peer_ips().await;
         if peers.is_empty() {
@@ -518,6 +546,7 @@ impl BlockchainSync {
             crate::discovery::NetworkType::Testnet => 24100,
         };
 
+        let local_height = self.get_local_height().await;
         let mut peer_heights = Vec::new();
 
         // Query peers with longer timeout for reliability
@@ -539,11 +568,135 @@ impl BlockchainSync {
             return Err("No peers responded".to_string());
         }
 
+        // FORK DETECTION: Check if we're on same chain as peers
+        // Compare block hash at our current height with peers
+        if local_height > 0 {
+            let our_block_hash = {
+                let blockchain = self.blockchain.read().await;
+                blockchain.blocks.get(&local_height).map(|b| {
+                    let hash = b.hash();
+                    format!(
+                        "{:016x}",
+                        u128::from_be_bytes(hash[..16].try_into().unwrap())
+                    )
+                })
+            };
+
+            if let Some(our_hash) = our_block_hash {
+                // Check peers at our height to see if we're forked
+                for (peer_ip, peer_height) in &peer_heights {
+                    if *peer_height >= local_height {
+                        let peer_addr = format!("{}:{}", peer_ip, p2p_port);
+
+                        // Request block at our height from peer
+                        if let Ok(blocks) = self
+                            .peer_manager
+                            .request_blocks(&peer_addr, local_height, local_height)
+                            .await
+                        {
+                            if let Some(peer_block) = blocks.first() {
+                                let peer_hash = {
+                                    let hash = peer_block.hash();
+                                    format!(
+                                        "{:016x}",
+                                        u128::from_be_bytes(hash[..16].try_into().unwrap())
+                                    )
+                                };
+
+                                if peer_hash != our_hash {
+                                    println!("🚨 FORK DETECTED!");
+                                    println!("   Our block {} hash: {}", local_height, our_hash);
+                                    println!(
+                                        "   Peer {} block {} hash: {}",
+                                        peer_ip, local_height, peer_hash
+                                    );
+
+                                    // Find common ancestor
+                                    if let Ok((common_height, common_peer)) =
+                                        self.find_common_ancestor(&peer_addr, local_height).await
+                                    {
+                                        println!(
+                                            "   📍 Common ancestor found at height {}",
+                                            common_height
+                                        );
+                                        println!(
+                                            "   🔄 Rolling back to height {} and syncing from {}",
+                                            common_height, common_peer
+                                        );
+
+                                        // Rollback to common ancestor
+                                        let mut blockchain = self.blockchain.write().await;
+                                        if let Err(e) = blockchain.rollback_to_height(common_height)
+                                        {
+                                            println!("   ⚠️  Rollback failed: {}", e);
+                                        }
+                                        drop(blockchain);
+
+                                        // Return peer with longest chain to sync from
+                                        peer_heights.sort_by_key(|(_, h)| std::cmp::Reverse(*h));
+                                        return Ok((peer_heights[0].1, peer_heights[0].0.clone()));
+                                    } else {
+                                        println!("   ⚠️  Could not find common ancestor - may need full resync");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Use highest height as consensus
         peer_heights.sort_by_key(|(_, h)| std::cmp::Reverse(*h));
         let (best_peer, network_height) = peer_heights[0].clone();
 
         Ok((network_height, best_peer))
+    }
+
+    /// Find common ancestor with a peer by walking backwards
+    async fn find_common_ancestor(
+        &self,
+        peer_addr: &str,
+        start_height: u64,
+    ) -> Result<(u64, String), String> {
+        let blockchain = self.blockchain.read().await;
+
+        // Walk backwards from start_height looking for matching block hash
+        for height in (1..=start_height).rev() {
+            if let Some(our_block) = blockchain.blocks.get(&height) {
+                let our_hash = {
+                    let hash = our_block.hash();
+                    format!(
+                        "{:016x}",
+                        u128::from_be_bytes(hash[..16].try_into().unwrap())
+                    )
+                };
+
+                // Request this block from peer
+                if let Ok(blocks) = self
+                    .peer_manager
+                    .request_blocks(peer_addr, height, height)
+                    .await
+                {
+                    if let Some(peer_block) = blocks.first() {
+                        let peer_hash = {
+                            let hash = peer_block.hash();
+                            format!(
+                                "{:016x}",
+                                u128::from_be_bytes(hash[..16].try_into().unwrap())
+                            )
+                        };
+
+                        if peer_hash == our_hash {
+                            // Found common ancestor
+                            return Ok((height, peer_addr.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        Err("No common ancestor found".to_string())
     }
 
     /// Get network consensus with retry logic for reliability

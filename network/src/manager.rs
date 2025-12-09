@@ -1049,8 +1049,38 @@ impl PeerManager {
         connections.remove(&peer_ip);
         drop(connections);
 
-        // Already removed via unified pool
         info!("Removed dead connection for {}", peer_ip);
+
+        // Schedule reconnection attempt after brief delay
+        let peer_manager_clone = self.clone();
+        let network = self.network;
+        let peer_addr = match self.network {
+            NetworkType::Mainnet => format!("{}:24000", peer_ip),
+            NetworkType::Testnet => format!("{}:24100", peer_ip),
+        };
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+
+            info!("🔄 Attempting to reconnect to {}", peer_addr);
+
+            // Try to reconnect
+            let socket_addr: SocketAddr = match peer_addr.parse() {
+                Ok(addr) => addr,
+                Err(e) => {
+                    debug!("Invalid address {}: {}", peer_addr, e);
+                    return;
+                }
+            };
+
+            let peer_info = Arc::new(Mutex::new(PeerInfo::new(socket_addr, network)));
+
+            if let Err(e) = peer_manager_clone.add_connection(peer_info).await {
+                debug!("Failed to reconnect to {}: {}", peer_addr, e);
+            } else {
+                info!("✅ Reconnected to {}", peer_addr);
+            }
+        });
     }
 
     /// CRITICAL FIX (Issue #7): Use Arc to avoid cloning large messages for each peer
