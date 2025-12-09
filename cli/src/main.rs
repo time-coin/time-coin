@@ -916,7 +916,7 @@ async fn main() {
 
                         // Save to disk
                         let db =
-                            time_core::db::BlockchainDB::open(&format!("{}/blockchain", data_dir))
+                            time_core::db::BlockchainDB::open(format!("{}/blockchain", data_dir))
                                 .expect("Failed to open database");
 
                         match db.save_block(&genesis_block) {
@@ -1321,7 +1321,7 @@ async fn main() {
                     Ok(block) => {
                         // Save to disk
                         let db =
-                            time_core::db::BlockchainDB::open(&format!("{}/blockchain", data_dir))
+                            time_core::db::BlockchainDB::open(format!("{}/blockchain", data_dir))
                                 .expect("Failed to open database");
 
                         if let Err(e) = db.save_block(&block) {

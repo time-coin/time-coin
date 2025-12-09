@@ -211,7 +211,7 @@ impl TimeSync {
         }
 
         let mid = times.len() / 2;
-        if times.len() % 2 == 0 {
+        if times.len().is_multiple_of(2) {
             (times[mid - 1] + times[mid]) / 2
         } else {
             times[mid]

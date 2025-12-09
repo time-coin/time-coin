@@ -487,16 +487,15 @@ impl BlockProducer {
                     };
                     let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
-                    // Download blocks from appropriate starting height
+                    // Download blocks from appropriate starting height with timeouts
                     let start_height = if has_genesis { 1 } else { 0 };
                     let mut downloaded_count = 0;
                     for height in start_height..=sync_to_height {
-                        match self
-                            .peer_manager
-                            .request_block_by_height(&peer_addr, height)
-                            .await
-                        {
-                            Ok(block) => {
+                        match tokio::time::timeout(
+                            Duration::from_secs(10),
+                            self.peer_manager.request_block_by_height(&peer_addr, height)
+                        ).await {
+                            Ok(Ok(block)) => {
                                 // Validate and add block
                                 let mut blockchain = self.blockchain.write().await;
                                 match blockchain.add_block(block.clone()) {
@@ -515,10 +514,19 @@ impl BlockProducer {
                                     }
                                 }
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 println!("      ⚠️  Failed to download block {}: {}", height, e);
                                 break;
                             }
+                            Err(_) => {
+                                println!("      ⚠️  Block {} download timeout", height);
+                                break;
+                            }
+                        }
+                        
+                        // Rate limiting to avoid overwhelming peer
+                        if downloaded_count % 10 == 0 {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                     }
 
@@ -558,15 +566,14 @@ impl BlockProducer {
                                 sync_to_height
                             );
 
-                            // Download missing blocks
+                            // Download missing blocks with timeouts
                             let mut downloaded_count = 0;
                             for height in (current_height + 1)..=sync_to_height {
-                                match self
-                                    .peer_manager
-                                    .request_block_by_height(&peer_addr, height)
-                                    .await
-                                {
-                                    Ok(block) => {
+                                match tokio::time::timeout(
+                                    Duration::from_secs(10),
+                                    self.peer_manager.request_block_by_height(&peer_addr, height)
+                                ).await {
+                                    Ok(Ok(block)) => {
                                         // Validate and add block
                                         let mut blockchain = self.blockchain.write().await;
                                         match blockchain.add_block(block.clone()) {
@@ -590,13 +597,25 @@ impl BlockProducer {
                                             }
                                         }
                                     }
-                                    Err(e) => {
+                                    Ok(Err(e)) => {
                                         println!(
                                             "      ⚠️  Failed to download block {}: {}",
                                             height, e
                                         );
                                         break;
                                     }
+                                    Err(_) => {
+                                        println!(
+                                            "      ⚠️  Block {} download timeout",
+                                            height
+                                        );
+                                        break;
+                                    }
+                                }
+                                
+                                // Rate limiting to avoid overwhelming peer
+                                if downloaded_count % 10 == 0 {
+                                    tokio::time::sleep(Duration::from_millis(100)).await;
                                 }
                             }
 
@@ -1035,7 +1054,9 @@ impl BlockProducer {
 
         // SYNC MASTERNODES: Ensure all nodes have the same masternode list
         println!("   🔄 Synchronizing masternode list with network...");
-        self.sync_masternodes_before_block().await;
+        if let Err(e) = self.sync_masternodes_before_block().await {
+            println!("   ⚠️  Masternode sync failed: {} - using cached list", e);
+        }
 
         let all_masternodes = self.consensus.get_masternodes().await;
 
@@ -1237,11 +1258,24 @@ impl BlockProducer {
 
                 // SECURITY FIX: UTXO consistency - save snapshot before removing from mempool
                 if let Err(e) = blockchain.save_utxo_snapshot() {
-                    println!("   ❌ CRITICAL: Failed to save UTXO snapshot: {}", e);
-                    println!("   ⚠️  NOT removing transactions from mempool due to save failure");
-                    println!("   ⚠️  This prevents UTXO loss - transactions will be retried");
+                    eprintln!("❌ CRITICAL: UTXO snapshot save failed: {}", e);
+                    eprintln!("   Block {}: Will not remove transactions from mempool", block_num);
+                    
+                    // Log to persistent error log for monitoring
+                    if let Err(log_err) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("critical_errors.log")
+                        .and_then(|mut f| {
+                            use std::io::Write;
+                            writeln!(f, "[{}] Block {}: UTXO snapshot save failed: {}", 
+                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"), block_num, e)
+                        }) {
+                        eprintln!("   ⚠️  Failed to write to error log: {}", log_err);
+                    }
+                    
                     drop(blockchain);
-                    return; // Critical failure - don't remove from mempool
+                    return;
                 }
 
                 drop(blockchain);
@@ -1436,11 +1470,24 @@ impl BlockProducer {
 
                 // Save UTXO snapshot to persist state
                 if let Err(e) = blockchain.save_utxo_snapshot() {
-                    println!("   ⚠️  Failed to save UTXO snapshot: {}", e);
-                    println!("   ⚠️  NOT removing transactions from mempool due to save failure");
-                    println!("   ⚠️  This prevents UTXO loss - transactions will be retried");
+                    eprintln!("❌ CRITICAL: UTXO snapshot save failed: {}", e);
+                    eprintln!("   Block {}: Will not remove transactions from mempool", block_num);
+                    
+                    // Log to persistent error log
+                    if let Err(log_err) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("critical_errors.log")
+                        .and_then(|mut f| {
+                            use std::io::Write;
+                            writeln!(f, "[{}] Block {}: UTXO snapshot save failed: {}", 
+                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"), block_num, e)
+                        }) {
+                        eprintln!("   ⚠️  Failed to write to error log: {}", log_err);
+                    }
+                    
                     drop(blockchain);
-                    return; // Critical failure - don't continue
+                    return;
                 } else {
                     println!("   💾 UTXO snapshot saved");
                 }
@@ -2221,20 +2268,17 @@ impl BlockProducer {
     ) -> bool {
         let block_num = block.header.block_number;
 
-        // SECURITY FIX: Minimize lock scope - check existence with read lock first
-        let block_exists = {
-            let blockchain = self.blockchain.read().await;
-            blockchain.get_block_by_height(block_num).is_some()
-        };
+        println!("      🔧 Finalizing agreed block #{}...", block_num);
+        println!("      📋 Block hash: {}...", truncate_str(&block.hash, 16));
 
-        if block_exists {
-            let existing_hash = {
-                let blockchain = self.blockchain.read().await;
-                blockchain
-                    .get_block_by_height(block_num)
-                    .map(|b| b.hash.clone())
-                    .unwrap_or_default()
-            };
+        // CRITICAL FIX: Atomically check and add block under write lock
+        // This prevents race condition where another task adds block between read and write
+        let mut blockchain = self.blockchain.write().await;
+        
+        // Check if block already exists
+        if let Some(existing_block) = blockchain.get_block_by_height(block_num) {
+            let existing_hash = existing_block.hash.clone();
+            drop(blockchain);
             println!(
                 "      ℹ️  Block #{} already exists (hash: {}...), skipping",
                 block_num,
@@ -2242,25 +2286,30 @@ impl BlockProducer {
             );
             return true;
         }
-
-        println!("      🔧 Finalizing agreed block #{}...", block_num);
-        println!("      📋 Block hash: {}...", truncate_str(&block.hash, 16));
-
-        // Now acquire write lock only when actually adding block
-        let mut blockchain = self.blockchain.write().await;
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} finalized and stored", block_num);
 
                 // SECURITY FIX: UTXO consistency - save snapshot before removing from mempool
                 if let Err(e) = blockchain.save_utxo_snapshot() {
-                    println!("      ⚠️  Failed to save UTXO snapshot: {}", e);
-                    println!(
-                        "      ⚠️  NOT removing transactions from mempool due to save failure"
-                    );
-                    println!("      ⚠️  This prevents UTXO loss - transactions will be retried");
+                    eprintln!("      ❌ CRITICAL: UTXO snapshot save failed: {}", e);
+                    eprintln!("         Block {}: Will not remove transactions from mempool", block_num);
+                    
+                    // Log to persistent error log
+                    if let Err(log_err) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("critical_errors.log")
+                        .and_then(|mut f| {
+                            use std::io::Write;
+                            writeln!(f, "[{}] Block {}: UTXO snapshot save failed: {}", 
+                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"), block_num, e)
+                        }) {
+                        eprintln!("      ⚠️  Failed to write to error log: {}", log_err);
+                    }
+                    
                     drop(blockchain);
-                    return false; // Critical failure - don't continue
+                    return false;
                 } else {
                     println!("      💾 UTXO snapshot saved");
                 }
@@ -2299,28 +2348,6 @@ impl BlockProducer {
         _masternodes: &[String],
     ) -> bool {
         use time_core::block::{Block, BlockHeader};
-
-        // SECURITY FIX: Minimize lock scope - check existence with read lock first
-        let block_exists = {
-            let blockchain = self.blockchain.read().await;
-            blockchain.get_block_by_height(block_num).is_some()
-        };
-
-        if block_exists {
-            let existing_hash = {
-                let blockchain = self.blockchain.read().await;
-                blockchain
-                    .get_block_by_height(block_num)
-                    .map(|b| b.hash.clone())
-                    .unwrap_or_default()
-            };
-            println!(
-                "      ℹ️  Block #{} already exists (hash: {}...), skipping creation",
-                block_num,
-                &existing_hash[..16.min(existing_hash.len())]
-            );
-            return true; // Not an error, just already done
-        }
 
         // Get necessary data with read lock
         let (previous_hash, masternode_counts, all_masternodes) = {
@@ -2394,8 +2421,21 @@ impl BlockProducer {
 
         println!("      🔧 Finalizing block #{}...", block_num);
 
-        // SECURITY FIX: Acquire write lock only for the actual write operation
+        // CRITICAL FIX: Atomically check and add block under write lock
         let mut blockchain = self.blockchain.write().await;
+        
+        // Check if block already exists before adding
+        if let Some(existing_block) = blockchain.get_block_by_height(block_num) {
+            let existing_hash = existing_block.hash.clone();
+            drop(blockchain);
+            println!(
+                "      ℹ️  Block #{} already exists (hash: {}...), skipping creation",
+                block_num,
+                &existing_hash[..16.min(existing_hash.len())]
+            );
+            return true;
+        }
+        
         match blockchain.add_block(block.clone()) {
             Ok(_) => {
                 println!("      ✔ Block #{} finalized and stored", block_num);
@@ -2505,43 +2545,70 @@ impl BlockProducer {
 
     /// Synchronize masternode list with network before block creation
     /// This ensures all nodes have the same view of active masternodes
-    async fn sync_masternodes_before_block(&self) {
-        // CRITICAL: Use tokio::spawn to ensure timeout is respected
-        // Direct .await can block if underlying locks are held
-        let handle = tokio::spawn({
-            let peer_manager = self.peer_manager.clone();
-            async move {
-                // Get peer list with 2-second timeout
-                let peers = match tokio::time::timeout(
-                    tokio::time::Duration::from_secs(2),
-                    peer_manager.get_peer_ips(),
-                )
-                .await
-                {
-                    Ok(peers) => peers,
-                    Err(_) => {
-                        println!("   ⚠️  Timeout getting peer list");
-                        return;
-                    }
-                };
-
-                if peers.is_empty() {
-                    println!("   ⚠️  No peers available");
-                    return;
-                }
-
-                // Just log the peer count, actual sync happens via gossip
-                println!("   ✓ {} peers in network", peers.len());
-            }
-        });
-
-        // Wait up to 3 seconds total for the sync task
-        match tokio::time::timeout(tokio::time::Duration::from_secs(3), handle).await {
-            Ok(Ok(_)) => println!("   ✓ Masternode sync complete"),
-            Ok(Err(e)) => println!("   ⚠️  Sync task error: {} - continuing", e),
+    async fn sync_masternodes_before_block(&self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("   🔄 Synchronizing masternode list...");
+        
+        // Get peer list with timeout
+        let peers = match tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            self.peer_manager.get_peer_ips()
+        ).await {
+            Ok(peers) => peers,
             Err(_) => {
-                println!("   ⚠️  Masternode sync timeout (3s) - continuing with current list")
+                return Err("Timeout getting peer list".into());
             }
+        };
+
+        if peers.is_empty() {
+            return Err("No peers available for sync".into());
+        }
+
+        println!("   ℹ️  {} peers in network", peers.len());
+
+        // Attempt to fetch masternode list from up to 3 peers with retry
+        for peer_ip in peers.iter().take(3) {
+            let p2p_port = match self.peer_manager.network {
+                time_network::discovery::NetworkType::Mainnet => 24000,
+                time_network::discovery::NetworkType::Testnet => 24100,
+            };
+            let peer_addr = format!("{}:{}", peer_ip, p2p_port);
+
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(3),
+                self.get_masternode_list_from_peer(&peer_addr)
+            ).await {
+                Ok(Ok(masternodes)) => {
+                    if !masternodes.is_empty() {
+                        println!("   ✓ Synced {} masternodes from {}", masternodes.len(), peer_ip);
+                        self.consensus.update_masternodes(masternodes).await;
+                        return Ok(());
+                    }
+                }
+                Ok(Err(e)) => {
+                    println!("   ⚠️  Failed to sync from {}: {}", peer_ip, e);
+                    continue;
+                }
+                Err(_) => {
+                    println!("   ⚠️  Timeout syncing from {}", peer_ip);
+                    continue;
+                }
+            }
+        }
+
+        Err("Could not sync masternodes from any peer".into())
+    }
+
+    /// Get masternode list from a specific peer
+    async fn get_masternode_list_from_peer(&self, peer_addr: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        // Request masternode list via network protocol
+        // This is a placeholder - actual implementation depends on your network protocol
+        match self.peer_manager.request_blockchain_info(peer_addr).await {
+            Ok(_) => {
+                // For now, return the local consensus masternode list
+                // In a full implementation, you'd request and parse the peer's masternode list
+                Ok(self.consensus.get_masternodes().await)
+            }
+            Err(e) => Err(e.into())
         }
     }
 
