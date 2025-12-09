@@ -122,14 +122,27 @@ mod tests {
     use chrono::Utc;
     use time_core::block::{Block, BlockHeader, MasternodeCounts};
 
-    #[tokio::test]
-    async fn test_blockchain_service_creation() {
-        // Create a simple genesis block for testing
+    fn create_test_genesis_block(db_suffix: &str) -> (Block, String) {
+        let coinbase_tx = time_core::Transaction {
+            txid: format!("coinbase_{}", db_suffix),
+            version: 1,
+            inputs: vec![],
+            outputs: vec![time_core::TxOutput {
+                address: "genesis".to_string(),
+                amount: 50_000_000_000,
+            }],
+            lock_time: 0,
+            timestamp: Utc::now().timestamp(),
+        };
+
+        let transactions = vec![coinbase_tx];
+        let merkle_root = time_core::calculate_merkle_root(&transactions);
+
         let genesis_header = BlockHeader {
             block_number: 0,
             timestamp: Utc::now(),
             previous_hash: "0".to_string(),
-            merkle_root: "0".to_string(),
+            merkle_root,
             validator_signature: "genesis".to_string(),
             validator_address: "genesis".to_string(),
             masternode_counts: MasternodeCounts::default(),
@@ -137,27 +150,24 @@ mod tests {
             checkpoints: vec![],
         };
 
-        // Add a coinbase transaction
-        let coinbase_tx = time_core::Transaction {
-            txid: "coinbase".to_string(),
-            version: 1,
-            inputs: vec![],
-            outputs: vec![time_core::TxOutput {
-                address: "genesis".to_string(),
-                amount: 50_000_000_000, // 500 TIME
-            }],
-            lock_time: 0,
-            timestamp: Utc::now().timestamp(),
-        };
+        let hash = time_core::calculate_block_hash(&genesis_header);
 
         let genesis_block = Block {
             header: genesis_header,
-            transactions: vec![coinbase_tx],
-            hash: "genesis".to_string(),
+            transactions,
+            hash,
         };
 
+        let db_path = format!("test_{}", db_suffix);
+        (genesis_block, db_path)
+    }
+
+    #[tokio::test]
+    async fn test_blockchain_service_creation() {
+        let (genesis_block, db_path) = create_test_genesis_block("service");
+
         let blockchain = Arc::new(RwLock::new(
-            BlockchainState::new(genesis_block, "test_blockchain_service").unwrap(),
+            BlockchainState::new(genesis_block, &db_path).unwrap(),
         ));
         let service = BlockchainService::new(blockchain);
 
@@ -168,38 +178,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_balance_uses_utxo_set() {
-        // Create genesis block with coinbase
-        let genesis_header = BlockHeader {
-            block_number: 0,
-            timestamp: Utc::now(),
-            previous_hash: "0".to_string(),
-            merkle_root: "0".to_string(),
-            validator_signature: "genesis".to_string(),
-            validator_address: "genesis".to_string(),
-            masternode_counts: MasternodeCounts::default(),
-            proof_of_time: None,
-            checkpoints: vec![],
-        };
-
-        let coinbase_tx = time_core::Transaction {
-            txid: "coinbase".to_string(),
-            inputs: vec![],
-            outputs: vec![time_core::TxOutput {
-                address: "genesis".to_string(),
-                amount: 50_000_000_000,
-            }],
-            timestamp: Utc::now().timestamp(),
-            signature: None,
-        };
-
-        let genesis_block = Block {
-            header: genesis_header,
-            transactions: vec![coinbase_tx],
-            hash: "genesis".to_string(),
-        };
+        let (genesis_block, db_path) = create_test_genesis_block("balance");
 
         let blockchain = Arc::new(RwLock::new(
-            BlockchainState::new(genesis_block, "test_balance_service").unwrap(),
+            BlockchainState::new(genesis_block, &db_path).unwrap(),
         ));
 
         let service = BlockchainService::new(blockchain.clone());
@@ -219,40 +201,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_available_balance_filters_locked_utxos() {
-        // This test would require setting up UTXOs and the state manager
-        // For now, we verify the method exists and can be called
-        let genesis_header = BlockHeader {
-            block_number: 0,
-            timestamp: Utc::now(),
-            previous_hash: "0".to_string(),
-            merkle_root: "0".to_string(),
-            validator_signature: "genesis".to_string(),
-            validator_address: "genesis".to_string(),
-            masternode_counts: MasternodeCounts::default(),
-            proof_of_time: None,
-            checkpoints: vec![],
-        };
-
-        let coinbase_tx = time_core::Transaction {
-            txid: "coinbase3".to_string(),
-            version: 1,
-            inputs: vec![],
-            outputs: vec![time_core::TxOutput {
-                address: "genesis".to_string(),
-                amount: 50_000_000_000,
-            }],
-            lock_time: 0,
-            timestamp: Utc::now().timestamp(),
-        };
-
-        let genesis_block = Block {
-            header: genesis_header,
-            transactions: vec![coinbase_tx],
-            hash: "genesis".to_string(),
-        };
+        let (genesis_block, db_path) = create_test_genesis_block("available");
 
         let blockchain = Arc::new(RwLock::new(
-            BlockchainState::new(genesis_block, "test_available_service").unwrap(),
+            BlockchainState::new(genesis_block, &db_path).unwrap(),
         ));
 
         let service = BlockchainService::new(blockchain);

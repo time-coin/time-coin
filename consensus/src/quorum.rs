@@ -30,7 +30,7 @@ pub fn calculate_quorum(total_nodes: usize) -> usize {
     // BFT requires ⌈2n/3⌉ for safety
     // Never less than MIN_MASTERNODES for bootstrap safety
     let quorum = (total_nodes * 2).div_ceil(3);
-    quorum.max(MIN_MASTERNODES).min(total_nodes)
+    quorum.min(total_nodes)
 }
 
 pub fn has_quorum(active_nodes: usize) -> bool {
