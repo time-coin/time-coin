@@ -1,4 +1,5 @@
 use crate::address::{Address, AddressError, NetworkType};
+use crate::encryption::{EncryptedWallet, EncryptionError, SecurePassword, WalletEncryption};
 use crate::keypair::{Keypair, KeypairError};
 use crate::mnemonic::{mnemonic_to_keypair_hd, MnemonicError};
 use crate::transaction::{Transaction, TransactionError, TxInput, TxOutput};
@@ -35,6 +36,9 @@ pub enum WalletError {
 
     #[error("Invalid password")]
     InvalidPassword,
+
+    #[error("Encryption error: {0}")]
+    EncryptionError(#[from] EncryptionError),
 }
 
 /// UTXO (Unspent Transaction Output)
@@ -524,6 +528,132 @@ impl Wallet {
         let wallet: Self =
             serde_json::from_str(&data).map_err(|_| WalletError::SerializationError)?;
         Ok(wallet)
+    }
+
+    /// Save wallet to encrypted file with password protection
+    ///
+    /// # Arguments
+    /// * `path` - File path to save encrypted wallet
+    /// * `password` - Password for encryption (will be zeroized after use)
+    ///
+    /// # Security
+    /// - Uses Argon2id for key derivation (memory-hard, resistant to GPU attacks)
+    /// - Uses AES-256-GCM for encryption (authenticated encryption)
+    /// - Random salt and nonce for each encryption
+    ///
+    /// # Example
+    /// ```no_run
+    /// use wallet::{Wallet, NetworkType, SecurePassword};
+    ///
+    /// let wallet = Wallet::new(NetworkType::Mainnet).unwrap();
+    /// let password = SecurePassword::new("strong_password".to_string());
+    /// wallet.save_encrypted("wallet.enc", &password).unwrap();
+    /// ```
+    pub fn save_encrypted<P: AsRef<Path>>(
+        &self,
+        path: P,
+        password: &SecurePassword,
+    ) -> Result<(), WalletError> {
+        // Serialize wallet to JSON
+        let wallet_json = serde_json::to_vec(self).map_err(|_| WalletError::SerializationError)?;
+
+        // Encrypt
+        let encrypted = WalletEncryption::encrypt(&wallet_json, password)?;
+
+        // Save to file
+        let encrypted_json = serde_json::to_string_pretty(&encrypted)
+            .map_err(|_| WalletError::SerializationError)?;
+        fs::write(path, encrypted_json)?;
+
+        Ok(())
+    }
+
+    /// Load wallet from encrypted file with password
+    ///
+    /// # Arguments
+    /// * `path` - Path to encrypted wallet file
+    /// * `password` - Password for decryption
+    ///
+    /// # Errors
+    /// - `InvalidPassword` if password is incorrect
+    /// - `DecryptionFailed` if file is corrupted
+    /// - `IoError` if file cannot be read
+    ///
+    /// # Example
+    /// ```no_run
+    /// use wallet::{Wallet, SecurePassword};
+    ///
+    /// let password = SecurePassword::new("strong_password".to_string());
+    /// let wallet = Wallet::load_encrypted("wallet.enc", &password).unwrap();
+    /// ```
+    pub fn load_encrypted<P: AsRef<Path>>(
+        path: P,
+        password: &SecurePassword,
+    ) -> Result<Self, WalletError> {
+        // Read encrypted file
+        let encrypted_json = fs::read_to_string(path)?;
+        let encrypted: EncryptedWallet =
+            serde_json::from_str(&encrypted_json).map_err(|_| WalletError::SerializationError)?;
+
+        // Decrypt
+        let wallet_json = WalletEncryption::decrypt(&encrypted, password)?;
+
+        // Deserialize
+        let wallet: Self =
+            serde_json::from_slice(&wallet_json).map_err(|_| WalletError::SerializationError)?;
+
+        Ok(wallet)
+    }
+
+    /// Verify password for encrypted wallet file without loading
+    ///
+    /// Useful for checking password before attempting full decryption
+    pub fn verify_encrypted_password<P: AsRef<Path>>(
+        path: P,
+        password: &SecurePassword,
+    ) -> Result<bool, WalletError> {
+        let encrypted_json = fs::read_to_string(path)?;
+        let encrypted: EncryptedWallet =
+            serde_json::from_str(&encrypted_json).map_err(|_| WalletError::SerializationError)?;
+
+        Ok(WalletEncryption::verify_password(&encrypted, password)?)
+    }
+
+    /// Change password for encrypted wallet file
+    ///
+    /// # Arguments
+    /// * `path` - Path to encrypted wallet file
+    /// * `old_password` - Current password
+    /// * `new_password` - New password
+    ///
+    /// # Example
+    /// ```no_run
+    /// use wallet::{Wallet, SecurePassword};
+    ///
+    /// let old_pwd = SecurePassword::new("old_password".to_string());
+    /// let new_pwd = SecurePassword::new("new_password".to_string());
+    /// Wallet::change_encrypted_password("wallet.enc", &old_pwd, &new_pwd).unwrap();
+    /// ```
+    pub fn change_encrypted_password<P: AsRef<Path>>(
+        path: P,
+        old_password: &SecurePassword,
+        new_password: &SecurePassword,
+    ) -> Result<(), WalletError> {
+        // Load current encrypted wallet
+        let encrypted_json = fs::read_to_string(&path)?;
+        let encrypted: EncryptedWallet =
+            serde_json::from_str(&encrypted_json).map_err(|_| WalletError::SerializationError)?;
+
+        // Change password
+        let re_encrypted =
+            WalletEncryption::change_password(&encrypted, old_password, new_password)?;
+
+        // Save
+        let new_encrypted_json = serde_json::to_string_pretty(&re_encrypted)
+            .map_err(|_| WalletError::SerializationError)?;
+        fs::write(path, new_encrypted_json)?;
+
+        Ok(())
     }
 
     /// Check if testnet

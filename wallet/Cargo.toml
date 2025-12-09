@@ -26,6 +26,11 @@ time-mempool = { version = "0.1.0", path = "../mempool" }
 sled = "0.34"
 tokio = { workspace = true }
 
+# Encryption dependencies
+aes-gcm = "0.10"
+argon2 = { version = "0.5", features = ["std"] }
+zeroize = { version = "1.7", features = ["derive"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 time-mempool = { version = "0.1.0", path = "../mempool" }

@@ -6071,6 +6071,8 @@ dependencies = [
 name = "wallet"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
+ "argon2",
  "bincode",
  "bip32",
  "bip39",
@@ -6090,6 +6092,7 @@ dependencies = [
  "time-mempool",
  "time-network",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
