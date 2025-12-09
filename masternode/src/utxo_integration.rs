@@ -1126,8 +1126,16 @@ mod tests {
             "127.0.0.1:24000".parse().unwrap(),
         ));
 
-        let integration =
-            MasternodeUTXOIntegration::new("test-node".to_string(), utxo_manager, peer_manager);
+        let temp_dir = tempfile::tempdir().unwrap();
+        let blockchain_db =
+            Arc::new(time_core::db::BlockchainDB::open(temp_dir.path().to_str().unwrap()).unwrap());
+
+        let integration = MasternodeUTXOIntegration::new(
+            "test-node".to_string(),
+            utxo_manager,
+            peer_manager,
+            blockchain_db,
+        );
 
         assert!(integration.initialize().await.is_ok());
         assert_eq!(integration.get_subscription_count().await, 0);

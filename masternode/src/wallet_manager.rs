@@ -314,8 +314,13 @@ mod tests {
         use std::fs;
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-        // Clean up any existing test wallet
+        // Create test directory structure
         let wallet_path = WalletDat::default_path(NetworkType::Testnet);
+        if let Some(parent) = wallet_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        // Clean up any existing test wallet
         let _ = fs::remove_file(&wallet_path);
 
         let mut manager =
