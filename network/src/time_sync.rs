@@ -286,6 +286,7 @@ impl TimeSyncService {
     }
 
     /// Query HTTP time endpoint
+    #[allow(dead_code)]
     async fn query_http_time(
         url: &str,
     ) -> Result<DateTime<Utc>, Box<dyn std::error::Error + Send + Sync>> {

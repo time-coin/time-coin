@@ -22,6 +22,7 @@ const NTP_SERVERS: &[&str] = &[
 const MAX_CALIBRATION_OFFSET_MS: i64 = 600000; // 10 minutes max calibration
 const CRITICAL_DRIFT_MS: i64 = 60000; // 1 minute - refuse to operate beyond this
 const TIME_SYNC_INTERVAL: Duration = Duration::from_secs(3600); // Check every hour
+#[allow(dead_code)]
 const MIN_PEER_SAMPLES: usize = 3; // Minimum peers to query for consensus
 const NTP_TIMEOUT: Duration = Duration::from_secs(5);
 
