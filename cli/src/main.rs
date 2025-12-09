@@ -869,7 +869,7 @@ async fn main() {
 
     // Check if we have genesis before loading from file
     let db_path = format!("{}/blockchain", data_dir);
-    let has_genesis_on_disk = {
+    let mut has_genesis_on_disk = {
         match time_core::db::BlockchainDB::open(&db_path) {
             Ok(db) => {
                 // Just check if block 0 exists, don't load all blocks
@@ -957,6 +957,13 @@ async fn main() {
                 "{}",
                 "   Will continue and retry during periodic sync".yellow()
             );
+        } else {
+            // Genesis downloaded successfully
+            println!(
+                "{}",
+                "   ✅ Genesis download complete - blockchain will load on next step".green()
+            );
+            has_genesis_on_disk = true;
         }
     }
 
@@ -1262,8 +1269,29 @@ async fn main() {
         blockchain_sync.warm_cache().await;
     }
 
-    // Skip initial sync - let the periodic sync task handle it
-    // This prevents multiple simultaneous sync attempts on startup
+    // Check if we just downloaded genesis and need immediate sync
+    let just_downloaded_genesis = has_genesis_on_disk && {
+        let bc = blockchain.read().await;
+        bc.chain_tip_height() == 0 && !bc.genesis_hash().is_empty()
+    };
+
+    if just_downloaded_genesis && !peer_manager.get_connected_peers().await.is_empty() {
+        println!(
+            "{}",
+            "📥 Blockchain is synced - syncing remaining blocks from network...".cyan()
+        );
+        match blockchain_sync.sync_on_join().await {
+            Ok(()) => println!("{}", "   ✅ Initial sync complete".green()),
+            Err(e) => eprintln!(
+                "{}",
+                format!(
+                    "   ⚠️  Initial sync failed: {} (periodic sync will retry)",
+                    e
+                )
+                .yellow()
+            ),
+        }
+    }
 
     // FORK PREVENTION: Initialize SyncGate with current blockchain height
     {
@@ -2287,17 +2315,32 @@ async fn main() {
 
                                                     let mut blocks = Vec::new();
 
-                                                    // Limit the range to prevent abuse
-                                                    let max_blocks = 100;
-                                                    let actual_end = std::cmp::min(end_height, std::cmp::min(chain_height, start_height + max_blocks - 1));
-
-                                                    for height in start_height..=actual_end {
-                                                        if let Some(block) = blockchain_guard.get_block_by_height(height) {
+                                                    // Special case: Always try to serve genesis if requested
+                                                    if start_height == 0 && has_genesis {
+                                                        // Load genesis from disk if needed
+                                                        if let Some(block) = blockchain_guard.get_block_by_height(0) {
                                                             blocks.push(block.clone());
+                                                            println!("   📤 Serving genesis block to {}", peer_ip_listen);
+                                                        } else {
+                                                            eprintln!("   ⚠️  Genesis exists but couldn't load from height 0");
+                                                        }
+                                                    } else {
+                                                        // Limit the range to prevent abuse
+                                                        let max_blocks = 100;
+                                                        let actual_end = std::cmp::min(end_height, std::cmp::min(chain_height, start_height + max_blocks - 1));
+
+                                                        for height in start_height..=actual_end {
+                                                            if let Some(block) = blockchain_guard.get_block_by_height(height) {
+                                                                blocks.push(block.clone());
+                                                            }
                                                         }
                                                     }
 
                                                     drop(blockchain_guard);
+
+                                                    if blocks.is_empty() && start_height == 0 {
+                                                        eprintln!("   ⚠️  Cannot serve genesis - no blocks found");
+                                                    }
 
                                                     let response = time_network::protocol::NetworkMessage::Blocks { blocks: blocks.clone() };
 
