@@ -112,7 +112,9 @@ async fn get_block_hash_by_height(
 pub struct BalanceResponse {
     address: String,
     balance: u64,
+    available_balance: u64,
     balance_time: String,
+    available_time: String,
     unconfirmed_balance: u64,
 }
 
@@ -130,6 +132,7 @@ async fn get_balance(
     // Use service for business logic
     let service = BlockchainService::new(state.blockchain.clone());
     let balance = service.get_balance(&address).await?;
+    let available_balance = service.get_available_balance(&address).await?;
 
     let unconfirmed_balance = if let Some(mempool) = &state.mempool {
         let blockchain = state.blockchain.read().await;
@@ -138,13 +141,16 @@ async fn get_balance(
         0
     };
 
-    // Convert balance to TIME (8 decimal places)
+    // Convert balances to TIME (8 decimal places)
     let balance_time = format!("{:.8}", satoshis_to_time(balance));
+    let available_time = format!("{:.8}", satoshis_to_time(available_balance));
 
     Ok(Json(BalanceResponse {
         address,
         balance,
+        available_balance,
         balance_time,
+        available_time,
         unconfirmed_balance,
     }))
 }

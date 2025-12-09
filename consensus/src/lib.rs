@@ -57,7 +57,9 @@ pub mod midnight_consensus;
 pub mod simplified;
 pub mod transaction_approval;
 
+use crate::byzantine::ByzantineDetector;
 use crate::core::vrf::{DefaultVRFSelector, VRFSelector};
+use crate::rate_limit::VoteRateLimiter;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -107,6 +109,12 @@ pub struct ConsensusEngine {
 
     /// VRF selector for leader election
     vrf_selector: DefaultVRFSelector,
+
+    /// Byzantine behavior detector
+    byzantine_detector: Arc<ByzantineDetector>,
+
+    /// Vote rate limiter
+    rate_limiter: Arc<VoteRateLimiter>,
 }
 
 impl ConsensusEngine {
@@ -127,13 +135,17 @@ impl ConsensusEngine {
             transaction_vote_counts: Arc::new(DashMap::new()),
             proposal_manager: None,
             vrf_selector: DefaultVRFSelector,
+            byzantine_detector: Arc::new(ByzantineDetector::new(3)),
+            rate_limiter: Arc::new(VoteRateLimiter::new(3)),
         };
 
         // Log VRF configuration for debugging synchronization issues
         println!("🔍 VRF Configuration:");
         println!("   Network: {}", network);
         println!("   Dev mode: {}", dev_mode);
-        println!("   Selector: DefaultVRFSelector (SHA256-based, height-only seed)");
+        println!("   Selector: DefaultVRFSelector (SHA256-based, conditional hash seed)");
+        println!("   Byzantine detection: enabled");
+        println!("   Rate limiting: 3 votes/peer/height");
 
         engine
     }
@@ -146,6 +158,42 @@ impl ConsensusEngine {
     /// Get the proposal manager
     pub fn proposal_manager(&self) -> Option<Arc<crate::proposals::ProposalManager>> {
         self.proposal_manager.clone()
+    }
+    
+    /// Get Byzantine detector for external monitoring
+    pub fn byzantine_detector(&self) -> Arc<ByzantineDetector> {
+        Arc::clone(&self.byzantine_detector)
+    }
+    
+    /// Get rate limiter for external monitoring  
+    pub fn rate_limiter(&self) -> Arc<VoteRateLimiter> {
+        Arc::clone(&self.rate_limiter)
+    }
+    
+    /// Check if a node is Byzantine
+    pub async fn is_byzantine(&self, node_id: &str) -> bool {
+        self.byzantine_detector.is_byzantine(node_id).await
+    }
+    
+    /// Get all Byzantine nodes
+    pub async fn get_byzantine_nodes(&self) -> Vec<String> {
+        self.byzantine_detector.get_byzantine_nodes().await
+    }
+    
+    /// Remove Byzantine nodes from masternode list
+    pub async fn remove_byzantine_nodes(&self) {
+        let byzantine_nodes = self.get_byzantine_nodes().await;
+        if byzantine_nodes.is_empty() {
+            return;
+        }
+        
+        let mut masternodes = self.masternodes.write().await;
+        masternodes.retain(|node| !byzantine_nodes.contains(node));
+        
+        println!("🚨 Removed {} Byzantine nodes from masternode list", byzantine_nodes.len());
+        for node in &byzantine_nodes {
+            println!("   - {}", node);
+        }
     }
 
     /// Set blockchain state

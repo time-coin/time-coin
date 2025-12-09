@@ -7,7 +7,9 @@
 //! 4. Quick approval → Nodes vote approve if it matches deterministic state
 //! 5. Transaction mismatches → Missing transactions broadcast, validated, block recreated
 
+use crate::byzantine::ByzantineDetector;
 use crate::core::vrf::{DefaultVRFSelector, VRFSelector};
+use crate::rate_limit::VoteRateLimiter;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -32,6 +34,12 @@ pub struct SimplifiedConsensus {
 
     /// VRF selector
     vrf_selector: DefaultVRFSelector,
+
+    /// Byzantine behavior detector
+    byzantine_detector: Arc<ByzantineDetector>,
+
+    /// Vote rate limiter
+    rate_limiter: Arc<VoteRateLimiter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +71,19 @@ impl SimplifiedConsensus {
             votes: Arc::new(RwLock::new(HashMap::new())),
             _known_transactions: Arc::new(RwLock::new(HashSet::new())),
             vrf_selector: DefaultVRFSelector,
+            byzantine_detector: Arc::new(ByzantineDetector::new(3)),
+            rate_limiter: Arc::new(VoteRateLimiter::new(3)),
         }
+    }
+
+    /// Get Byzantine detector for external monitoring
+    pub fn byzantine_detector(&self) -> Arc<ByzantineDetector> {
+        Arc::clone(&self.byzantine_detector)
+    }
+
+    /// Get rate limiter for external monitoring
+    pub fn rate_limiter(&self) -> Arc<VoteRateLimiter> {
+        Arc::clone(&self.rate_limiter)
     }
 
     /// Update masternode list
@@ -134,6 +154,15 @@ impl SimplifiedConsensus {
             .await;
 
         if expected_leader.as_ref() != Some(&proposal.leader) {
+            // Record invalid proposal as Byzantine behavior
+            self.byzantine_detector
+                .record_invalid_proposal(
+                    &proposal.leader,
+                    proposal.height,
+                    format!("Not the designated leader. Expected: {:?}", expected_leader),
+                )
+                .await;
+
             return Err(format!(
                 "Invalid proposer: expected {:?}, got {}",
                 expected_leader, proposal.leader
@@ -178,7 +207,16 @@ impl SimplifiedConsensus {
         approve: bool,
         reason: Option<String>,
     ) -> Result<(), String> {
-        // Verify voter is a masternode
+        // 1. Rate limit check
+        if let Err(e) = self.rate_limiter.try_accept_vote(&voter, height).await {
+            println!(
+                "⚠️ Rate limit exceeded for voter {} at height {}",
+                voter, height
+            );
+            return Err(e.to_string());
+        }
+
+        // 2. Verify voter is a masternode
         let masternodes = self.masternodes.read().await;
         if !masternodes.contains(&voter) {
             return Err("Not a registered masternode".to_string());
@@ -188,9 +226,19 @@ impl SimplifiedConsensus {
         let mut votes = self.votes.write().await;
         let vote_list = votes.entry(height).or_insert_with(Vec::new);
 
-        // Check for duplicate vote
+        // 3. Check for duplicate vote (also checks for double-voting)
         if vote_list.iter().any(|v| v.voter == voter) {
             return Err("Already voted".to_string());
+        }
+
+        // 4. Byzantine detection: check for double voting on different blocks
+        if let Err(violation) = self
+            .byzantine_detector
+            .record_vote(&voter, height, &block_hash)
+            .await
+        {
+            println!("🚨 Byzantine violation detected: {:?}", violation);
+            return Err(format!("Byzantine violation: {:?}", violation));
         }
 
         vote_list.push(BlockVote {
@@ -276,12 +324,35 @@ impl SimplifiedConsensus {
     pub async fn clear_votes(&self, height: u64) {
         let mut votes = self.votes.write().await;
         votes.remove(&height);
+
+        // Also cleanup rate limiter and Byzantine detector
+        self.rate_limiter.advance_height(height + 1).await;
+        self.byzantine_detector
+            .cleanup_vote_history(height.saturating_sub(100));
     }
 
     /// Get proposal
     pub async fn get_proposal(&self, height: u64) -> Option<BlockProposal> {
         let proposals = self.proposals.read().await;
         proposals.get(&height).cloned()
+    }
+
+    /// Check if a node is Byzantine
+    pub async fn is_byzantine(&self, node_id: &str) -> bool {
+        self.byzantine_detector.is_byzantine(node_id).await
+    }
+
+    /// Get all Byzantine nodes
+    pub async fn get_byzantine_nodes(&self) -> Vec<String> {
+        self.byzantine_detector.get_byzantine_nodes().await
+    }
+
+    /// Get violations for a node
+    pub async fn get_node_violations(
+        &self,
+        node_id: &str,
+    ) -> Vec<crate::byzantine::ViolationRecord> {
+        self.byzantine_detector.get_violations(node_id).await
     }
 }
 

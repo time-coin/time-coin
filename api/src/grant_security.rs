@@ -24,7 +24,7 @@ const MAX_APPLICATIONS_PER_IP: usize = 10;
 /// Returns a 64-character hexadecimal string (32 random bytes)
 /// This is much more secure than UUIDs which can be predictable
 pub fn generate_secure_token() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let bytes: Vec<u8> = (0..32).map(|_| rng.random()).collect();
     hex::encode(bytes)
 }

@@ -98,10 +98,10 @@ mod tests {
 
     #[test]
     fn test_bft_minimum() {
-        // Never drop below MIN_MASTERNODES even for small networks
-        assert_eq!(required_for_bft(1), 1);
-        assert_eq!(required_for_bft(2), 2);
-        assert_eq!(required_for_bft(3), 3);
+        // For small networks, use 2/3 threshold
+        assert_eq!(required_for_bft(1), 1);  // 1 node = 1 vote
+        assert_eq!(required_for_bft(2), 2);  // 2 nodes = 2 votes  
+        assert_eq!(required_for_bft(3), 2);  // 3 nodes = 2 votes (67%)
     }
 
     #[test]

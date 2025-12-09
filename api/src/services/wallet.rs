@@ -22,10 +22,30 @@ impl WalletService {
     pub async fn get_wallet_balance(&self, address: &str) -> ApiResult<WalletBalanceInfo> {
         let blockchain = self.blockchain.read().await;
         let confirmed_balance = blockchain.get_balance(address);
+        let utxo_set = blockchain.utxo_set();
+        let utxo_manager = blockchain.utxo_state_manager();
+
+        // Calculate available (unlocked) balance
+        let mut available_balance = 0u64;
+        for (outpoint, output) in utxo_set.get_utxos_by_address(address) {
+            if output.address == address {
+                let utxo_state = utxo_manager.get_state(&outpoint).await;
+                let is_available = match utxo_state {
+                    None => true,
+                    Some(time_core::utxo_state_manager::UTXOState::Unspent) => true,
+                    Some(time_core::utxo_state_manager::UTXOState::Confirmed { .. }) => true,
+                    _ => false,
+                };
+                if is_available {
+                    available_balance = available_balance.saturating_add(output.amount);
+                }
+            }
+        }
 
         Ok(WalletBalanceInfo {
             address: address.to_string(),
             confirmed_balance,
+            available_balance,
             pending_balance: 0, // TODO: Calculate from mempool
         })
     }
@@ -33,11 +53,29 @@ impl WalletService {
     /// Check if address has sufficient balance
     pub async fn check_sufficient_balance(&self, address: &str, amount: u64) -> ApiResult<bool> {
         let blockchain = self.blockchain.read().await;
-        let balance = blockchain.get_balance(address);
+        let utxo_set = blockchain.utxo_set();
+        let utxo_manager = blockchain.utxo_state_manager();
 
-        if balance < amount {
+        // Check available (spendable) balance, not just total balance
+        let mut available = 0u64;
+        for (outpoint, output) in utxo_set.get_utxos_by_address(address) {
+            if output.address == address {
+                let utxo_state = utxo_manager.get_state(&outpoint).await;
+                let is_available = match utxo_state {
+                    None => true,
+                    Some(time_core::utxo_state_manager::UTXOState::Unspent) => true,
+                    Some(time_core::utxo_state_manager::UTXOState::Confirmed { .. }) => true,
+                    _ => false,
+                };
+                if is_available {
+                    available = available.saturating_add(output.amount);
+                }
+            }
+        }
+
+        if available < amount {
             return Err(ApiError::InsufficientBalance {
-                have: balance,
+                have: available,
                 need: amount,
             });
         }
@@ -128,5 +166,6 @@ impl WalletService {
 pub struct WalletBalanceInfo {
     pub address: String,
     pub confirmed_balance: u64,
+    pub available_balance: u64,
     pub pending_balance: u64,
 }
