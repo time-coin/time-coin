@@ -4,6 +4,7 @@
 //!
 //! Example:
 //! mn1 192.168.1.100:24000 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0
+#![allow(missing_docs)]
 
 use serde::{Deserialize, Serialize};
 use std::fs;

@@ -1,30 +1,54 @@
 //! Masternode status with grace period and sync requirements
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Masternode operational status and network information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasternodeStatus {
+    /// Public key for verification
     pub public_key: String,
+    /// IP address for network connectivity
     pub ip_address: String,
+    /// Network port
     pub port: u16,
+    /// Block height at registration
     pub registration_block: u64,
+    /// Unix timestamp of registration
     pub registration_time: i64,
+    /// Last heartbeat timestamp
     pub last_heartbeat: i64,
+    /// Whether the masternode is active
     pub is_active: bool,
+    /// Current blockchain sync status
     pub sync_status: SyncStatus,
+    /// Uptime score (0.0-100.0)
     pub uptime_score: f64,
 }
+
+/// Blockchain synchronization status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SyncStatus {
+    /// Not yet started syncing
     NotSynced,
+    /// Currently syncing
     Syncing {
+        /// Current block height
         current_block: u64,
+        /// Target block height
         target_block: u64,
     },
+    /// Fully synchronized
     Synced,
 }
+
+/// Grace period before marking a masternode as inactive (30 minutes)
 pub const GRACE_PERIOD_SECS: i64 = 1800;
+
+/// Threshold for considering a masternode offline (5 minutes)
 pub const INACTIVE_THRESHOLD_SECS: i64 = 300;
+
 impl MasternodeStatus {
+    /// Creates a new masternode status
     pub fn new(public_key: String, ip_address: String, port: u16, registration_block: u64) -> Self {
         let now = current_timestamp();
         Self {
@@ -39,6 +63,7 @@ impl MasternodeStatus {
             uptime_score: 100.0,
         }
     }
+    /// Checks if masternode can participate in voting
     pub fn can_vote(&self) -> bool {
         self.is_active && self.is_synced() && self.is_online()
     }
@@ -56,21 +81,26 @@ impl MasternodeStatus {
         // Check if maturity period has passed
         blocks_since_registration >= tier.vote_maturity_blocks()
     }
+    /// Checks if blockchain is fully synchronized
     pub fn is_synced(&self) -> bool {
         matches!(self.sync_status, SyncStatus::Synced)
     }
+    /// Checks if masternode is currently online
     pub fn is_online(&self) -> bool {
         (current_timestamp() - self.last_heartbeat) < INACTIVE_THRESHOLD_SECS
     }
+    /// Checks if masternode is within grace period
     pub fn is_within_grace_period(&self) -> bool {
         (current_timestamp() - self.last_heartbeat) < GRACE_PERIOD_SECS
     }
+    /// Updates the last heartbeat timestamp
     pub fn update_heartbeat(&mut self) {
         self.last_heartbeat = current_timestamp();
         if !self.is_active && self.is_within_grace_period() && self.is_synced() {
             self.is_active = true;
         }
     }
+    /// Updates the blockchain sync status
     pub fn update_sync_status(&mut self, status: SyncStatus) {
         self.sync_status = status.clone();
         if matches!(status, SyncStatus::Synced) && !self.is_active {

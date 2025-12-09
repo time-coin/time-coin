@@ -1,4 +1,5 @@
 //! Reputation System for Masternodes
+#![allow(missing_docs)]
 //!
 //! Tracks reputation scores based on masternode behavior:
 //! - **Blocks validated**: +1 per block

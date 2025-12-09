@@ -30,12 +30,11 @@ impl WalletService {
         for (outpoint, output) in utxo_set.get_utxos_by_address(address) {
             if output.address == address {
                 let utxo_state = utxo_manager.get_state(&outpoint).await;
-                let is_available = match utxo_state {
-                    None => true,
-                    Some(time_core::utxo_state_manager::UTXOState::Unspent) => true,
-                    Some(time_core::utxo_state_manager::UTXOState::Confirmed { .. }) => true,
-                    _ => false,
-                };
+                let is_available = matches!(
+                    utxo_state,
+                    None | Some(time_core::utxo_state_manager::UTXOState::Unspent)
+                        | Some(time_core::utxo_state_manager::UTXOState::Confirmed { .. })
+                );
                 if is_available {
                     available_balance = available_balance.saturating_add(output.amount);
                 }
@@ -61,12 +60,11 @@ impl WalletService {
         for (outpoint, output) in utxo_set.get_utxos_by_address(address) {
             if output.address == address {
                 let utxo_state = utxo_manager.get_state(&outpoint).await;
-                let is_available = match utxo_state {
-                    None => true,
-                    Some(time_core::utxo_state_manager::UTXOState::Unspent) => true,
-                    Some(time_core::utxo_state_manager::UTXOState::Confirmed { .. }) => true,
-                    _ => false,
-                };
+                let is_available = matches!(
+                    utxo_state,
+                    None | Some(time_core::utxo_state_manager::UTXOState::Unspent)
+                        | Some(time_core::utxo_state_manager::UTXOState::Confirmed { .. })
+                );
                 if is_available {
                     available = available.saturating_add(output.amount);
                 }

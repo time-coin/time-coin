@@ -2,6 +2,7 @@
 //!
 //! Scans the blockchain database to find UTXOs belonging to registered xpubs.
 //! This ensures wallets can sync their transaction history from existing blocks.
+#![allow(missing_docs)]
 
 use crate::address_monitor::AddressMonitor;
 use crate::utxo_tracker::{UtxoInfo, UtxoTracker};

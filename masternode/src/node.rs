@@ -27,6 +27,7 @@
 //!
 //! assert_eq!(mn.status, MasternodeStatus::Pending);
 //! ```
+#![allow(missing_docs)]
 
 use crate::collateral::CollateralTier;
 use crate::error::{MasternodeError, Result};

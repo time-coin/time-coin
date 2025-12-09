@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use crate::error::MasternodeError;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

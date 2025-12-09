@@ -7,6 +7,7 @@
 //! a simple private key (stored in masternode.conf). Use this full wallet only if you
 //! need HD wallet features like multiple addresses or want to manage rewards on the
 //! masternode itself (not recommended for security reasons).
+#![allow(missing_docs)]
 
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};

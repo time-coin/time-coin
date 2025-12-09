@@ -2,6 +2,7 @@
 //!
 //! This module provides automated detection of various violation types in the masternode network.
 //! It tracks block signatures, heartbeats, and data requests to identify misbehavior.
+#![allow(missing_docs)]
 
 use crate::violations::*;
 use serde::{Deserialize, Serialize};

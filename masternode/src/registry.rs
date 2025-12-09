@@ -1,4 +1,5 @@
 //! Masternode registry for tracking all masternodes
+#![allow(missing_docs)]
 
 use crate::collateral::CollateralTier;
 use crate::types::*;

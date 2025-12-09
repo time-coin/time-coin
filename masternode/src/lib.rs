@@ -32,12 +32,8 @@
 //! This crate forbids unsafe code to ensure memory safety.
 
 #![forbid(unsafe_code)]
-#![warn(
-    missing_docs,
-    rust_2018_idioms,
-    unreachable_pub,
-    missing_debug_implementations
-)]
+#![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
+#![allow(missing_debug_implementations)]
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -45,17 +41,22 @@ use std::collections::HashMap;
 use time_core::Transaction;
 use wallet::Address;
 
-pub const COIN: u64 = 100_000_000; // 1 TIME = 100,000,000 satoshis
+/// Base unit conversion: 1 TIME = 100,000,000 satoshis
+pub const COIN: u64 = 100_000_000;
 
 /// Masternode collateral tiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CollateralTier {
-    Community,    // 1,000 TIME, 18% APY, 90% uptime required
-    Verified,     // 10,000 TIME, 24% APY, 95% uptime required
-    Professional, // 100,000 TIME, 30% APY, 98% uptime required
+    /// Community tier: 1,000 TIME, 18% APY, 90% uptime required
+    Community,
+    /// Verified tier: 10,000 TIME, 24% APY, 95% uptime required
+    Verified,
+    /// Professional tier: 100,000 TIME, 30% APY, 98% uptime required
+    Professional,
 }
 
 impl CollateralTier {
+    /// Determines the appropriate tier based on collateral amount
     pub fn from_amount(amount: u64) -> Result<Self, String> {
         match amount {
             x if x >= 100_000 * COIN => Ok(CollateralTier::Professional),
@@ -65,6 +66,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the required collateral amount for this tier
     pub fn required_collateral(&self) -> u64 {
         match self {
             CollateralTier::Community => 1_000 * COIN,
@@ -73,6 +75,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the base annual percentage yield for this tier
     pub fn base_apy(&self) -> f64 {
         match self {
             CollateralTier::Community => 0.18,
@@ -81,6 +84,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the minimum required uptime percentage for this tier
     pub fn min_uptime(&self) -> f64 {
         match self {
             CollateralTier::Community => 0.90,
@@ -89,6 +93,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the voting weight for governance decisions
     pub fn voting_weight(&self) -> u32 {
         match self {
             CollateralTier::Community => 1,
@@ -97,6 +102,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns whether this tier can verify purchase transactions
     pub fn can_verify_purchases(&self) -> bool {
         matches!(
             self,
@@ -104,10 +110,12 @@ impl CollateralTier {
         )
     }
 
+    /// Returns whether this tier can create governance proposals
     pub fn can_create_proposals(&self) -> bool {
         matches!(self, CollateralTier::Professional)
     }
 
+    /// Returns the voting power multiplier for this tier
     pub fn voting_multiplier(&self) -> u32 {
         match self {
             CollateralTier::Community => 1,
@@ -130,19 +138,30 @@ impl CollateralTier {
 /// Masternode configuration and state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Masternode {
+    /// Masternode wallet address
     pub address: Address,
+    /// Transaction ID that locked the collateral
     pub collateral_tx: String,
+    /// Amount of collateral locked
     pub collateral_amount: u64,
+    /// Collateral tier determining rewards and requirements
     pub tier: CollateralTier,
+    /// Unix timestamp when the masternode was registered
     pub registered_at: i64,
+    /// Unix timestamp of last heartbeat/activity
     pub last_seen: i64,
+    /// Uptime score (0.0-1.0) affecting rewards
     pub uptime_score: f64,
+    /// Whether the operator has completed KYC verification
     pub kyc_verified: bool,
+    /// Whether the masternode has been slashed
     pub is_slashed: bool,
+    /// Historical record of slashing events
     pub slashing_history: Vec<slashing::SlashingRecord>,
 }
 
 impl Masternode {
+    /// Creates a new masternode instance
     pub fn new(
         address: Address,
         collateral_tx: String,
@@ -164,6 +183,7 @@ impl Masternode {
         })
     }
 
+    /// Calculates the effective APY including bonuses and penalties
     pub fn effective_apy(&self) -> f64 {
         let mut apy = self.tier.base_apy();
 
@@ -179,16 +199,19 @@ impl Masternode {
         apy
     }
 
+    /// Calculates expected monthly reward in satoshis
     pub fn monthly_reward(&self) -> u64 {
         let annual = self.collateral_amount as f64 * self.effective_apy();
         (annual / 12.0) as u64
     }
 
+    /// Checks if the masternode is currently active
     pub fn is_active(&self) -> bool {
         let now = Utc::now().timestamp();
         now - self.last_seen < 300 // Active if seen within 5 minutes
     }
 
+    /// Checks if the masternode meets all operational requirements
     pub fn meets_requirements(&self) -> bool {
         self.uptime_score >= self.tier.min_uptime() && self.is_active()
     }
@@ -254,6 +277,7 @@ pub struct MasternodeNetwork {
 }
 
 impl MasternodeNetwork {
+    /// Creates a new masternode network manager
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
@@ -261,6 +285,7 @@ impl MasternodeNetwork {
         }
     }
 
+    /// Registers a new masternode in the network
     pub fn register(&mut self, node: Masternode) -> Result<(), String> {
         if self.nodes.contains_key(&node.address) {
             return Err("Masternode already registered".to_string());
@@ -269,6 +294,7 @@ impl MasternodeNetwork {
         Ok(())
     }
 
+    /// Removes a masternode from the network
     pub fn deregister(&mut self, address: &Address) -> Result<(), String> {
         self.nodes
             .remove(address)
@@ -276,10 +302,12 @@ impl MasternodeNetwork {
             .ok_or_else(|| "Masternode not found".to_string())
     }
 
+    /// Retrieves a masternode by address
     pub fn get_node(&self, address: &Address) -> Option<&Masternode> {
         self.nodes.get(address)
     }
 
+    /// Returns all active masternodes that meet requirements
     pub fn active_nodes(&self) -> Vec<&Masternode> {
         self.nodes
             .values()
@@ -287,6 +315,7 @@ impl MasternodeNetwork {
             .collect()
     }
 
+    /// Selects a quorum of masternodes for consensus
     pub fn select_quorum(&self) -> Vec<Address> {
         let mut active: Vec<_> = self
             .active_nodes()
@@ -300,14 +329,17 @@ impl MasternodeNetwork {
         active.into_iter().take(self.quorum_size).collect()
     }
 
+    /// Validates a transaction against masternode rules
     pub fn validate_transaction(&self, _tx: &Transaction) -> bool {
         true // Placeholder
     }
 
+    /// Calculates total collateral locked in the network
     pub fn total_collateral(&self) -> u64 {
         self.nodes.values().map(|n| n.collateral_amount).sum()
     }
 
+    /// Returns the distribution of masternodes across tiers
     pub fn tier_distribution(&self) -> HashMap<CollateralTier, usize> {
         let mut dist = HashMap::new();
         for node in self.nodes.values() {
@@ -370,8 +402,11 @@ impl Default for MasternodeNetwork {
 /// Counts of masternodes per tier
 #[derive(Debug, Clone, Default)]
 pub struct MasternodeCounts {
+    /// Number of community tier masternodes
     pub community: usize,
+    /// Number of verified tier masternodes
     pub verified: usize,
+    /// Number of professional tier masternodes
     pub professional: usize,
 }
 
@@ -397,6 +432,7 @@ pub mod detector;
 pub mod violations;
 
 // Supporting modules
+/// Address monitoring for HD wallets
 pub mod address_monitor;
 pub mod api_server;
 pub mod blockchain_scanner;

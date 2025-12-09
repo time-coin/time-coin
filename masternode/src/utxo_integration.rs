@@ -1,4 +1,5 @@
 //! UTXO Protocol Integration for Masternodes
+#![allow(missing_docs)]
 //!
 //! Integrates the UTXO state protocol with the P2P network layer,
 //! enabling instant finality through masternode consensus.

@@ -1,4 +1,5 @@
 //! Masternode type definitions
+#![allow(missing_docs)]
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

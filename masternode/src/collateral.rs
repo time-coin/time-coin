@@ -3,14 +3,19 @@
 use serde::{Deserialize, Serialize};
 use time_core::constants::COIN;
 
+/// Masternode collateral tiers with different requirements and benefits
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CollateralTier {
-    Community,    // 1,000 TIME - Entry level
-    Verified,     // 10,000 TIME - Balanced
-    Professional, // 50,000 TIME - Premium
+    /// Community tier: 1,000 TIME - Entry level
+    Community,
+    /// Verified tier: 10,000 TIME - Balanced
+    Verified,
+    /// Professional tier: 50,000 TIME - Premium
+    Professional,
 }
 
 impl CollateralTier {
+    /// Determines tier based on collateral amount
     pub fn from_amount(amount: u64) -> Result<Self, String> {
         match amount {
             x if x >= 100_000 * COIN => Ok(CollateralTier::Professional),
@@ -20,6 +25,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the required collateral amount for this tier
     pub fn required_collateral(&self) -> u64 {
         match self {
             CollateralTier::Community => 1_000 * COIN,
@@ -28,6 +34,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the annual percentage yield for this tier
     pub fn apy(&self) -> f64 {
         match self {
             CollateralTier::Community => 18.0,
@@ -36,6 +43,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the voting power multiplier for governance
     pub fn voting_multiplier(&self) -> u64 {
         match self {
             CollateralTier::Community => 1,
@@ -44,6 +52,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the reward boost multiplier for this tier
     pub fn reward_multiplier(&self) -> f64 {
         match self {
             CollateralTier::Community => 1.0,
@@ -52,6 +61,7 @@ impl CollateralTier {
         }
     }
 
+    /// Returns the minimum required uptime percentage
     pub fn min_uptime(&self) -> f64 {
         match self {
             CollateralTier::Community => 0.90,    // 90%
@@ -71,18 +81,27 @@ impl CollateralTier {
     }
 }
 
+/// Summary of benefits for a collateral tier
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TierBenefits {
+    /// The collateral tier
     pub tier: CollateralTier,
+    /// Human-readable name of the tier
     pub name: String,
+    /// Required collateral amount
     pub collateral_required: u64,
+    /// Annual percentage yield
     pub apy: f64,
+    /// Voting power multiplier
     pub voting_power: u64,
+    /// Reward boost multiplier
     pub reward_multiplier: f64,
+    /// Minimum uptime requirement
     pub min_uptime: f64,
 }
 
 impl TierBenefits {
+    /// Creates tier benefits summary for a given tier
     pub fn for_tier(tier: CollateralTier) -> Self {
         let name = match tier {
             CollateralTier::Community => "Community",
@@ -101,6 +120,7 @@ impl TierBenefits {
         }
     }
 
+    /// Returns benefits for all tiers
     pub fn all() -> Vec<Self> {
         vec![
             Self::for_tier(CollateralTier::Community),

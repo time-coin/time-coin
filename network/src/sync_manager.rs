@@ -263,6 +263,7 @@ impl HeightSyncManager {
     }
 
     /// Find consensus height (most common height among peers)
+    /// Uses relaxed consensus for sync: accept highest height if 50%+ peers are within 1 block
     pub fn find_consensus_height(
         &self,
         peer_heights: &[PeerHeightInfo],
@@ -277,17 +278,52 @@ impl HeightSyncManager {
             *height_counts.entry(info.height).or_insert(0) += 1;
         }
 
-        // Find the height that appears most frequently
-        let total_peers = peer_heights.len() as f64;
-        let threshold_count = (total_peers * self.consensus_threshold).ceil() as usize;
+        let total_peers = peer_heights.len();
 
-        let consensus = height_counts
+        // Strategy 1: Try strict BFT consensus (2/3+)
+        let bft_threshold = (total_peers * 2 + 2) / 3; // Ceiling of 2/3
+
+        if let Some((&height, &count)) = height_counts
             .iter()
-            .filter(|(_, &count)| count >= threshold_count)
-            .max_by_key(|(_, &count)| count)
-            .map(|(&height, _)| height);
+            .find(|(_, &count)| count >= bft_threshold)
+        {
+            debug!(
+                height = height,
+                count = count,
+                threshold = bft_threshold,
+                "✅ Strict BFT consensus reached"
+            );
+            return Ok(height);
+        }
 
-        consensus.ok_or(NetworkError::NoConsensusReached)
+        // Strategy 2: Relaxed consensus for sync
+        // Accept highest height if 50%+ of peers are within 1 block of it
+        let max_height = *height_counts.keys().max().unwrap();
+        let close_to_max = peer_heights
+            .iter()
+            .filter(|p| p.height >= max_height.saturating_sub(1))
+            .count();
+
+        let simple_majority = (total_peers + 1) / 2; // Ceiling of 50%
+
+        if close_to_max >= simple_majority {
+            debug!(
+                max_height = max_height,
+                close_count = close_to_max,
+                total = total_peers,
+                "✅ Relaxed sync consensus: using highest height with {}/{} peers within 1 block",
+                close_to_max,
+                total_peers
+            );
+            return Ok(max_height);
+        }
+
+        // Strategy 3: Network too fragmented
+        warn!(
+            heights = ?height_counts,
+            "⚠️  Network heights too divergent for consensus"
+        );
+        Err(NetworkError::NoConsensusReached)
     }
 
     /// Quick check and catch up small gaps (Tier 1)

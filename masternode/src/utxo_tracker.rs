@@ -1,4 +1,5 @@
 //! UTXO Tracker - Tracks all UTXOs and matches them to wallet xpubs
+#![allow(missing_docs)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

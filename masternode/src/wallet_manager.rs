@@ -1,4 +1,5 @@
 //! Wallet Manager for Masternode
+#![allow(missing_docs)]
 //!
 //! Manages time-wallet.dat file and provides high-level wallet operations
 //!

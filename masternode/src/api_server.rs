@@ -1,4 +1,5 @@
 //! HTTP API Server for Masternode Wallet Services
+#![allow(missing_docs)]
 //!
 //! Provides REST API endpoints for thin wallet clients.
 

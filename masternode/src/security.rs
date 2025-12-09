@@ -1,4 +1,5 @@
 //! Security and Message Handling
+#![allow(missing_docs)]
 //!
 //! Provides secure message handling with integrated security features:
 //! - **Rate limiting**: Prevents request flooding

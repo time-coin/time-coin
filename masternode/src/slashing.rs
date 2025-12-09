@@ -6,28 +6,48 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Violation {
     /// Masternode signed two conflicting blocks at the same height
-    DoubleSigning { block_height: u64, evidence: String },
+    DoubleSigning {
+        /// Block height where double signing occurred
+        block_height: u64,
+        /// Evidence of the violation
+        evidence: String,
+    },
 
     /// Masternode offline for extended period
-    LongTermAbandonment { days_offline: u64 },
+    LongTermAbandonment {
+        /// Number of days offline
+        days_offline: u64,
+    },
 
     /// Masternode withheld required data
-    DataWithholding { evidence: String },
+    DataWithholding {
+        /// Evidence of withholding
+        evidence: String,
+    },
 
     /// Masternode participated in network attack
     NetworkAttack {
+        /// Type of attack
         attack_type: String,
+        /// Evidence of the attack
         evidence: String,
     },
 
     /// Masternode attempted to manipulate consensus
     ConsensusManipulation {
+        /// Type of manipulation
         manipulation_type: String,
+        /// Evidence of manipulation
         evidence: String,
     },
 
     /// Invalid block validation (e.g., invalid transactions)
-    InvalidBlock { block_height: u64, reason: String },
+    InvalidBlock {
+        /// Block height of invalid block
+        block_height: u64,
+        /// Reason for invalidity
+        reason: String,
+    },
 }
 
 impl Violation {
@@ -96,6 +116,7 @@ pub struct SlashingRecord {
 }
 
 impl SlashingRecord {
+    /// Creates a new slashing record
     pub fn new(
         id: String,
         masternode_id: String,

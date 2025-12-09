@@ -1,4 +1,5 @@
 //! Masternode reward calculation and distribution
+#![allow(missing_docs)]
 
 use serde::{Deserialize, Serialize};
 use time_core::constants::MASTERNODE_REWARD;

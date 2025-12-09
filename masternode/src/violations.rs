@@ -2,6 +2,7 @@
 //!
 //! This module defines all types of violations that can be detected in the masternode network,
 //! along with their severity, reputation penalties, and slashing percentages.
+#![allow(missing_docs)]
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

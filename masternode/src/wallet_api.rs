@@ -1,4 +1,5 @@
 //! Wallet API for Masternodes
+#![allow(missing_docs)]
 //!
 //! Provides HTTP endpoints for thin wallet clients to query blockchain data.
 

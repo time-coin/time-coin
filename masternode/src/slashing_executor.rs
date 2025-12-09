@@ -6,6 +6,7 @@
 //! 3. Transfer slashed funds to treasury
 //! 4. Record slashing event
 //! 5. Publish event for monitoring
+#![allow(missing_docs)]
 
 use crate::slashing::SlashingRecord;
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,5 @@
 //! Masternode error types
+#![allow(missing_docs)]
 //!
 //! Unified error handling for the masternode module. All errors can be converted
 //! to `MasternodeError` for consistent error handling across the codebase.
