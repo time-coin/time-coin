@@ -282,7 +282,7 @@ impl HeightSyncManager {
         let total_peers = peer_heights.len();
 
         // Strategy 1: Try strict BFT consensus (2/3+)
-        let bft_threshold = (total_peers * 2 + 2) / 3; // Ceiling of 2/3
+        let bft_threshold = (total_peers * 2).div_ceil(3); // Ceiling of 2/3
 
         if let Some((&height, &count)) = height_counts
             .iter()
@@ -305,7 +305,7 @@ impl HeightSyncManager {
             .filter(|p| p.height >= max_height.saturating_sub(1))
             .count();
 
-        let simple_majority = (total_peers + 1) / 2; // Ceiling of 50%
+        let simple_majority = total_peers.div_ceil(2); // Ceiling of 50%
 
         if close_to_max >= simple_majority {
             debug!(
@@ -319,11 +319,33 @@ impl HeightSyncManager {
             return Ok(max_height);
         }
 
-        // Strategy 3: Network too fragmented
+        // Strategy 3: Network too fragmented - but provide diagnostic info
+        let max_height = *height_counts.keys().max().unwrap();
+        let min_height = *height_counts.keys().min().unwrap();
+
+        // Log detailed height distribution
+        let mut height_list: Vec<_> = height_counts.iter().collect();
+        height_list.sort_by_key(|(h, _)| *h);
+
         warn!(
-            heights = ?height_counts,
-            "⚠️  Network heights too divergent for consensus"
+            "⚠️  Network heights divergent (range: {}-{}):",
+            min_height, max_height
         );
+        for (height, count) in height_list.iter().rev() {
+            warn!("   - Height {}: {} peer(s)", height, count);
+        }
+
+        // Show individual peers for debugging
+        for peer in peer_heights {
+            warn!("   - {}: height {}", peer.address, peer.height);
+        }
+
+        warn!(
+            "   📊 Estimated network height: {} (highest reported)",
+            max_height
+        );
+        warn!("   🚨 This may indicate a network fork!");
+
         Err(NetworkError::NoConsensusReached)
     }
 
@@ -342,14 +364,34 @@ impl HeightSyncManager {
             return Ok(SyncStatus::InSync);
         }
 
-        let consensus_height = self.find_consensus_height(&peer_heights)?;
+        // Try to find consensus height
+        let consensus_result = self.find_consensus_height(&peer_heights);
+
+        // If no consensus, check if we're on a fork
+        let (consensus_height, possible_fork) = match consensus_result {
+            Ok(height) => (height, false),
+            Err(NetworkError::NoConsensusReached) => {
+                warn!("No consensus - checking for fork");
+                // Use highest reported height as target
+                let max_height = peer_heights.iter().map(|p| p.height).max().unwrap();
+                (max_height, true)
+            }
+            Err(e) => return Err(e),
+        };
+
         let gap = consensus_height.saturating_sub(our_height);
 
-        info!(our_height, consensus_height, gap, "height consensus found");
+        info!(
+            our_height,
+            consensus_height, gap, possible_fork, "height check complete"
+        );
 
-        // CRITICAL: Even when heights match, check for forks!
-        if gap == 0 {
-            info!("Heights match - running fork detection");
+        // CRITICAL: Check for forks (even when heights differ)
+        if gap == 0 || (possible_fork && gap > 0) {
+            info!(
+                "Running fork detection (gap={}, possible_fork={})",
+                gap, possible_fork
+            );
 
             // Check if we're on the same chain as peers by comparing hashes
             let our_hash = {
@@ -362,7 +404,14 @@ impl HeightSyncManager {
             if let Some(our_hash) = our_hash {
                 // Check if any peer has a different hash at our height
                 let mut fork_detected = false;
+                let mut fork_details = Vec::new();
+
                 for peer_info in &peer_heights {
+                    // Skip peers behind us
+                    if peer_info.height < our_height {
+                        continue;
+                    }
+
                     // Request block at our height from this peer
                     match self
                         .peer_manager
@@ -376,10 +425,21 @@ impl HeightSyncManager {
                                     our_hash = &our_hash[..16],
                                     peer_hash = &peer_block.hash[..16],
                                     peer = %peer_info.address,
-                                    "🚨 FORK DETECTED at current height!"
+                                    peer_height = peer_info.height,
+                                    "🚨 FORK DETECTED! Peer has different block at our height"
                                 );
                                 fork_detected = true;
-                                break;
+                                fork_details.push(format!(
+                                    "{} (height {}, hash {})",
+                                    peer_info.address,
+                                    peer_info.height,
+                                    &peer_block.hash[..16]
+                                ));
+                            } else {
+                                debug!(
+                                    peer = %peer_info.address,
+                                    "Peer has same block at height {}", our_height
+                                );
                             }
                         }
                         Err(e) => {
@@ -390,13 +450,17 @@ impl HeightSyncManager {
 
                 if fork_detected {
                     // Return Critical status to trigger full fork resolution
-                    return Ok(SyncStatus::Critical(
-                        "Fork detected at current height".to_string(),
-                    ));
+                    let details = fork_details.join(", ");
+                    return Ok(SyncStatus::Critical(format!(
+                        "Fork detected: our height {} vs peers [{}]",
+                        our_height, details
+                    )));
                 }
             }
 
-            return Ok(SyncStatus::InSync);
+            if gap == 0 {
+                return Ok(SyncStatus::InSync);
+            }
         }
 
         Ok(match gap {
