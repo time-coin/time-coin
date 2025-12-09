@@ -1040,6 +1040,13 @@ impl BlockProducer {
             match sync_manager.sync_before_production().await {
                 Ok(true) => {
                     println!("   ✅ Sync check passed - node is in sync");
+
+                    // Update SyncGate cache with actual blockchain height
+                    let current_height = self.blockchain.read().await.chain_tip_height();
+                    self.peer_manager
+                        .sync_gate
+                        .update_local_height(current_height)
+                        .await;
                 }
                 Ok(false) => {
                     println!("   ⚠️  Skipping block production - sync in progress");
@@ -1095,24 +1102,30 @@ impl BlockProducer {
         }
 
         // FORK PREVENTION: Check with SyncGate before creating block
-        if let Err(e) = self
-            .peer_manager
-            .sync_gate
-            .can_create_block(block_num)
-            .await
-        {
-            let local_height = self.peer_manager.sync_gate.local_height().await;
-            let network_height = self.peer_manager.sync_gate.network_height().await;
-            let behind = self.peer_manager.sync_gate.blocks_behind().await;
+        // CRITICAL FIX: Read actual blockchain height, not cached SyncGate value
+        let actual_local_height = self.blockchain.read().await.chain_tip_height();
 
-            println!("   ⚠️  Skipping block production - {}", e.bright_red());
+        // Validate that we can create this block
+        if actual_local_height + 1 != block_num {
+            let network_height = self.peer_manager.sync_gate.network_height().await;
+            let behind = network_height.saturating_sub(actual_local_height);
+
+            println!(
+                "   ⚠️  Skipping block production - Cannot create block {}: local height is {} (can only create {})",
+                block_num, actual_local_height, actual_local_height + 1
+            );
             println!(
                 "   ℹ️  Sync status: local={}, network={}, behind={} blocks",
-                local_height, network_height, behind
+                actual_local_height, network_height, behind
             );
             println!("   ℹ️  Block production will resume once synced");
             return;
         }
+
+        println!(
+            "   ✅ Height validation passed: blockchain={}, creating block={}",
+            actual_local_height, block_num
+        );
 
         let consensus_mode = self.consensus.consensus_mode().await;
         if consensus_mode != time_consensus::ConsensusMode::BFT {
