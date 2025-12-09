@@ -477,9 +477,9 @@ impl BlockSyncManager {
         Self {
             peer_manager,
             blockchain,
-            timeout_per_block: 10,
+            timeout_per_block: 30, // Increased from 10 to 30 seconds per block
             max_retries: 3,
-            max_gap: 1000,
+            max_gap: 10000, // Increased from 1000 to 10000 blocks
         }
     }
 
@@ -554,6 +554,7 @@ impl BlockSyncManager {
     }
 
     /// Download blocks in bulk (no gap limit) - for initial sync
+    /// Uses AGGRESSIVE parallel downloading to catch up quickly
     pub async fn download_full_chain(
         &self,
         from_height: u64,
@@ -564,43 +565,126 @@ impl BlockSyncManager {
             from = from_height,
             to = to_height,
             gap,
-            "🔄 Starting full chain download"
+            "🔄 Starting AGGRESSIVE full chain download (parallel)"
         );
 
         if gap == 0 {
             return Ok(());
         }
 
-        for height in (from_height + 1)..=to_height {
-            if height % 100 == 0 || height == to_height {
-                info!(height, total = to_height, "📥 Downloading blocks...");
+        // Download in batches of 50 blocks in parallel for speed
+        const BATCH_SIZE: u64 = 50;
+        let mut current_height = from_height + 1;
+
+        while current_height <= to_height {
+            let batch_end = std::cmp::min(current_height + BATCH_SIZE - 1, to_height);
+            let batch_size = batch_end - current_height + 1;
+
+            info!(
+                from = current_height,
+                to = batch_end,
+                batch_size,
+                progress = format!("{}/{}", current_height - from_height, gap),
+                "📥 Downloading batch of {} blocks in parallel...",
+                batch_size
+            );
+
+            // Download all blocks in this batch in parallel
+            let mut tasks = Vec::new();
+            for height in current_height..=batch_end {
+                let self_clone = self.peer_manager.clone();
+                let timeout_secs = self.timeout_per_block;
+                let max_retries = self.max_retries;
+
+                let task = tokio::spawn(async move {
+                    // Try to download this block with retries
+                    for retry in 0..max_retries {
+                        let peers = self_clone.get_connected_peers().await;
+                        if peers.is_empty() {
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            continue;
+                        }
+
+                        let peer_idx = retry % peers.len();
+                        let peer = &peers[peer_idx];
+                        let peer_addr = peer.address.to_string();
+
+                        match timeout(
+                            Duration::from_secs(timeout_secs),
+                            self_clone.request_block_by_height(&peer_addr, height),
+                        )
+                        .await
+                        {
+                            Ok(Ok(block)) => return Ok((height, block)),
+                            Ok(Err(e)) => {
+                                if retry == max_retries - 1 {
+                                    return Err(NetworkError::SyncFailed(format!(
+                                        "Failed to download block {}: {:?}",
+                                        height, e
+                                    )));
+                                }
+                            }
+                            Err(_) => {
+                                if retry == max_retries - 1 {
+                                    return Err(NetworkError::Timeout);
+                                }
+                            }
+                        }
+
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+
+                    Err(NetworkError::SyncFailed(format!(
+                        "Failed to download block {}",
+                        height
+                    )))
+                });
+
+                tasks.push(task);
             }
 
-            let block = timeout(
-                Duration::from_secs(self.timeout_per_block),
-                self.request_block_from_peers(height),
-            )
-            .await
-            .map_err(|_| {
-                error!(
-                    height,
-                    "⏱️ Timeout downloading block after {}s", self.timeout_per_block
-                );
-                NetworkError::Timeout
-            })??;
+            // Wait for all downloads to complete
+            let results = futures::future::join_all(tasks).await;
 
-            // Validate block (allows historical blocks, rejects future blocks)
-            self.validate_block(&block)?;
+            // Collect and sort blocks by height
+            let mut blocks = Vec::new();
+            for result in results {
+                match result {
+                    Ok(Ok((height, block))) => blocks.push((height, block)),
+                    Ok(Err(e)) => {
+                        error!("Failed to download block: {:?}", e);
+                        return Err(e);
+                    }
+                    Err(e) => {
+                        error!("Task failed: {:?}", e);
+                        return Err(NetworkError::SyncFailed("Task join failed".to_string()));
+                    }
+                }
+            }
 
-            // Store block
-            let mut blockchain = self.blockchain.write().await;
-            blockchain.add_block(block.clone())?;
-            drop(blockchain);
+            blocks.sort_by_key(|(height, _)| *height);
+
+            // Validate and store blocks in order
+            for (height, block) in blocks {
+                // Validate block
+                self.validate_block(&block)?;
+
+                // Store block
+                let mut blockchain = self.blockchain.write().await;
+                blockchain.add_block(block.clone())?;
+                drop(blockchain);
+
+                if height % 100 == 0 {
+                    info!(height, "✅ Synced up to block {}", height);
+                }
+            }
+
+            current_height = batch_end + 1;
         }
 
         info!(
             synced_blocks = gap,
-            "✅ Full chain download complete - {} blocks downloaded", gap
+            "✅ AGGRESSIVE full chain download complete - {} blocks downloaded", gap
         );
         Ok(())
     }
@@ -919,15 +1003,22 @@ impl NetworkSyncManager {
                 info!("already in sync");
                 Ok(())
             }
-            SyncStatus::SmallGap(gap) | SyncStatus::MediumGap(gap) => {
+            SyncStatus::SmallGap(gap) => {
                 let target_height = our_height + gap;
-                info!(gap, "downloading {} blocks", gap);
+                info!(gap, target = target_height, "downloading {} blocks", gap);
+                self.block_sync
+                    .catch_up_to_consensus(our_height, target_height)
+                    .await
+            }
+            SyncStatus::MediumGap(gap) => {
+                let target_height = our_height + gap;
+                info!(gap, target = target_height, "downloading {} blocks", gap);
                 self.block_sync
                     .catch_up_to_consensus(our_height, target_height)
                     .await
             }
             SyncStatus::LargeGap(gap) => {
-                warn!(gap, "large gap - using full chain download");
+                warn!(gap, "large gap - using aggressive parallel download");
                 let target_height = our_height + gap;
                 self.block_sync
                     .download_full_chain(our_height, target_height)

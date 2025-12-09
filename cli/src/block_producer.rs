@@ -294,8 +294,8 @@ impl BlockProducer {
         };
 
         tokio::spawn(async move {
-            // Run every 2 minutes to ensure we catch up faster than blocks are produced (10 min intervals)
-            let mut interval = tokio::time::interval(Duration::from_secs(120));
+            // Run every 30 seconds for AGGRESSIVE catch-up
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
             interval.tick().await;
             loop {
                 interval.tick().await;
@@ -422,16 +422,70 @@ impl BlockProducer {
         }
 
         let missing_blocks = expected_height - actual_height;
-        println!("⚠️  MISSED BLOCKS DETECTED");
+        println!("🚨 MISSED BLOCKS DETECTED - CRITICAL SYNC NEEDED!");
         println!("   Missing {} block(s)", missing_blocks);
+        println!(
+            "   Current: {}, Expected: {}",
+            actual_height, expected_height
+        );
+
+        // IMMEDIATE: Try to download missing blocks from peers
+        if missing_blocks > 0 {
+            println!("   🔥 EMERGENCY: Attempting immediate block download...");
+
+            // Try to download all missing blocks
+            for height in (actual_height + 1)..=expected_height {
+                // Try up to 3 peers
+                let peers = self.peer_manager.get_peer_ips().await;
+                let mut downloaded = false;
+
+                for peer_ip in peers.iter().take(3) {
+                    let p2p_port = match self.peer_manager.network {
+                        time_network::discovery::NetworkType::Mainnet => 24000,
+                        time_network::discovery::NetworkType::Testnet => 24100,
+                    };
+                    let peer_addr = format!("{}:{}", peer_ip, p2p_port);
+
+                    match self
+                        .peer_manager
+                        .request_block_by_height(&peer_addr, height)
+                        .await
+                    {
+                        Ok(block) => {
+                            // Add block to blockchain
+                            let mut blockchain = self.blockchain.write().await;
+                            match blockchain.add_block(block.clone()) {
+                                Ok(_) => {
+                                    println!(
+                                        "   ✅ Downloaded and added block {} from {}",
+                                        height, peer_ip
+                                    );
+                                    downloaded = true;
+                                    break;
+                                }
+                                Err(e) => {
+                                    println!("   ⚠️  Failed to add block {}: {}", height, e);
+                                }
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+
+                if !downloaded {
+                    println!("   ⚠️  Could not download block {} - will retry", height);
+                    break; // Stop and retry on next cycle
+                }
+            }
+        }
 
         // Broadcast catch-up request to coordinate with other nodes
         println!("   📢 Broadcasting catch-up request to network...");
         self.broadcast_catch_up_request(actual_height, expected_height)
             .await;
 
-        // Wait a moment for other nodes to acknowledge and prepare
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // Shorter wait for faster response
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         // If we don't have genesis, trigger a sync which will download it
         if actual_height == 0 {
