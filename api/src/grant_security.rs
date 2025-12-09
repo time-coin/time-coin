@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 const MAX_APPLICATIONS_PER_HOUR: usize = 5;
 
 /// Maximum grant applications per IP address (future enhancement)
+#[allow(dead_code)]
 const MAX_APPLICATIONS_PER_IP: usize = 10;
 
 /// Generate a cryptographically secure verification token
@@ -24,7 +25,7 @@ const MAX_APPLICATIONS_PER_IP: usize = 10;
 /// This is much more secure than UUIDs which can be predictable
 pub fn generate_secure_token() -> String {
     let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    let bytes: Vec<u8> = (0..32).map(|_| rng.random()).collect();
     hex::encode(bytes)
 }
 

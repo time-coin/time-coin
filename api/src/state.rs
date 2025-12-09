@@ -203,6 +203,45 @@ impl Clone for ApiState {
             instant_finality: self.instant_finality.clone(),
             approval_manager: self.approval_manager.clone(),
             utxo_tracker: self.utxo_tracker.clone(),
+            grant_rate_limiter: self.grant_rate_limiter.clone(),
+            grants: self.grants.clone(),
+            proposals: self.proposals.clone(),
         }
     }
+}
+
+// ============================================
+// Grant System Data Structures
+// ============================================
+
+/// Grant application data
+#[derive(Debug, Clone)]
+pub struct GrantData {
+    pub email: String,
+    pub verification_token: String,
+    pub verified: bool,
+    pub status: String,
+    pub grant_amount: u64,
+    pub applied_at: i64,
+    pub verified_at: Option<i64>,
+    pub activated_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub masternode_address: Option<String>,
+    pub public_key: Option<String>,
+}
+
+/// Treasury proposal
+#[derive(Debug, Clone)]
+pub struct Proposal {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub amount: u64,
+    pub recipient: String,
+    pub proposer: String,
+    pub created_at: i64,
+    pub voting_ends_at: i64,
+    pub status: String,
+    pub votes_for: u64,
+    pub votes_against: u64,
 }

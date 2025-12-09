@@ -33,9 +33,10 @@ thiserror = "2.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 md5 = "0.8"
 owo-colors = { workspace = true }
-hex = { workspace = true }
+hex.workspace = true
 sha2 = "0.10"
 validator = { version = "0.18", features = ["derive"] }
+rand.workspace = true
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
