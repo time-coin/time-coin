@@ -6,6 +6,7 @@ use std::time::Duration;
 use time_consensus::block_consensus::BlockVote;
 use time_consensus::ConsensusEngine;
 use time_core::block::{Block, BlockHeader};
+use time_core::current_timestamp;
 use time_core::state::BlockchainState;
 use time_core::transaction::{Transaction, TxOutput};
 use time_core::MasternodeTier;
@@ -42,6 +43,7 @@ pub struct BlockProducer {
     quarantine: Arc<time_network::PeerQuarantine>,
     uptime_tracker: Arc<RwLock<time_core::MasternodeUptimeTracker>>,
     sync_manager: Option<Arc<time_network::NetworkSyncManager>>,
+    time_sync: Arc<time_network::TimeSyncService>,
 }
 
 impl BlockProducer {
@@ -58,6 +60,7 @@ impl BlockProducer {
         allow_block_recreation: bool,
         quarantine: Arc<time_network::PeerQuarantine>,
         uptime_tracker: Arc<RwLock<time_core::MasternodeUptimeTracker>>,
+        time_sync: Arc<time_network::TimeSyncService>,
     ) -> Self {
         // Create sync manager for three-tier synchronization
         let sync_manager =
@@ -75,6 +78,7 @@ impl BlockProducer {
             quarantine,
             uptime_tracker,
             sync_manager: Some(Arc::new(sync_manager)),
+            time_sync,
         }
     }
 
@@ -228,6 +232,7 @@ impl BlockProducer {
             quarantine: self.quarantine.clone(),
             uptime_tracker: self.uptime_tracker.clone(),
             sync_manager: self.sync_manager.clone(),
+            time_sync: self.time_sync.clone(),
         };
 
         tokio::spawn(async move {
@@ -882,7 +887,7 @@ impl BlockProducer {
                                 voter: self.node_id.clone(),
                                 block_hash: proposal.block_hash.clone(),
                                 approve: true,
-                                timestamp: Utc::now().timestamp(),
+                                timestamp: current_timestamp(),
                             };
 
                             // Send vote to consensus manager
@@ -929,6 +934,18 @@ impl BlockProducer {
             "⨯ BLOCK PRODUCTION TIME".cyan().bold(),
             now.format("%Y-%m-%d %H:%M:%S UTC")
         );
+
+        // TIME SYNC CHECK: Ensure clock is synchronized
+        if !self.time_sync.is_healthy().await {
+            let offset_ms = self.time_sync.get_offset_ms().await;
+            println!("   ⚠️  Skipping block production - clock synchronization unhealthy");
+            println!(
+                "   ℹ️  System clock offset: {}s (exceeds safe threshold)",
+                offset_ms / 1000
+            );
+            println!("   ℹ️  Please check system time or NTP configuration");
+            return;
+        }
 
         // THREE-TIER SYNC CHECK: Ensure node is synchronized before producing block
         if let Some(sync_manager) = &self.sync_manager {
@@ -1838,7 +1855,7 @@ impl BlockProducer {
                 block_hash: block.hash.clone(),
                 voter: my_id.clone(),
                 approve: true,
-                timestamp: chrono::Utc::now().timestamp(),
+                timestamp: current_timestamp(),
             };
 
             if let Err(e) = self.block_consensus.vote_on_block(vote.clone()).await {
@@ -2087,7 +2104,7 @@ impl BlockProducer {
         // For catch-up blocks (past dates), only include transactions from before that block's time
         // For current/future blocks, include all pending transactions
         let block_timestamp = timestamp.timestamp();
-        let current_time = chrono::Utc::now().timestamp();
+        let current_time = current_timestamp();
         let all_mempool_txs = self.mempool.get_all_transactions().await;
 
         let mut mempool_txs: Vec<_> = if block_timestamp < current_time {

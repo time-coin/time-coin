@@ -919,7 +919,7 @@ async fn main() {
                             time_core::db::BlockchainDB::open(&format!("{}/blockchain", data_dir))
                                 .expect("Failed to open database");
 
-                        match db.save_block(&genesis_block, 0) {
+                        match db.save_block(&genesis_block) {
                             Ok(_) => {
                                 println!(
                                     "{}",
@@ -1147,38 +1147,16 @@ async fn main() {
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 5: Synchronize blockchain if needed
+    // STEP 5: Synchronization handled by periodic sync task
     // ═══════════════════════════════════════════════════════════════
+    // Note: Blockchain synchronization is now handled by the periodic sync task
+    // that was started earlier. No need for manual sync here.
 
     if needs_sync && !peer_manager.get_peer_ips().await.is_empty() {
-        println!("{}", "📚 Downloading blockchain from network...".cyan());
-
-        match network::sync::download_blockchain_from_network(
-            &peer_manager,
-            &blockchain_arc,
-            &network_config,
-        )
-        .await
-        {
-            Ok(downloaded_count) => {
-                if downloaded_count > 0 {
-                    println!(
-                        "{}",
-                        format!("   ✅ Downloaded and validated {} blocks", downloaded_count)
-                            .green()
-                    );
-                } else {
-                    println!("{}", "   ℹ️  No new blocks to download".bright_black());
-                }
-            }
-            Err(e) => {
-                println!(
-                    "{}",
-                    format!("   ⚠️  Failed to download blockchain: {}", e).yellow()
-                );
-                println!("  {}", "Continuing with current state".bright_black());
-            }
-        }
+        println!(
+            "{}",
+            "📚 Blockchain sync will be handled by periodic sync task...".cyan()
+        );
     } else if needs_sync {
         println!(
             "{}",
@@ -1397,44 +1375,14 @@ async fn main() {
         "✓ Quarantine monitoring started (15 min logging)".green()
     );
 
-    // Start periodic time verification (every 1 hour)
-    let peer_manager_for_time = Arc::clone(&peer_manager);
-    tokio::spawn(async move {
-        // Wait 5 minutes before first check to let node establish connections
-        tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
-
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 1 hour
-        loop {
-            interval.tick().await;
-
-            // Try NTP first
-            match time_core::time_sync::check_ntp_time().await {
-                Ok(result) => {
-                    if result.is_acceptable {
-                        log::info!(
-                            "✓ System time verified via NTP (drift: {}s)",
-                            result.drift_seconds
-                        );
-                    } else if let Some(warning) = result.drift_warning() {
-                        log::error!("{}", warning);
-                        println!("\n{}", warning.red().bold());
-                        println!(
-                            "{}",
-                            "⚠️  Please sync your system clock with NTP servers!".yellow()
-                        );
-                    }
-                }
-                Err(e) => {
-                    log::debug!("NTP time check failed: {}", e);
-                    // Fall back to network consensus if NTP fails
-                    // (Implementation would go here if needed)
-                }
-            }
-        }
-    });
+    // Time verification disabled - TODO: Re-implement with time_sync service
+    // let peer_manager_for_time = Arc::clone(&peer_manager);
+    // tokio::spawn(async move {
+    //     // Periodic time verification would go here
+    // });
     println!(
         "{}",
-        "✓ Time verification started (1 hour interval)".green()
+        "ℹ️  Time verification disabled (will be re-enabled in future update)".bright_black()
     );
 
     // ═══════════════════════════════════════════════════════════════

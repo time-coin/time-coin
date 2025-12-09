@@ -191,10 +191,28 @@ impl MessageHandler {
                         // Also notify handler for logging/stats
                         handler(msg);
                     }
+                    // Auto-respond to TimeRequest with TimeResponse
+                    NetworkMessage::TimeRequest { request_time_ms } => {
+                        debug!("Received TimeRequest, auto-responding with TimeResponse");
+                        let peer_time_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as i64;
+                        let response = NetworkMessage::TimeResponse {
+                            request_time_ms: *request_time_ms,
+                            peer_time_ms,
+                        };
+                        if let Err(e) = tx_sender.send((response, None)) {
+                            warn!("Failed to send TimeResponse: {}", e);
+                        }
+                        // Also notify handler
+                        handler(msg);
+                    }
                     // Check if this is a response to a pending request
                     NetworkMessage::Pong
                     | NetworkMessage::BlockchainInfo { .. }
                     | NetworkMessage::Blocks { .. }
+                    | NetworkMessage::TimeResponse { .. }
                     | NetworkMessage::InstantFinalityVote { .. } => {
                         // Try to match with pending response
                         let mut responses = pending_responses.write().await;

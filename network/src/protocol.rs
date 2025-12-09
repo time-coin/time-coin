@@ -637,6 +637,16 @@ pub struct BlockData {
 pub enum NetworkMessage {
     Ping,
     Pong,
+
+    // Time synchronization messages
+    TimeRequest {
+        request_time_ms: i64, // Milliseconds since Unix epoch
+    },
+    TimeResponse {
+        request_time_ms: i64, // Echo back requester's timestamp
+        peer_time_ms: i64,    // Peer's current time in milliseconds since Unix epoch
+    },
+
     Transaction(TransactionMessage),
     ValidationResponse(TransactionValidation),
     BlockProposal(Vec<u8>),

@@ -1073,9 +1073,9 @@ impl PeerManager {
                 }
             };
 
-            let peer_info = Arc::new(Mutex::new(PeerInfo::new(socket_addr, network)));
+            let peer_info = PeerInfo::new(socket_addr, network);
 
-            if let Err(e) = peer_manager_clone.add_connection(peer_info).await {
+            if let Err(e) = peer_manager_clone.connect_to_peer(peer_info).await {
                 debug!("Failed to reconnect to {}: {}", peer_addr, e);
             } else {
                 info!("✅ Reconnected to {}", peer_addr);

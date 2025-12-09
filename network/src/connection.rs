@@ -421,13 +421,10 @@ impl PeerConnection {
 
         // Send request with retry on broken pipe
         let max_retries = 2;
-        let mut last_error = String::new();
-
         for attempt in 0..max_retries {
             match self.send_message(request.clone()).await {
                 Ok(_) => break,
                 Err(e) => {
-                    last_error = e.clone();
                     if e.contains("Broken pipe") && attempt < max_retries - 1 {
                         // Wait briefly before retry
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;

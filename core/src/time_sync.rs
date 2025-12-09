@@ -6,15 +6,75 @@
 //!
 //! If local clock drift exceeds threshold, the node should warn or halt.
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use std::sync::RwLock;
 use std::time::Duration;
 use tokio::time::timeout;
 
 /// Maximum acceptable clock drift (5 minutes)
 pub const MAX_CLOCK_DRIFT_SECONDS: i64 = 300;
 
+/// Maximum calibration offset we'll apply (10 minutes)
+/// Beyond this, the system clock is too far off and we refuse to operate
+pub const MAX_CALIBRATION_OFFSET_SECONDS: i64 = 600;
+
+/// Global time calibration offset in seconds
+/// This is applied to all time operations to sync with network time
+static TIME_CALIBRATION: RwLock<Option<i64>> = RwLock::new(None);
+
 /// NTP timeout duration
 const NTP_TIMEOUT_SECS: u64 = 10;
+
+/// Get calibrated current time
+/// This applies the network time offset to the system clock
+pub fn calibrated_now() -> DateTime<Utc> {
+    let now = Utc::now();
+    
+    if let Ok(guard) = TIME_CALIBRATION.read() {
+        if let Some(offset_seconds) = *guard {
+            return now + chrono::Duration::seconds(offset_seconds);
+        }
+    }
+    
+    now
+}
+
+/// Get calibrated timestamp (Unix seconds)
+pub fn calibrated_timestamp() -> i64 {
+    calibrated_now().timestamp()
+}
+
+/// Set time calibration offset
+/// Returns Err if offset exceeds safe threshold
+pub fn set_calibration_offset(offset_seconds: i64) -> Result<(), String> {
+    if offset_seconds.abs() > MAX_CALIBRATION_OFFSET_SECONDS {
+        return Err(format!(
+            "Calibration offset {}s exceeds maximum {}s - system clock is too far off!",
+            offset_seconds, MAX_CALIBRATION_OFFSET_SECONDS
+        ));
+    }
+    
+    if let Ok(mut guard) = TIME_CALIBRATION.write() {
+        *guard = Some(offset_seconds);
+        log::info!("⚙️  Time calibration set: {}s offset applied", offset_seconds);
+        Ok(())
+    } else {
+        Err("Failed to acquire calibration lock".to_string())
+    }
+}
+
+/// Get current calibration offset
+pub fn get_calibration_offset() -> Option<i64> {
+    TIME_CALIBRATION.read().ok().and_then(|g| *g)
+}
+
+/// Clear calibration offset (use system time directly)
+pub fn clear_calibration() {
+    if let Ok(mut guard) = TIME_CALIBRATION.write() {
+        *guard = None;
+        log::info!("⚙️  Time calibration cleared - using system time");
+    }
+}
 
 /// Time synchronization result
 #[derive(Debug, Clone)]
@@ -29,6 +89,31 @@ pub struct TimeSyncResult {
     pub is_acceptable: bool,
     /// Source of authority time
     pub source: TimeSyncSource,
+}
+
+impl TimeSyncResult {
+    /// Apply this result as calibration offset
+    pub fn apply_calibration(&self) -> Result<(), String> {
+        if !self.is_acceptable {
+            return Err(format!(
+                "Cannot apply calibration - drift {}s exceeds threshold",
+                self.drift_seconds.abs()
+            ));
+        }
+        
+        // Drift is (local - authority), so we need to subtract drift to sync
+        let offset = -self.drift_seconds;
+        
+        set_calibration_offset(offset)?;
+        
+        log::info!(
+            "✓ Time calibration applied: {}s offset from {:?}",
+            offset,
+            self.source
+        );
+        
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,7 +278,7 @@ pub trait NetworkTimeRequester: Send + Sync {
     async fn request_peer_time(&self, peer_addr: &str) -> Result<i64, String>;
 }
 
-/// Perform comprehensive time check (NTP + Network)
+/// Perform comprehensive time check (NTP + Network) and apply calibration
 pub async fn comprehensive_time_check(
     peer_addresses: Vec<String>,
     requester: &impl NetworkTimeRequester,
@@ -206,6 +291,16 @@ pub async fn comprehensive_time_check(
                     "✓ System time verified via NTP (drift: {}s)",
                     result.drift_seconds
                 );
+                
+                // Apply calibration if drift is significant (>2 seconds)
+                if result.drift_seconds.abs() > 2 {
+                    if let Err(e) = result.apply_calibration() {
+                        log::warn!("⚠️  Failed to apply time calibration: {}", e);
+                    }
+                } else {
+                    clear_calibration();
+                }
+                
                 return result;
             } else {
                 log::warn!(
@@ -227,6 +322,15 @@ pub async fn comprehensive_time_check(
                     "✓ System time verified via network consensus (drift: {}s)",
                     result.drift_seconds
                 );
+                
+                // Apply calibration if drift is significant (>2 seconds)
+                if result.drift_seconds.abs() > 2 {
+                    if let Err(e) = result.apply_calibration() {
+                        log::warn!("⚠️  Failed to apply time calibration: {}", e);
+                    }
+                } else {
+                    clear_calibration();
+                }
             } else {
                 log::error!("{}", result.drift_warning().unwrap_or_default());
             }

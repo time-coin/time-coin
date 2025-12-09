@@ -40,6 +40,7 @@ pub mod network_health;
 pub mod phased_protocol;
 pub mod proposals;
 pub mod quorum;
+pub mod time_sync;
 pub mod tx_validation;
 
 // New simplified consensus

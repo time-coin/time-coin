@@ -25,6 +25,7 @@ use time_core::block::Block;
 use time_core::state::BlockchainState;
 use time_core::{current_timestamp, TimeValidator};
 use tokio::sync::RwLock;
+use tracing::debug;
 
 const QUICK_SYNC_THRESHOLD: u64 = 100;
 const BATCH_SYNC_THRESHOLD: u64 = 1000;
@@ -573,13 +574,9 @@ impl BlockchainSync {
         if local_height > 0 {
             let our_block_hash = {
                 let blockchain = self.blockchain.read().await;
-                blockchain.blocks.get(&local_height).map(|b| {
-                    let hash = b.hash();
-                    format!(
-                        "{:016x}",
-                        u128::from_be_bytes(hash[..16].try_into().unwrap())
-                    )
-                })
+                blockchain
+                    .get_block_by_height(local_height)
+                    .map(|b| b.hash.clone())
             };
 
             if let Some(our_hash) = our_block_hash {
@@ -589,21 +586,15 @@ impl BlockchainSync {
                         let peer_addr = format!("{}:{}", peer_ip, p2p_port);
 
                         // Request block at our height from peer
-                        if let Ok(blocks) = self
+                        match self
                             .peer_manager
-                            .request_blocks(&peer_addr, local_height, local_height)
+                            .request_block_by_height(&peer_addr, local_height)
                             .await
                         {
-                            if let Some(peer_block) = blocks.first() {
-                                let peer_hash = {
-                                    let hash = peer_block.hash();
-                                    format!(
-                                        "{:016x}",
-                                        u128::from_be_bytes(hash[..16].try_into().unwrap())
-                                    )
-                                };
+                            Ok(peer_block) => {
+                                let peer_hash = &peer_block.hash;
 
-                                if peer_hash != our_hash {
+                                if peer_hash != &our_hash {
                                     println!("🚨 FORK DETECTED!");
                                     println!("   Our block {} hash: {}", local_height, our_hash);
                                     println!(
@@ -640,6 +631,9 @@ impl BlockchainSync {
                                     }
                                 }
                             }
+                            Err(e) => {
+                                debug!("Failed to get block from {}: {:?}", peer_addr, e);
+                            }
                         }
                     }
                 }
@@ -663,34 +657,25 @@ impl BlockchainSync {
 
         // Walk backwards from start_height looking for matching block hash
         for height in (1..=start_height).rev() {
-            if let Some(our_block) = blockchain.blocks.get(&height) {
-                let our_hash = {
-                    let hash = our_block.hash();
-                    format!(
-                        "{:016x}",
-                        u128::from_be_bytes(hash[..16].try_into().unwrap())
-                    )
-                };
+            if let Some(our_block) = blockchain.get_block_by_height(height) {
+                let our_hash = &our_block.hash;
 
                 // Request this block from peer
-                if let Ok(blocks) = self
+                match self
                     .peer_manager
-                    .request_blocks(peer_addr, height, height)
+                    .request_block_by_height(peer_addr, height)
                     .await
                 {
-                    if let Some(peer_block) = blocks.first() {
-                        let peer_hash = {
-                            let hash = peer_block.hash();
-                            format!(
-                                "{:016x}",
-                                u128::from_be_bytes(hash[..16].try_into().unwrap())
-                            )
-                        };
+                    Ok(peer_block) => {
+                        let peer_hash = &peer_block.hash;
 
                         if peer_hash == our_hash {
                             // Found common ancestor
                             return Ok((height, peer_addr.to_string()));
                         }
+                    }
+                    Err(_) => {
+                        // Peer doesn't have this block or error occurred, continue to next height
                     }
                 }
             }
