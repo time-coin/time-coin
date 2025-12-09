@@ -592,9 +592,16 @@ impl BlockProducer {
                     }
 
                     if downloaded_count > 0 {
+                        // Update SyncGate with new local height
+                        let new_height = self.load_block_height().await;
+                        self.peer_manager
+                            .sync_gate
+                            .update_local_height(new_height)
+                            .await;
+
                         println!(
-                            "      ✅ Successfully downloaded {} blocks from {}",
-                            downloaded_count, peer_ip
+                            "      ✅ Successfully downloaded {} blocks from {} (now at height {})",
+                            downloaded_count, peer_ip, new_height
                         );
                         synced_any = true;
                         break; // Successfully synced, no need to try other peers
