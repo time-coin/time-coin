@@ -3,6 +3,8 @@
 //! This module provides validation functions for user inputs to prevent
 //! invalid or malicious data from being processed.
 
+#![allow(dead_code)]
+
 use std::error::Error;
 use std::fmt;
 
@@ -22,6 +24,7 @@ const ADDRESS_LENGTH: usize = 42; // TIME1 + 38 characters
 const PUBKEY_LENGTH: usize = 64;
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum ValidationError {
     InvalidAddress(String),
     InvalidAmount(String),
