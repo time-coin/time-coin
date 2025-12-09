@@ -140,13 +140,14 @@ mod tests {
         // Add a coinbase transaction
         let coinbase_tx = time_core::Transaction {
             txid: "coinbase".to_string(),
+            version: 1,
             inputs: vec![],
             outputs: vec![time_core::TxOutput {
                 address: "genesis".to_string(),
                 amount: 50_000_000_000, // 500 TIME
             }],
+            lock_time: 0,
             timestamp: Utc::now().timestamp(),
-            signature: None,
         };
 
         let genesis_block = Block {
@@ -233,14 +234,15 @@ mod tests {
         };
 
         let coinbase_tx = time_core::Transaction {
-            txid: "coinbase".to_string(),
+            txid: "coinbase3".to_string(),
+            version: 1,
             inputs: vec![],
             outputs: vec![time_core::TxOutput {
                 address: "genesis".to_string(),
                 amount: 50_000_000_000,
             }],
+            lock_time: 0,
             timestamp: Utc::now().timestamp(),
-            signature: None,
         };
 
         let genesis_block = Block {

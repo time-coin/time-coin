@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn test_bft_safety_small_network() {
         // With 3 nodes, need 2 votes (67%) - tolerates 0 Byzantine
-        assert_eq!(required_for_bft(3), 3);
+        assert_eq!(required_for_bft(3), 2);
 
         // With 4 nodes, need 3 votes (75%) - tolerates 1 Byzantine
         assert_eq!(required_for_bft(4), 3);
