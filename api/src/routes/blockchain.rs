@@ -1,6 +1,7 @@
 //! Blockchain information and query endpoints
 
 use crate::balance::calculate_mempool_balance;
+use crate::constants::satoshis_to_time;
 use crate::{ApiError, ApiResult, ApiState, BlockchainService};
 use axum::{
     extract::{Path, State},
@@ -70,6 +71,15 @@ async fn get_block_by_height(
     Path(height): Path<u64>,
 ) -> ApiResult<Json<BlockResponse>> {
     let blockchain = state.blockchain.read().await;
+    let chain_tip = blockchain.chain_tip_height();
+
+    // Validate height is within bounds
+    if height > chain_tip {
+        return Err(ApiError::BadRequest(format!(
+            "Height {} exceeds chain tip {}",
+            height, chain_tip
+        )));
+    }
 
     match blockchain.get_block_by_height(height) {
         Some(block) => Ok(Json(BlockResponse {
@@ -110,6 +120,13 @@ async fn get_balance(
     State(state): State<ApiState>,
     Path(address): Path<String>,
 ) -> ApiResult<Json<BalanceResponse>> {
+    // Validate address format
+    if !address.starts_with("TIME0") && !address.starts_with("TIME1") {
+        return Err(ApiError::InvalidAddress(
+            "Address must start with TIME0 (testnet) or TIME1 (mainnet)".into(),
+        ));
+    }
+
     // Use service for business logic
     let service = BlockchainService::new(state.blockchain.clone());
     let balance = service.get_balance(&address).await?;
@@ -122,7 +139,7 @@ async fn get_balance(
     };
 
     // Convert balance to TIME (8 decimal places)
-    let balance_time = format!("{:.8}", balance as f64 / 100_000_000.0);
+    let balance_time = format!("{:.8}", satoshis_to_time(balance));
 
     Ok(Json(BalanceResponse {
         address,
@@ -187,12 +204,12 @@ struct ReindexResponse {
 async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<ReindexResponse>> {
     let start = std::time::Instant::now();
 
-    eprintln!("🔨 Starting blockchain reindex...");
+    tracing::info!("starting_blockchain_reindex");
 
     let mut blockchain = state.blockchain.write().await;
 
     // Load all blocks from database
-    eprintln!("📦 Loading blocks from database...");
+    tracing::info!("loading_blocks_from_database");
     let blocks = blockchain
         .db()
         .load_all_blocks()
@@ -204,16 +221,21 @@ async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<Rei
         ));
     }
 
-    eprintln!("✅ Loaded {} blocks", blocks.len());
+    tracing::info!(block_count = blocks.len(), "blocks_loaded_successfully");
 
     // Create a new empty UTXO set
-    eprintln!("🔨 Rebuilding UTXO set from blocks...");
+    tracing::info!("rebuilding_utxo_set_from_blocks");
     let mut utxo_set = time_core::utxo_set::UTXOSet::new();
 
     // Apply each block's transactions to rebuild UTXO set
     for (i, block) in blocks.iter().enumerate() {
-        if i % 50 == 0 && i > 0 {
-            eprintln!("   Processed {}/{} blocks...", i, blocks.len());
+        if i % 100 == 0 && i > 0 {
+            tracing::info!(
+                processed = i,
+                total = blocks.len(),
+                percent = (i * 100) / blocks.len(),
+                "reindex_progress"
+            );
         }
 
         for tx in &block.transactions {
@@ -223,21 +245,21 @@ async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<Rei
         }
     }
 
-    eprintln!("✅ UTXO set rebuilt: {} UTXOs", utxo_set.len());
+    tracing::info!(utxo_count = utxo_set.len(), "utxo_set_rebuilt_successfully");
 
     // Replace the blockchain's UTXO set with the rebuilt one
     let snapshot = utxo_set.snapshot();
     blockchain.utxo_set_mut().restore(snapshot.clone());
 
     // Save UTXO snapshot to database
-    eprintln!("💾 Saving UTXO snapshot...");
+    tracing::info!("saving_utxo_snapshot");
     blockchain
         .db()
         .save_utxo_snapshot(&utxo_set)
         .map_err(|e| ApiError::Internal(format!("Failed to save UTXO snapshot: {}", e)))?;
 
     // Calculate and save wallet balances for all addresses
-    eprintln!("💾 Saving wallet balances...");
+    tracing::info!("saving_wallet_balances");
     let mut wallet_balances = std::collections::HashMap::new();
 
     for output in utxo_set.utxos().values() {
@@ -255,12 +277,13 @@ async fn reindex_blockchain(State(state): State<ApiState>) -> ApiResult<Json<Rei
 
     let processing_time = start.elapsed();
 
-    eprintln!("✅ Reindex complete in {:?}", processing_time);
-    eprintln!("   Blocks:       {}", blocks.len());
-    eprintln!("   UTXOs:        {}", utxo_set.len());
-    eprintln!(
-        "   Total Supply: {} TIME",
-        utxo_set.total_supply() as f64 / 100_000_000.0
+    tracing::info!(
+        duration_secs = processing_time.as_secs(),
+        duration_ms = processing_time.as_millis(),
+        blocks_processed = blocks.len(),
+        utxos_created = utxo_set.len(),
+        total_supply = utxo_set.total_supply(),
+        "reindex_completed"
     );
 
     Ok(Json(ReindexResponse {

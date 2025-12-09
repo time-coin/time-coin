@@ -9,6 +9,7 @@
 #![allow(dead_code)] // RPC functions are part of full API spec
 
 use crate::balance::calculate_mempool_balance;
+use crate::constants::satoshis_to_time;
 use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
@@ -357,7 +358,7 @@ pub async fn getrawtransaction(
                 .iter()
                 .enumerate()
                 .map(|(n, output)| TxOutputInfo {
-                    value: output.amount as f64 / 100_000_000.0, // Convert to TIME coins
+                    value: satoshis_to_time(output.amount),
                     n,
                     script_pub_key: ScriptPubKey {
                         asm: format!(
@@ -421,7 +422,7 @@ pub async fn getrawtransaction(
                         .iter()
                         .enumerate()
                         .map(|(n, output)| TxOutputInfo {
-                            value: output.amount as f64 / 100_000_000.0,
+                            value: satoshis_to_time(output.amount),
                             n,
                             script_pub_key: ScriptPubKey {
                                 asm: format!(
@@ -679,8 +680,8 @@ pub async fn getwalletinfo(State(state): State<ApiState>) -> ApiResult<Json<Wall
     Ok(Json(WalletInfo {
         walletname: "time-wallet".to_string(),
         walletversion: 1,
-        balance: wallet_balance as f64 / 100_000_000.0,
-        unconfirmed_balance: unconfirmed_balance as f64 / 100_000_000.0,
+        balance: satoshis_to_time(wallet_balance),
+        unconfirmed_balance: satoshis_to_time(unconfirmed_balance),
         txcount: 0,
         keypoolsize: 100,
     }))
@@ -721,8 +722,8 @@ pub async fn getbalance(
     };
 
     Ok(Json(GetBalanceResponse {
-        result: balance as f64 / 100_000_000.0,
-        unconfirmed_balance: unconfirmed_balance as f64 / 100_000_000.0,
+        result: satoshis_to_time(balance),
+        unconfirmed_balance: satoshis_to_time(unconfirmed_balance),
     }))
 }
 
@@ -834,7 +835,7 @@ pub async fn listunspent(
                     address: output.address.clone(),
                     account: "".to_string(),
                     script_pub_key: hex::encode(&output.address),
-                    amount: output.amount as f64 / 100_000_000.0,
+                    amount: satoshis_to_time(output.amount),
                     confirmations,
                     spendable: true,
                 });
@@ -931,7 +932,7 @@ pub async fn gettreasury(State(state): State<ApiState>) -> ApiResult<Json<Treasu
     let treasury_balance = blockchain.get_balance(treasury_address);
 
     Ok(Json(TreasuryInfo {
-        balance: treasury_balance as f64 / 100_000_000.0,
+        balance: satoshis_to_time(treasury_balance),
         total_allocated: 0.0,    // TODO: Track allocated funds
         pending_proposals: 0,    // TODO: Count pending proposals
         monthly_budget: 50000.0, // TODO: Calculate monthly budget

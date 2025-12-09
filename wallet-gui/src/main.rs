@@ -1773,11 +1773,11 @@ impl WalletApp {
                             let net_clone = network_mgr_clone.clone();
                             tokio::task::spawn_blocking(move || {
                                 let rt = tokio::runtime::Runtime::new().unwrap();
+                                #[allow(clippy::await_holding_lock)]
                                 rt.block_on(async move {
+                                    log::info!("Calling connect_to_peers");
+
                                     let mut manager = net_clone.write().unwrap();
-                                    log::info!(
-                                        "Acquired NetworkManager lock, calling connect_to_peers"
-                                    );
                                     if let Err(e) = manager.connect_to_peers(peer_infos).await {
                                         log::error!("Failed to connect to peers: {}", e);
                                     } else {
@@ -1797,6 +1797,7 @@ impl WalletApp {
                             let network_mgr_for_ping = network_mgr_clone.clone();
                             tokio::task::spawn_blocking(move || {
                                 let rt = tokio::runtime::Handle::current();
+                                #[allow(clippy::await_holding_lock)]
                                 rt.block_on(async {
                                     // Wait before first ping
                                     tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
@@ -2674,8 +2675,9 @@ impl WalletApp {
                                                 // Submit in background thread with its own runtime
                                                 std::thread::spawn(move || {
                                                     let rt = tokio::runtime::Runtime::new().unwrap();
+                                                    #[allow(clippy::await_holding_lock)]
                                                     rt.block_on(async move {
-                                                        #[allow(clippy::await_holding_lock)]
+                                                        // Submit transaction
                                                         let result = {
                                                             let network_mgr = network_mgr_clone.write().unwrap();
                                                             network_mgr.submit_transaction(tx_json).await
@@ -4020,11 +4022,11 @@ impl WalletApp {
                         let net_clone = network_mgr.clone();
                         tokio::task::spawn_blocking(move || {
                             let rt = tokio::runtime::Runtime::new().unwrap();
+                            #[allow(clippy::await_holding_lock)]
                             rt.block_on(async move {
+                                log::info!("Calling connect_to_peers");
+
                                 let mut manager = net_clone.write().unwrap();
-                                log::info!(
-                                    "Acquired NetworkManager lock, calling connect_to_peers"
-                                );
                                 if let Err(e) = manager.connect_to_peers(peer_infos).await {
                                     log::error!("Failed to connect to peers: {}", e);
                                 } else {
@@ -4089,6 +4091,7 @@ impl WalletApp {
                         let network_mgr_for_ping = network_mgr.clone();
                         tokio::task::spawn_blocking(move || {
                             let rt = tokio::runtime::Handle::current();
+                            #[allow(clippy::await_holding_lock)]
                             rt.block_on(async {
                                 // Wait before first ping
                                 tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;

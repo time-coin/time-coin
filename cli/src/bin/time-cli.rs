@@ -7,6 +7,128 @@ use serde_json::json;
 use std::path::PathBuf;
 use time_masternode as masternode;
 
+// Inline validation functions for CLI
+mod validation {
+    use std::error::Error;
+    use std::fmt;
+
+    const MAX_SUPPLY: f64 = 21_000_000.0;
+    const MIN_AMOUNT: f64 = 0.00000001;
+    const ADDRESS_PREFIX: &str = "TIME1";
+    const ADDRESS_LENGTH: usize = 42;
+    const PUBKEY_LENGTH: usize = 64;
+
+    #[derive(Debug)]
+    pub enum ValidationError {
+        InvalidAddress(String),
+        InvalidAmount(String),
+        InvalidPublicKey(String),
+        InvalidRange(String),
+    }
+
+    impl fmt::Display for ValidationError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match self {
+                ValidationError::InvalidAddress(msg) => write!(f, "Invalid address: {}", msg),
+                ValidationError::InvalidAmount(msg) => write!(f, "Invalid amount: {}", msg),
+                ValidationError::InvalidPublicKey(msg) => write!(f, "Invalid public key: {}", msg),
+                ValidationError::InvalidRange(msg) => write!(f, "Invalid range: {}", msg),
+            }
+        }
+    }
+
+    impl Error for ValidationError {}
+
+    pub fn validate_address(addr: &str) -> Result<(), ValidationError> {
+        if !addr.starts_with(ADDRESS_PREFIX) {
+            return Err(ValidationError::InvalidAddress(format!(
+                "Address must start with '{}'",
+                ADDRESS_PREFIX
+            )));
+        }
+        if addr.len() != ADDRESS_LENGTH {
+            return Err(ValidationError::InvalidAddress(format!(
+                "Address must be exactly {} characters long (got {})",
+                ADDRESS_LENGTH,
+                addr.len()
+            )));
+        }
+        if !addr.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(ValidationError::InvalidAddress(
+                "Address contains invalid characters".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_amount(amount: f64) -> Result<(), ValidationError> {
+        if amount <= 0.0 {
+            return Err(ValidationError::InvalidAmount(
+                "Amount must be positive".to_string(),
+            ));
+        }
+        if amount < MIN_AMOUNT {
+            return Err(ValidationError::InvalidAmount(format!(
+                "Amount must be at least {} TIME (1 satoshi)",
+                MIN_AMOUNT
+            )));
+        }
+        if amount > MAX_SUPPLY {
+            return Err(ValidationError::InvalidAmount(format!(
+                "Amount cannot exceed total supply ({} TIME)",
+                MAX_SUPPLY
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_addresses_different(from: &str, to: &str) -> Result<(), ValidationError> {
+        if from == to {
+            return Err(ValidationError::InvalidAddress(
+                "Source and destination addresses must be different".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_pubkey(pubkey: &str) -> Result<(), ValidationError> {
+        if pubkey.len() != PUBKEY_LENGTH {
+            return Err(ValidationError::InvalidPublicKey(format!(
+                "Public key must be exactly {} characters (got {})",
+                PUBKEY_LENGTH,
+                pubkey.len()
+            )));
+        }
+        if !pubkey.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(ValidationError::InvalidPublicKey(
+                "Public key must contain only hexadecimal characters".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_count(count: usize) -> Result<(), ValidationError> {
+        const MAX_COUNT: usize = 1000;
+        if count == 0 {
+            return Err(ValidationError::InvalidRange(
+                "Count must be at least 1".to_string(),
+            ));
+        }
+        if count > MAX_COUNT {
+            return Err(ValidationError::InvalidRange(format!(
+                "Count cannot exceed {} (got {})",
+                MAX_COUNT, count
+            )));
+        }
+        Ok(())
+    }
+}
+
+use validation::{
+    validate_address, validate_addresses_different, validate_amount, validate_count,
+    validate_pubkey,
+};
+
 #[derive(Parser)]
 #[command(name = "time-cli")]
 #[command(about = "TIME Coin Node CLI", version)]
@@ -1135,6 +1257,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Blocks { count } => {
+            // Validate count parameter
+            if let Err(e) = validate_count(count) {
+                eprintln!("❌ Invalid count: {}", e);
+                std::process::exit(1);
+            }
+
             let info_response = client
                 .get(format!("{}/blockchain/info", cli.api))
                 .send()
@@ -1255,6 +1383,12 @@ async fn handle_wallet_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
         WalletCommands::GenerateAddress { pubkey } => {
+            // Validate public key
+            if let Err(e) = validate_pubkey(&pubkey) {
+                eprintln!("❌ Invalid public key: {}", e);
+                std::process::exit(1);
+            }
+
             let address = time_crypto::public_key_to_address(&pubkey);
 
             if json_output {
@@ -1272,16 +1406,22 @@ async fn handle_wallet_command(
         }
 
         WalletCommands::ValidateAddress { address } => {
-            let is_valid = address.starts_with("TIME1") && address.len() > 10;
+            let is_valid = validate_address(&address).is_ok();
+            let error_msg = if !is_valid {
+                Some(validate_address(&address).unwrap_err().to_string())
+            } else {
+                None
+            };
 
             if json_output {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json!({
-                        "address": address,
-                        "is_valid": is_valid
-                    }))?
-                );
+                let mut result = json!({
+                    "address": address,
+                    "is_valid": is_valid
+                });
+                if let Some(err) = error_msg {
+                    result["error"] = json!(err);
+                }
+                println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 println!(
                     "\n{} Address: {}",
@@ -1375,6 +1515,27 @@ async fn handle_wallet_command(
             amount,
             db_path: _,
         } => {
+            // Validate inputs before making API call
+            if let Err(e) = validate_address(&from) {
+                eprintln!("❌ Invalid source address: {}", e);
+                std::process::exit(1);
+            }
+
+            if let Err(e) = validate_address(&to) {
+                eprintln!("❌ Invalid destination address: {}", e);
+                std::process::exit(1);
+            }
+
+            if let Err(e) = validate_amount(amount) {
+                eprintln!("❌ Invalid amount: {}", e);
+                std::process::exit(1);
+            }
+
+            if let Err(e) = validate_addresses_different(&from, &to) {
+                eprintln!("❌ {}", e);
+                std::process::exit(1);
+            }
+
             // Create transaction via API
             let client = reqwest::Client::new();
             let response = client
@@ -1442,6 +1603,17 @@ async fn handle_wallet_command(
             amount,
             db_path: _,
         } => {
+            // Validate inputs
+            if let Err(e) = validate_address(&to) {
+                eprintln!("❌ Invalid destination address: {}", e);
+                std::process::exit(1);
+            }
+
+            if let Err(e) = validate_amount(amount) {
+                eprintln!("❌ Invalid amount: {}", e);
+                std::process::exit(1);
+            }
+
             // Convert TIME amount to smallest unit (TIME has 8 decimals like Bitcoin)
             const TIME_UNIT: u64 = 100_000_000; // 1 TIME = 100,000,000 units
             let amount_units = (amount * TIME_UNIT as f64) as u64;

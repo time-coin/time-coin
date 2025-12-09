@@ -2,16 +2,21 @@ use crate::{ApiError, ApiResult, ApiState};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use time_core::MasternodeTier;
+use validator::Validate;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct RegisterMasternodeRequest {
     pub node_ip: String,
+    #[validate(length(min = 40, max = 100))]
     pub wallet_address: String,
     pub tier: String,
     /// Optional: Collateral transaction ID (required for Bronze/Silver/Gold)
     pub collateral_txid: Option<String>,
     /// Optional: Collateral output index (required for Bronze/Silver/Gold)
     pub collateral_vout: Option<u32>,
+    /// Optional: Node port (defaults to 8333 if not provided)
+    #[validate(range(min = 1024, max = 65535))]
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,6 +32,10 @@ pub async fn register_masternode(
     State(state): State<ApiState>,
     Json(req): Json<RegisterMasternodeRequest>,
 ) -> ApiResult<Json<RegisterMasternodeResponse>> {
+    // Validate request
+    req.validate()
+        .map_err(|e| ApiError::BadRequest(format!("Validation failed: {}", e)))?;
+
     // Validate wallet address format (TIME0 for testnet, TIME1 for mainnet)
     if !req.wallet_address.starts_with("TIME0") && !req.wallet_address.starts_with("TIME1") {
         return Err(ApiError::InvalidAddress(

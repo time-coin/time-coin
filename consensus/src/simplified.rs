@@ -117,7 +117,7 @@ impl SimplifiedConsensus {
         // Use VRF trait for deterministic selection (uses ONLY height internally)
         let leader = self
             .vrf_selector
-            .select_leader(&masternodes, height, previous_hash);
+            .select_leader(&masternodes, height, previous_hash, true);
 
         if let Some(ref l) = leader {
             println!("👑 SimplifiedConsensus: Selected leader: {}", l);

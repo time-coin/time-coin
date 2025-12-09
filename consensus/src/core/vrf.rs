@@ -15,7 +15,12 @@ use sha2::{Digest, Sha256};
 /// Trait for VRF-based leader selection
 pub trait VRFSelector {
     /// Generate VRF seed from block height and previous block hash
-    fn generate_seed(&self, height: u64, previous_hash: &str) -> Vec<u8>;
+    ///
+    /// # Arguments
+    /// * `height` - Current block height
+    /// * `previous_hash` - Hash of previous block
+    /// * `is_synced` - Whether node is synchronized (uses hash if true)
+    fn generate_seed(&self, height: u64, previous_hash: &str, is_synced: bool) -> Vec<u8>;
 
     /// Select leader index from available masternodes
     fn select_index(&self, seed: &[u8], count: usize) -> usize;
@@ -26,19 +31,26 @@ pub trait VRFSelector {
         masternodes: &[String],
         height: u64,
         previous_hash: &str,
+        is_synced: bool,
     ) -> Option<String> {
         if masternodes.is_empty() {
             return None;
         }
 
-        let seed = self.generate_seed(height, previous_hash);
+        let seed = self.generate_seed(height, previous_hash, is_synced);
         let index = self.select_index(&seed, masternodes.len());
         Some(masternodes[index].clone())
     }
 
     /// Generate VRF proof for selected leader
-    fn generate_proof(&self, height: u64, previous_hash: &str, leader: &str) -> Vec<u8> {
-        let seed = self.generate_seed(height, previous_hash);
+    fn generate_proof(
+        &self,
+        height: u64,
+        previous_hash: &str,
+        is_synced: bool,
+        leader: &str,
+    ) -> Vec<u8> {
+        let seed = self.generate_seed(height, previous_hash, is_synced);
 
         let mut hasher = Sha256::new();
         hasher.update(&seed);
@@ -48,8 +60,15 @@ pub trait VRFSelector {
     }
 
     /// Verify VRF proof for a leader selection
-    fn verify_proof(&self, height: u64, previous_hash: &str, leader: &str, proof: &[u8]) -> bool {
-        let expected_proof = self.generate_proof(height, previous_hash, leader);
+    fn verify_proof(
+        &self,
+        height: u64,
+        previous_hash: &str,
+        is_synced: bool,
+        leader: &str,
+        proof: &[u8],
+    ) -> bool {
+        let expected_proof = self.generate_proof(height, previous_hash, is_synced, leader);
         proof == expected_proof.as_slice()
     }
 }
@@ -58,13 +77,22 @@ pub trait VRFSelector {
 pub struct DefaultVRFSelector;
 
 impl VRFSelector for DefaultVRFSelector {
-    fn generate_seed(&self, height: u64, _previous_hash: &str) -> Vec<u8> {
-        // CRITICAL FIX: Use ONLY block height for deterministic leader selection
-        // Using previous_hash causes nodes at different sync states to disagree on leaders
-        // This ensures all nodes agree on the leader for a given block height
+    fn generate_seed(&self, height: u64, previous_hash: &str, is_synced: bool) -> Vec<u8> {
+        // Consensus-aware VRF seed generation:
+        // - During bootstrap/sync (is_synced=false): Use ONLY height for agreement
+        //   across nodes with different chain tips
+        // - When synced (is_synced=true): Include previous_hash to make leader
+        //   selection dependent on chain state, preventing same leader on both
+        //   sides of a fork
         let mut hasher = Sha256::new();
         hasher.update(b"TIME_COIN_VRF_SEED");
         hasher.update(height.to_le_bytes());
+
+        // Only include chain state once nodes are synchronized
+        if is_synced && height > 0 && !previous_hash.is_empty() {
+            hasher.update(previous_hash.as_bytes());
+        }
+
         hasher.finalize().to_vec()
     }
 
@@ -122,12 +150,16 @@ impl WeightedVRFSelector {
 }
 
 impl VRFSelector for WeightedVRFSelector {
-    fn generate_seed(&self, height: u64, _previous_hash: &str) -> Vec<u8> {
-        // CRITICAL FIX: Use ONLY block height for deterministic leader selection
-        // Using previous_hash causes nodes at different sync states to disagree on leaders
+    fn generate_seed(&self, height: u64, previous_hash: &str, is_synced: bool) -> Vec<u8> {
+        // Same consensus-aware seed as DefaultVRFSelector
         let mut hasher = Sha256::new();
         hasher.update(b"TIME_COIN_VRF_SEED");
         hasher.update(height.to_le_bytes());
+
+        if is_synced && height > 0 && !previous_hash.is_empty() {
+            hasher.update(previous_hash.as_bytes());
+        }
+
         hasher.finalize().to_vec()
     }
 
@@ -153,8 +185,8 @@ mod tests {
             "node3".to_string(),
         ];
 
-        let leader1 = vrf.select_leader(&masternodes, 100, "hash123");
-        let leader2 = vrf.select_leader(&masternodes, 100, "hash123");
+        let leader1 = vrf.select_leader(&masternodes, 100, "hash123", true);
+        let leader2 = vrf.select_leader(&masternodes, 100, "hash123", true);
 
         assert_eq!(leader1, leader2, "VRF should be deterministic");
     }
@@ -169,11 +201,37 @@ mod tests {
             "node4".to_string(),
         ];
 
-        let leader1 = vrf.select_leader(&masternodes, 100, "hash").unwrap();
-        let leader2 = vrf.select_leader(&masternodes, 101, "hash").unwrap();
+        let leader1 = vrf.select_leader(&masternodes, 100, "hash", true).unwrap();
+        let leader2 = vrf.select_leader(&masternodes, 101, "hash", true).unwrap();
 
         assert!(masternodes.contains(&leader1));
         assert!(masternodes.contains(&leader2));
+    }
+
+    #[test]
+    fn test_vrf_sync_state_affects_selection() {
+        let vrf = DefaultVRFSelector;
+        let masternodes = vec![
+            "node1".to_string(),
+            "node2".to_string(),
+            "node3".to_string(),
+        ];
+
+        // When not synced, hash is ignored
+        let leader_unsynced1 = vrf.select_leader(&masternodes, 100, "hash1", false);
+        let leader_unsynced2 = vrf.select_leader(&masternodes, 100, "hash2", false);
+        assert_eq!(
+            leader_unsynced1, leader_unsynced2,
+            "Unsynced nodes should agree on leader regardless of hash"
+        );
+
+        // When synced, different hashes may select different leaders
+        let seed_synced1 = vrf.generate_seed(100, "hash1", true);
+        let seed_synced2 = vrf.generate_seed(100, "hash2", true);
+        assert_ne!(
+            seed_synced1, seed_synced2,
+            "Synced nodes use hash in seed, creating fork-specific leaders"
+        );
     }
 
     #[test]
@@ -183,8 +241,8 @@ mod tests {
         let prev_hash = "test_hash";
         let leader = "node1";
 
-        let proof = vrf.generate_proof(height, prev_hash, leader);
-        assert!(vrf.verify_proof(height, prev_hash, leader, &proof));
-        assert!(!vrf.verify_proof(height, prev_hash, "node2", &proof));
+        let proof = vrf.generate_proof(height, prev_hash, true, leader);
+        assert!(vrf.verify_proof(height, prev_hash, true, leader, &proof));
+        assert!(!vrf.verify_proof(height, prev_hash, true, "node2", &proof));
     }
 }

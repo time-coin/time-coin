@@ -11,6 +11,8 @@ use owo_colors::OwoColorize;
 use serde::Deserialize;
 
 mod block_producer;
+mod validation;
+
 use block_producer::BlockProducer;
 
 use std::path::PathBuf;

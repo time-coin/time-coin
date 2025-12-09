@@ -1,6 +1,7 @@
 //! Grant System Handlers
 
 use crate::{
+    constants::{GRANT_AMOUNT_SATOSHIS, GRANT_ACTIVATION_DAYS, GRANT_DECOMMISSION_DAYS},
     error::{ApiError, ApiResult},
     grant_models::*,
     state::ApiState,
@@ -9,10 +10,6 @@ use axum::{extract::Path, extract::State, Json};
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 use validator::Validate;
-
-const GRANT_AMOUNT: u64 = 100_000_000_000; // 1000 TIME
-const ACTIVATION_DAYS: i64 = 30; // 30 days to activate
-const DECOMMISSION_DAYS: i64 = 90; // 3 months cooldown
 
 // ============================================
 // GRANT APPLICATION
@@ -39,14 +36,14 @@ pub async fn apply_for_grant(
 
     // Create grant application
     let verification_token = Uuid::new_v4().to_string();
-    let expires_at = Utc::now() + Duration::days(ACTIVATION_DAYS);
+    let expires_at = Utc::now() + Duration::days(GRANT_ACTIVATION_DAYS);
 
     let grant = crate::state::GrantData {
         email: req.email.clone(),
         verification_token: verification_token.clone(),
         verified: false,
         status: "pending".to_string(),
-        grant_amount: GRANT_AMOUNT,
+        grant_amount: GRANT_AMOUNT_SATOSHIS,
         applied_at: Utc::now().timestamp(),
         verified_at: None,
         activated_at: None,
@@ -207,10 +204,10 @@ pub async fn activate_masternode(
     let treasury_address = "TIME1treasury00000000000000000000000000";
     let treasury_balance = blockchain.get_balance(treasury_address);
 
-    if treasury_balance < GRANT_AMOUNT {
+    if treasury_balance < GRANT_AMOUNT_SATOSHIS {
         return Err(ApiError::InsufficientBalance {
             have: treasury_balance,
-            need: GRANT_AMOUNT,
+            need: GRANT_AMOUNT_SATOSHIS,
         });
     }
     drop(blockchain);
@@ -263,7 +260,7 @@ pub async fn decommission_masternode(
 
     // Start decommission process
     grant.status = "decommissioning".to_string();
-    let unlock_date = Utc::now() + Duration::days(DECOMMISSION_DAYS);
+    let unlock_date = Utc::now() + Duration::days(GRANT_DECOMMISSION_DAYS);
 
     tracing::info!(
         "Masternode decommissioning started: {} - Unlock date: {}",
@@ -275,10 +272,10 @@ pub async fn decommission_masternode(
         success: true,
         message: format!(
             "Decommission started. Funds will unlock in {} days",
-            DECOMMISSION_DAYS
+            GRANT_DECOMMISSION_DAYS
         ),
         unlock_date: unlock_date.to_rfc3339(),
-        days_until_unlock: DECOMMISSION_DAYS as u32,
+        days_until_unlock: GRANT_DECOMMISSION_DAYS as u32,
     }))
 }
 

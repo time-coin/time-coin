@@ -25,6 +25,15 @@
 // Core shared abstractions (new)
 pub mod core;
 
+// Byzantine behavior detection
+pub mod byzantine;
+
+// Error types
+pub mod errors;
+
+// Rate limiting
+pub mod rate_limit;
+
 // Phase 3 optimization - parallel validation
 pub mod parallel_validation;
 
@@ -640,7 +649,7 @@ impl ConsensusEngine {
 
         // Use the VRF selector trait
         self.vrf_selector
-            .select_leader(masternodes, block_height, previous_hash)
+            .select_leader(masternodes, block_height, previous_hash, true)
             .unwrap_or_default()
     }
 
@@ -652,7 +661,7 @@ impl ConsensusEngine {
         leader: &str,
     ) -> Vec<u8> {
         self.vrf_selector
-            .generate_proof(block_height, previous_hash, leader)
+            .generate_proof(block_height, previous_hash, true, leader)
     }
 
     /// Verify VRF proof for a leader selection
@@ -664,7 +673,7 @@ impl ConsensusEngine {
         proof: &[u8],
     ) -> bool {
         self.vrf_selector
-            .verify_proof(block_height, previous_hash, leader, proof)
+            .verify_proof(block_height, previous_hash, true, leader, proof)
     }
 
     /// Announce chain state to peers and check for mismatches
@@ -2058,13 +2067,22 @@ mod tests {
     async fn test_vrf_seed_changes_with_previous_hash() {
         let engine = ConsensusEngine::new(false);
 
-        // Same block height but different previous hashes should produce different seeds
-        let seed1 = engine.vrf_selector.generate_seed(100, "hash1");
-        let seed2 = engine.vrf_selector.generate_seed(100, "hash2");
+        // When synced, different previous hashes should produce different seeds
+        let seed1 = engine.vrf_selector.generate_seed(100, "hash1", true);
+        let seed2 = engine.vrf_selector.generate_seed(100, "hash2", true);
 
         assert_ne!(
             seed1, seed2,
-            "Different previous hashes should produce different VRF seeds"
+            "When synced, different previous hashes should produce different VRF seeds"
+        );
+
+        // When not synced, same height produces same seed regardless of hash
+        let seed3 = engine.vrf_selector.generate_seed(100, "hash1", false);
+        let seed4 = engine.vrf_selector.generate_seed(100, "hash2", false);
+
+        assert_eq!(
+            seed3, seed4,
+            "When not synced, same height produces same seed regardless of hash"
         );
     }
 
