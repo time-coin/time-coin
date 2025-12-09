@@ -1269,27 +1269,115 @@ async fn main() {
         blockchain_sync.warm_cache().await;
     }
 
-    // Check if we just downloaded genesis and need immediate sync
-    let just_downloaded_genesis = has_genesis_on_disk && {
+    // Check if we need to download blockchain (height=None means no genesis)
+    let needs_blockchain_download = {
         let bc = blockchain.read().await;
-        bc.chain_tip_height() == 0 && !bc.genesis_hash().is_empty()
+        bc.genesis_hash().is_empty() // No genesis = height is None
     };
 
-    if just_downloaded_genesis && !peer_manager.get_connected_peers().await.is_empty() {
+    if needs_blockchain_download && !peer_manager.get_connected_peers().await.is_empty() {
         println!(
             "{}",
-            "📥 Blockchain is synced - syncing remaining blocks from network...".cyan()
+            "📥 Downloading full blockchain from network...".cyan()
         );
-        match blockchain_sync.sync_on_join().await {
-            Ok(()) => println!("{}", "   ✅ Initial sync complete".green()),
-            Err(e) => eprintln!(
-                "{}",
-                format!(
-                    "   ⚠️  Initial sync failed: {} (periodic sync will retry)",
-                    e
-                )
-                .yellow()
-            ),
+
+        // Get network height from peers
+        let peers = peer_manager.get_connected_peers().await;
+        let mut max_height: Option<u64> = None;
+        let mut best_peer: Option<String> = None;
+
+        for peer in peers.iter().take(5) {
+            let peer_addr = peer.address.to_string();
+            match peer_manager.request_blockchain_info(&peer_addr).await {
+                Ok(Some(height)) => {
+                    println!("   📊 Peer {} has height {}", peer_addr, height);
+                    if max_height.is_none() || height > max_height.unwrap() {
+                        max_height = Some(height);
+                        best_peer = Some(peer_addr);
+                    }
+                }
+                Ok(None) => {
+                    println!("   ℹ️  Peer {} has no genesis", peer_addr);
+                }
+                Err(e) => {
+                    eprintln!("   ⚠️  Failed to get height from {}: {}", peer_addr, e);
+                }
+            }
+        }
+
+        if let (Some(target_height), Some(peer_addr)) = (max_height, best_peer) {
+            println!(
+                "   🎯 Target height: {} (from {})",
+                target_height, peer_addr
+            );
+            println!("   ⏬ Downloading blocks 0-{}...", target_height);
+
+            // Download block by block
+            let mut downloaded = 0;
+            for height in 0..=target_height {
+                match peer_manager
+                    .request_block_by_height(&peer_addr, height)
+                    .await
+                {
+                    Ok(block) => {
+                        // Save to disk
+                        let db =
+                            time_core::db::BlockchainDB::open(&format!("{}/blockchain", data_dir))
+                                .expect("Failed to open database");
+
+                        if let Err(e) = db.save_block(&block) {
+                            eprintln!("   ⚠️  Failed to save block {}: {}", height, e);
+                            break;
+                        }
+
+                        downloaded += 1;
+                        if downloaded % 10 == 0 || downloaded == target_height + 1 {
+                            println!(
+                                "   📦 Downloaded {}/{} blocks...",
+                                downloaded,
+                                target_height + 1
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("   ⚠️  Failed to download block {}: {}", height, e);
+                        eprintln!("   ℹ️  Will retry with periodic sync");
+                        break;
+                    }
+                }
+            }
+
+            if downloaded > 0 {
+                println!(
+                    "{}",
+                    format!("   ✅ Downloaded {} blocks", downloaded).green()
+                );
+                println!("   🔄 Reloading blockchain state...");
+
+                // Reload blockchain from disk
+                let mut bc = blockchain.write().await;
+                match time_core::state::BlockchainState::new_from_disk_or_sync(&format!(
+                    "{}/blockchain",
+                    data_dir
+                )) {
+                    Ok(new_state) => {
+                        *bc = new_state;
+                        println!(
+                            "{}",
+                            format!(
+                                "   ✅ Blockchain reloaded: {} blocks",
+                                bc.chain_tip_height()
+                            )
+                            .green()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("   ⚠️  Failed to reload blockchain: {}", e);
+                    }
+                }
+            }
+        } else {
+            eprintln!("{}", "   ⚠️  No peers with blockchain available".yellow());
         }
     }
 
@@ -2315,15 +2403,9 @@ async fn main() {
 
                                                     let mut blocks = Vec::new();
 
-                                                    // Special case: Always try to serve genesis if requested
-                                                    if start_height == 0 && has_genesis {
-                                                        // Load genesis from disk if needed
-                                                        if let Some(block) = blockchain_guard.get_block_by_height(0) {
-                                                            blocks.push(block.clone());
-                                                            println!("   📤 Serving genesis block to {}", peer_ip_listen);
-                                                        } else {
-                                                            eprintln!("   ⚠️  Genesis exists but couldn't load from height 0");
-                                                        }
+                                                    // Don't serve blocks if we don't have genesis
+                                                    if !has_genesis {
+                                                        eprintln!("   ⚠️  Cannot serve blocks - no genesis");
                                                     } else {
                                                         // Limit the range to prevent abuse
                                                         let max_blocks = 100;
@@ -2334,13 +2416,14 @@ async fn main() {
                                                                 blocks.push(block.clone());
                                                             }
                                                         }
+
+                                                        if !blocks.is_empty() {
+                                                            println!("   📤 Serving {} blocks (heights {}-{}) to {}", 
+                                                                blocks.len(), start_height, start_height + blocks.len() as u64 - 1, peer_ip_listen);
+                                                        }
                                                     }
 
                                                     drop(blockchain_guard);
-
-                                                    if blocks.is_empty() && start_height == 0 {
-                                                        eprintln!("   ⚠️  Cannot serve genesis - no blocks found");
-                                                    }
 
                                                     let response = time_network::protocol::NetworkMessage::Blocks { blocks: blocks.clone() };
 
