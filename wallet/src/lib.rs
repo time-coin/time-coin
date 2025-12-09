@@ -9,8 +9,10 @@
 //! - Convenience methods for key export/import
 //! - BIP-39 mnemonic phrase support for deterministic key generation
 //! - Password-based encryption with Argon2 + AES-GCM
+//! - Auto-lock after inactivity for security
 
 pub mod address;
+pub mod auto_lock;
 pub mod encryption;
 pub mod keypair;
 pub mod metadata_db;
@@ -20,6 +22,7 @@ pub mod transaction;
 pub mod wallet;
 
 pub use address::{Address, AddressError, NetworkType};
+pub use auto_lock::{AutoLockConfig, AutoLockManager, LockState};
 pub use encryption::{EncryptedWallet, EncryptionError, SecurePassword, WalletEncryption};
 pub use keypair::{Keypair, KeypairError};
 pub use metadata_db::{MetadataDb, MetadataDbError};

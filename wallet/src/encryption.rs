@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_password_zeroization() {
-        let mut password = SecurePassword::new("sensitive".to_string());
+        let password = SecurePassword::new("sensitive".to_string());
         // Password should be zeroized when dropped
         drop(password);
     }

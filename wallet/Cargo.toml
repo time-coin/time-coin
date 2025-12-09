@@ -25,6 +25,7 @@ qrcode = "0.14"
 time-mempool = { version = "0.1.0", path = "../mempool" }
 sled = "0.34"
 tokio = { workspace = true }
+log = "0.4"
 
 # Encryption dependencies
 aes-gcm = "0.10"
@@ -34,3 +35,4 @@ zeroize = { version = "1.7", features = ["derive"] }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 time-mempool = { version = "0.1.0", path = "../mempool" }
+env_logger = "0.11"

@@ -1,4 +1,30 @@
-//! Secure message handler for masternode with integrated security features
+//! Security and Message Handling
+//!
+//! Provides secure message handling with integrated security features:
+//! - **Rate limiting**: Prevents request flooding
+//! - **Nonce tracking**: Prevents replay attacks
+//! - **Peer quarantine**: Isolates misbehaving peers
+//!
+//! # Architecture
+//!
+//! The [`SecureMasternodeHandler`] wraps the masternode's message handling
+//! with three layers of security:
+//!
+//! 1. Rate limiting - Rejects excessive requests
+//! 2. Nonce validation - Ensures message freshness
+//! 3. Quarantine system - Isolates malicious peers
+//!
+//! # Example
+//!
+//! ```no_run
+//! use time_masternode::SecureMasternodeHandler;
+//! use time_network::PeerQuarantine;
+//! use std::sync::Arc;
+//!
+//! let quarantine = Arc::new(PeerQuarantine::default());
+//! let handler = SecureMasternodeHandler::new(quarantine);
+//! // Use handler to process authenticated messages
+//! ```
 
 use std::net::IpAddr;
 use std::sync::Arc;

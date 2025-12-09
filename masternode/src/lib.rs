@@ -1,6 +1,43 @@
 //! TIME Coin Masternode Implementation
 //!
 //! 3-tier masternode system with performance-based rewards
+//!
+//! # Architecture
+//!
+//! This module implements a comprehensive masternode system with:
+//! - **3-tier collateral system**: Community (1K), Verified (10K), Professional (100K)
+//! - **Reputation tracking**: Performance-based scoring with eligibility thresholds
+//! - **Violation detection**: Automated detection of double-signing, downtime, and data withholding
+//! - **Slashing mechanism**: Economic penalties for misbehavior
+//! - **Wallet integration**: HD wallet support with UTXO tracking
+//!
+//! # Quick Start
+//!
+//! ```no_run
+//! use time_masternode::{Masternode, CollateralTier};
+//!
+//! // Create a new masternode
+//! let masternode = Masternode::new(
+//!     "mn1".to_string(),
+//!     "pubkey123".to_string(),
+//!     CollateralTier::Community,
+//!     "127.0.0.1".to_string(),
+//!     24000,
+//!     1234567890,
+//! );
+//! ```
+//!
+//! # Safety
+//!
+//! This crate forbids unsafe code to ensure memory safety.
+
+#![forbid(unsafe_code)]
+#![warn(
+    missing_docs,
+    rust_2018_idioms,
+    unreachable_pub,
+    missing_debug_implementations
+)]
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

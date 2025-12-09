@@ -1,4 +1,32 @@
 //! Core masternode implementation
+//!
+//! This module contains the canonical [`Masternode`] struct and related types.
+//! It handles masternode registration, status management, and lifecycle operations.
+//!
+//! # Masternode Lifecycle
+//!
+//! 1. **Pending**: Initial state after registration
+//! 2. **Active**: Operational and validating blocks
+//! 3. **Offline**: Temporarily unavailable
+//! 4. **Slashed**: Penalized for violations
+//! 5. **Deregistered**: Permanently removed
+//!
+//! # Example
+//!
+//! ```
+//! use time_masternode::{Masternode, CollateralTier, MasternodeStatus};
+//!
+//! let mut mn = Masternode::new(
+//!     "mn1".into(),
+//!     "pubkey".into(),
+//!     CollateralTier::Community,
+//!     "192.168.1.1".into(),
+//!     24000,
+//!     1234567890
+//! );
+//!
+//! assert_eq!(mn.status, MasternodeStatus::Pending);
+//! ```
 
 use crate::collateral::CollateralTier;
 use crate::error::{MasternodeError, Result};

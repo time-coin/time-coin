@@ -1,14 +1,14 @@
 //! Grant System Handlers
 
 use crate::{
-    constants::{GRANT_AMOUNT_SATOSHIS, GRANT_ACTIVATION_DAYS, GRANT_DECOMMISSION_DAYS},
+    constants::{GRANT_ACTIVATION_DAYS, GRANT_AMOUNT_SATOSHIS, GRANT_DECOMMISSION_DAYS},
     error::{ApiError, ApiResult},
     grant_models::*,
+    grant_security::generate_secure_token,
     state::ApiState,
 };
 use axum::{extract::Path, extract::State, Json};
 use chrono::{Duration, Utc};
-use uuid::Uuid;
 use validator::Validate;
 
 // ============================================
@@ -23,6 +23,11 @@ pub async fn apply_for_grant(
     req.validate()
         .map_err(|e| ApiError::BadRequest(format!("Validation failed: {}", e)))?;
 
+    // NEW: Check rate limit
+    if let Some(rate_limiter) = &state.grant_rate_limiter {
+        rate_limiter.check_rate_limit(&req.email).await?;
+    }
+
     let mut grants = state.grants.write().await;
 
     // Check if email already applied
@@ -34,8 +39,8 @@ pub async fn apply_for_grant(
         }));
     }
 
-    // Create grant application
-    let verification_token = Uuid::new_v4().to_string();
+    // Create grant application with cryptographic token
+    let verification_token = generate_secure_token();
     let expires_at = Utc::now() + Duration::days(GRANT_ACTIVATION_DAYS);
 
     let grant = crate::state::GrantData {
@@ -175,16 +180,22 @@ pub async fn activate_masternode(
     let grant = grants
         .iter_mut()
         .find(|g| g.email == req.grant_email)
-        .ok_or_else(|| ApiError::InvalidAddress("Grant not found".to_string()))?;
+        .ok_or_else(|| ApiError::NotFound("Grant not found for this email".to_string()))?;
 
-    // Validate grant status
+    // CRITICAL: Enforce email verification
     if !grant.verified {
-        return Err(ApiError::InvalidAddress("Email not verified".to_string()));
+        tracing::warn!(
+            email = %req.grant_email,
+            "masternode_activation_attempted_without_verification"
+        );
+        return Err(ApiError::Unauthorized(
+            "Email must be verified before activating masternode. Check your email for verification link.".to_string()
+        ));
     }
 
     if grant.status == "active" {
-        return Err(ApiError::InvalidAddress(
-            "Grant already activated".to_string(),
+        return Err(ApiError::BadRequest(
+            "Masternode already activated for this grant".to_string(),
         ));
     }
 
@@ -192,7 +203,15 @@ pub async fn activate_masternode(
     if let Some(expires_at) = grant.expires_at {
         if Utc::now().timestamp() > expires_at {
             grant.status = "forfeited".to_string();
-            return Err(ApiError::InvalidAddress("Grant has expired".to_string()));
+            tracing::warn!(
+                email = %req.grant_email,
+                expired_at = expires_at,
+                "grant_expired"
+            );
+            return Err(ApiError::BadRequest(format!(
+                "Grant has expired. Must activate within {} days of email verification.",
+                GRANT_ACTIVATION_DAYS
+            )));
         }
     }
 

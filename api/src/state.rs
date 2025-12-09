@@ -5,6 +5,7 @@ use time_core::state::BlockchainState;
 use time_network::{PeerDiscovery, PeerManager, PeerQuarantine};
 use tokio::sync::RwLock;
 
+use crate::grant_security::GrantRateLimiter;
 use crate::{ApiError, ApiResult};
 
 pub struct ApiState {
@@ -31,6 +32,12 @@ pub struct ApiState {
     pub approval_manager: Option<Arc<time_consensus::TransactionApprovalManager>>,
     /// UTXO tracker for wallet balance queries
     pub utxo_tracker: Option<Arc<time_masternode::UtxoTracker>>,
+    /// Grant rate limiter
+    pub grant_rate_limiter: Option<Arc<GrantRateLimiter>>,
+    /// Grant applications (in-memory store)
+    pub grants: Arc<RwLock<Vec<GrantData>>>,
+    /// Treasury proposals (in-memory store)
+    pub proposals: Arc<RwLock<HashMap<String, Proposal>>>,
 }
 
 impl ApiState {
@@ -46,6 +53,8 @@ impl ApiState {
         wallet_address: String,
         consensus: Arc<time_consensus::ConsensusEngine>,
     ) -> Self {
+        let grant_rate_limiter = Arc::new(GrantRateLimiter::new());
+
         let state = Self {
             dev_mode,
             network,
@@ -65,6 +74,9 @@ impl ApiState {
             instant_finality: None,
             approval_manager: None,
             utxo_tracker: None,
+            grant_rate_limiter: Some(grant_rate_limiter.clone()),
+            grants: Arc::new(RwLock::new(Vec::new())),
+            proposals: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Spawn cleanup task for recent_broadcasts
@@ -79,6 +91,15 @@ impl ApiState {
                     now.duration_since(last_seen) < std::time::Duration::from_secs(300)
                     // 5 minutes
                 });
+            }
+        });
+
+        // Spawn cleanup task for grant rate limiter
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600)); // Every hour
+            loop {
+                interval.tick().await;
+                grant_rate_limiter.cleanup().await;
             }
         });
 

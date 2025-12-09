@@ -1,4 +1,25 @@
-//! Masternode reputation tracking system
+//! Reputation System for Masternodes
+//!
+//! Tracks reputation scores based on masternode behavior:
+//! - **Blocks validated**: +1 per block
+//! - **Blocks missed**: -5 per miss
+//! - **Invalid blocks**: -20 per invalid block
+//! - **Slashing events**: -500 per slash
+//!
+//! Reputation ranges from -1000 to +1000, with an eligibility threshold at -100.
+//!
+//! # Example
+//!
+//! ```
+//! use time_masternode::Reputation;
+//!
+//! let mut rep = Reputation::new("mn1".into(), 1000);
+//! rep.record_block_validated(1001);
+//! assert!(rep.is_eligible());
+//!
+//! rep.record_slashing(1002);
+//! assert!(!rep.is_eligible()); // Slashing causes ineligibility
+//! ```
 
 use crate::error::{MasternodeError, Result};
 use serde::{Deserialize, Serialize};
