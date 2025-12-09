@@ -86,10 +86,33 @@ pub struct BlockchainInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use time_core::block::{Block, BlockHeader, MasternodeCounts};
 
     #[tokio::test]
     async fn test_blockchain_service_creation() {
-        let blockchain = Arc::new(RwLock::new(BlockchainState::new("test".to_string())));
+        // Create a simple genesis block for testing
+        let genesis_header = BlockHeader {
+            block_number: 0,
+            timestamp: Utc::now(),
+            previous_hash: "0".to_string(),
+            merkle_root: "0".to_string(),
+            validator_signature: "genesis".to_string(),
+            validator_address: "genesis".to_string(),
+            masternode_counts: MasternodeCounts::default(),
+            proof_of_time: None,
+            checkpoints: vec![],
+        };
+
+        let genesis_block = Block {
+            header: genesis_header,
+            transactions: vec![],
+            hash: "genesis".to_string(),
+        };
+
+        let blockchain = Arc::new(RwLock::new(
+            BlockchainState::new(genesis_block, "test_blockchain").unwrap(),
+        ));
         let service = BlockchainService::new(blockchain);
 
         // Service should be created successfully
