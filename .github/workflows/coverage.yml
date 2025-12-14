@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload LCOV artifact
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: lcov.info
           path: lcov.info
