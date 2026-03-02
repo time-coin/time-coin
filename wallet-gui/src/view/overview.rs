@@ -79,8 +79,28 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
                 ui.add_space(4.0);
                 if !state.syncing {
+                    let mn_bal = state.masternode_balance;
+                    let verified = mn_bal > 0 && total == mn_bal;
                     ui.horizontal(|ui| {
-                        ui.label(format!("Confirmed: {}", state.format_time(confirmed)));
+                        if verified {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "✓ Verified: {}",
+                                    state.format_time(confirmed)
+                                ))
+                                .color(egui::Color32::from_rgb(0, 180, 0)),
+                            );
+                        } else if mn_bal > 0 {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "⚠ Masternode: {}",
+                                    state.format_time(mn_bal)
+                                ))
+                                .color(egui::Color32::from_rgb(255, 165, 0)),
+                            );
+                        } else {
+                            ui.label(format!("Confirmed: {}", state.format_time(confirmed)));
+                        }
                         ui.add_space(20.0);
                         if pending > 0 {
                             ui.label(
