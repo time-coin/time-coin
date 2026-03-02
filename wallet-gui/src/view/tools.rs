@@ -75,6 +75,43 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                     .italics(),
                 );
             }
+
+            // -- masternode.conf --
+            ui.add_space(8.0);
+            let mn_conf_path = if state.is_testnet {
+                data_dir.join("testnet").join("masternode.conf")
+            } else {
+                data_dir.join("masternode.conf")
+            };
+            let mn_conf_exists = mn_conf_path.exists();
+
+            ui.horizontal(|ui| {
+                let btn = ui.add_enabled(
+                    mn_conf_exists,
+                    egui::Button::new("📝 Open masternode.conf")
+                        .min_size(egui::vec2(160.0, 28.0)),
+                );
+                if btn.clicked() {
+                    let _ = ui_tx.send(UiEvent::OpenConfigFile {
+                        path: mn_conf_path.clone(),
+                    });
+                }
+                ui.label(
+                    egui::RichText::new(mn_conf_path.display().to_string())
+                        .weak()
+                        .small(),
+                );
+            });
+
+            if !mn_conf_exists {
+                ui.label(
+                    egui::RichText::new(
+                        "masternode.conf does not exist yet. It will be created when you register a masternode.",
+                    )
+                    .weak()
+                    .italics(),
+                );
+            }
         } else {
             ui.label(egui::RichText::new("Could not determine data directory.").weak());
         }
