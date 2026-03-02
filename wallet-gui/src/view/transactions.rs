@@ -205,12 +205,13 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         .id_salt("tx_list_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Table header
-            egui::Grid::new("tx_table_header")
+            egui::Grid::new("tx_table")
                 .num_columns(6)
-                .spacing([8.0, 4.0])
+                .spacing([12.0, 6.0])
                 .min_col_width(0.0)
+                .striped(true)
                 .show(ui, |ui| {
+                    // Header
                     ui.label(egui::RichText::new("Type").strong());
                     ui.label(egui::RichText::new("Amount").strong());
                     ui.label(egui::RichText::new("Address").strong());
@@ -218,15 +219,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                     ui.label(egui::RichText::new("Status").strong());
                     ui.label(egui::RichText::new("TxID").strong());
                     ui.end_row();
-                });
-            ui.separator();
 
-            egui::Grid::new("tx_table_body")
-                .num_columns(6)
-                .spacing([8.0, 6.0])
-                .min_col_width(0.0)
-                .striped(true)
-                .show(ui, |ui| {
                     for &i in &filtered {
                         let tx = &state.transactions[i];
 
