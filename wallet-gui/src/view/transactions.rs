@@ -38,11 +38,11 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, idx: usize) {
 
     // Direction and amount
     let (dir_label, amount_color) = if tx.is_fee {
-        ("Fee", egui::Color32::from_rgb(255, 165, 0))
+        ("💸 Fee", egui::Color32::from_rgb(255, 165, 0))
     } else if tx.is_send {
-        ("Sent", egui::Color32::from_rgb(255, 80, 80))
+        ("📤 Sent", egui::Color32::from_rgb(255, 80, 80))
     } else {
-        ("Received", egui::Color32::from_rgb(80, 200, 80))
+        ("📥 Received", egui::Color32::from_rgb(80, 200, 80))
     };
 
     let is_neg = tx.is_send || tx.is_fee;
@@ -66,9 +66,9 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, idx: usize) {
             // Status
             ui.label(egui::RichText::new("Status:").strong());
             let (status_text, status_color) = match tx.status {
-                TransactionStatus::Approved => ("Approved", egui::Color32::GREEN),
-                TransactionStatus::Pending => ("Pending", egui::Color32::from_rgb(255, 165, 0)),
-                TransactionStatus::Declined => ("Declined", egui::Color32::RED),
+                TransactionStatus::Approved => ("✅ Approved", egui::Color32::GREEN),
+                TransactionStatus::Pending => ("⏳ Pending", egui::Color32::from_rgb(255, 165, 0)),
+                TransactionStatus::Declined => ("❌ Declined", egui::Color32::RED),
             };
             ui.label(egui::RichText::new(status_text).color(status_color));
             ui.end_row();
@@ -213,11 +213,11 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         ui.horizontal(|ui| {
                             // Send/receive/fee icon
                             let (dir_icon, amount_color) = if tx.is_fee {
-                                ("Fee", egui::Color32::from_rgb(255, 165, 0))
+                                ("💸 Fee", egui::Color32::from_rgb(255, 165, 0))
                             } else if tx.is_send {
-                                ("Sent", egui::Color32::from_rgb(255, 80, 80))
+                                ("📤 Sent", egui::Color32::from_rgb(255, 80, 80))
                             } else {
-                                ("Received", egui::Color32::from_rgb(80, 200, 80))
+                                ("📥 Received", egui::Color32::from_rgb(80, 200, 80))
                             };
                             ui.label(egui::RichText::new(dir_icon).color(amount_color));
 
@@ -237,22 +237,11 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             let addr_label = if tx.is_fee {
                                 tx.address.clone()
                             } else if let Some(name) = state.contact_name(&tx.address) {
-                                let addr = &tx.address;
-                                let short = if addr.len() > 14 {
-                                    format!("{}..{}", &addr[..8], &addr[addr.len() - 4..])
-                                } else {
-                                    addr.clone()
-                                };
-                                format!("{} ({})", name, short)
+                                format!("{} ({})", name, tx.address)
                             } else {
-                                let addr = &tx.address;
-                                if addr.len() > 14 {
-                                    format!("{}..{}", &addr[..8], &addr[addr.len() - 4..])
-                                } else {
-                                    addr.clone()
-                                }
+                                tx.address.clone()
                             };
-                            ui.label(egui::RichText::new(addr_label).color(egui::Color32::GRAY));
+                            ui.label(egui::RichText::new(addr_label).color(egui::Color32::BLACK));
 
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -260,13 +249,13 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                     // Status
                                     let (status_text, status_color) = match tx.status {
                                         TransactionStatus::Approved => {
-                                            ("Approved", egui::Color32::GREEN)
+                                            ("✅ Approved", egui::Color32::GREEN)
                                         }
                                         TransactionStatus::Pending => {
-                                            ("Pending", egui::Color32::from_rgb(255, 165, 0))
+                                            ("⏳ Pending", egui::Color32::from_rgb(255, 165, 0))
                                         }
                                         TransactionStatus::Declined => {
-                                            ("Declined", egui::Color32::RED)
+                                            ("❌ Declined", egui::Color32::RED)
                                         }
                                     };
                                     ui.label(egui::RichText::new(status_text).color(status_color));
@@ -283,7 +272,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                                 egui::RichText::new(
                                                     local.format("%Y-%m-%d %H:%M").to_string(),
                                                 )
-                                                .color(egui::Color32::GRAY),
+                                                .color(egui::Color32::BLACK),
                                             );
                                         }
                                     }
