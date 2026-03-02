@@ -109,7 +109,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             // All finalized but mismatch
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "Masternode: {}",
+                                    "Network: {}",
                                     state.format_time(mn_bal)
                                 ))
                                 .color(egui::Color32::from_rgb(255, 165, 0)),
