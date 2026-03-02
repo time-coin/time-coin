@@ -75,9 +75,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             .size(32.0)
                             .strong(),
                     );
-                    if state.syncing {
-                        ui.spinner();
-                    }
                 });
 
                 ui.add_space(4.0);
