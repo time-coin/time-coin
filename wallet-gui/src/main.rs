@@ -10,6 +10,7 @@ mod events;
 #[allow(dead_code)]
 mod masternode_client;
 mod peer_discovery;
+mod qr_scanner;
 mod service;
 #[allow(dead_code)]
 mod state;

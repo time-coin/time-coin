@@ -8,6 +8,9 @@ use crate::state::AppState;
 
 /// Render the send screen.
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
+    // -- QR Scanner overlay window --
+    render_qr_scanner(ui, state);
+
     ui.heading("Send TIME");
     ui.separator();
     ui.add_space(10.0);
@@ -36,11 +39,26 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             }
         }
 
-        ui.add(
-            egui::TextEdit::singleline(&mut state.send_address)
-                .hint_text(format!("{}...", expected_prefix))
-                .desired_width(ui.available_width()),
-        );
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.send_address)
+                    .hint_text(format!("{}...", expected_prefix))
+                    .desired_width(ui.available_width() - 80.0),
+            );
+            if ui
+                .add(egui::Button::new("📷 Scan").min_size(egui::vec2(70.0, 24.0)))
+                .on_hover_text("Scan QR code with webcam")
+                .clicked()
+            {
+                state.qr_scan_error = None;
+                state.qr_scanner = Some(crate::qr_scanner::QrScannerHandle::start());
+            }
+        });
+
+        // Show QR scan error if any
+        if let Some(ref err) = state.qr_scan_error {
+            ui.colored_label(egui::Color32::RED, format!("📷 {}", err));
+        }
 
         ui.add_space(4.0);
         ui.label("Recipient Name (optional)");
@@ -459,4 +477,74 @@ fn parse_time_amount(s: &str) -> u64 {
     whole_val
         .saturating_mul(100_000_000)
         .saturating_add(frac_val)
+}
+
+/// Render the QR scanner floating window when active.
+fn render_qr_scanner(ui: &mut Ui, state: &mut AppState) {
+    // Check for scan result or error before rendering
+    let mut got_result = false;
+    if let Some(ref scanner) = state.qr_scanner {
+        if let Some(address) = scanner.take_result() {
+            state.send_address = address;
+            state.send_recipient_name.clear();
+            got_result = true;
+        }
+        if let Some(err) = scanner.get_error() {
+            state.qr_scan_error = Some(err);
+            got_result = true; // close scanner on error too
+        }
+    }
+    if got_result {
+        state.qr_scanner = None;
+    }
+
+    if state.qr_scanner.is_none() {
+        return;
+    }
+
+    // Request continuous repaints while scanning
+    ui.ctx().request_repaint();
+
+    let mut close = false;
+    egui::Window::new("📷 QR Scanner")
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .collapsible(false)
+        .resizable(false)
+        .show(ui.ctx(), |ui| {
+            ui.label("Point your webcam at a QR code");
+            ui.add_space(4.0);
+
+            // Get latest frame from scanner
+            if let Some(ref scanner) = state.qr_scanner {
+                if let Some(frame) = scanner.take_frame() {
+                    let tex = ui.ctx().load_texture(
+                        "qr_camera_preview",
+                        frame,
+                        egui::TextureOptions::default(),
+                    );
+                    let size = tex.size_vec2();
+                    let scale = (400.0 / size.x).min(300.0 / size.y).min(1.0);
+                    ui.image(egui::load::SizedTexture::new(tex.id(), size * scale));
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Starting camera...");
+                    });
+                    // Reserve space so window doesn't jump around
+                    ui.allocate_space(egui::vec2(400.0, 300.0));
+                }
+            }
+
+            ui.add_space(8.0);
+            if ui
+                .add(egui::Button::new("Cancel").min_size(egui::vec2(100.0, 28.0)))
+                .clicked()
+            {
+                close = true;
+            }
+        });
+
+    if close {
+        state.qr_scanner = None;
+    }
 }
