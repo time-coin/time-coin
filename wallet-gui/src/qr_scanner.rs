@@ -107,7 +107,6 @@ impl QrScannerHandle {
                         .to_string();
                     *result_ref.lock().unwrap() = Some(address);
                     running_ref.store(false, Ordering::Relaxed);
-                    beep();
                     return;
                 }
             }
@@ -167,23 +166,24 @@ impl Drop for QrScannerHandle {
     }
 }
 
-/// Play a short beep to signal successful scan.
-fn beep() {
-    #[cfg(target_os = "windows")]
-    {
-        extern "system" {
-            fn MessageBeep(uType: u32) -> i32;
-            fn Beep(dwFreq: u32, dwDuration: u32) -> i32;
+/// Play a system notification sound to signal successful scan.
+pub fn play_scan_sound() {
+    std::thread::spawn(|| {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "[System.Media.SystemSounds]::Asterisk.Play()",
+                ])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output(); // wait for completion
         }
-        unsafe {
-            // MessageBeep plays async system sound
-            MessageBeep(0x00000040); // MB_ICONINFORMATION
-                                     // Beep is synchronous — ensures sound completes before thread exits
-            Beep(1200, 150);
+        #[cfg(not(target_os = "windows"))]
+        {
+            print!("\x07");
         }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        print!("\x07");
-    }
+    });
 }

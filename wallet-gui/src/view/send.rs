@@ -487,11 +487,12 @@ fn render_qr_scanner(ui: &mut Ui, state: &mut AppState) {
         if let Some(address) = scanner.take_result() {
             state.send_address = address;
             state.send_recipient_name.clear();
+            crate::qr_scanner::play_scan_sound();
             got_result = true;
         }
         if let Some(err) = scanner.get_error() {
             state.qr_scan_error = Some(err);
-            got_result = true; // close scanner on error too
+            got_result = true;
         }
     }
     if got_result {
