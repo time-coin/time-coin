@@ -865,6 +865,118 @@ pub async fn run(
                             }
                         }
                     }
+
+                    UiEvent::RegisterMasternode {
+                        alias,
+                        ip,
+                        port,
+                        collateral_txid,
+                        collateral_vout,
+                        payout_address,
+                    } => {
+                        if let (Some(ref client), Some(ref mut wm)) =
+                            (&state.client, &mut state.wallet)
+                        {
+                            match build_masternode_reg_tx(
+                                wm,
+                                client,
+                                &state.addresses,
+                                &collateral_txid,
+                                collateral_vout,
+                                &ip,
+                                port,
+                                &payout_address,
+                            )
+                            .await
+                            {
+                                Ok((tx_hex, txid)) => {
+                                    match client.broadcast_transaction(&tx_hex).await {
+                                        Ok(broadcast_txid) => {
+                                            let final_txid = if broadcast_txid.is_empty() {
+                                                txid
+                                            } else {
+                                                broadcast_txid
+                                            };
+                                            // Lock the collateral UTXO
+                                            if let Some(ref db) = state.wallet_db {
+                                                let _ = db.lock_collateral(
+                                                    &collateral_txid,
+                                                    collateral_vout,
+                                                    &alias,
+                                                );
+                                            }
+                                            let _ = state.svc_tx.send(
+                                                ServiceEvent::MasternodeRegistered {
+                                                    alias,
+                                                    txid: final_txid,
+                                                },
+                                            );
+                                        }
+                                        Err(e) => {
+                                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                                format!("Failed to broadcast MN registration: {}", e),
+                                            ));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(
+                                        format!("Failed to build MN registration tx: {}", e),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    UiEvent::UpdateMasternodePayout {
+                        masternode_id,
+                        new_payout_address,
+                    } => {
+                        if let (Some(ref client), Some(ref mut wm)) =
+                            (&state.client, &mut state.wallet)
+                        {
+                            match build_masternode_update_tx(
+                                wm,
+                                client,
+                                &state.addresses,
+                                &masternode_id,
+                                &new_payout_address,
+                            )
+                            .await
+                            {
+                                Ok((tx_hex, txid)) => {
+                                    match client.broadcast_transaction(&tx_hex).await {
+                                        Ok(broadcast_txid) => {
+                                            let final_txid = if broadcast_txid.is_empty() {
+                                                txid
+                                            } else {
+                                                broadcast_txid
+                                            };
+                                            let _ = state.svc_tx.send(
+                                                ServiceEvent::MasternodePayoutUpdated {
+                                                    masternode_id,
+                                                    txid: final_txid,
+                                                },
+                                            );
+                                        }
+                                        Err(e) => {
+                                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                                format!(
+                                                    "Failed to broadcast payout update: {}",
+                                                    e
+                                                ),
+                                            ));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(
+                                        format!("Failed to build payout update tx: {}", e),
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1336,6 +1448,251 @@ impl ServiceState {
         );
         self.ws_handle = Some(handle);
     }
+}
+
+/// Build a masternode registration transaction.
+///
+/// Returns `(hex_encoded_tx, txid)` on success.
+/// The transaction:
+/// - Uses a wallet UTXO for the fee (minimum fee, since no value is transferred)
+/// - Contains `special_data` with the registration payload
+/// - The registration payload is signed with the collateral owner's Ed25519 key
+/// - The transaction input is signed with the fee UTXO owner's key
+#[allow(clippy::too_many_arguments)]
+async fn build_masternode_reg_tx(
+    wm: &mut WalletManager,
+    client: &MasternodeClient,
+    addresses: &[String],
+    collateral_txid: &str,
+    collateral_vout: u32,
+    masternode_ip: &str,
+    masternode_port: u16,
+    payout_address: &str,
+) -> Result<(String, String), String> {
+    use sha2::{Digest, Sha256};
+    use wallet::Transaction;
+
+    // 1. Find the collateral UTXO owner address and derive their HD keypair
+    let mut collateral_owner_addr: Option<String> = None;
+    for addr in addresses {
+        match client.get_utxos(addr).await {
+            Ok(utxos) => {
+                for utxo in &utxos {
+                    if utxo.txid == collateral_txid && utxo.vout == collateral_vout {
+                        collateral_owner_addr = Some(addr.clone());
+                        break;
+                    }
+                }
+            }
+            Err(_) => continue,
+        }
+        if collateral_owner_addr.is_some() {
+            break;
+        }
+    }
+    let collateral_addr =
+        collateral_owner_addr.ok_or("Collateral UTXO not found in wallet".to_string())?;
+
+    // Find HD index for collateral owner
+    let addr_to_index: std::collections::HashMap<String, u32> = (0..wm.get_address_count())
+        .filter_map(|i| wm.derive_address(i).ok().map(|a| (a, i)))
+        .collect();
+    let collateral_hd_index = addr_to_index
+        .get(&collateral_addr)
+        .copied()
+        .ok_or("Collateral address not found in HD wallet".to_string())?;
+    let collateral_kp = wm
+        .derive_keypair(collateral_hd_index)
+        .map_err(|e| format!("Failed to derive collateral keypair: {}", e))?;
+
+    // 2. Sign the registration payload
+    let collateral_outpoint = format!("{}:{}", collateral_txid, collateral_vout);
+    let signing_message = format!(
+        "MN_REG:{}:{}:{}:{}",
+        collateral_outpoint, masternode_ip, masternode_port, payout_address
+    );
+    let msg_hash: [u8; 32] = Sha256::digest(signing_message.as_bytes()).into();
+    let signature_bytes = collateral_kp.sign(&msg_hash);
+    let signature_hex = hex::encode(&signature_bytes);
+    let owner_pubkey_hex = hex::encode(collateral_kp.public_key_bytes());
+
+    // 3. Fetch all UTXOs to find one for the fee
+    let min_fee: u64 = 1_000_000; // 0.01 TIME
+    let mut fee_utxo = None;
+    let mut all_utxos = Vec::new();
+    for addr in addresses {
+        match client.get_utxos(addr).await {
+            Ok(utxos) => {
+                for utxo in &utxos {
+                    // Don't use the collateral UTXO for fee payment
+                    let is_collateral =
+                        utxo.txid == collateral_txid && utxo.vout == collateral_vout;
+                    if !is_collateral && utxo.amount >= min_fee && fee_utxo.is_none() {
+                        fee_utxo = Some(utxo.clone());
+                    }
+                    all_utxos.push(utxo.clone());
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    let fee_utxo = fee_utxo.ok_or("No UTXO available to pay registration fee".to_string())?;
+
+    // 4. Build the transaction
+    let mut tx = Transaction::new();
+
+    // Add fee input
+    let mut tx_hash = [0u8; 32];
+    hex::decode_to_slice(&fee_utxo.txid, &mut tx_hash)
+        .map_err(|e| format!("Invalid fee UTXO txid: {}", e))?;
+    let input = wallet::TxInput::new(tx_hash, fee_utxo.vout);
+    tx.add_input(input);
+
+    // Add change output (fee_utxo.amount - min_fee)
+    let change = fee_utxo.amount.saturating_sub(min_fee);
+    if change > 0 {
+        let change_addr = wallet::Address::from_string(&fee_utxo.address)
+            .map_err(|e| format!("Invalid change address: {}", e))?;
+        let change_output = wallet::TxOutput::new(change, change_addr);
+        tx.add_output(change_output)
+            .map_err(|e| format!("Failed to add change output: {}", e))?;
+    }
+
+    // Set the special_data
+    tx.special_data = Some(wallet::SpecialTransactionData::MasternodeReg {
+        collateral_outpoint,
+        masternode_ip: masternode_ip.to_string(),
+        masternode_port,
+        payout_address: payout_address.to_string(),
+        owner_pubkey: owner_pubkey_hex,
+        signature: signature_hex,
+    });
+
+    // 5. Sign the fee input with the fee UTXO owner's key
+    let fee_hd_index = addr_to_index
+        .get(&fee_utxo.address)
+        .copied()
+        .ok_or("Fee UTXO address not found in HD wallet".to_string())?;
+    let fee_kp = wm
+        .derive_keypair(fee_hd_index)
+        .map_err(|e| format!("Failed to derive fee keypair: {}", e))?;
+    tx.sign(&fee_kp, 0)
+        .map_err(|e| format!("Failed to sign fee input: {}", e))?;
+
+    // 6. Serialize and return
+    let txid = tx.txid();
+    let bytes = tx
+        .to_bytes()
+        .map_err(|e| format!("Failed to serialize tx: {}", e))?;
+    let tx_hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    log::info!(
+        "Built MN registration tx: txid={}, fee_utxo={}, collateral={}:{}",
+        txid,
+        fee_utxo.txid,
+        collateral_txid,
+        collateral_vout
+    );
+
+    Ok((tx_hex, txid))
+}
+
+/// Build a masternode payout update transaction.
+///
+/// Returns `(hex_encoded_tx, txid)` on success.
+async fn build_masternode_update_tx(
+    wm: &mut WalletManager,
+    client: &MasternodeClient,
+    addresses: &[String],
+    masternode_id: &str,
+    new_payout_address: &str,
+) -> Result<(String, String), String> {
+    use sha2::{Digest, Sha256};
+    use wallet::Transaction;
+
+    // Use the first address's key as the owner key (the owner registered the MN)
+    let addr_to_index: std::collections::HashMap<String, u32> = (0..wm.get_address_count())
+        .filter_map(|i| wm.derive_address(i).ok().map(|a| (a, i)))
+        .collect();
+
+    // Find the first wallet address that has a UTXO for the fee
+    let min_fee: u64 = 1_000_000; // 0.01 TIME
+    let mut fee_utxo = None;
+    for addr in addresses {
+        match client.get_utxos(addr).await {
+            Ok(utxos) => {
+                for utxo in utxos {
+                    if utxo.amount >= min_fee && fee_utxo.is_none() {
+                        fee_utxo = Some(utxo);
+                    }
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    let fee_utxo = fee_utxo.ok_or("No UTXO available to pay update fee".to_string())?;
+
+    // Sign the update payload with address #0 (the owner key)
+    let owner_index = 0u32;
+    let owner_kp = wm
+        .derive_keypair(owner_index)
+        .map_err(|e| format!("Failed to derive owner keypair: {}", e))?;
+
+    let signing_message = format!("MN_UPDATE:{}:{}", masternode_id, new_payout_address);
+    let msg_hash: [u8; 32] = Sha256::digest(signing_message.as_bytes()).into();
+    let signature_bytes = owner_kp.sign(&msg_hash);
+    let signature_hex = hex::encode(&signature_bytes);
+    let owner_pubkey_hex = hex::encode(owner_kp.public_key_bytes());
+
+    // Build the transaction
+    let mut tx = Transaction::new();
+
+    let mut tx_hash = [0u8; 32];
+    hex::decode_to_slice(&fee_utxo.txid, &mut tx_hash)
+        .map_err(|e| format!("Invalid fee UTXO txid: {}", e))?;
+    let input = wallet::TxInput::new(tx_hash, fee_utxo.vout);
+    tx.add_input(input);
+
+    let change = fee_utxo.amount.saturating_sub(min_fee);
+    if change > 0 {
+        let change_addr = wallet::Address::from_string(&fee_utxo.address)
+            .map_err(|e| format!("Invalid change address: {}", e))?;
+        let change_output = wallet::TxOutput::new(change, change_addr);
+        tx.add_output(change_output)
+            .map_err(|e| format!("Failed to add change output: {}", e))?;
+    }
+
+    tx.special_data = Some(wallet::SpecialTransactionData::MasternodePayoutUpdate {
+        masternode_id: masternode_id.to_string(),
+        new_payout_address: new_payout_address.to_string(),
+        owner_pubkey: owner_pubkey_hex,
+        signature: signature_hex,
+    });
+
+    // Sign the fee input
+    let fee_hd_index = addr_to_index
+        .get(&fee_utxo.address)
+        .copied()
+        .ok_or("Fee UTXO address not found in HD wallet".to_string())?;
+    let fee_kp = wm
+        .derive_keypair(fee_hd_index)
+        .map_err(|e| format!("Failed to derive fee keypair: {}", e))?;
+    tx.sign(&fee_kp, 0)
+        .map_err(|e| format!("Failed to sign fee input: {}", e))?;
+
+    let txid = tx.txid();
+    let bytes = tx
+        .to_bytes()
+        .map_err(|e| format!("Failed to serialize tx: {}", e))?;
+    let tx_hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    log::info!(
+        "Built MN payout update tx: txid={}, masternode_id={}",
+        txid,
+        masternode_id
+    );
+
+    Ok((tx_hex, txid))
 }
 
 /// Derive all known addresses from the wallet manager.

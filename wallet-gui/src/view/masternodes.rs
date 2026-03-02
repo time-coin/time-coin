@@ -126,6 +126,9 @@ pub fn render(
     } else {
         // Collect aliases to delete outside the borrow of state
         let mut to_delete: Option<String> = None;
+        let mut register_event: Option<UiEvent> = None;
+        let mut register_alias: Option<String> = None;
+        let mut update_event: Option<UiEvent> = None;
 
         for entry in &state.masternode_entries {
             egui::Frame::group(ui.style())
@@ -184,12 +187,86 @@ pub fn render(
                             }
                             ui.end_row();
                         });
+
+                    // --- Action buttons ---
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button("📋 Register On-Chain")
+                            .on_hover_text("Broadcast a masternode registration transaction")
+                            .clicked()
+                        {
+                            let payout = entry
+                                .payout_address
+                                .clone()
+                                .or_else(|| state.addresses.first().map(|a| a.address.clone()))
+                                .unwrap_or_default();
+                            register_alias = Some(entry.alias.clone());
+                            register_event = Some(UiEvent::RegisterMasternode {
+                                alias: entry.alias.clone(),
+                                ip: entry.ip.clone(),
+                                port: entry.port,
+                                collateral_txid: entry.collateral_txid.clone(),
+                                collateral_vout: entry.collateral_vout,
+                                payout_address: payout,
+                            });
+                        }
+                        if ui
+                            .button("💸 Update Payout")
+                            .on_hover_text("Change the payout address for this masternode")
+                            .clicked()
+                        {
+                            state.mn_update_payout_alias = Some(entry.alias.clone());
+                            state.mn_update_payout_input =
+                                entry.payout_address.clone().unwrap_or_default();
+                        }
+                    });
+
+                    // Inline payout update form
+                    if state.mn_update_payout_alias.as_deref() == Some(&entry.alias) {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label("New payout address:");
+                            ui.text_edit_singleline(&mut state.mn_update_payout_input);
+                        });
+                        ui.horizontal(|ui| {
+                            let valid = !state.mn_update_payout_input.trim().is_empty();
+                            if ui
+                                .add_enabled(valid, egui::Button::new("✅ Confirm"))
+                                .clicked()
+                            {
+                                let mn_id = format!("{}:{}", entry.ip, entry.port);
+                                update_event = Some(UiEvent::UpdateMasternodePayout {
+                                    masternode_id: mn_id,
+                                    new_payout_address: state
+                                        .mn_update_payout_input
+                                        .trim()
+                                        .to_string(),
+                                });
+                                state.mn_update_payout_alias = None;
+                                state.mn_update_payout_input.clear();
+                            }
+                            if ui.button("Cancel").clicked() {
+                                state.mn_update_payout_alias = None;
+                                state.mn_update_payout_input.clear();
+                            }
+                        });
+                    }
                 });
             ui.add_space(4.0);
         }
 
         if let Some(alias) = to_delete {
             let _ = ui_tx.send(UiEvent::DeleteMasternodeEntry { alias });
+        }
+        if let Some(event) = register_event {
+            let _ = ui_tx.send(event);
+            if let Some(alias) = register_alias {
+                state.success = Some(format!("Registering masternode '{}'…", alias));
+            }
+        }
+        if let Some(event) = update_event {
+            let _ = ui_tx.send(event);
         }
     }
 }

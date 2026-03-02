@@ -89,6 +89,22 @@ pub enum UiEvent {
     /// Import masternode entries from a masternode.conf file.
     ImportMasternodeConf { path: std::path::PathBuf },
 
+    /// Register a masternode on-chain via a special transaction.
+    RegisterMasternode {
+        alias: String,
+        ip: String,
+        port: u16,
+        collateral_txid: String,
+        collateral_vout: u32,
+        payout_address: String,
+    },
+
+    /// Update a masternode's payout address on-chain.
+    UpdateMasternodePayout {
+        masternode_id: String,
+        new_payout_address: String,
+    },
+
     /// Persist updated send records to the database.
     PersistSendRecords(Vec<TransactionRecord>),
 }
@@ -211,4 +227,16 @@ pub enum ServiceEvent {
 
     /// Masternode entries loaded from database.
     MasternodeEntriesLoaded(Vec<crate::wallet_db::MasternodeEntry>),
+
+    /// Masternode registration transaction broadcast successfully.
+    MasternodeRegistered {
+        alias: String,
+        txid: String,
+    },
+
+    /// Masternode payout update transaction broadcast successfully.
+    MasternodePayoutUpdated {
+        masternode_id: String,
+        txid: String,
+    },
 }

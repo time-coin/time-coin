@@ -130,6 +130,10 @@ pub struct AppState {
     pub mn_add_vout: String,
     pub mn_add_payout: String,
     pub mn_show_add_form: bool,
+    /// Alias of the masternode currently showing the payout update dialog.
+    pub mn_update_payout_alias: Option<String>,
+    /// Input field for the new payout address in the update dialog.
+    pub mn_update_payout_input: String,
 
     // -- Sync status --
     /// True while waiting for the first network poll after wallet load.
@@ -211,6 +215,8 @@ impl Default for AppState {
             mn_add_vout: "0".to_string(),
             mn_add_payout: String::new(),
             mn_show_add_form: false,
+            mn_update_payout_alias: None,
+            mn_update_payout_input: String::new(),
             syncing: false,
             dirty_send_records: Vec::new(),
         }
@@ -869,6 +875,25 @@ impl AppState {
 
             ServiceEvent::MasternodeEntriesLoaded(entries) => {
                 self.masternode_entries = entries;
+            }
+
+            ServiceEvent::MasternodeRegistered { alias, txid } => {
+                self.success = Some(format!(
+                    "Masternode '{}' registration broadcast (txid: {})",
+                    alias,
+                    &txid[..16]
+                ));
+            }
+
+            ServiceEvent::MasternodePayoutUpdated {
+                masternode_id,
+                txid,
+            } => {
+                self.success = Some(format!(
+                    "Payout update for '{}' broadcast (txid: {})",
+                    masternode_id,
+                    &txid[..16]
+                ));
             }
 
             ServiceEvent::NetworkConfigured { is_testnet } => {

@@ -512,6 +512,49 @@ impl WalletDb {
         self.db.flush()?;
         Ok(())
     }
+
+    // ==================== Locked Collateral ====================
+
+    /// Lock a collateral UTXO (mark it as in-use by a masternode).
+    pub fn lock_collateral(&self, txid: &str, vout: u32, alias: &str) -> Result<(), WalletDbError> {
+        let key = format!("locked_collateral:{}:{}", txid, vout);
+        let value = alias.as_bytes();
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Unlock a collateral UTXO.
+    pub fn unlock_collateral(&self, txid: &str, vout: u32) -> Result<(), WalletDbError> {
+        let key = format!("locked_collateral:{}:{}", txid, vout);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Check if a specific UTXO is locked as collateral.
+    pub fn is_collateral_locked(&self, txid: &str, vout: u32) -> bool {
+        let key = format!("locked_collateral:{}:{}", txid, vout);
+        self.db.contains_key(key.as_bytes()).unwrap_or(false)
+    }
+
+    /// Get all locked collateral outpoints as `(txid, vout, alias)`.
+    pub fn get_locked_collaterals(&self) -> Result<Vec<(String, u32, String)>, WalletDbError> {
+        let mut result = Vec::new();
+        for item in self.db.scan_prefix(b"locked_collateral:") {
+            let (key, value) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+            // key format: "locked_collateral:txid:vout"
+            let parts: Vec<&str> = key_str.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                let txid = parts[1].to_string();
+                let vout = parts[2].parse::<u32>().unwrap_or(0);
+                let alias = String::from_utf8_lossy(&value).to_string();
+                result.push((txid, vout, alias));
+            }
+        }
+        Ok(result)
+    }
 }
 
 /// Masternode configuration entry (mirrors masternode.conf format).

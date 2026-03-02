@@ -73,6 +73,28 @@ impl TxOutput {
     }
 }
 
+/// On-chain masternode registration or update payload.
+/// Must match the masternode's `SpecialTransactionData` for serialization compatibility.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SpecialTransactionData {
+    /// Register a new masternode on-chain.
+    MasternodeReg {
+        collateral_outpoint: String,
+        masternode_ip: String,
+        masternode_port: u16,
+        payout_address: String,
+        owner_pubkey: String,
+        signature: String,
+    },
+    /// Update the payout address of an existing masternode.
+    MasternodePayoutUpdate {
+        masternode_id: String,
+        new_payout_address: String,
+        owner_pubkey: String,
+        signature: String,
+    },
+}
+
 /// Transaction (matches masternode Transaction)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Transaction {
@@ -81,6 +103,9 @@ pub struct Transaction {
     pub outputs: Vec<TxOutput>,
     pub lock_time: u32,
     pub timestamp: i64,
+    /// Optional special transaction payload for masternode operations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub special_data: Option<SpecialTransactionData>,
 }
 
 impl Transaction {
@@ -95,6 +120,7 @@ impl Transaction {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64,
+            special_data: None,
         }
     }
 
