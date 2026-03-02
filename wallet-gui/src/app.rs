@@ -131,6 +131,13 @@ impl eframe::App for App {
                     Screen::Transactions,
                     &self.ui_tx,
                 );
+                nav_button(
+                    ui,
+                    &mut self.state,
+                    "🖥 Masternodes",
+                    Screen::Masternodes,
+                    &self.ui_tx,
+                );
                 ui.separator();
                 nav_button(
                     ui,
@@ -181,6 +188,9 @@ impl eframe::App for App {
             }
             Screen::Transactions => {
                 view::transactions::show(ui, &mut self.state, &self.ui_tx);
+            }
+            Screen::Masternodes => {
+                view::masternodes::render(ui, &mut self.state, &self.ui_tx);
             }
             Screen::Settings => {
                 view::settings::show(ui, &mut self.state, &self.ui_tx);

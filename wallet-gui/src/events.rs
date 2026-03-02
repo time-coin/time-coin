@@ -80,6 +80,15 @@ pub enum UiEvent {
     /// Set the external editor command (None = OS default).
     SetEditor { editor: Option<String> },
 
+    /// Save a masternode entry to the database.
+    SaveMasternodeEntry(crate::wallet_db::MasternodeEntry),
+
+    /// Delete a masternode entry by alias.
+    DeleteMasternodeEntry { alias: String },
+
+    /// Import masternode entries from a masternode.conf file.
+    ImportMasternodeConf { path: std::path::PathBuf },
+
     /// Persist updated send records to the database.
     PersistSendRecords(Vec<TransactionRecord>),
 }
@@ -96,6 +105,7 @@ pub enum Screen {
     Receive,
     Transactions,
     Utxos,
+    Masternodes,
     Connections,
     Settings,
     Tools,
@@ -198,4 +208,7 @@ pub enum ServiceEvent {
 
     /// Persisted send records loaded from database.
     SendRecordsLoaded(std::collections::HashMap<String, TransactionRecord>),
+
+    /// Masternode entries loaded from database.
+    MasternodeEntriesLoaded(Vec<crate::wallet_db::MasternodeEntry>),
 }

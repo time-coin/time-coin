@@ -4,6 +4,7 @@
 //! [`UiEvent`]s on user interaction. No async, no network, no wallet logic.
 
 pub mod connections;
+pub mod masternodes;
 pub mod overview;
 pub mod receive;
 pub mod send;

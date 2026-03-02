@@ -481,6 +481,88 @@ impl WalletDb {
         }
         Ok(map)
     }
+
+    // ==================== Masternode Entries ====================
+
+    /// Save or update a masternode entry.
+    pub fn save_masternode_entry(&self, entry: &MasternodeEntry) -> Result<(), WalletDbError> {
+        let key = format!("masternode:{}", entry.alias);
+        let value = bincode::serialize(entry)?;
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Get all masternode entries.
+    pub fn get_masternode_entries(&self) -> Result<Vec<MasternodeEntry>, WalletDbError> {
+        let mut entries = Vec::new();
+        for item in self.db.scan_prefix(b"masternode:") {
+            let (_, value) = item?;
+            let entry: MasternodeEntry = bincode::deserialize(&value)?;
+            entries.push(entry);
+        }
+        entries.sort_by(|a, b| a.alias.cmp(&b.alias));
+        Ok(entries)
+    }
+
+    /// Delete a masternode entry by alias.
+    pub fn delete_masternode_entry(&self, alias: &str) -> Result<(), WalletDbError> {
+        let key = format!("masternode:{}", alias);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
+}
+
+/// Masternode configuration entry (mirrors masternode.conf format).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MasternodeEntry {
+    pub alias: String,
+    pub ip: String,
+    pub port: u16,
+    pub collateral_txid: String,
+    pub collateral_vout: u32,
+    pub payout_address: Option<String>,
+}
+
+impl MasternodeEntry {
+    /// Parse a masternode.conf line: `alias IP:port txid vout`
+    pub fn parse_conf_line(line: &str) -> Option<Self> {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return None;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 {
+            return None;
+        }
+        let alias = parts[0].to_string();
+        let (ip, port) = if let Some(colon) = parts[1].rfind(':') {
+            let ip = parts[1][..colon].to_string();
+            let port = parts[1][colon + 1..].parse().ok()?;
+            (ip, port)
+        } else {
+            return None;
+        };
+        let collateral_txid = parts[2].to_string();
+        let collateral_vout = parts[3].parse().ok()?;
+        Some(MasternodeEntry {
+            alias,
+            ip,
+            port,
+            collateral_txid,
+            collateral_vout,
+            payout_address: None,
+        })
+    }
+
+    /// Format as a masternode.conf line.
+    pub fn to_conf_line(&self) -> String {
+        format!(
+            "{} {}:{} {} {}",
+            self.alias, self.ip, self.port, self.collateral_txid, self.collateral_vout
+        )
+    }
 }
 
 /// UTXO record for wallet

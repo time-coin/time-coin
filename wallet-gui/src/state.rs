@@ -117,6 +117,16 @@ pub struct AppState {
     // -- Tools state --
     pub resync_in_progress: bool,
 
+    // -- Masternodes --
+    pub masternode_entries: Vec<crate::wallet_db::MasternodeEntry>,
+    pub mn_add_alias: String,
+    pub mn_add_ip: String,
+    pub mn_add_port: String,
+    pub mn_add_txid: String,
+    pub mn_add_vout: String,
+    pub mn_add_payout: String,
+    pub mn_show_add_form: bool,
+
     // -- Sync status --
     /// True while waiting for the first network poll after wallet load.
     pub syncing: bool,
@@ -185,6 +195,14 @@ impl Default for AppState {
             show_encrypt_password: false,
             show_encrypt_dialog: false,
             resync_in_progress: false,
+            masternode_entries: Vec::new(),
+            mn_add_alias: String::new(),
+            mn_add_ip: String::new(),
+            mn_add_port: "24100".to_string(),
+            mn_add_txid: String::new(),
+            mn_add_vout: "0".to_string(),
+            mn_add_payout: String::new(),
+            mn_show_add_form: false,
             syncing: false,
             dirty_send_records: Vec::new(),
         }
@@ -851,6 +869,10 @@ impl AppState {
                     .into_iter()
                     .filter(|(_, r)| !matches!(r.status, TransactionStatus::Declined))
                     .collect();
+            }
+
+            ServiceEvent::MasternodeEntriesLoaded(entries) => {
+                self.masternode_entries = entries;
             }
 
             ServiceEvent::NetworkConfigured { is_testnet } => {

@@ -789,6 +789,50 @@ pub async fn run(
                             }
                         }
                     }
+
+                    UiEvent::SaveMasternodeEntry(entry) => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.save_masternode_entry(&entry);
+                            if let Ok(entries) = db.get_masternode_entries() {
+                                let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                            }
+                        }
+                    }
+
+                    UiEvent::DeleteMasternodeEntry { alias } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.delete_masternode_entry(&alias);
+                            if let Ok(entries) = db.get_masternode_entries() {
+                                let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                            }
+                        }
+                    }
+
+                    UiEvent::ImportMasternodeConf { path } => {
+                        if let Some(ref db) = state.wallet_db {
+                            match std::fs::read_to_string(&path) {
+                                Ok(contents) => {
+                                    let mut count = 0;
+                                    for line in contents.lines() {
+                                        if let Some(entry) = crate::wallet_db::MasternodeEntry::parse_conf_line(line) {
+                                            let _ = db.save_masternode_entry(&entry);
+                                            count += 1;
+                                        }
+                                    }
+                                    log::info!("Imported {} masternode entries from {}", count, path.display());
+                                    if let Ok(entries) = db.get_masternode_entries() {
+                                        let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                                    }
+                                    // Already logged above
+                                }
+                                Err(e) => {
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(
+                                        format!("Failed to read {}: {}", path.display(), e),
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1166,6 +1210,15 @@ impl ServiceState {
                     if let Ok(Some(bal)) = db.get_cached_balance() {
                         log::info!("Loaded cached balance from database");
                         let _ = self.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                    }
+                    // Load masternode entries
+                    if let Ok(entries) = db.get_masternode_entries() {
+                        if !entries.is_empty() {
+                            log::info!("Loaded {} masternode entries", entries.len());
+                            let _ = self
+                                .svc_tx
+                                .send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                        }
                     }
                     if !cached_txs.is_empty() {
                         log::info!(
