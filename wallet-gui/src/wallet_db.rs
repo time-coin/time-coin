@@ -515,25 +515,27 @@ impl WalletDb {
 }
 
 /// Masternode configuration entry (mirrors masternode.conf format).
+/// Format: `alias IP:port masternodeprivkey collateral_txid collateral_vout`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasternodeEntry {
     pub alias: String,
     pub ip: String,
     pub port: u16,
+    pub masternode_key: String,
     pub collateral_txid: String,
     pub collateral_vout: u32,
     pub payout_address: Option<String>,
 }
 
 impl MasternodeEntry {
-    /// Parse a masternode.conf line: `alias IP:port txid vout`
+    /// Parse a masternode.conf line: `alias IP:port masternodeprivkey txid vout`
     pub fn parse_conf_line(line: &str) -> Option<Self> {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             return None;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 4 {
+        if parts.len() < 5 {
             return None;
         }
         let alias = parts[0].to_string();
@@ -544,12 +546,14 @@ impl MasternodeEntry {
         } else {
             return None;
         };
-        let collateral_txid = parts[2].to_string();
-        let collateral_vout = parts[3].parse().ok()?;
+        let masternode_key = parts[2].to_string();
+        let collateral_txid = parts[3].to_string();
+        let collateral_vout = parts[4].parse().ok()?;
         Some(MasternodeEntry {
             alias,
             ip,
             port,
+            masternode_key,
             collateral_txid,
             collateral_vout,
             payout_address: None,
@@ -559,8 +563,13 @@ impl MasternodeEntry {
     /// Format as a masternode.conf line.
     pub fn to_conf_line(&self) -> String {
         format!(
-            "{} {}:{} {} {}",
-            self.alias, self.ip, self.port, self.collateral_txid, self.collateral_vout
+            "{} {}:{} {} {} {}",
+            self.alias,
+            self.ip,
+            self.port,
+            self.masternode_key,
+            self.collateral_txid,
+            self.collateral_vout
         )
     }
 }

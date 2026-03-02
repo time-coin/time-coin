@@ -55,6 +55,10 @@ pub fn render(
                         ui.text_edit_singleline(&mut state.mn_add_port);
                         ui.end_row();
 
+                        ui.label("Masternode Key:");
+                        ui.text_edit_singleline(&mut state.mn_add_key);
+                        ui.end_row();
+
                         ui.label("Collateral TXID:");
                         ui.text_edit_singleline(&mut state.mn_add_txid);
                         ui.end_row();
@@ -73,6 +77,7 @@ pub fn render(
                     let can_save = !state.mn_add_alias.trim().is_empty()
                         && !state.mn_add_ip.trim().is_empty()
                         && state.mn_add_port.trim().parse::<u16>().is_ok()
+                        && !state.mn_add_key.trim().is_empty()
                         && !state.mn_add_txid.trim().is_empty()
                         && state.mn_add_vout.trim().parse::<u32>().is_ok();
 
@@ -84,6 +89,7 @@ pub fn render(
                             alias: state.mn_add_alias.trim().to_string(),
                             ip: state.mn_add_ip.trim().to_string(),
                             port: state.mn_add_port.trim().parse().unwrap_or(24100),
+                            masternode_key: state.mn_add_key.trim().to_string(),
                             collateral_txid: state.mn_add_txid.trim().to_string(),
                             collateral_vout: state.mn_add_vout.trim().parse().unwrap_or(0),
                             payout_address: if state.mn_add_payout.trim().is_empty() {
@@ -97,6 +103,7 @@ pub fn render(
                         state.mn_add_alias.clear();
                         state.mn_add_ip.clear();
                         state.mn_add_port = "24100".to_string();
+                        state.mn_add_key.clear();
                         state.mn_add_txid.clear();
                         state.mn_add_vout = "0".to_string();
                         state.mn_add_payout.clear();
@@ -139,6 +146,19 @@ pub fn render(
                         .show(ui, |ui| {
                             ui.label("Address:");
                             ui.label(format!("{}:{}", entry.ip, entry.port));
+                            ui.end_row();
+
+                            ui.label("Key:");
+                            let short_key = if entry.masternode_key.len() > 16 {
+                                format!(
+                                    "{}…{}",
+                                    &entry.masternode_key[..8],
+                                    &entry.masternode_key[entry.masternode_key.len() - 4..]
+                                )
+                            } else {
+                                entry.masternode_key.clone()
+                            };
+                            ui.label(short_key);
                             ui.end_row();
 
                             ui.label("Collateral:");
