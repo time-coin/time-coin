@@ -67,7 +67,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             {
                 let total = state.computed_balance();
                 let confirmed = state.confirmed_balance();
-                let pending = total.saturating_sub(confirmed);
+                let pending_amount = total.saturating_sub(confirmed);
+                let has_pending = state
+                    .transactions
+                    .iter()
+                    .any(|t| matches!(t.status, crate::masternode_client::TransactionStatus::Pending));
 
                 ui.horizontal(|ui| {
                     ui.label(
@@ -80,9 +84,20 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 ui.add_space(4.0);
                 if !state.syncing {
                     let mn_bal = state.masternode_balance;
-                    let verified = mn_bal > 0 && total == mn_bal;
                     ui.horizontal(|ui| {
-                        if verified {
+                        if has_pending {
+                            // Transactions still pending — don't verify yet
+                            if pending_amount > 0 {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Pending: {}",
+                                        state.format_time(pending_amount)
+                                    ))
+                                    .color(egui::Color32::from_rgb(255, 165, 0)),
+                                );
+                            }
+                        } else if mn_bal > 0 && confirmed == mn_bal {
+                            // All finalized and matches masternode
                             ui.label(
                                 egui::RichText::new(format!(
                                     "Verified: {}",
@@ -91,25 +106,16 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                 .color(egui::Color32::from_rgb(0, 180, 0)),
                             );
                         } else if mn_bal > 0 {
+                            // All finalized but mismatch
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "⚠ Masternode: {}",
+                                    "Masternode: {}",
                                     state.format_time(mn_bal)
                                 ))
                                 .color(egui::Color32::from_rgb(255, 165, 0)),
                             );
                         } else {
                             ui.label(format!("Confirmed: {}", state.format_time(confirmed)));
-                        }
-                        ui.add_space(20.0);
-                        if pending > 0 {
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Pending: {}",
-                                    state.format_time(pending)
-                                ))
-                                .color(egui::Color32::from_rgb(255, 165, 0)),
-                            );
                         }
                     });
                 }
