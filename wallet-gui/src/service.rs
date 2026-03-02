@@ -1353,17 +1353,6 @@ fn config_file_template(path: &std::path::Path) -> &'static str {
 # TIME Coin Configuration File
 # https://time-coin.io
 
-# ─── Network ─────────────────────────────────────────────────
-testnet=1
-listen=1
-
-# ─── RPC ─────────────────────────────────────────────────────
-server=1
-
-# ─── Masternode ──────────────────────────────────────────────
-# masternode=1
-# masternodeprivkey=
-
 # ─── Logging ─────────────────────────────────────────────────
 debug=info
 
