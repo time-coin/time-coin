@@ -1174,10 +1174,7 @@ impl ServiceState {
                                     confirmations: r.confirmations as u32,
                                 })
                                 .collect();
-                            log::info!(
-                                "Loaded {} cached UTXOs from database",
-                                utxos.len()
-                            );
+                            log::info!("Loaded {} cached UTXOs from database", utxos.len());
                             let _ = self.svc_tx.send(ServiceEvent::UtxosUpdated(utxos));
                         }
                     }

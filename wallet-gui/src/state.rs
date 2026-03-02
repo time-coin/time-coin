@@ -60,6 +60,8 @@ pub struct AppState {
 
     // -- UTXOs --
     pub utxos: Vec<Utxo>,
+    /// Outpoints locked as masternode collateral (format: "txid:vout").
+    pub locked_utxos: std::collections::HashSet<String>,
 
     // -- Masternode --
     pub health: Option<HealthStatus>,
@@ -141,6 +143,7 @@ impl Default for AppState {
             selected_transaction: None,
             tx_search: String::new(),
             utxos: Vec::new(),
+            locked_utxos: std::collections::HashSet::new(),
             health: None,
             ws_connected: false,
             peers: Vec::new(),
@@ -227,6 +230,28 @@ impl AppState {
             .filter(|u| u.address == address)
             .map(|u| u.amount)
             .sum()
+    }
+
+    /// Total balance from all UTXOs.
+    pub fn utxo_total(&self) -> u64 {
+        self.utxos.iter().map(|u| u.amount).sum()
+    }
+
+    /// Balance locked as masternode collateral (not spendable).
+    pub fn locked_balance(&self) -> u64 {
+        self.utxos
+            .iter()
+            .filter(|u| {
+                let key = format!("{}:{}", u.txid, u.vout);
+                self.locked_utxos.contains(&key)
+            })
+            .map(|u| u.amount)
+            .sum()
+    }
+
+    /// Spendable balance (total minus locked collateral).
+    pub fn available_balance(&self) -> u64 {
+        self.utxo_total().saturating_sub(self.locked_balance())
     }
 
     /// Reconcile the transaction list against the UTXO set.
@@ -597,7 +622,7 @@ impl AppState {
                     // Check that the RPC confirms this as a self-send:
                     // RPC display_amount (amount - fee) should be ≈ 0 for self-sends.
                     let rpc_amt = rpc_send_amounts.get(txid.as_str()).copied();
-                    let rpc_confirms_self_send = rpc_amt.map_or(false, |a| a == 0);
+                    let rpc_confirms_self_send = rpc_amt == Some(0);
                     if !rpc_confirms_self_send {
                         continue; // RPC treats this as a regular send
                     }
@@ -938,69 +963,69 @@ mod tests {
 
     #[test]
     fn test_reconcile_removes_phantom_receive() {
-        let mut state = AppState::default();
-
         // Simulate: 10.00 received, 1.00 sent + 0.01 fee, 1.00 phantom receive
-        state.transactions = vec![
-            TransactionRecord {
-                txid: "aaa".to_string(),
-                vout: 0,
-                is_send: false,
-                address: "TIME0addr".to_string(),
-                amount: 10_0000_0000,
-                fee: 0,
-                timestamp: 100,
-                status: TransactionStatus::Approved,
-                is_fee: false,
-                is_change: false,
-            },
-            TransactionRecord {
+        let mut state = AppState {
+            transactions: vec![
+                TransactionRecord {
+                    txid: "aaa".to_string(),
+                    vout: 0,
+                    is_send: false,
+                    address: "TIME0addr".to_string(),
+                    amount: 10_0000_0000,
+                    fee: 0,
+                    timestamp: 100,
+                    status: TransactionStatus::Approved,
+                    is_fee: false,
+                    is_change: false,
+                },
+                TransactionRecord {
+                    txid: "bbb".to_string(),
+                    vout: 0,
+                    is_send: true,
+                    address: "TIME0other".to_string(),
+                    amount: 1_0000_0000,
+                    fee: 100_0000,
+                    timestamp: 200,
+                    status: TransactionStatus::Approved,
+                    is_fee: false,
+                    is_change: false,
+                },
+                TransactionRecord {
+                    txid: "bbb".to_string(),
+                    vout: 0,
+                    is_send: true,
+                    address: "Network Fee".to_string(),
+                    amount: 100_0000,
+                    fee: 0,
+                    timestamp: 200,
+                    status: TransactionStatus::Approved,
+                    is_fee: true,
+                    is_change: false,
+                },
+                // Phantom receive — no UTXO backs this
+                TransactionRecord {
+                    txid: "phantom123".to_string(),
+                    vout: 0,
+                    is_send: false,
+                    address: "TIME0addr".to_string(),
+                    amount: 1_0000_0000,
+                    fee: 0,
+                    timestamp: 300,
+                    status: TransactionStatus::Approved,
+                    is_fee: false,
+                    is_change: false,
+                },
+            ],
+            // UTXOs: only the change from the send (8.99 TIME)
+            utxos: vec![Utxo {
                 txid: "bbb".to_string(),
-                vout: 0,
-                is_send: true,
-                address: "TIME0other".to_string(),
-                amount: 1_0000_0000,
-                fee: 100_0000,
-                timestamp: 200,
-                status: TransactionStatus::Approved,
-                is_fee: false,
-                is_change: false,
-            },
-            TransactionRecord {
-                txid: "bbb".to_string(),
-                vout: 0,
-                is_send: true,
-                address: "Network Fee".to_string(),
-                amount: 100_0000,
-                fee: 0,
-                timestamp: 200,
-                status: TransactionStatus::Approved,
-                is_fee: true,
-                is_change: false,
-            },
-            // Phantom receive — no UTXO backs this
-            TransactionRecord {
-                txid: "phantom123".to_string(),
-                vout: 0,
-                is_send: false,
+                vout: 1,
+                amount: 8_9900_0000,
                 address: "TIME0addr".to_string(),
-                amount: 1_0000_0000,
-                fee: 0,
-                timestamp: 300,
-                status: TransactionStatus::Approved,
-                is_fee: false,
-                is_change: false,
-            },
-        ];
-
-        // UTXOs: only the change from the send (8.99 TIME)
-        state.utxos = vec![Utxo {
-            txid: "bbb".to_string(),
-            vout: 1,
-            amount: 8_9900_0000,
-            address: "TIME0addr".to_string(),
-            confirmations: 1,
-        }];
+                confirmations: 1,
+            }],
+            ..Default::default()
+        };
 
         // computed_balance = 10 - 1 - 0.01 + 1 = 9.99
         assert_eq!(state.computed_balance(), 9_9900_0000);
@@ -1017,56 +1042,56 @@ mod tests {
 
     #[test]
     fn test_reconcile_keeps_legitimate_spent_receive() {
-        let mut state = AppState::default();
-
         // 10.00 received (UTXO spent), then 9.99 change UTXO remains
         // No phantom entries — should NOT remove the original receive
-        state.transactions = vec![
-            TransactionRecord {
-                txid: "original_recv".to_string(),
-                vout: 0,
-                is_send: false,
+        let mut state = AppState {
+            transactions: vec![
+                TransactionRecord {
+                    txid: "original_recv".to_string(),
+                    vout: 0,
+                    is_send: false,
+                    address: "TIME0addr".to_string(),
+                    amount: 10_0000_0000,
+                    fee: 0,
+                    timestamp: 100,
+                    status: TransactionStatus::Approved,
+                    is_fee: false,
+                    is_change: false,
+                },
+                TransactionRecord {
+                    txid: "spend_tx".to_string(),
+                    vout: 0,
+                    is_send: true,
+                    address: "TIME0other".to_string(),
+                    amount: 100_0000,
+                    fee: 100_0000,
+                    timestamp: 200,
+                    status: TransactionStatus::Approved,
+                    is_fee: false,
+                    is_change: false,
+                },
+                TransactionRecord {
+                    txid: "spend_tx".to_string(),
+                    vout: 0,
+                    is_send: true,
+                    address: "Network Fee".to_string(),
+                    amount: 100_0000,
+                    fee: 0,
+                    timestamp: 200,
+                    status: TransactionStatus::Approved,
+                    is_fee: true,
+                    is_change: false,
+                },
+            ],
+            utxos: vec![Utxo {
+                txid: "spend_tx".to_string(),
+                vout: 1,
+                amount: 9_9800_0000,
                 address: "TIME0addr".to_string(),
-                amount: 10_0000_0000,
-                fee: 0,
-                timestamp: 100,
-                status: TransactionStatus::Approved,
-                is_fee: false,
-                is_change: false,
-            },
-            TransactionRecord {
-                txid: "spend_tx".to_string(),
-                vout: 0,
-                is_send: true,
-                address: "TIME0other".to_string(),
-                amount: 100_0000,
-                fee: 100_0000,
-                timestamp: 200,
-                status: TransactionStatus::Approved,
-                is_fee: false,
-                is_change: false,
-            },
-            TransactionRecord {
-                txid: "spend_tx".to_string(),
-                vout: 0,
-                is_send: true,
-                address: "Network Fee".to_string(),
-                amount: 100_0000,
-                fee: 0,
-                timestamp: 200,
-                status: TransactionStatus::Approved,
-                is_fee: true,
-                is_change: false,
-            },
-        ];
-
-        state.utxos = vec![Utxo {
-            txid: "spend_tx".to_string(),
-            vout: 1,
-            amount: 9_9800_0000,
-            address: "TIME0addr".to_string(),
-            confirmations: 1,
-        }];
+                confirmations: 1,
+            }],
+            ..Default::default()
+        };
 
         // computed = 10 - 0.01 - 0.01 = 9.98 = UTXO total → no reconciliation needed
         assert_eq!(state.computed_balance(), 9_9800_0000);
