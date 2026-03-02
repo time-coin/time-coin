@@ -77,6 +77,9 @@ pub enum UiEvent {
     /// Encrypt an unencrypted wallet with the given password.
     EncryptWallet { password: String },
 
+    /// Set the external editor command (None = OS default).
+    SetEditor { editor: Option<String> },
+
     /// Persist updated send records to the database.
     PersistSendRecords(Vec<TransactionRecord>),
 }
@@ -186,6 +189,9 @@ pub enum ServiceEvent {
 
     /// Decimal places preference loaded from database.
     DecimalPlacesLoaded(usize),
+
+    /// Editor command loaded from config.
+    EditorLoaded(Option<String>),
 
     /// Whether a wallet file exists on disk.
     WalletExists(bool),

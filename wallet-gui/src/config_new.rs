@@ -25,6 +25,11 @@ pub struct Config {
     #[serde(default)]
     pub ws_endpoint: Option<String>,
 
+    /// External editor command for opening config files.
+    /// Empty or absent uses the OS default handler.
+    #[serde(default)]
+    pub editor: Option<String>,
+
     /// Local data directory (for wallet storage)
     #[serde(skip)]
     pub data_dir: Option<PathBuf>,
@@ -48,6 +53,7 @@ impl Default for Config {
             network: default_network(),
             peers: Vec::new(),
             ws_endpoint: None,
+            editor: None,
             data_dir: None,
             active_endpoint: None,
             is_first_run: false,

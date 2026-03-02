@@ -64,6 +64,9 @@ printpdf = "0.7"
 # Cross-platform file opener
 open = "5"
 
+# Native file dialogs
+rfd = "0.15"
+
 # Local wallet dependency from parent project
 wallet = { path = "../wallet", version = "0.1.0" }
 

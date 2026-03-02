@@ -60,6 +60,9 @@ pub async fn run(
         }
     }
 
+    // Load editor preference from config
+    let _ = svc_tx.send(ServiceEvent::EditorLoaded(config.editor.clone()));
+
     let mut state = ServiceState {
         svc_tx,
         client: None,
@@ -739,7 +742,12 @@ pub async fn run(
 
                     UiEvent::OpenConfigFile { path } => {
                         log::info!("Opening config file: {}", path.display());
-                        if let Err(e) = open::that(&path) {
+                        let result = if let Some(ref editor) = state.config.editor {
+                            std::process::Command::new(editor).arg(&path).spawn().map(|_| ())
+                        } else {
+                            open::that(&path)
+                        };
+                        if let Err(e) = result {
                             log::error!("Failed to open editor: {}", e);
                             let _ = state.svc_tx.send(ServiceEvent::Error(
                                 format!("Failed to open editor: {}", e),
@@ -764,6 +772,13 @@ pub async fn run(
                             let _ = state.svc_tx.send(ServiceEvent::Error(
                                 "No wallet loaded".to_string(),
                             ));
+                        }
+                    }
+
+                    UiEvent::SetEditor { editor } => {
+                        state.config.editor = editor;
+                        if let Err(e) = state.config.save() {
+                            log::error!("Failed to save config: {}", e);
                         }
                     }
 

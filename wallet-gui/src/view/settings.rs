@@ -41,6 +41,48 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
     ui.add_space(10.0);
 
+    // Editor preference
+    ui.group(|ui| {
+        ui.set_min_width(ui.available_width());
+        ui.label(egui::RichText::new("External Editor").strong());
+        ui.add_space(4.0);
+        ui.label("Editor used to open configuration files. Leave empty to use the OS default.");
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut state.editor_input)
+                    .hint_text("OS default")
+                    .desired_width(300.0),
+            );
+
+            if ui.button("Browse…").clicked() {
+                let filter = if cfg!(target_os = "windows") {
+                    rfd::FileDialog::new().add_filter("Executables", &["exe"])
+                } else {
+                    rfd::FileDialog::new().add_filter("All files", &["*"])
+                };
+                if let Some(path) = filter.pick_file() {
+                    state.editor_input = path.display().to_string();
+                    let editor = Some(state.editor_input.clone());
+                    let _ = ui_tx.send(UiEvent::SetEditor { editor });
+                }
+            }
+
+            // Save when the text field loses focus or enter is pressed
+            if response.lost_focus() {
+                let editor = if state.editor_input.trim().is_empty() {
+                    None
+                } else {
+                    Some(state.editor_input.trim().to_string())
+                };
+                let _ = ui_tx.send(UiEvent::SetEditor { editor });
+            }
+        });
+    });
+
+    ui.add_space(10.0);
+
     // Network info
     ui.group(|ui| {
         ui.set_min_width(ui.available_width());

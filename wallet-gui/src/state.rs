@@ -101,6 +101,8 @@ pub struct AppState {
 
     // -- Display preferences --
     pub decimal_places: usize,
+    /// Editor command input for settings UI.
+    pub editor_input: String,
 
     // -- Persisted send records (correct amounts from wallet, keyed by txid) --
     pub send_records: std::collections::HashMap<String, TransactionRecord>,
@@ -175,6 +177,7 @@ impl Default for AppState {
             success: None,
             loading: false,
             decimal_places: 2,
+            editor_input: String::new(),
             send_records: std::collections::HashMap::new(),
             wallet_encrypted: true, // assume safe until proven otherwise
             encrypt_password_input: String::new(),
@@ -830,6 +833,10 @@ impl AppState {
 
             ServiceEvent::DecimalPlacesLoaded(dp) => {
                 self.decimal_places = dp;
+            }
+
+            ServiceEvent::EditorLoaded(editor) => {
+                self.editor_input = editor.unwrap_or_default();
             }
 
             ServiceEvent::WalletExists(exists) => {
