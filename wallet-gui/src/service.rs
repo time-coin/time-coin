@@ -1348,18 +1348,6 @@ fn config_file_template(path: &std::path::Path) -> &'static str {
 #
 "
         }
-        Some("time.conf") => {
-            "\
-# TIME Coin Configuration File
-# https://time-coin.io
-
-# ─── Logging ─────────────────────────────────────────────────
-debug=info
-
-# ─── Storage ─────────────────────────────────────────────────
-txindex=1
-"
-        }
         _ => "",
     }
 }

@@ -99,29 +99,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                         .small(),
                 );
             });
-
-            // -- time.conf --
-            ui.add_space(8.0);
-            let time_conf_path = if state.is_testnet {
-                data_dir.join("testnet").join("time.conf")
-            } else {
-                data_dir.join("time.conf")
-            };
-
-            ui.horizontal(|ui| {
-                let btn = ui
-                    .add(egui::Button::new("📝 Open time.conf").min_size(egui::vec2(160.0, 28.0)));
-                if btn.clicked() {
-                    let _ = ui_tx.send(UiEvent::OpenConfigFile {
-                        path: time_conf_path.clone(),
-                    });
-                }
-                ui.label(
-                    egui::RichText::new(time_conf_path.display().to_string())
-                        .weak()
-                        .small(),
-                );
-            });
         } else {
             ui.label(egui::RichText::new("Could not determine data directory.").weak());
         }
