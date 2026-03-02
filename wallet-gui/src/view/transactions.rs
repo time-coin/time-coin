@@ -262,10 +262,21 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         // Address
                         let addr_label = if tx.is_fee {
                             tx.address.clone()
-                        } else if let Some(name) = state.contact_name(&tx.address) {
-                            format!("{} ({})", name, tx.address)
                         } else {
-                            tx.address.clone()
+                            let short = if tx.address.len() > 14 {
+                                format!(
+                                    "{}..{}",
+                                    &tx.address[..10],
+                                    &tx.address[tx.address.len() - 4..]
+                                )
+                            } else {
+                                tx.address.clone()
+                            };
+                            if let Some(name) = state.contact_name(&tx.address) {
+                                format!("{} ({})", name, short)
+                            } else {
+                                short
+                            }
                         };
                         if ui
                             .add(
