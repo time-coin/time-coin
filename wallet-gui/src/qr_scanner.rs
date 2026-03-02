@@ -179,11 +179,28 @@ pub fn play_scan_sound() {
                     "[System.Media.SystemSounds]::Asterisk.Play()",
                 ])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output(); // wait for completion
+                .output();
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         {
-            print!("\x07");
+            // afplay is available on all macOS versions
+            let _ = std::process::Command::new("afplay")
+                .arg("/System/Library/Sounds/Tink.aiff")
+                .output();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Try paplay (PulseAudio) first, fall back to aplay (ALSA), then BEL
+            let played = std::process::Command::new("paplay")
+                .arg("/usr/share/sounds/freedesktop/stereo/complete.oga")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if !played {
+                let _ = std::process::Command::new("aplay")
+                    .arg("/usr/share/sounds/freedesktop/stereo/complete.oga")
+                    .output();
+            }
         }
     });
 }
