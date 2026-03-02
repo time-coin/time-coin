@@ -72,6 +72,10 @@ impl Config {
             let mut config: Config = toml::from_str(&contents)?;
             config.data_dir = Some(Self::data_dir()?);
             config.is_first_run = false;
+            // Auto-detect editor if not configured
+            if config.editor.is_none() {
+                config.editor = detect_editor();
+            }
             log::info!(
                 "✅ Config loaded: network={}, {} manual peers",
                 config.network,
@@ -83,6 +87,7 @@ impl Config {
             let config = Config {
                 data_dir: Some(Self::data_dir()?),
                 is_first_run: true,
+                editor: detect_editor(),
                 ..Config::default()
             };
             // Don't save yet — wait for user to select network
@@ -246,6 +251,50 @@ pub enum ConfigError {
 
     #[error("Invalid peer: {0}")]
     InvalidPeer(String),
+}
+
+/// Auto-detect an installed text editor, returning its path if found.
+fn detect_editor() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let candidates = [
+            r"C:\Program Files\Notepad++\notepad++.exe",
+            r"C:\Program Files (x86)\Notepad++\notepad++.exe",
+            r"C:\Windows\System32\notepad.exe",
+        ];
+        for path in &candidates {
+            if std::path::Path::new(path).exists() {
+                log::info!("Auto-detected editor: {}", path);
+                return Some(path.to_string());
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if std::path::Path::new("/usr/bin/open").exists() {
+            log::info!("Auto-detected editor: open -t (macOS default)");
+            return Some("open".to_string());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        for editor in &["gedit", "kate", "xed", "nano", "vi"] {
+            if Command::new("which")
+                .arg(editor)
+                .output()
+                .is_ok_and(|o| o.status.success())
+            {
+                log::info!("Auto-detected editor: {}", editor);
+                return Some(editor.to_string());
+            }
+        }
+    }
+
+    log::info!("No editor auto-detected, will use OS default");
+    None
 }
 
 #[cfg(test)]
