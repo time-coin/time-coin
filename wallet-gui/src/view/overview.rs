@@ -300,22 +300,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         let addr_display = if tx.is_fee {
                             tx.address.clone()
                         } else if let Some(name) = state.contact_name(&tx.address) {
-                            let addr = &tx.address;
-                            let short = if addr.len() > 14 {
-                                format!("{}..{}", &addr[..8], &addr[addr.len() - 4..])
-                            } else {
-                                addr.clone()
-                            };
-                            format!("{} ({})", name, short)
+                            format!("{} ({})", name, tx.address)
                         } else {
-                            let addr = &tx.address;
-                            if addr.len() > 14 {
-                                format!("{}..{}", &addr[..8], &addr[addr.len() - 4..])
-                            } else {
-                                addr.clone()
-                            }
+                            tx.address.clone()
                         };
-                        ui.label(egui::RichText::new(addr_display).color(egui::Color32::GRAY));
+                        ui.label(egui::RichText::new(addr_display).color(egui::Color32::BLACK));
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             // Status
@@ -339,7 +328,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                         egui::RichText::new(
                                             local.format("%Y-%m-%d %H:%M").to_string(),
                                         )
-                                        .color(egui::Color32::GRAY),
+                                        .color(egui::Color32::BLACK),
                                     );
                                 }
                             }
