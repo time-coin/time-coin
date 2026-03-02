@@ -742,6 +742,21 @@ pub async fn run(
 
                     UiEvent::OpenConfigFile { path } => {
                         log::info!("Opening config file: {}", path.display());
+                        // Create file with template if it doesn't exist
+                        if !path.exists() {
+                            if let Some(parent) = path.parent() {
+                                let _ = std::fs::create_dir_all(parent);
+                            }
+                            let template = config_file_template(&path);
+                            if let Err(e) = std::fs::write(&path, template) {
+                                log::error!("Failed to create {}: {}", path.display(), e);
+                                let _ = state.svc_tx.send(ServiceEvent::Error(
+                                    format!("Failed to create {}: {}", path.display(), e),
+                                ));
+                                continue;
+                            }
+                            log::info!("Created {}", path.display());
+                        }
                         let result = if let Some(ref editor) = state.config.editor {
                             std::process::Command::new(editor).arg(&path).spawn().map(|_| ())
                         } else {
@@ -1316,4 +1331,46 @@ fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
     (0..wm.get_address_count())
         .filter_map(|i| wm.derive_address(i).ok())
         .collect()
+}
+
+/// Return a default template for a config file based on its filename.
+fn config_file_template(path: &std::path::Path) -> &'static str {
+    match path.file_name().and_then(|n| n.to_str()) {
+        Some("masternode.conf") => {
+            "\
+# TIME Coin Masternode Configuration
+#
+# Format (one entry per line):
+#   alias  IP:port  masternodeprivkey  collateral_txid  collateral_vout
+#
+# Example:
+#   mn1  69.167.168.176:24100  5KCgSQS9uFLz...  fc5b049a3980...  0
+#
+"
+        }
+        Some("time.conf") => {
+            "\
+# TIME Coin Configuration File
+# https://time-coin.io
+
+# ─── Network ─────────────────────────────────────────────────
+testnet=1
+listen=1
+
+# ─── RPC ─────────────────────────────────────────────────────
+server=1
+
+# ─── Masternode ──────────────────────────────────────────────
+# masternode=1
+# masternodeprivkey=
+
+# ─── Logging ─────────────────────────────────────────────────
+debug=info
+
+# ─── Storage ─────────────────────────────────────────────────
+txindex=1
+"
+        }
+        _ => "",
+    }
 }

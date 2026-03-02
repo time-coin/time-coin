@@ -83,13 +83,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
             } else {
                 data_dir.join("masternode.conf")
             };
-            let mn_conf_exists = mn_conf_path.exists();
 
             ui.horizontal(|ui| {
-                let btn = ui.add_enabled(
-                    mn_conf_exists,
-                    egui::Button::new("📝 Open masternode.conf")
-                        .min_size(egui::vec2(160.0, 28.0)),
+                let btn = ui.add(
+                    egui::Button::new("📝 Open masternode.conf").min_size(egui::vec2(160.0, 28.0)),
                 );
                 if btn.clicked() {
                     let _ = ui_tx.send(UiEvent::OpenConfigFile {
@@ -103,16 +100,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                 );
             });
 
-            if !mn_conf_exists {
-                ui.label(
-                    egui::RichText::new(
-                        "masternode.conf does not exist yet. It will be created when you register a masternode.",
-                    )
-                    .weak()
-                    .italics(),
-                );
-            }
-
             // -- time.conf --
             ui.add_space(8.0);
             let time_conf_path = if state.is_testnet {
@@ -120,14 +107,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
             } else {
                 data_dir.join("time.conf")
             };
-            let time_conf_exists = time_conf_path.exists();
 
             ui.horizontal(|ui| {
-                let btn = ui.add_enabled(
-                    time_conf_exists,
-                    egui::Button::new("📝 Open time.conf")
-                        .min_size(egui::vec2(160.0, 28.0)),
-                );
+                let btn = ui
+                    .add(egui::Button::new("📝 Open time.conf").min_size(egui::vec2(160.0, 28.0)));
                 if btn.clicked() {
                     let _ = ui_tx.send(UiEvent::OpenConfigFile {
                         path: time_conf_path.clone(),
@@ -139,16 +122,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                         .small(),
                 );
             });
-
-            if !time_conf_exists {
-                ui.label(
-                    egui::RichText::new(
-                        "time.conf does not exist yet.",
-                    )
-                    .weak()
-                    .italics(),
-                );
-            }
         } else {
             ui.label(egui::RichText::new("Could not determine data directory.").weak());
         }
