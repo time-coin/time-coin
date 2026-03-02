@@ -85,7 +85,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         if verified {
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "✓ Verified: {}",
+                                    "Verified: {}",
                                     state.format_time(confirmed)
                                 ))
                                 .color(egui::Color32::from_rgb(0, 180, 0)),
