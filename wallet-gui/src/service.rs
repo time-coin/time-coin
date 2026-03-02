@@ -872,7 +872,10 @@ pub async fn run(
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
                                 match client.get_balances(&state.addresses).await {
-                                    Ok(bal) => { let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal)); }
+                                    Ok(bal) => {
+                                        log::info!("🔍 Post-finalization balance: total={} available={}", bal.total, bal.confirmed);
+                                        let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                                    }
                                     Err(e) => log::warn!("Failed to refresh balance after finalization: {}", e),
                                 }
                                 if let Ok(txs) = client.get_transactions_multi(&state.addresses, 100).await {
@@ -884,6 +887,8 @@ pub async fn run(
                                         all_utxos.extend(utxos);
                                     }
                                 }
+                                let utxo_sum: u64 = all_utxos.iter().map(|u| u.amount).sum();
+                                log::info!("🔍 Post-finalization UTXOs: count={} total={}", all_utxos.len(), utxo_sum);
                                 let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
                             }
                         }
