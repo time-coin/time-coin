@@ -3,15 +3,17 @@
 ## Build, Test, and Lint
 
 ```bash
-cargo build --workspace              # Build all crates
-cargo run --release                  # Run the wallet GUI (default member)
+cargo fmt --all                      # Format code
+cargo check --workspace              # Fast type-check without codegen
+cargo clippy --workspace --all-targets -- -D warnings  # Lint (CI treats warnings as errors)
 cargo test --workspace               # All tests
 cargo test -p wallet                 # Tests for one crate
 cargo test -p wallet test_address_generation  # Single test by name
-cargo clippy --workspace --all-targets -- -D warnings  # Lint (CI treats warnings as errors)
-cargo fmt --all -- --check           # Format check
-cargo check --workspace              # Fast type-check without codegen
+cargo build --workspace              # Full build (only when you need the binary)
+cargo run --release                  # Run the wallet GUI (default member)
 ```
+
+**Validation workflow**: Use `cargo fmt --all && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings` to validate changes quickly without a full build. Only use `cargo build --release` when you need to produce the binary.
 
 CI also runs `cargo-deny` for advisory/license/ban/source audits (configured in `deny.toml`).
 
