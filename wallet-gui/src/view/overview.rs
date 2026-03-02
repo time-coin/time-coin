@@ -309,11 +309,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             // Status
                             let (status_text, status_color) = match tx.status {
-                                TransactionStatus::Approved => ("Approved", egui::Color32::GREEN),
-                                TransactionStatus::Pending => {
-                                    ("Pending", egui::Color32::from_rgb(255, 165, 0))
+                                TransactionStatus::Approved => {
+                                    ("✅ Approved", egui::Color32::GREEN)
                                 }
-                                TransactionStatus::Declined => ("Declined", egui::Color32::RED),
+                                TransactionStatus::Pending => {
+                                    ("⏳ Pending", egui::Color32::from_rgb(255, 165, 0))
+                                }
+                                TransactionStatus::Declined => ("❌ Declined", egui::Color32::RED),
                             };
                             ui.label(egui::RichText::new(status_text).color(status_color));
 
