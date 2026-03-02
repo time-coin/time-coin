@@ -105,17 +105,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                 ))
                                 .color(egui::Color32::from_rgb(0, 180, 0)),
                             );
-                        } else if mn_bal > 0 {
-                            // All finalized but mismatch
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Network: {}",
-                                    state.format_time(mn_bal)
-                                ))
-                                .color(egui::Color32::from_rgb(255, 165, 0)),
-                            );
                         } else {
-                            ui.label(format!("Confirmed: {}", state.format_time(confirmed)));
+                            // Not yet verified — hide until confirmed
                         }
                     });
                 }
