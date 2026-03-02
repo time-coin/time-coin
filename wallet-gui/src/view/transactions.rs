@@ -233,10 +233,8 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         };
                         if ui
                             .add(
-                                egui::Label::new(
-                                    egui::RichText::new(dir_icon).size(18.0).color(amount_color),
-                                )
-                                .sense(egui::Sense::click()),
+                                egui::Label::new(egui::RichText::new(dir_icon).color(amount_color))
+                                    .sense(egui::Sense::click()),
                             )
                             .clicked()
                         {
@@ -315,9 +313,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(status_text)
-                                        .size(18.0)
-                                        .color(status_color),
+                                    egui::RichText::new(status_text).color(status_color),
                                 )
                                 .sense(egui::Sense::click()),
                             )

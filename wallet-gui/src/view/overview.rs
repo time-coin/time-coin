@@ -294,10 +294,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     };
                     if ui
                         .add(
-                            egui::Label::new(
-                                egui::RichText::new(dir_icon).size(18.0).color(amount_color),
-                            )
-                            .sense(egui::Sense::click()),
+                            egui::Label::new(egui::RichText::new(dir_icon).color(amount_color))
+                                .sense(egui::Sense::click()),
                         )
                         .clicked()
                     {
