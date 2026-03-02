@@ -65,6 +65,11 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
+        // Flush any pending send record updates before shutdown
+        if !self.state.dirty_send_records.is_empty() {
+            let records = std::mem::take(&mut self.state.dirty_send_records);
+            let _ = self.ui_tx.send(UiEvent::PersistSendRecords(records));
+        }
         self.shutdown_token.cancel();
     }
 }
