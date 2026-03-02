@@ -277,60 +277,90 @@ pub async fn run(
                     UiEvent::SendTransaction { to, amount, fee } => {
                         if let Some(ref client) = state.client {
                             if let Some(ref mut wm) = state.wallet {
-                                // Fetch UTXOs from masternode and sync into wallet
+                                // Retry loop: wait for locked UTXOs to finalize
+                                let max_retries = 5;
+                                let total_needed = amount + wallet::calculate_fee(amount);
                                 let mut all_utxos = Vec::new();
-                                for addr in &state.addresses {
-                                    match client.get_utxos(addr).await {
-                                        Ok(utxos) => {
-                                            all_utxos.extend(utxos);
-                                        }
-                                        Err(e) => {
-                                            log::warn!("Failed to fetch UTXOs for {}: {}", addr, e);
-                                        }
-                                    }
-                                }
-                                log::debug!("UTXO sync: {} UTXOs fetched", all_utxos.len());
-                                let wallet = wm.get_active_wallet_mut();
-                                // Clear existing UTXOs and reload from masternode
-                                while !wallet.utxos().is_empty() {
-                                    let u = wallet.utxos()[0].clone();
-                                    wallet.remove_utxo(&u.tx_hash, u.output_index);
-                                }
-                                let mut total_balance = 0u64;
-                                for utxo in &all_utxos {
-                                    let mut tx_hash = [0u8; 32];
-                                    let hex_chars: Vec<u8> = utxo.txid.bytes().collect();
-                                    let mut valid = hex_chars.len() == 64;
-                                    if valid {
-                                        for i in 0..32 {
-                                            let hi = match hex_chars[i * 2] {
-                                                b'0'..=b'9' => hex_chars[i * 2] - b'0',
-                                                b'a'..=b'f' => hex_chars[i * 2] - b'a' + 10,
-                                                b'A'..=b'F' => hex_chars[i * 2] - b'A' + 10,
-                                                _ => { valid = false; break; }
-                                            };
-                                            let lo = match hex_chars[i * 2 + 1] {
-                                                b'0'..=b'9' => hex_chars[i * 2 + 1] - b'0',
-                                                b'a'..=b'f' => hex_chars[i * 2 + 1] - b'a' + 10,
-                                                b'A'..=b'F' => hex_chars[i * 2 + 1] - b'A' + 10,
-                                                _ => { valid = false; break; }
-                                            };
-                                            tx_hash[i] = (hi << 4) | lo;
-                                        }
-                                    }
-                                    if valid {
-                                        wallet.add_utxo(wallet::wallet::UTXO {
-                                            tx_hash,
-                                            output_index: utxo.vout,
-                                            amount: utxo.amount,
-                                            address: utxo.address.clone(),
-                                        });
-                                        total_balance += utxo.amount;
-                                    }
-                                }
-                                wallet.set_balance(total_balance);
+                                let mut tx_result: Result<wallet::Transaction, String> =
+                                    Err(String::new());
 
-                                match wm.create_transaction(&to, amount, fee) {
+                                for attempt in 0..max_retries {
+                                    // Fetch UTXOs from masternode and sync into wallet
+                                    all_utxos.clear();
+                                    for addr in &state.addresses {
+                                        match client.get_utxos(addr).await {
+                                            Ok(utxos) => {
+                                                all_utxos.extend(utxos);
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to fetch UTXOs for {}: {}", addr, e);
+                                            }
+                                        }
+                                    }
+                                    log::debug!("UTXO sync (attempt {}): {} UTXOs fetched", attempt + 1, all_utxos.len());
+                                    let wallet_inner = wm.get_active_wallet_mut();
+                                    while !wallet_inner.utxos().is_empty() {
+                                        let u = wallet_inner.utxos()[0].clone();
+                                        wallet_inner.remove_utxo(&u.tx_hash, u.output_index);
+                                    }
+                                    let mut total_balance = 0u64;
+                                    for utxo in &all_utxos {
+                                        let mut tx_hash = [0u8; 32];
+                                        let hex_chars: Vec<u8> = utxo.txid.bytes().collect();
+                                        let mut valid = hex_chars.len() == 64;
+                                        if valid {
+                                            for i in 0..32 {
+                                                let hi = match hex_chars[i * 2] {
+                                                    b'0'..=b'9' => hex_chars[i * 2] - b'0',
+                                                    b'a'..=b'f' => hex_chars[i * 2] - b'a' + 10,
+                                                    b'A'..=b'F' => hex_chars[i * 2] - b'A' + 10,
+                                                    _ => { valid = false; break; }
+                                                };
+                                                let lo = match hex_chars[i * 2 + 1] {
+                                                    b'0'..=b'9' => hex_chars[i * 2 + 1] - b'0',
+                                                    b'a'..=b'f' => hex_chars[i * 2 + 1] - b'a' + 10,
+                                                    b'A'..=b'F' => hex_chars[i * 2 + 1] - b'A' + 10,
+                                                    _ => { valid = false; break; }
+                                                };
+                                                tx_hash[i] = (hi << 4) | lo;
+                                            }
+                                        }
+                                        if valid {
+                                            wallet_inner.add_utxo(wallet::wallet::UTXO {
+                                                tx_hash,
+                                                output_index: utxo.vout,
+                                                amount: utxo.amount,
+                                                address: utxo.address.clone(),
+                                            });
+                                            total_balance += utxo.amount;
+                                        }
+                                    }
+                                    wallet_inner.set_balance(total_balance);
+
+                                    tx_result = wm.create_transaction(&to, amount, fee);
+                                    if tx_result.is_ok() {
+                                        break;
+                                    }
+
+                                    // Only retry on InsufficientFunds when masternode confirms we have enough
+                                    if let Err(ref msg) = tx_result {
+                                        if msg.contains("Insufficient funds") && attempt < max_retries - 1 {
+                                            let mn_total = client.get_balances(&state.addresses).await
+                                                .map(|b| b.total).unwrap_or(0);
+                                            if mn_total >= total_needed {
+                                                log::info!(
+                                                    "UTXOs temporarily locked, waiting for finalization (attempt {}/{})",
+                                                    attempt + 1, max_retries
+                                                );
+                                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+
+                                match tx_result {
                                     Ok(mut tx) => {
                                         // Re-sign ALL inputs with correct BIP-44 HD keypairs.
                                         // create_transaction signs with Wallet.keypair which uses
@@ -838,12 +868,15 @@ pub async fn run(
                             finalized: true,
                         });
 
-                        // Refresh balance and UTXOs after finalization
+                        // Refresh balance, transactions, and UTXOs after finalization
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
                                 match client.get_balances(&state.addresses).await {
                                     Ok(bal) => { let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal)); }
                                     Err(e) => log::warn!("Failed to refresh balance after finalization: {}", e),
+                                }
+                                if let Ok(txs) = client.get_transactions_multi(&state.addresses, 100).await {
+                                    let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                 }
                                 let mut all_utxos = Vec::new();
                                 for addr in &state.addresses {

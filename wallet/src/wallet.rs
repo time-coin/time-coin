@@ -25,7 +25,7 @@ pub enum WalletError {
     #[error("Serialization error")]
     SerializationError,
 
-    #[error("Insufficient funds: have {have}, need {need}")]
+    #[error("Insufficient funds: have {}.{:06} TIME, need {}.{:06} TIME", .have / 100_000_000, (.have % 100_000_000) / 100, .need / 100_000_000, (.need % 100_000_000) / 100)]
     InsufficientFunds { have: u64, need: u64 },
 
     #[error("Invalid address")]

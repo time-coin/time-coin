@@ -66,8 +66,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
             {
                 let total = state.computed_balance();
-                let confirmed = state.confirmed_balance();
-                let pending_amount = total.saturating_sub(confirmed);
                 let has_pending = state
                     .transactions
                     .iter()
@@ -84,24 +82,19 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 ui.add_space(4.0);
                 if !state.syncing {
                     let mn_bal = state.masternode_balance;
+                    let utxo_total: u64 = state.utxos.iter().map(|u| u.amount).sum();
                     ui.horizontal(|ui| {
                         if has_pending {
-                            // Transactions still pending — don't verify yet
-                            if pending_amount > 0 {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "Pending: {}",
-                                        state.format_time(pending_amount)
-                                    ))
+                            ui.label(
+                                egui::RichText::new("Pending")
                                     .color(egui::Color32::from_rgb(255, 165, 0)),
-                                );
-                            }
-                        } else if mn_bal > 0 && confirmed == mn_bal {
-                            // All finalized and matches masternode
+                            );
+                        } else if mn_bal > 0 && utxo_total == mn_bal {
+                            // UTXOs match masternode — verified
                             ui.label(
                                 egui::RichText::new(format!(
                                     "Verified: {}",
-                                    state.format_time(confirmed)
+                                    state.format_time(mn_bal)
                                 ))
                                 .color(egui::Color32::from_rgb(0, 180, 0)),
                             );

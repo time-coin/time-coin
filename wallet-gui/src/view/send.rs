@@ -92,7 +92,14 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         let available = if state.syncing {
             0
         } else {
-            state.computed_balance()
+            // Use UTXO total as the spendable balance — this matches what
+            // the wallet crate uses for coin selection during send.
+            let utxo_total: u64 = state.utxos.iter().map(|u| u.amount).sum();
+            if utxo_total > 0 {
+                utxo_total
+            } else {
+                state.computed_balance()
+            }
         };
 
         // When "include fee" is checked, the entered amount is the total to deduct.
