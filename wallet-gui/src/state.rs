@@ -74,6 +74,7 @@ pub struct AppState {
     // -- UI transient state --
     pub wallet_exists: bool,
     pub send_address: String,
+    pub send_recipient_name: String,
     pub send_amount: String,
     pub send_fee: String,
     pub send_include_fee: bool,
@@ -163,6 +164,7 @@ impl Default for AppState {
             recent_notifications: Vec::new(),
             wallet_exists: false,
             send_address: String::new(),
+            send_recipient_name: String::new(),
             send_amount: String::new(),
             send_fee: String::new(),
             send_include_fee: false,

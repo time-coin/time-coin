@@ -26,22 +26,28 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
         ui.label("Recipient Address");
 
-        // Show contact or address label if the current address matches
+        // Auto-fill name from contacts when address matches
         let resolved_name = state
             .contact_name(&state.send_address)
             .map(|s| s.to_string());
         if let Some(ref name) = resolved_name {
-            ui.label(
-                egui::RichText::new(format!("Sending to: {}", name))
-                    .strong()
-                    .color(egui::Color32::LIGHT_BLUE),
-            );
+            if state.send_recipient_name.is_empty() {
+                state.send_recipient_name = name.clone();
+            }
         }
 
         ui.add(
             egui::TextEdit::singleline(&mut state.send_address)
                 .hint_text(format!("{}...", expected_prefix))
                 .desired_width(ui.available_width()),
+        );
+
+        ui.add_space(4.0);
+        ui.label("Recipient Name (optional)");
+        ui.add(
+            egui::TextEdit::singleline(&mut state.send_recipient_name)
+                .hint_text("e.g. Alice")
+                .desired_width(300.0),
         );
 
         // Address validation feedback
@@ -227,6 +233,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             if send_amount == 0 {
                 state.error = Some("Invalid amount".to_string());
             } else {
+                // Auto-save to address book if name is provided
+                if !state.send_recipient_name.trim().is_empty() {
+                    let _ = ui_tx.send(UiEvent::SaveContact {
+                        name: state.send_recipient_name.trim().to_string(),
+                        address: state.send_address.clone(),
+                    });
+                }
                 let _ = ui_tx.send(UiEvent::SendTransaction {
                     to: state.send_address.clone(),
                     amount: send_amount,
@@ -389,6 +402,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     .clicked()
                                 {
                                     state.send_address = contact.address.clone();
+                                    state.send_recipient_name = contact.name.clone();
                                 }
                                 if ui
                                     .small_button("Edit")
