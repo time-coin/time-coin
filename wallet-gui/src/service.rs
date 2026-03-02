@@ -838,13 +838,20 @@ pub async fn run(
                             finalized: true,
                         });
 
-                        // Refresh balance after finalization
+                        // Refresh balance and UTXOs after finalization
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
                                 match client.get_balances(&state.addresses).await {
                                     Ok(bal) => { let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal)); }
                                     Err(e) => log::warn!("Failed to refresh balance after finalization: {}", e),
                                 }
+                                let mut all_utxos = Vec::new();
+                                for addr in &state.addresses {
+                                    if let Ok(utxos) = client.get_utxos(addr).await {
+                                        all_utxos.extend(utxos);
+                                    }
+                                }
+                                let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
                             }
                         }
                     }
