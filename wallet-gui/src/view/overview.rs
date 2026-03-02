@@ -371,12 +371,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     };
                     if ui
                         .add(
-                            egui::Label::new(
-                                egui::RichText::new(status_text)
-                                    .size(18.0)
-                                    .color(status_color),
-                            )
-                            .sense(egui::Sense::click()),
+                            egui::Label::new(egui::RichText::new(status_text).color(status_color))
+                                .sense(egui::Sense::click()),
                         )
                         .clicked()
                     {
