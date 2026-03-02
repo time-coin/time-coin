@@ -436,6 +436,23 @@ pub async fn run(
                                                             };
                                                             let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(fee_record));
                                                         }
+                                                        // Self-send: also insert a pending receive entry immediately
+                                                        let is_self_send = state.addresses.contains(&to);
+                                                        if is_self_send {
+                                                            let recv_record = crate::masternode_client::TransactionRecord {
+                                                                txid: txid.clone(),
+                                                                vout: 0,
+                                                                is_send: false,
+                                                                address: to.clone(),
+                                                                amount,
+                                                                fee: 0,
+                                                                timestamp: now,
+                                                                status: crate::masternode_client::TransactionStatus::Pending,
+                                                                is_fee: false,
+                                                                is_change: false,
+                                                            };
+                                                            let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(recv_record));
+                                                        }
                                                         if !state.addresses.is_empty() {
                                                             if let Ok(balance) = client.get_balances(&state.addresses).await {
                                                                 let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(balance));

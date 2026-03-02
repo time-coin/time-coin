@@ -487,16 +487,12 @@ impl AppState {
 
                 // Deduplicate the RPC results by (txid, is_send, vout).
                 // Replace RPC "send" entries with persisted local versions.
-                // Save original RPC send amounts to detect self-sends below.
-                let mut rpc_send_amounts: std::collections::HashMap<String, u64> =
-                    std::collections::HashMap::new();
                 let mut seen = std::collections::HashSet::new();
                 self.transactions = txs
                     .into_iter()
                     .filter(|t| seen.insert((t.txid.clone(), t.is_send, t.vout)))
                     .map(|t| {
                         if t.is_send && !t.is_fee {
-                            rpc_send_amounts.insert(t.txid.clone(), t.amount);
                             if let Some(local) = local_sends.get(&t.txid) {
                                 let mut merged = local.clone();
                                 merged.status = t.status.clone();
@@ -640,20 +636,12 @@ impl AppState {
                 self.transactions.retain(|t| !t.is_change);
 
                 // Synthesize missing receive entries for send-to-self transactions.
-                // Only synthesize when the RPC confirms it as a self-send by
-                // reporting amount ≈ 0 (fee only). If the RPC reports the full
-                // amount, it treats the tx as a regular outgoing send and
-                // synthesizing a receive would create a phantom balance.
+                // If the destination is one of our own addresses and the RPC
+                // doesn't already include a receive entry, add one so the
+                // transaction history shows the full picture.
                 for (txid, send_tx) in &local_sends {
                     if !own_addrs.contains(send_tx.address.as_str()) {
                         continue; // not a self-send
-                    }
-                    // Check that the RPC confirms this as a self-send:
-                    // RPC display_amount (amount - fee) should be ≈ 0 for self-sends.
-                    let rpc_amt = rpc_send_amounts.get(txid.as_str()).copied();
-                    let rpc_confirms_self_send = rpc_amt == Some(0);
-                    if !rpc_confirms_self_send {
-                        continue; // RPC treats this as a regular send
                     }
                     let has_receive = self
                         .transactions
