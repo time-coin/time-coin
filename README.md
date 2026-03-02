@@ -8,13 +8,20 @@ If you are looking for the masternode repository go to [time-masternode](https:/
 
 ## Features
 
-- 🔑 **HD wallet** — BIP39 mnemonic seed with BIP32 key derivation
-- 💸 **Send & receive** — UTXO-based transactions with address book
-- 🔒 **Encrypted storage** — AES-256-GCM encryption with Argon2 key derivation
-- 📱 **QR codes** — Generate and scan QR codes for addresses
-- 🌐 **P2P networking** — Connects directly to the TIME Coin network
-- 💾 **Bitcoin-style wallet.dat** — Compatible backup and restore
-- 📄 **PDF mnemonic backup** — Printable seed phrase backup
+- 🔑 **HD wallet** — BIP39 mnemonic seed (12–24 words) with BIP44 key derivation (Ed25519)
+- 💸 **Send & receive** — UTXO-based transactions with automatic coin selection and change outputs
+- 📇 **Address book** — Save recipient names, auto-fill from contacts, search/edit/delete
+- 📷 **QR code scanner** — Scan recipient addresses via webcam with audible confirmation
+- 📱 **QR code generation** — Display QR codes for your receiving addresses
+- ⚡ **Instant finality** — Real-time transaction status via WebSocket (Pending → Approved)
+- 🔒 **Encrypted storage** — AES-256-GCM encryption with Argon2id key derivation
+- 💾 **Persistent state** — UTXO cache, contacts, send records, and masternodes saved to sled DB
+- 🌐 **Hybrid connectivity** — TCP-first with HTTP fallback, automatic peer discovery and health checks
+- 🖥️ **Masternode management** — Register, import, and manage masternodes from the wallet
+- 📝 **Config file editor** — Open masternode.conf in your preferred text editor
+- 🔄 **Balance verification** — Cross-checks UTXO total against masternode-reported balance
+- 📄 **PDF mnemonic backup** — Printable seed phrase backup with QR code
+- 🚪 **Clean shutdown** — Flushes all pending data on exit (X button or Exit menu)
 
 ## Getting started
 
@@ -59,16 +66,16 @@ cargo fmt --all -- --check
 ## Project structure
 
 ```
-time-coin/
-├── src/
-│   ├── wallet-gui/   # GUI application (egui/eframe)
-│   ├── wallet/       # Wallet logic, key management, signing
-│   ├── core/         # Blockchain types (blocks, transactions, UTXO)
-│   ├── crypto/       # Ed25519 signatures, SHA-256 hashing
-│   ├── network/      # P2P networking and peer discovery
-│   └── mempool/      # Transaction pool
-├── Cargo.toml        # Workspace configuration
-└── deny.toml         # Dependency audit rules
+time-wallet/
+├── wallet-gui/      # GUI application (egui/eframe)
+├── wallet/          # Wallet logic, key management, signing
+├── core/            # Blockchain types (blocks, transactions, UTXO)
+├── crypto/          # Ed25519 signatures, SHA-256 hashing
+├── network/         # P2P networking and peer discovery
+├── mempool/         # Transaction pool
+├── docs/            # Documentation
+├── Cargo.toml       # Workspace configuration
+└── deny.toml        # Dependency audit rules
 ```
 
 ## Contributing
