@@ -65,7 +65,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             ui.add_space(4.0);
 
             {
-                let total = state.computed_balance();
+                let utxo_total: u64 = state.utxos.iter().map(|u| u.amount).sum();
+                let mn_bal = state.masternode_balance;
+                // Use UTXO total (blockchain truth) when available, else computed balance
+                let total = if utxo_total > 0 { utxo_total } else { state.computed_balance() };
                 let has_pending = state
                     .transactions
                     .iter()
@@ -81,8 +84,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
                 ui.add_space(4.0);
                 if !state.syncing {
-                    let mn_bal = state.masternode_balance;
-                    let utxo_total: u64 = state.utxos.iter().map(|u| u.amount).sum();
                     ui.horizontal(|ui| {
                         if has_pending {
                             ui.label(
@@ -92,11 +93,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         } else if mn_bal > 0 && utxo_total == mn_bal {
                             // UTXOs match masternode — verified
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "Verified: {}",
-                                    state.format_time(mn_bal)
-                                ))
-                                .color(egui::Color32::from_rgb(0, 180, 0)),
+                                egui::RichText::new("Verified")
+                                    .color(egui::Color32::from_rgb(0, 180, 0)),
                             );
                         } else {
                             // Not yet verified — hide until confirmed
