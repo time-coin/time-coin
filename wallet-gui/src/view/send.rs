@@ -514,25 +514,26 @@ fn render_qr_scanner(ui: &mut Ui, state: &mut AppState) {
             ui.label("Point your webcam at a QR code");
             ui.add_space(4.0);
 
-            // Get latest frame from scanner
-            if let Some(ref scanner) = state.qr_scanner {
-                if let Some(frame) = scanner.take_frame() {
-                    let tex = ui.ctx().load_texture(
-                        "qr_camera_preview",
-                        frame,
-                        egui::TextureOptions::default(),
-                    );
+            // Update and display camera preview
+            let has_frame = if let Some(ref mut scanner) = state.qr_scanner {
+                if let Some(tex) = scanner.update_texture(ui.ctx()) {
                     let size = tex.size_vec2();
                     let scale = (400.0 / size.x).min(300.0 / size.y).min(1.0);
                     ui.image(egui::load::SizedTexture::new(tex.id(), size * scale));
+                    true
                 } else {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label("Starting camera...");
-                    });
-                    // Reserve space so window doesn't jump around
-                    ui.allocate_space(egui::vec2(400.0, 300.0));
+                    false
                 }
+            } else {
+                false
+            };
+
+            if !has_frame {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Starting camera...");
+                });
+                ui.allocate_space(egui::vec2(400.0, 300.0));
             }
 
             ui.add_space(8.0);

@@ -16,6 +16,8 @@ pub struct QrScannerHandle {
     result: Arc<Mutex<Option<String>>>,
     error: Arc<Mutex<Option<String>>>,
     running: Arc<AtomicBool>,
+    /// Cached texture handle for the camera preview (avoids recreation flicker).
+    texture: Option<egui::TextureHandle>,
 }
 
 impl std::fmt::Debug for QrScannerHandle {
@@ -48,6 +50,7 @@ impl QrScannerHandle {
             result,
             error,
             running,
+            texture: None,
         }
     }
 
@@ -125,6 +128,23 @@ impl QrScannerHandle {
         self.latest_frame.lock().ok()?.take()
     }
 
+    /// Update the cached texture with the latest frame and return a reference.
+    /// Reuses the existing texture handle to avoid flicker.
+    pub fn update_texture(&mut self, ctx: &egui::Context) -> Option<&egui::TextureHandle> {
+        if let Some(frame) = self.take_frame() {
+            if let Some(ref mut tex) = self.texture {
+                tex.set(frame, egui::TextureOptions::default());
+            } else {
+                self.texture = Some(ctx.load_texture(
+                    "qr_camera_preview",
+                    frame,
+                    egui::TextureOptions::default(),
+                ));
+            }
+        }
+        self.texture.as_ref()
+    }
+
     /// Check if a QR code was decoded (returns the content once).
     pub fn take_result(&self) -> Option<String> {
         self.result.lock().ok()?.take()
@@ -152,10 +172,14 @@ fn beep() {
     #[cfg(target_os = "windows")]
     {
         extern "system" {
+            fn MessageBeep(uType: u32) -> i32;
             fn Beep(dwFreq: u32, dwDuration: u32) -> i32;
         }
         unsafe {
-            Beep(1000, 200);
+            // MessageBeep plays async system sound
+            MessageBeep(0x00000040); // MB_ICONINFORMATION
+                                     // Beep is synchronous — ensures sound completes before thread exits
+            Beep(1200, 150);
         }
     }
     #[cfg(not(target_os = "windows"))]
