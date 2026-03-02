@@ -147,6 +147,18 @@ impl eframe::App for App {
                     &self.ui_tx,
                 );
                 nav_button(ui, &mut self.state, "🔧 Tools", Screen::Tools, &self.ui_tx);
+
+                ui.add_space(10.0);
+                ui.separator();
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new("🚪 Exit").size(14.0))
+                            .min_size(egui::vec2(140.0, 28.0)),
+                    )
+                    .clicked()
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             }
         });
 

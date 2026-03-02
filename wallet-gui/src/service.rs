@@ -149,7 +149,7 @@ pub async fn run(
                                 all_utxos.extend(utxos);
                             }
                         }
-                        let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
+                        state.send_utxos_updated(all_utxos);
                     }
                 }
             }
@@ -270,7 +270,7 @@ pub async fn run(
                                     }
                                 }
                             }
-                            let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
+                            state.send_utxos_updated(all_utxos);
                         }
                     }
 
@@ -488,7 +488,7 @@ pub async fn run(
                                                 all.extend(utxos);
                                             }
                                         }
-                                        let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(all));
+                                        state.send_utxos_updated(all);
                                     }
                                     _ => {}
                                 }
@@ -731,7 +731,7 @@ pub async fn run(
                                         all_utxos.extend(utxos);
                                     }
                                 }
-                                let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
+                                state.send_utxos_updated(all_utxos);
                             }
                         }
                         let _ = state.svc_tx.send(ServiceEvent::ResyncComplete);
@@ -889,7 +889,7 @@ pub async fn run(
                                 }
                                 let utxo_sum: u64 = all_utxos.iter().map(|u| u.amount).sum();
                                 log::info!("🔍 Post-finalization UTXOs: count={} total={}", all_utxos.len(), utxo_sum);
-                                let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
+                                state.send_utxos_updated(all_utxos);
                             }
                         }
                     }
@@ -1161,6 +1161,26 @@ impl ServiceState {
                             .svc_tx
                             .send(ServiceEvent::TransactionsUpdated(cached_txs));
                     }
+                    // Load persisted UTXOs so balance displays correctly before sync
+                    if let Ok(utxo_records) = db.get_all_utxos() {
+                        if !utxo_records.is_empty() {
+                            let utxos: Vec<crate::masternode_client::Utxo> = utxo_records
+                                .iter()
+                                .map(|r| crate::masternode_client::Utxo {
+                                    txid: r.tx_hash.clone(),
+                                    vout: r.output_index,
+                                    amount: r.amount,
+                                    address: r.address.clone(),
+                                    confirmations: r.confirmations as u32,
+                                })
+                                .collect();
+                            log::info!(
+                                "Loaded {} cached UTXOs from database",
+                                utxos.len()
+                            );
+                            let _ = self.svc_tx.send(ServiceEvent::UtxosUpdated(utxos));
+                        }
+                    }
                     // Load external contacts for send address book
                     if let Ok(contacts) = db.get_external_contacts() {
                         let infos: Vec<crate::state::ContactInfo> = contacts
@@ -1186,6 +1206,24 @@ impl ServiceState {
                     .send(ServiceEvent::Error(format!("Wallet error: {}", e)));
             }
         }
+    }
+
+    /// Send UtxosUpdated event and persist UTXOs to sled for instant startup.
+    fn send_utxos_updated(&self, utxos: Vec<crate::masternode_client::Utxo>) {
+        if let Some(ref db) = self.wallet_db {
+            let _ = db.clear_all_utxos();
+            for u in &utxos {
+                let _ = db.save_utxo(&crate::wallet_db::UtxoRecord {
+                    tx_hash: u.txid.clone(),
+                    output_index: u.vout,
+                    amount: u.amount,
+                    address: u.address.clone(),
+                    block_height: 0,
+                    confirmations: u.confirmations as u64,
+                });
+            }
+        }
+        let _ = self.svc_tx.send(ServiceEvent::UtxosUpdated(utxos));
     }
 
     /// Start (or restart) the WebSocket client for current addresses.
