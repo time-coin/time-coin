@@ -8,6 +8,26 @@ use crate::events::{Screen, ServiceEvent};
 use crate::masternode_client::{Balance, HealthStatus, TransactionRecord, TransactionStatus, Utxo};
 use crate::ws_client::TxNotification;
 
+/// Insert commas into the integer part of a formatted number string.
+fn format_with_commas(s: &str) -> String {
+    let (int_part, dec_part) = match s.find('.') {
+        Some(pos) => (&s[..pos], Some(&s[pos..])),
+        None => (s, None),
+    };
+    let digits: Vec<u8> = int_part.bytes().collect();
+    let mut result = String::with_capacity(s.len() + digits.len() / 3);
+    for (i, &b) in digits.iter().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            result.push(',');
+        }
+        result.push(b as char);
+    }
+    if let Some(dec) = dec_part {
+        result.push_str(dec);
+    }
+    result
+}
+
 /// Information about a discovered peer.
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
@@ -382,14 +402,16 @@ impl AppState {
     /// Format a satoshi amount as TIME with the user's preferred decimal places.
     pub fn format_time(&self, sats: u64) -> String {
         let time = sats as f64 / 100_000_000.0;
-        format!("{:.prec$} TIME", time, prec = self.decimal_places)
+        let raw = format!("{:.prec$}", time, prec = self.decimal_places);
+        format!("{} TIME", format_with_commas(&raw))
     }
 
     /// Format a satoshi amount with sign prefix (+ or -).
     pub fn format_time_signed(&self, sats: u64, is_negative: bool) -> String {
         let time = sats as f64 / 100_000_000.0;
         let sign = if is_negative { "-" } else { "+" };
-        format!("{}{:.prec$} TIME", sign, time, prec = self.decimal_places)
+        let raw = format!("{:.prec$}", time, prec = self.decimal_places);
+        format!("{}{} TIME", sign, format_with_commas(&raw))
     }
 
     /// Look up a display name for an address. Checks own wallet address labels

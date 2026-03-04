@@ -24,8 +24,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             )
             .clicked()
         {
+            state.loading = true;
             let _ = ui_tx.send(UiEvent::RefreshBalance);
             let _ = ui_tx.send(UiEvent::RefreshTransactions);
+            let _ = ui_tx.send(UiEvent::RefreshUtxos);
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -161,7 +163,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 ui.label(
                     egui::RichText::new("⚠ There is no password recovery. If you forget your password, you will need your recovery phrase to restore your wallet.")
                         .color(egui::Color32::from_rgb(255, 165, 0))
-                        .small(),
+                        .size(14.0),
                 );
                 ui.add_space(8.0);
 
@@ -201,7 +203,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     ui.label(
                         egui::RichText::new("Passwords do not match")
                             .color(egui::Color32::RED)
-                            .small(),
+                            .size(14.0),
                     );
                 }
 
