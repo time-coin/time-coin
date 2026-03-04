@@ -159,6 +159,9 @@ pub struct AppState {
     /// True while waiting for the first network poll after wallet load.
     pub syncing: bool,
 
+    /// True while a database repair is in progress.
+    pub repair_in_progress: bool,
+
     // -- Pending DB writes --
     /// Send records whose status changed and need to be persisted.
     pub dirty_send_records: Vec<TransactionRecord>,
@@ -238,6 +241,7 @@ impl Default for AppState {
             mn_update_payout_alias: None,
             mn_update_payout_input: String::new(),
             syncing: false,
+            repair_in_progress: false,
             dirty_send_records: Vec::new(),
         }
     }
@@ -867,6 +871,11 @@ impl AppState {
                 self.resync_in_progress = false;
                 self.syncing = false;
                 self.success = Some("Resync complete".to_string());
+            }
+
+            ServiceEvent::DatabaseRepaired { message } => {
+                self.repair_in_progress = false;
+                self.success = Some(message);
             }
 
             ServiceEvent::SyncComplete => {

@@ -99,7 +99,7 @@ impl eframe::App for App {
         }
 
         // 2. Navigation sidebar
-        egui::SidePanel::left("nav").exact_width(150.0).show(ctx, |ui| {
+        egui::SidePanel::left("nav").show(ctx, |ui| {
             ui.add_space(10.0);
 
             // Logo

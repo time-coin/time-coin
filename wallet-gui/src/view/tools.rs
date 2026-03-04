@@ -34,6 +34,31 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
 
     ui.add_space(16.0);
 
+    // -- Repair Database --
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("Repair Database").strong().size(16.0));
+        ui.add_space(4.0);
+        ui.label("If the wallet database is corrupted (e.g. from an improper shutdown), this will back up the damaged database and create a fresh one. Transactions, UTXOs, and balances are re-fetched from the masternodes. Contacts and masternode configurations will need to be re-entered.");
+        ui.add_space(6.0);
+
+        if state.repair_in_progress {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Repairing…");
+            });
+        } else if ui
+            .add(egui::Button::new("🛠 Repair Database").min_size(egui::vec2(160.0, 28.0)))
+            .clicked()
+        {
+            state.repair_in_progress = true;
+            state.error = None;
+            state.success = None;
+            let _ = ui_tx.send(UiEvent::RepairDatabase);
+        }
+    });
+
+    ui.add_space(16.0);
+
     // -- Open Config Files --
     ui.group(|ui| {
         ui.label(

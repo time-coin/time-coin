@@ -768,6 +768,121 @@ pub async fn run(
                         let _ = state.svc_tx.send(ServiceEvent::ResyncComplete);
                     }
 
+                    UiEvent::RepairDatabase => {
+                        log::info!("🔧 Database repair requested");
+                        let db_path = state.config.wallet_dir().join("wallet_db");
+                        let backup_path = state.config.wallet_dir().join(format!(
+                            "wallet_db_backup_{}",
+                            chrono::Local::now().format("%Y%m%d_%H%M%S")
+                        ));
+
+                        // Drop the current database handle
+                        state.wallet_db = None;
+
+                        // Back up the existing database directory
+                        let mut backed_up = false;
+                        if db_path.exists() {
+                            match std::fs::rename(&db_path, &backup_path) {
+                                Ok(()) => {
+                                    log::info!("📦 Backed up corrupt database to {}", backup_path.display());
+                                    backed_up = true;
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to back up database: {}", e);
+                                    // Try removing instead
+                                    if let Err(e2) = std::fs::remove_dir_all(&db_path) {
+                                        log::error!("Failed to remove database: {}", e2);
+                                        let _ = state.svc_tx.send(ServiceEvent::Error(
+                                            format!("Failed to repair database: backup failed ({}), removal failed ({})", e, e2),
+                                        ));
+                                        let _ = state.svc_tx.send(ServiceEvent::DatabaseRepaired {
+                                            message: "Repair failed — could not move or delete database".to_string(),
+                                        });
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Reopen a fresh database
+                        if let Some(parent) = db_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        state.wallet_db = WalletDb::open(&db_path).ok();
+
+                        if state.wallet_db.is_none() {
+                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                "Failed to create new database after repair".to_string(),
+                            ));
+                            let _ = state.svc_tx.send(ServiceEvent::DatabaseRepaired {
+                                message: "Repair failed — could not create new database".to_string(),
+                            });
+                            continue;
+                        }
+
+                        log::info!("✅ Fresh database created");
+
+                        // Re-persist owned addresses
+                        if let Some(ref db) = state.wallet_db {
+                            if state.wallet.is_some() {
+                                for (i, addr) in state.addresses.iter().enumerate() {
+                                    let contact = AddressContact {
+                                        address: addr.clone(),
+                                        label: format!("Address {}", i + 1),
+                                        name: None,
+                                        email: None,
+                                        phone: None,
+                                        notes: None,
+                                        is_default: i == 0,
+                                        is_owned: true,
+                                        derivation_index: Some(i as u32),
+                                        created_at: chrono::Utc::now().timestamp(),
+                                        updated_at: chrono::Utc::now().timestamp(),
+                                    };
+                                    let _ = db.save_contact(&contact);
+                                }
+                            }
+                        }
+
+                        // Re-fetch all data from masternodes
+                        if let Some(ref client) = state.client {
+                            if !state.addresses.is_empty() {
+                                match client.get_transactions_multi(&state.addresses, 0).await {
+                                    Ok(txs) => {
+                                        if let Some(ref db) = state.wallet_db {
+                                            let _ = db.save_cached_transactions(&txs);
+                                        }
+                                        let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
+                                    }
+                                    Err(e) => log::warn!("Repair: failed to fetch transactions: {}", e),
+                                }
+                                match client.get_balances(&state.addresses).await {
+                                    Ok(bal) => {
+                                        if let Some(ref db) = state.wallet_db {
+                                            let _ = db.save_cached_balance(&bal);
+                                        }
+                                        let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                                    }
+                                    Err(e) => log::warn!("Repair: failed to fetch balance: {}", e),
+                                }
+                                let mut all_utxos = Vec::new();
+                                for addr in &state.addresses {
+                                    if let Ok(utxos) = client.get_utxos(addr).await {
+                                        all_utxos.extend(utxos);
+                                    }
+                                }
+                                state.send_utxos_updated(all_utxos);
+                            }
+                        }
+
+                        let msg = if backed_up {
+                            format!("Database repaired. Backup saved to {}", backup_path.display())
+                        } else {
+                            "Database repaired. Fresh database created.".to_string()
+                        };
+                        let _ = state.svc_tx.send(ServiceEvent::DatabaseRepaired { message: msg });
+                    }
+
                     UiEvent::OpenConfigFile { path } => {
                         log::info!("Opening config file: {}", path.display());
                         // Create file with template if it doesn't exist

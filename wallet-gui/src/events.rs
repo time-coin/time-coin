@@ -68,6 +68,9 @@ pub enum UiEvent {
     /// Erase cached data and resync all transactions from masternodes.
     ResyncWallet,
 
+    /// Repair the wallet database — backs up corrupt db, recreates, and resyncs.
+    RepairDatabase,
+
     /// Open a config file in the system's default text editor.
     OpenConfigFile { path: std::path::PathBuf },
 
@@ -209,6 +212,9 @@ pub enum ServiceEvent {
 
     /// Resync completed — cache cleared, fresh data loaded.
     ResyncComplete,
+
+    /// Database repair completed.
+    DatabaseRepaired { message: String },
 
     /// Initial network sync completed (first successful poll).
     SyncComplete,
