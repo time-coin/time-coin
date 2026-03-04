@@ -273,16 +273,16 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         let mut clicked_idx = None;
         egui::Grid::new("recent_tx_grid")
             .num_columns(5)
-            .spacing([12.0, 6.0])
+            .spacing([12.0, 8.0])
             .min_col_width(0.0)
             .striped(true)
             .show(ui, |ui| {
                 // Header
-                ui.label(egui::RichText::new("Type").strong());
-                ui.label(egui::RichText::new("Amount").strong());
-                ui.label(egui::RichText::new("Address").strong());
-                ui.label(egui::RichText::new("Date").strong());
-                ui.label(egui::RichText::new("Status").strong());
+                ui.label(egui::RichText::new("Type").size(14.0).strong());
+                ui.label(egui::RichText::new("Amount").size(14.0).strong());
+                ui.label(egui::RichText::new("Address").size(14.0).strong());
+                ui.label(egui::RichText::new("Date").size(14.0).strong());
+                ui.label(egui::RichText::new("Status").size(14.0).strong());
                 ui.end_row();
 
                 for (i, tx) in state.transactions.iter().take(10).enumerate() {
@@ -296,7 +296,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     };
                     if ui
                         .add(
-                            egui::Label::new(egui::RichText::new(dir_icon).color(amount_color))
+                            egui::Label::new(egui::RichText::new(dir_icon).size(14.0).color(amount_color))
                                 .sense(egui::Sense::click()),
                         )
                         .clicked()
@@ -310,6 +310,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         .add(
                             egui::Label::new(
                                 egui::RichText::new(state.format_time_signed(tx.amount, is_neg))
+                                    .size(14.0)
                                     .strong()
                                     .color(amount_color),
                             )
@@ -331,7 +332,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     if ui
                         .add(
                             egui::Label::new(
-                                egui::RichText::new(addr_display).color(egui::Color32::BLACK),
+                                egui::RichText::new(addr_display).size(14.0).color(egui::Color32::BLACK),
                             )
                             .sense(egui::Sense::click()),
                         )
@@ -354,7 +355,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     if ui
                         .add(
                             egui::Label::new(
-                                egui::RichText::new(date_str).color(egui::Color32::BLACK),
+                                egui::RichText::new(date_str).size(14.0).color(egui::Color32::BLACK),
                             )
                             .sense(egui::Sense::click()),
                         )
@@ -373,7 +374,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     };
                     if ui
                         .add(
-                            egui::Label::new(egui::RichText::new(status_text).color(status_color))
+                            egui::Label::new(egui::RichText::new(status_text).size(14.0).color(status_color))
                                 .sense(egui::Sense::click()),
                         )
                         .clicked()
