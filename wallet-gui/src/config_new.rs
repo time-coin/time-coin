@@ -25,6 +25,15 @@ pub struct Config {
     #[serde(default)]
     pub ws_endpoint: Option<String>,
 
+    /// RPC username for masternode authentication (from masternode's time.conf).
+    /// If empty, the wallet will attempt to read the masternode's `.cookie` file.
+    #[serde(default)]
+    pub rpc_user: Option<String>,
+
+    /// RPC password for masternode authentication (from masternode's time.conf).
+    #[serde(default)]
+    pub rpc_password: Option<String>,
+
     /// External editor command for opening config files.
     /// Empty or absent uses the OS default handler.
     #[serde(default)]
@@ -53,6 +62,8 @@ impl Default for Config {
             network: default_network(),
             peers: Vec::new(),
             ws_endpoint: None,
+            rpc_user: None,
+            rpc_password: None,
             editor: None,
             data_dir: None,
             active_endpoint: None,
@@ -222,6 +233,63 @@ impl Config {
     /// Whether this is the testnet network.
     pub fn is_testnet(&self) -> bool {
         self.network == "testnet"
+    }
+
+    /// Get RPC credentials for masternode authentication.
+    ///
+    /// Returns `(user, password)` from, in priority order:
+    /// 1. Explicit `rpc_user` / `rpc_password` in config.toml
+    /// 2. The masternode's `.cookie` file (if running on the same machine)
+    pub fn rpc_credentials(&self) -> Option<(String, String)> {
+        // Explicit credentials take priority
+        if let (Some(user), Some(pass)) = (&self.rpc_user, &self.rpc_password) {
+            if !user.is_empty() && !pass.is_empty() {
+                return Some((user.clone(), pass.clone()));
+            }
+        }
+
+        // Try to read the masternode's .cookie file
+        if let Some((user, pass)) = Self::read_cookie_file(self.is_testnet()) {
+            log::info!("🍪 Auto-detected RPC credentials from masternode .cookie file");
+            return Some((user, pass));
+        }
+
+        None
+    }
+
+    /// Read the masternode's `.cookie` file for auto-authentication.
+    ///
+    /// The masternode writes `user:password` to `<data_dir>/.cookie` on startup.
+    fn read_cookie_file(testnet: bool) -> Option<(String, String)> {
+        let cookie_path = Self::masternode_cookie_path(testnet)?;
+        let content = std::fs::read_to_string(&cookie_path).ok()?;
+        let content = content.trim();
+        let (user, pass) = content.split_once(':')?;
+        if user.is_empty() || pass.is_empty() {
+            return None;
+        }
+        log::debug!("📁 Read .cookie from: {}", cookie_path.display());
+        Some((user.to_string(), pass.to_string()))
+    }
+
+    /// Get the expected path of the masternode's `.cookie` file.
+    fn masternode_cookie_path(testnet: bool) -> Option<std::path::PathBuf> {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var("APPDATA").ok().map(std::path::PathBuf::from);
+        #[cfg(not(target_os = "windows"))]
+        let base = dirs::home_dir();
+
+        let mut path = base?;
+        #[cfg(target_os = "windows")]
+        path.push("timecoin");
+        #[cfg(not(target_os = "windows"))]
+        path.push(".timecoin");
+
+        if testnet {
+            path.push("testnet");
+        }
+        path.push(".cookie");
+        Some(path)
     }
 }
 

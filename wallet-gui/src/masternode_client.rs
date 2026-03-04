@@ -78,6 +78,8 @@ fn json_to_satoshis_abs(val: &serde_json::Value) -> u64 {
 pub struct MasternodeClient {
     rpc_endpoint: String,
     client: Client,
+    /// Optional HTTP Basic Auth credentials (user, password)
+    rpc_credentials: Option<(String, String)>,
 }
 
 /// JSON-RPC 2.0 request
@@ -107,7 +109,7 @@ struct JsonRpcError {
 }
 
 impl MasternodeClient {
-    pub fn new(endpoint: String) -> Self {
+    pub fn new(endpoint: String, credentials: Option<(String, String)>) -> Self {
         // Ensure endpoint is an HTTP URL pointing to the RPC port
         let rpc_endpoint = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
             endpoint
@@ -121,14 +123,22 @@ impl MasternodeClient {
             .build()
             .expect("Failed to create HTTP client");
 
-        log::info!(
-            "📡 Masternode JSON-RPC client initialized: {}",
-            rpc_endpoint
-        );
+        if credentials.is_some() {
+            log::info!(
+                "📡 Masternode JSON-RPC client initialized: {} (with auth)",
+                rpc_endpoint
+            );
+        } else {
+            log::info!(
+                "📡 Masternode JSON-RPC client initialized: {} (no auth)",
+                rpc_endpoint
+            );
+        }
 
         Self {
             rpc_endpoint,
             client,
+            rpc_credentials: credentials,
         }
     }
 
@@ -152,12 +162,13 @@ impl MasternodeClient {
 
         log::debug!("→ RPC {}: {:?}", method, request.params);
 
-        let response = self
-            .client
-            .post(&self.rpc_endpoint)
-            .json(&request)
-            .send()
-            .await?;
+        let mut req = self.client.post(&self.rpc_endpoint).json(&request);
+
+        if let Some((ref user, ref pass)) = self.rpc_credentials {
+            req = req.basic_auth(user, Some(pass));
+        }
+
+        let response = req.send().await?;
 
         if !response.status().is_success() {
             return Err(ClientError::http(response.status().as_u16()));
@@ -579,7 +590,9 @@ pub enum ClientError {
 impl ClientError {
     pub fn http(status: u16) -> Self {
         let message = match status {
+            401 => "Unauthorized — check rpc_user/rpc_password in config.toml or masternode .cookie file",
             400 => "Bad Request",
+            403 => "Forbidden",
             404 => "Not Found",
             500 => "Internal Server Error",
             503 => "Service Unavailable",
@@ -595,13 +608,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_creation() {
-        let client = MasternodeClient::new("http://127.0.0.1:24101".to_string());
+        let client = MasternodeClient::new("http://127.0.0.1:24101".to_string(), None);
         assert_eq!(client.endpoint(), "http://127.0.0.1:24101");
     }
 
     #[tokio::test]
     async fn test_client_creation_bare_endpoint() {
-        let client = MasternodeClient::new("127.0.0.1:24101".to_string());
+        let client = MasternodeClient::new("127.0.0.1:24101".to_string(), None);
         assert_eq!(client.endpoint(), "http://127.0.0.1:24101");
     }
 

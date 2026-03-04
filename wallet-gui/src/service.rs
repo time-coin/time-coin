@@ -88,13 +88,21 @@ pub async fn run(
     // Kick off peer discovery in the background (skip on first run — wait for network selection)
     let mut is_testnet = config.is_testnet();
     let mut manual_endpoints = config.manual_endpoints();
+    let mut rpc_credentials = config.rpc_credentials();
     let mut discovery_handle: Option<DiscoveryHandle> = if config.is_first_run {
         None
     } else {
         let discovery_svc_tx = state.svc_tx.clone();
         let discovery_endpoints = manual_endpoints.clone();
+        let discovery_creds = rpc_credentials.clone();
         Some(tokio::spawn(async move {
-            discover_peers(is_testnet, discovery_endpoints, &discovery_svc_tx).await
+            discover_peers(
+                is_testnet,
+                discovery_endpoints,
+                discovery_creds,
+                &discovery_svc_tx,
+            )
+            .await
         }))
     };
 
@@ -161,8 +169,9 @@ pub async fn run(
             _ = refresh_interval.tick(), if discovery_handle.is_none() => {
                 let tx = state.svc_tx.clone();
                 let eps = manual_endpoints.clone();
+                let creds = rpc_credentials.clone();
                 discovery_handle = Some(tokio::spawn(async move {
-                    discover_peers(is_testnet, eps, &tx).await
+                    discover_peers(is_testnet, eps, creds, &tx).await
                 }));
             }
 
@@ -181,7 +190,7 @@ pub async fn run(
                     // Only switch active peer if we don't have one yet
                     if state.client.is_none() {
                         log::info!("🔗 Using peer: {}", endpoint);
-                        state.client = Some(MasternodeClient::new(endpoint.clone()));
+                        state.client = Some(MasternodeClient::new(endpoint.clone(), rpc_credentials.clone()));
                         state.config.active_endpoint = Some(endpoint.clone());
                         config.active_endpoint = Some(endpoint);
 
@@ -560,12 +569,14 @@ pub async fn run(
                         // Re-trigger peer discovery with the correct network
                         is_testnet = selected_testnet;
                         manual_endpoints = state.config.manual_endpoints();
+                        rpc_credentials = state.config.rpc_credentials();
                         state.client = None;
                         let tx = state.svc_tx.clone();
                         let eps = manual_endpoints.clone();
                         let tn = is_testnet;
+                        let creds = rpc_credentials.clone();
                         discovery_handle = Some(tokio::spawn(async move {
-                            discover_peers(tn, eps, &tx).await
+                            discover_peers(tn, eps, creds, &tx).await
                         }));
                     }
 
@@ -1122,6 +1133,7 @@ pub async fn run(
 async fn discover_peers(
     is_testnet: bool,
     manual_endpoints: Vec<String>,
+    rpc_credentials: Option<(String, String)>,
     svc_tx: &mpsc::UnboundedSender<ServiceEvent>,
 ) -> Result<(String, Vec<PeerInfo>), ()> {
     let mut endpoints = manual_endpoints;
@@ -1150,8 +1162,9 @@ async fn discover_peers(
     let probe_timeout = std::time::Duration::from_secs(8);
     let mut handles = Vec::new();
     for endpoint in endpoints.clone() {
+        let creds = rpc_credentials.clone();
         handles.push(tokio::spawn(async move {
-            let client = MasternodeClient::new(endpoint.clone());
+            let client = MasternodeClient::new(endpoint.clone(), creds);
             let start = Instant::now();
             let (is_healthy, ping_ms, block_height, version) =
                 match tokio::time::timeout(probe_timeout, client.health_check()).await {
