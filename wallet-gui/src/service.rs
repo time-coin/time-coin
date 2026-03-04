@@ -142,7 +142,7 @@ pub async fn run(
                             }
                             Err(e) => log::warn!("Balance poll failed: {}", e),
                         }
-                        if let Ok(txs) = client.get_transactions_multi(&state.addresses, 100).await {
+                        if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
                             if let Some(ref db) = state.wallet_db {
                                 let _ = db.save_cached_transactions(&txs);
                             }
@@ -262,7 +262,7 @@ pub async fn run(
                     UiEvent::RefreshTransactions => {
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
-                                match client.get_transactions_multi(&state.addresses, 100).await {
+                                match client.get_transactions_multi(&state.addresses, 0).await {
                                     Ok(txs) => { let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs)); }
                                     Err(e) => { let _ = state.svc_tx.send(ServiceEvent::Error(e.to_string())); }
                                 }
@@ -506,7 +506,7 @@ pub async fn run(
                                         }
                                     }
                                     Screen::Transactions => {
-                                        if let Ok(txs) = client.get_transactions_multi(&state.addresses, 100).await {
+                                        if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
                                             let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                         }
                                     }
@@ -731,7 +731,7 @@ pub async fn run(
                         // Re-fetch everything from masternode before updating UI
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
-                                match client.get_transactions_multi(&state.addresses, 200).await {
+                                match client.get_transactions_multi(&state.addresses, 0).await {
                                     Ok(txs) => {
                                         if let Some(ref db) = state.wallet_db {
                                             let _ = db.save_cached_transactions(&txs);
@@ -1092,7 +1092,7 @@ pub async fn run(
                                     }
                                     Err(e) => log::warn!("Failed to refresh balance after finalization: {}", e),
                                 }
-                                if let Ok(txs) = client.get_transactions_multi(&state.addresses, 100).await {
+                                if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
                                     let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                 }
                                 let mut all_utxos = Vec::new();
