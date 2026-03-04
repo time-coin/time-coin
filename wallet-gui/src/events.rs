@@ -92,6 +92,9 @@ pub enum UiEvent {
     /// Import masternode entries from a masternode.conf file.
     ImportMasternodeConf { path: std::path::PathBuf },
 
+    /// Consolidate many small UTXOs into fewer large ones.
+    ConsolidateUtxos,
+
     /// Register a masternode on-chain via a special transaction.
     RegisterMasternode {
         alias: String,
@@ -245,4 +248,14 @@ pub enum ServiceEvent {
         masternode_id: String,
         txid: String,
     },
+
+    /// UTXO consolidation progress update.
+    ConsolidationProgress {
+        batch: usize,
+        total_batches: usize,
+        message: String,
+    },
+
+    /// UTXO consolidation completed.
+    ConsolidationComplete { message: String },
 }

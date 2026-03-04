@@ -883,6 +883,159 @@ pub async fn run(
                         let _ = state.svc_tx.send(ServiceEvent::DatabaseRepaired { message: msg });
                     }
 
+                    UiEvent::ConsolidateUtxos => {
+                        log::info!("🔄 UTXO consolidation requested");
+                        if let (Some(ref client), Some(ref mut wm)) = (&state.client, &mut state.wallet) {
+                            // Fetch all spendable UTXOs
+                            let mut all_utxos: Vec<crate::masternode_client::Utxo> = Vec::new();
+                            for addr in &state.addresses {
+                                if let Ok(utxos) = client.get_utxos(addr).await {
+                                    all_utxos.extend(utxos);
+                                }
+                            }
+
+                            if all_utxos.len() <= 1 {
+                                let _ = state.svc_tx.send(ServiceEvent::ConsolidationComplete {
+                                    message: "Nothing to consolidate — already 1 UTXO or fewer.".to_string(),
+                                });
+                            } else {
+                                let batch_size = 50;
+                                let total_batches = all_utxos.len().div_ceil(batch_size);
+                                let dest_addr = state.addresses.first().cloned().unwrap_or_default();
+                                let mut consolidated = 0usize;
+                                let mut failed = 0usize;
+
+                                for (batch_idx, chunk) in all_utxos.chunks(batch_size).enumerate() {
+                                    if chunk.len() <= 1 {
+                                        // Single UTXO — nothing to consolidate
+                                        continue;
+                                    }
+
+                                    let _ = state.svc_tx.send(ServiceEvent::ConsolidationProgress {
+                                        batch: batch_idx + 1,
+                                        total_batches,
+                                        message: format!(
+                                            "Consolidating batch {}/{} ({} UTXOs)...",
+                                            batch_idx + 1,
+                                            total_batches,
+                                            chunk.len()
+                                        ),
+                                    });
+
+                                    // Sum this batch
+                                    let batch_total: u64 = chunk.iter().map(|u| u.amount).sum();
+                                    let fee = wallet::calculate_fee(batch_total.saturating_sub(wallet::calculate_fee(batch_total)));
+                                    let send_amount = batch_total.saturating_sub(fee);
+
+                                    if send_amount == 0 {
+                                        continue;
+                                    }
+
+                                    // Load these UTXOs into the wallet
+                                    let wallet_inner = wm.get_active_wallet_mut();
+                                    while !wallet_inner.utxos().is_empty() {
+                                        let u = wallet_inner.utxos()[0].clone();
+                                        wallet_inner.remove_utxo(&u.tx_hash, u.output_index);
+                                    }
+                                    let mut loaded_balance = 0u64;
+                                    for utxo in chunk {
+                                        let mut tx_hash = [0u8; 32];
+                                        if let Ok(bytes) = hex::decode(&utxo.txid) {
+                                            if bytes.len() == 32 {
+                                                tx_hash.copy_from_slice(&bytes);
+                                                wallet_inner.add_utxo(wallet::wallet::UTXO {
+                                                    tx_hash,
+                                                    output_index: utxo.vout,
+                                                    amount: utxo.amount,
+                                                    address: utxo.address.clone(),
+                                                });
+                                                loaded_balance += utxo.amount;
+                                            }
+                                        }
+                                    }
+                                    wallet_inner.set_balance(loaded_balance);
+
+                                    // Create consolidation transaction (send to self)
+                                    match wm.create_transaction(&dest_addr, send_amount, fee) {
+                                        Ok(mut tx) => {
+                                            // Re-sign inputs with correct HD keypairs
+                                            let addr_to_index: std::collections::HashMap<String, u32> =
+                                                (0..wm.get_address_count())
+                                                    .filter_map(|i| wm.derive_address(i).ok().map(|a| (a, i)))
+                                                    .collect();
+
+                                            let mut resignings: Vec<(usize, u32)> = Vec::new();
+                                            for (input_idx, input) in tx.inputs.iter().enumerate() {
+                                                let input_txid: String = input.previous_output.txid.iter().map(|b| format!("{:02x}", b)).collect();
+                                                let input_vout = input.previous_output.vout;
+                                                if let Some(utxo) = chunk.iter().find(|u| u.txid == input_txid && u.vout == input_vout) {
+                                                    if let Some(&hd_index) = addr_to_index.get(&utxo.address) {
+                                                        resignings.push((input_idx, hd_index));
+                                                    }
+                                                }
+                                            }
+                                            for (input_idx, hd_index) in resignings {
+                                                if let Ok(kp) = wm.derive_keypair(hd_index) {
+                                                    let _ = tx.sign(&kp, input_idx);
+                                                }
+                                            }
+
+                                            match tx.to_bytes() {
+                                                Ok(bytes) => {
+                                                    let tx_hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                                                    match client.broadcast_transaction(&tx_hex).await {
+                                                        Ok(txid) => {
+                                                            log::info!("✅ Consolidation batch {}/{}: {}", batch_idx + 1, total_batches, txid);
+                                                            consolidated += 1;
+                                                        }
+                                                        Err(e) => {
+                                                            log::warn!("❌ Consolidation batch {} failed to broadcast: {}", batch_idx + 1, e);
+                                                            failed += 1;
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    log::warn!("❌ Consolidation batch {} failed to serialize: {}", batch_idx + 1, e);
+                                                    failed += 1;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::warn!("❌ Consolidation batch {} failed to create tx: {}", batch_idx + 1, e);
+                                            failed += 1;
+                                        }
+                                    }
+
+                                    // Brief pause between batches
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                }
+
+                                let msg = if failed == 0 {
+                                    format!("Consolidation complete: {} batches sent successfully.", consolidated)
+                                } else {
+                                    format!("Consolidation finished: {} succeeded, {} failed.", consolidated, failed)
+                                };
+                                let _ = state.svc_tx.send(ServiceEvent::ConsolidationComplete { message: msg });
+
+                                // Refresh UTXOs after consolidation
+                                let mut refreshed_utxos = Vec::new();
+                                for addr in &state.addresses {
+                                    if let Ok(utxos) = client.get_utxos(addr).await {
+                                        refreshed_utxos.extend(utxos);
+                                    }
+                                }
+                                state.send_utxos_updated(refreshed_utxos);
+                                if let Ok(bal) = client.get_balances(&state.addresses).await {
+                                    let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                                }
+                            }
+                        } else {
+                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                "Cannot consolidate: no masternode connection or wallet.".to_string(),
+                            ));
+                        }
+                    }
+
                     UiEvent::OpenConfigFile { path } => {
                         log::info!("Opening config file: {}", path.display());
                         // Create file with template if it doesn't exist

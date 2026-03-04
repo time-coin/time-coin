@@ -164,6 +164,11 @@ pub struct AppState {
     /// True while a database repair is in progress.
     pub repair_in_progress: bool,
 
+    /// True while UTXO consolidation is in progress.
+    pub consolidation_in_progress: bool,
+    /// Status message from the last consolidation operation.
+    pub consolidation_status: String,
+
     // -- Pending DB writes --
     /// Send records whose status changed and need to be persisted.
     pub dirty_send_records: Vec<TransactionRecord>,
@@ -245,6 +250,8 @@ impl Default for AppState {
             mn_update_payout_input: String::new(),
             syncing: false,
             repair_in_progress: false,
+            consolidation_in_progress: false,
+            consolidation_status: String::new(),
             dirty_send_records: Vec::new(),
         }
     }
@@ -879,6 +886,16 @@ impl AppState {
 
             ServiceEvent::DatabaseRepaired { message } => {
                 self.repair_in_progress = false;
+                self.success = Some(message);
+            }
+
+            ServiceEvent::ConsolidationProgress { message, .. } => {
+                self.consolidation_status = message;
+            }
+
+            ServiceEvent::ConsolidationComplete { message } => {
+                self.consolidation_in_progress = false;
+                self.consolidation_status.clear();
                 self.success = Some(message);
             }
 

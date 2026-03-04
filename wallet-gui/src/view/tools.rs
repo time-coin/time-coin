@@ -59,6 +59,40 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
 
     ui.add_space(16.0);
 
+    // -- Consolidate UTXOs --
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("Consolidate UTXOs").strong().size(16.0));
+        ui.add_space(4.0);
+        ui.label(
+            format!(
+                "Combines many small UTXOs into fewer large ones, making future transactions faster and smaller. You currently have {} UTXOs.",
+                state.utxos.len()
+            ),
+        );
+        ui.add_space(6.0);
+
+        if state.consolidation_in_progress {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(&state.consolidation_status);
+            });
+        } else if ui
+            .add_enabled(
+                state.utxos.len() > 1 && !state.syncing,
+                egui::Button::new("🔗 Consolidate Now").min_size(egui::vec2(160.0, 28.0)),
+            )
+            .clicked()
+        {
+            state.consolidation_in_progress = true;
+            state.consolidation_status = "Starting consolidation...".to_string();
+            state.error = None;
+            state.success = None;
+            let _ = ui_tx.send(UiEvent::ConsolidateUtxos);
+        }
+    });
+
+    ui.add_space(16.0);
+
     // -- Open Config Files --
     ui.group(|ui| {
         ui.label(
