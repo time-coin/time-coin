@@ -104,7 +104,7 @@ pub struct Transaction {
     pub lock_time: u32,
     pub timestamp: i64,
     /// Optional special transaction payload for masternode operations.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub special_data: Option<SpecialTransactionData>,
 }
 

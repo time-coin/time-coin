@@ -70,6 +70,8 @@ pub struct AppState {
     pub balance: Balance,
     /// Last balance reported by the masternode (for drift detection).
     pub masternode_balance: u64,
+    /// Spendable balance reported by the masternode (excludes locked collateral).
+    pub masternode_available: u64,
     /// Set when computed balance drifts from masternode — triggers auto-resync.
     pub needs_resync: bool,
 
@@ -181,6 +183,7 @@ impl Default for AppState {
                 total: 0,
             },
             masternode_balance: 0,
+            masternode_available: 0,
             needs_resync: false,
             transactions: Vec::new(),
             selected_transaction: None,
@@ -464,6 +467,7 @@ impl AppState {
 
             ServiceEvent::BalanceUpdated(balance) => {
                 self.masternode_balance = balance.total;
+                self.masternode_available = balance.confirmed;
                 // Detect drift between computed and masternode balance
                 let computed = self.computed_balance();
                 if computed != balance.total

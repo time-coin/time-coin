@@ -116,10 +116,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         let available = if state.syncing {
             0
         } else {
-            // Use available balance (excludes locked collateral)
-            let avail = state.available_balance();
-            if avail > 0 {
-                avail
+            // Use the larger of UTXO-derived available and masternode-reported available.
+            // UTXO list may be truncated by the default limit, so masternode is authoritative.
+            let utxo_avail = state.available_balance();
+            let mn_avail = state.masternode_available;
+            let best = utxo_avail.max(mn_avail);
+            if best > 0 {
+                best
             } else {
                 state.computed_balance()
             }

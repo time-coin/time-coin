@@ -327,9 +327,13 @@ impl MasternodeClient {
 
     /// Get UTXOs for an address
     pub async fn get_utxos(&self, address: &str) -> Result<Vec<Utxo>, ClientError> {
-        // listunspentmulti accepts an array of addresses
+        // listunspentmulti accepts [addresses, min_conf, max_conf, limit]
+        // Request up to 10,000 UTXOs to avoid truncation
         let result = self
-            .rpc_call("listunspentmulti", serde_json::json!([[address]]))
+            .rpc_call(
+                "listunspentmulti",
+                serde_json::json!([[address], 0, 9999999, 10000]),
+            )
             .await?;
 
         let utxo_values: Vec<serde_json::Value> =
