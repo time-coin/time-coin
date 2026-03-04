@@ -76,6 +76,10 @@ if "!VS_INSTALLED!"=="1" (
         exit /b 1
     )
     echo [OK] Visual Studio Build Tools installed.
+    echo      Refreshing environment PATH...
+    :: Refresh PATH so rustup-init can detect MSVC
+    for /f "tokens=2*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "PATH=%%B;!PATH!"
+    for /f "tokens=2*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "PATH=%%B;!PATH!"
 )
 
 :: ── Rust toolchain ──────────────────────────────────────────────────────────
@@ -86,7 +90,7 @@ where rustup >nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK] rustup already installed.
     echo      Ensuring stable toolchain with required components...
-    rustup toolchain install stable --component clippy rustfmt
+    rustup toolchain install stable -c clippy -c rustfmt
     rustup default stable
     echo [OK] Rust toolchain is up to date.
 ) else (
@@ -96,8 +100,13 @@ if %errorlevel% equ 0 (
     :: Download rustup-init.exe
     set "RUSTUP_INIT=%TEMP%\rustup-init.exe"
     echo      Downloading rustup-init.exe...
-    curl -sSfL -o "!RUSTUP_INIT!" https://win.rustup.rs/x86_64
-    if !errorlevel! neq 0 (
+    where curl >nul 2>&1
+    if !errorlevel! equ 0 (
+        curl -sSfL -o "!RUSTUP_INIT!" https://win.rustup.rs/x86_64
+    ) else (
+        powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://win.rustup.rs/x86_64' -OutFile '!RUSTUP_INIT!'"
+    )
+    if not exist "!RUSTUP_INIT!" (
         echo [ERROR] Failed to download rustup-init.exe.
         echo         Download manually from https://rustup.rs
         echo.
@@ -106,9 +115,9 @@ if %errorlevel% equ 0 (
     )
 
     :: Install Rust (default stable, adds to PATH)
-    "!RUSTUP_INIT!" -y --default-toolchain stable --component clippy rustfmt
+    "!RUSTUP_INIT!" -y --default-toolchain stable -c clippy -c rustfmt
     if !errorlevel! neq 0 (
-        echo [ERROR] Rust installation failed.
+        echo [ERROR] Rust installation failed. See output above for details.
         echo         Try installing manually from https://rustup.rs
         echo.
         pause
