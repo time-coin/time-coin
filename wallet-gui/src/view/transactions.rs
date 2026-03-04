@@ -204,6 +204,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
     egui::ScrollArea::vertical()
         .id_salt("tx_list_scroll")
         .auto_shrink([false, false])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
             egui::Grid::new("tx_table")
                 .num_columns(6)
