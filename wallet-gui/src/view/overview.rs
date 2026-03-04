@@ -69,8 +69,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             {
                 let utxo_total = state.utxo_total();
                 let mn_bal = state.masternode_balance;
-                // Use UTXO total (blockchain truth) when available, else computed balance
-                let total = if utxo_total > 0 {
+                // Use masternode-reported balance (authoritative) when available,
+                // fall back to UTXO total, then computed balance
+                let total = if mn_bal > 0 {
+                    mn_bal
+                } else if utxo_total > 0 {
                     utxo_total
                 } else {
                     state.computed_balance()
@@ -122,8 +125,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                 egui::RichText::new("Pending")
                                     .color(egui::Color32::from_rgb(255, 165, 0)),
                             );
-                        } else if mn_bal > 0 && utxo_total == mn_bal {
-                            // UTXOs match masternode — verified
+                        } else if mn_bal > 0 {
+                            // Masternode confirmed balance
                             ui.label(
                                 egui::RichText::new("Verified")
                                     .color(egui::Color32::from_rgb(0, 180, 0)),
