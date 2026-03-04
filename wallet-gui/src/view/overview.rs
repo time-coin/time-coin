@@ -328,7 +328,14 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     let addr_display = if tx.is_fee {
                         tx.address.clone()
                     } else if let Some(name) = state.contact_name(&tx.address) {
-                        format!("{} ({})", name, tx.address)
+                        let short = if tx.address.len() > 16 {
+                            format!("{}...{}", &tx.address[..10], &tx.address[tx.address.len()-6..])
+                        } else {
+                            tx.address.clone()
+                        };
+                        format!("{} ({})", name, short)
+                    } else if tx.address.len() > 16 {
+                        format!("{}...{}", &tx.address[..10], &tx.address[tx.address.len()-6..])
                     } else {
                         tx.address.clone()
                     };
