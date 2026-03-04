@@ -539,6 +539,11 @@ impl AppState {
                             if let Some(local) = local_sends.get(&t.txid) {
                                 let mut merged = local.clone();
                                 merged.status = t.status.clone();
+                                // Use the block timestamp from RPC so sent transactions
+                                // show the same time basis as received transactions.
+                                if t.timestamp > 0 {
+                                    merged.timestamp = t.timestamp;
+                                }
                                 return merged;
                             }
                         }
@@ -591,6 +596,13 @@ impl AppState {
                             } else {
                                 local_tx.status.clone()
                             };
+                            // Use the block timestamp from the merged send entry
+                            let fee_timestamp = self
+                                .transactions
+                                .iter()
+                                .find(|t| t.txid == *txid && t.is_send && !t.is_fee)
+                                .map(|t| t.timestamp)
+                                .unwrap_or(local_tx.timestamp);
                             self.transactions.push(TransactionRecord {
                                 txid: txid.clone(),
                                 vout: 0,
@@ -598,7 +610,7 @@ impl AppState {
                                 address: "Network Fee".to_string(),
                                 amount: local_tx.fee,
                                 fee: 0,
-                                timestamp: local_tx.timestamp,
+                                timestamp: fee_timestamp,
                                 status: fee_status,
                                 is_fee: true,
                                 is_change: false,
