@@ -1242,7 +1242,7 @@ async fn discover_peers(
         });
 
     for p in &mut peer_infos {
-        p.is_active = p.endpoint == active_endpoint;
+        p.is_active = p.is_healthy && p.endpoint == active_endpoint;
     }
 
     Ok((active_endpoint, peer_infos))
