@@ -106,11 +106,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
 
         if let Ok(data_dir) = Config::data_dir() {
             let config_path = data_dir.join("config.toml");
-            let config_exists = config_path.exists();
 
             ui.horizontal(|ui| {
-                let btn = ui.add_enabled(
-                    config_exists,
+                let btn = ui.add(
                     egui::Button::new("📝 Open config.toml").min_size(egui::vec2(160.0, 28.0)),
                 );
                 if btn.clicked() {
@@ -124,16 +122,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                         .small(),
                 );
             });
-
-            if !config_exists {
-                ui.label(
-                    egui::RichText::new(
-                        "Config file does not exist yet. It will be created on first save.",
-                    )
-                    .weak()
-                    .italics(),
-                );
-            }
 
             // -- masternode.conf --
             ui.add_space(8.0);
@@ -197,12 +185,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                             .small(),
                     );
                     if !exists {
-                        ui.label(
-                            egui::RichText::new("(not found)")
-                                .weak()
-                                .italics()
-                                .small(),
-                        );
+                        ui.label(egui::RichText::new("(not found)").weak().italics().small());
                     }
                 });
             }

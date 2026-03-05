@@ -1768,15 +1768,23 @@ impl ServiceState {
                                 if let Ok(contents) = std::fs::read_to_string(&mn_conf_path) {
                                     let mut count = 0;
                                     for line in contents.lines() {
-                                        if let Some(entry) = crate::wallet_db::MasternodeEntry::parse_conf_line(line) {
+                                        if let Some(entry) =
+                                            crate::wallet_db::MasternodeEntry::parse_conf_line(line)
+                                        {
                                             let _ = db.save_masternode_entry(&entry);
                                             count += 1;
                                         }
                                     }
                                     if count > 0 {
-                                        log::info!("📥 Auto-imported {} entries from {}", count, mn_conf_path.display());
+                                        log::info!(
+                                            "📥 Auto-imported {} entries from {}",
+                                            count,
+                                            mn_conf_path.display()
+                                        );
                                         if let Ok(imported) = db.get_masternode_entries() {
-                                            let _ = self.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(imported));
+                                            let _ = self.svc_tx.send(
+                                                ServiceEvent::MasternodeEntriesLoaded(imported),
+                                            );
                                         }
                                     }
                                 }
@@ -2134,6 +2142,24 @@ fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
 /// Return a default template for a config file based on its filename.
 fn config_file_template(path: &std::path::Path) -> &'static str {
     match path.file_name().and_then(|n| n.to_str()) {
+        Some("config.toml") => {
+            "\
+# TIME Coin Wallet Configuration
+#
+# Network: \"mainnet\" or \"testnet\"
+network = \"testnet\"
+
+# Masternode peers (IP:port or full URL)
+# peers = [\"64.91.241.10:24101\", \"50.28.104.50:24101\"]
+
+# RPC credentials (from masternode's time.conf)
+# rpc_user = \"timecoinrpc\"
+# rpc_password = \"your_rpc_password\"
+
+# External editor for config files (optional, uses OS default if empty)
+# editor = \"notepad\"
+"
+        }
         Some("masternode.conf") => {
             "\
 # TIME Coin Masternode Configuration
