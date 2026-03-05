@@ -79,6 +79,7 @@ pub struct AppState {
     pub transactions: Vec<TransactionRecord>,
     pub selected_transaction: Option<usize>,
     pub tx_search: String,
+    pub tx_page: usize,
 
     // -- UTXOs --
     pub utxos: Vec<Utxo>,
@@ -193,6 +194,7 @@ impl Default for AppState {
             transactions: Vec::new(),
             selected_transaction: None,
             tx_search: String::new(),
+            tx_page: 0,
             utxos: Vec::new(),
             locked_utxos: std::collections::HashSet::new(),
             health: None,

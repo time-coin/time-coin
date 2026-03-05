@@ -138,14 +138,18 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         ui.heading("Transactions");
         ui.add_space(10.0);
 
-        ui.add(
+        let search_response = ui.add(
             egui::TextEdit::singleline(&mut state.tx_search)
                 .hint_text("Search by address, txid, amount…")
                 .desired_width(250.0),
         );
+        if search_response.changed() {
+            state.tx_page = 0;
+        }
 
         if !state.tx_search.is_empty() && ui.button("Clear").clicked() {
             state.tx_search.clear();
+            state.tx_page = 0;
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -197,7 +201,39 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         .map(|(i, _)| i)
         .collect();
 
-    ui.label(format!("{} transactions", filtered.len()));
+    // Pagination
+    const PAGE_SIZE: usize = 100;
+    let total_pages = if filtered.is_empty() {
+        1
+    } else {
+        filtered.len().div_ceil(PAGE_SIZE)
+    };
+    if state.tx_page >= total_pages {
+        state.tx_page = total_pages.saturating_sub(1);
+    }
+    let page_start = state.tx_page * PAGE_SIZE;
+    let page_end = (page_start + PAGE_SIZE).min(filtered.len());
+    let page_items = &filtered[page_start..page_end];
+
+    ui.horizontal(|ui| {
+        ui.label(format!("{} transactions", filtered.len()));
+        if total_pages > 1 {
+            ui.add_space(15.0);
+            if ui
+                .add_enabled(state.tx_page > 0, egui::Button::new("◀ Prev"))
+                .clicked()
+            {
+                state.tx_page = state.tx_page.saturating_sub(1);
+            }
+            ui.label(format!("Page {} of {}", state.tx_page + 1, total_pages));
+            if ui
+                .add_enabled(state.tx_page < total_pages - 1, egui::Button::new("Next ▶"))
+                .clicked()
+            {
+                state.tx_page += 1;
+            }
+        }
+    });
     ui.add_space(5.0);
 
     let mut clicked_idx = None;
@@ -221,7 +257,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                     ui.label(egui::RichText::new("TxID").size(14.0).strong());
                     ui.end_row();
 
-                    for &i in &filtered {
+                    for &i in page_items {
                         let tx = &state.transactions[i];
 
                         // Type
