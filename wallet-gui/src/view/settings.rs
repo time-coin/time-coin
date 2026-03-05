@@ -103,6 +103,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         ui.set_min_width(ui.available_width());
         ui.label(egui::RichText::new("Wallet").strong());
         ui.add_space(4.0);
+        ui.label(format!("Version: {}", env!("CARGO_PKG_VERSION")));
         if state.wallet_loaded {
             ui.label(format!("Addresses: {}", state.addresses.len()));
             ui.label("Status: Loaded");

@@ -42,7 +42,7 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     let result = eframe::run_native(
-        "TIME Coin Wallet",
+        &format!("TIME Coin Wallet v{}", env!("CARGO_PKG_VERSION")),
         options,
         Box::new(move |cc| Ok(Box::new(app::App::new(cc, config)))),
     );
