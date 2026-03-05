@@ -217,7 +217,9 @@ pub enum ServiceEvent {
     ResyncComplete,
 
     /// Database repair completed.
-    DatabaseRepaired { message: String },
+    DatabaseRepaired {
+        message: String,
+    },
 
     /// Initial network sync completed (first successful poll).
     SyncComplete,
@@ -257,5 +259,7 @@ pub enum ServiceEvent {
     },
 
     /// UTXO consolidation completed.
-    ConsolidationComplete { message: String },
+    ConsolidationComplete {
+        message: String,
+    },
 }

@@ -473,6 +473,7 @@ impl AppState {
             }
 
             ServiceEvent::BalanceUpdated(balance) => {
+                self.loading = false;
                 self.masternode_balance = balance.total;
                 self.masternode_available = balance.confirmed;
                 // Detect drift between computed and masternode balance

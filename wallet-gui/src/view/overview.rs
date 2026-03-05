@@ -299,8 +299,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     };
                     if ui
                         .add(
-                            egui::Label::new(egui::RichText::new(dir_icon).size(14.0).color(amount_color))
-                                .sense(egui::Sense::click()),
+                            egui::Label::new(
+                                egui::RichText::new(dir_icon).size(14.0).color(amount_color),
+                            )
+                            .sense(egui::Sense::click()),
                         )
                         .clicked()
                     {
@@ -329,20 +331,30 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         tx.address.clone()
                     } else if let Some(name) = state.contact_name(&tx.address) {
                         let short = if tx.address.len() > 16 {
-                            format!("{}...{}", &tx.address[..10], &tx.address[tx.address.len()-6..])
+                            format!(
+                                "{}...{}",
+                                &tx.address[..10],
+                                &tx.address[tx.address.len() - 6..]
+                            )
                         } else {
                             tx.address.clone()
                         };
                         format!("{} ({})", name, short)
                     } else if tx.address.len() > 16 {
-                        format!("{}...{}", &tx.address[..10], &tx.address[tx.address.len()-6..])
+                        format!(
+                            "{}...{}",
+                            &tx.address[..10],
+                            &tx.address[tx.address.len() - 6..]
+                        )
                     } else {
                         tx.address.clone()
                     };
                     if ui
                         .add(
                             egui::Label::new(
-                                egui::RichText::new(addr_display).size(14.0).color(egui::Color32::BLACK),
+                                egui::RichText::new(addr_display)
+                                    .size(14.0)
+                                    .color(egui::Color32::BLACK),
                             )
                             .sense(egui::Sense::click()),
                         )
@@ -365,7 +377,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     if ui
                         .add(
                             egui::Label::new(
-                                egui::RichText::new(date_str).size(14.0).color(egui::Color32::BLACK),
+                                egui::RichText::new(date_str)
+                                    .size(14.0)
+                                    .color(egui::Color32::BLACK),
                             )
                             .sense(egui::Sense::click()),
                         )
@@ -384,8 +398,12 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     };
                     if ui
                         .add(
-                            egui::Label::new(egui::RichText::new(status_text).size(14.0).color(status_color))
-                                .sense(egui::Sense::click()),
+                            egui::Label::new(
+                                egui::RichText::new(status_text)
+                                    .size(14.0)
+                                    .color(status_color),
+                            )
+                            .sense(egui::Sense::click()),
                         )
                         .clicked()
                     {

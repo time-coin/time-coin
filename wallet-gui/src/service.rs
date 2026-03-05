@@ -1547,7 +1547,12 @@ async fn discover_peers(
                             match tokio::time::timeout(probe_timeout2, c.health_check()).await {
                                 Ok(Ok(health)) => {
                                     let ms = start.elapsed().as_millis() as u64;
-                                    (true, Some(ms), Some(health.block_height), Some(health.version))
+                                    (
+                                        true,
+                                        Some(ms),
+                                        Some(health.block_height),
+                                        Some(health.version),
+                                    )
                                 }
                                 _ => (false, None, None, None),
                             };
@@ -1577,7 +1582,11 @@ async fn discover_peers(
                 for handle in gossip_handles {
                     if let Ok(info) = handle.await {
                         if info.is_healthy {
-                            log::info!("✅ Gossip peer {} is healthy ({}ms)", info.endpoint, info.ping_ms.unwrap_or(0));
+                            log::info!(
+                                "✅ Gossip peer {} is healthy ({}ms)",
+                                info.endpoint,
+                                info.ping_ms.unwrap_or(0)
+                            );
                         }
                         peer_infos.push(info);
                     }

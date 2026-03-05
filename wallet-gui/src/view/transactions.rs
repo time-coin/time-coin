@@ -234,8 +234,10 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         };
                         if ui
                             .add(
-                                egui::Label::new(egui::RichText::new(dir_icon).size(14.0).color(amount_color))
-                                    .sense(egui::Sense::click()),
+                                egui::Label::new(
+                                    egui::RichText::new(dir_icon).size(14.0).color(amount_color),
+                                )
+                                .sense(egui::Sense::click()),
                             )
                             .clicked()
                         {
@@ -283,7 +285,9 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(addr_label).size(14.0).color(egui::Color32::BLACK),
+                                    egui::RichText::new(addr_label)
+                                        .size(14.0)
+                                        .color(egui::Color32::BLACK),
                                 )
                                 .sense(egui::Sense::click()),
                             )
@@ -306,7 +310,9 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(date_str).size(14.0).color(egui::Color32::BLACK),
+                                    egui::RichText::new(date_str)
+                                        .size(14.0)
+                                        .color(egui::Color32::BLACK),
                                 )
                                 .sense(egui::Sense::click()),
                             )
@@ -326,7 +332,9 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(status_text).size(14.0).color(status_color),
+                                    egui::RichText::new(status_text)
+                                        .size(14.0)
+                                        .color(status_color),
                                 )
                                 .sense(egui::Sense::click()),
                             )
