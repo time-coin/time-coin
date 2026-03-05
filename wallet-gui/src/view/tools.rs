@@ -158,6 +158,54 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                         .small(),
                 );
             });
+
+            // -- time.conf (masternode config) --
+            ui.add_space(8.0);
+            let time_conf_path = {
+                #[cfg(target_os = "windows")]
+                let base = std::env::var("APPDATA").ok().map(std::path::PathBuf::from);
+                #[cfg(not(target_os = "windows"))]
+                let base = dirs::home_dir();
+
+                if let Some(mut p) = base {
+                    #[cfg(target_os = "windows")]
+                    p.push("timecoin");
+                    #[cfg(not(target_os = "windows"))]
+                    p.push(".timecoin");
+                    p.push("time.conf");
+                    Some(p)
+                } else {
+                    None
+                }
+            };
+
+            if let Some(ref tc_path) = time_conf_path {
+                ui.horizontal(|ui| {
+                    let exists = tc_path.exists();
+                    let btn = ui.add_enabled(
+                        exists,
+                        egui::Button::new("📝 Open time.conf").min_size(egui::vec2(160.0, 28.0)),
+                    );
+                    if btn.clicked() {
+                        let _ = ui_tx.send(UiEvent::OpenConfigFile {
+                            path: tc_path.clone(),
+                        });
+                    }
+                    ui.label(
+                        egui::RichText::new(tc_path.display().to_string())
+                            .weak()
+                            .small(),
+                    );
+                    if !exists {
+                        ui.label(
+                            egui::RichText::new("(not found)")
+                                .weak()
+                                .italics()
+                                .small(),
+                        );
+                    }
+                });
+            }
         } else {
             ui.label(egui::RichText::new("Could not determine data directory.").weak());
         }

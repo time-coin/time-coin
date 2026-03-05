@@ -1103,10 +1103,23 @@ pub async fn run(
 
                     UiEvent::SaveMasternodeEntry(entry) => {
                         if let Some(ref db) = state.wallet_db {
-                            let _ = db.save_masternode_entry(&entry);
-                            if let Ok(entries) = db.get_masternode_entries() {
-                                let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                            match db.save_masternode_entry(&entry) {
+                                Ok(()) => {
+                                    log::info!("💾 Saved masternode entry '{}'", entry.alias);
+                                    if let Ok(entries) = db.get_masternode_entries() {
+                                        let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(
+                                        format!("Failed to save masternode '{}': {}", entry.alias, e),
+                                    ));
+                                }
                             }
+                        } else {
+                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                "Cannot save masternode: wallet database not available".to_string(),
+                            ));
                         }
                     }
 
@@ -1748,7 +1761,27 @@ impl ServiceState {
                     }
                     // Load masternode entries
                     if let Ok(entries) = db.get_masternode_entries() {
-                        if !entries.is_empty() {
+                        if entries.is_empty() {
+                            // Auto-import masternode.conf if it exists and DB has no entries
+                            let mn_conf_path = self.config.wallet_dir().join("masternode.conf");
+                            if mn_conf_path.exists() {
+                                if let Ok(contents) = std::fs::read_to_string(&mn_conf_path) {
+                                    let mut count = 0;
+                                    for line in contents.lines() {
+                                        if let Some(entry) = crate::wallet_db::MasternodeEntry::parse_conf_line(line) {
+                                            let _ = db.save_masternode_entry(&entry);
+                                            count += 1;
+                                        }
+                                    }
+                                    if count > 0 {
+                                        log::info!("📥 Auto-imported {} entries from {}", count, mn_conf_path.display());
+                                        if let Ok(imported) = db.get_masternode_entries() {
+                                            let _ = self.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(imported));
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
                             log::info!("Loaded {} masternode entries", entries.len());
                             let _ = self
                                 .svc_tx
