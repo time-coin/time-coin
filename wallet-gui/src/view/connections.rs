@@ -40,7 +40,10 @@ pub fn show(ui: &mut Ui, state: &AppState) {
     ui.label(format!("{} peers", state.peers.len()));
     ui.add_space(10.0);
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+        .show(ui, |ui| {
         egui::Grid::new("peers_table")
             .num_columns(6)
             .spacing([12.0, 6.0])
