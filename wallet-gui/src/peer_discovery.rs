@@ -127,6 +127,11 @@ fn save_cache(is_testnet: bool, endpoints: &[String]) {
     }
 }
 
+/// Save discovered peers to the cache (called from service after gossip discovery).
+pub fn save_discovered_peers(is_testnet: bool, endpoints: &[String]) {
+    save_cache(is_testnet, endpoints);
+}
+
 fn load_cache(is_testnet: bool) -> Option<Vec<String>> {
     let path = cache_path()?;
     let contents = fs::read_to_string(&path).ok()?;

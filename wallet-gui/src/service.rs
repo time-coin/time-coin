@@ -1404,6 +1404,7 @@ async fn discover_peers(
     rpc_credentials: Option<(String, String)>,
     svc_tx: &mpsc::UnboundedSender<ServiceEvent>,
 ) -> Result<(String, Vec<PeerInfo>), ()> {
+    let rpc_port = if is_testnet { 24101 } else { 24001 };
     let mut endpoints = manual_endpoints;
     match peer_discovery::fetch_peers(is_testnet).await {
         Ok(api_peers) => {
@@ -1508,6 +1509,106 @@ async fn discover_peers(
             log::warn!("⚠ No peers responded to health check, using first peer");
             endpoints[0].clone()
         });
+
+    // Gossip discovery: ask the best peer for its known masternodes
+    // and add any new peers we haven't seen yet.
+    let client = MasternodeClient::new(active_endpoint.clone(), rpc_credentials.clone());
+    match client.get_peer_info().await {
+        Ok(gossip_peers) => {
+            let known: std::collections::HashSet<&str> =
+                peer_infos.iter().map(|p| p.endpoint.as_str()).collect();
+            let mut new_endpoints = Vec::new();
+            for gp in &gossip_peers {
+                if !gp.active {
+                    continue;
+                }
+                // addr format is "IP:P2P_PORT" — extract IP and use RPC port
+                let ip = gp.addr.split(':').next().unwrap_or(&gp.addr);
+                let ep = format!("http://{}:{}", ip, rpc_port);
+                if !known.contains(ep.as_str()) {
+                    new_endpoints.push(ep);
+                }
+            }
+            if !new_endpoints.is_empty() {
+                log::info!(
+                    "🔗 Gossip discovery: found {} new peers from {}",
+                    new_endpoints.len(),
+                    active_endpoint
+                );
+                // Probe new peers in parallel
+                let probe_timeout2 = std::time::Duration::from_secs(8);
+                let mut gossip_handles = Vec::new();
+                for ep in new_endpoints {
+                    let creds = rpc_credentials.clone();
+                    gossip_handles.push(tokio::spawn(async move {
+                        let c = MasternodeClient::new(ep.clone(), creds);
+                        let start = Instant::now();
+                        let (is_healthy, ping_ms, block_height, version) =
+                            match tokio::time::timeout(probe_timeout2, c.health_check()).await {
+                                Ok(Ok(health)) => {
+                                    let ms = start.elapsed().as_millis() as u64;
+                                    (true, Some(ms), Some(health.block_height), Some(health.version))
+                                }
+                                _ => (false, None, None, None),
+                            };
+                        let ws_available = if is_healthy {
+                            let ws_url = crate::config_new::Config::derive_ws_url(&ep);
+                            tokio::time::timeout(
+                                std::time::Duration::from_secs(5),
+                                tokio_tungstenite::connect_async(&ws_url),
+                            )
+                            .await
+                            .map(|r| r.is_ok())
+                            .unwrap_or(false)
+                        } else {
+                            false
+                        };
+                        PeerInfo {
+                            endpoint: ep,
+                            is_active: false,
+                            is_healthy,
+                            ws_available,
+                            ping_ms,
+                            block_height,
+                            version,
+                        }
+                    }));
+                }
+                for handle in gossip_handles {
+                    if let Ok(info) = handle.await {
+                        if info.is_healthy {
+                            log::info!("✅ Gossip peer {} is healthy ({}ms)", info.endpoint, info.ping_ms.unwrap_or(0));
+                        }
+                        peer_infos.push(info);
+                    }
+                }
+                // Re-sort after adding gossip peers
+                peer_infos.sort_by(|a, b| {
+                    b.is_healthy
+                        .cmp(&a.is_healthy)
+                        .then(b.ws_available.cmp(&a.ws_available))
+                        .then(
+                            a.ping_ms
+                                .unwrap_or(u64::MAX)
+                                .cmp(&b.ping_ms.unwrap_or(u64::MAX)),
+                        )
+                });
+            }
+        }
+        Err(e) => {
+            log::warn!("⚠ Gossip peer discovery failed: {}", e);
+        }
+    }
+
+    // Cache all discovered healthy peers for offline use
+    let healthy_endpoints: Vec<String> = peer_infos
+        .iter()
+        .filter(|p| p.is_healthy)
+        .map(|p| p.endpoint.clone())
+        .collect();
+    if !healthy_endpoints.is_empty() {
+        peer_discovery::save_discovered_peers(is_testnet, &healthy_endpoints);
+    }
 
     for p in &mut peer_infos {
         p.is_active = p.is_healthy && p.endpoint == active_endpoint;
