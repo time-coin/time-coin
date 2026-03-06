@@ -185,16 +185,25 @@ pub async fn run(
             } => {
                 discovery_handle = None;
                 if let Ok(Ok((endpoint, peer_infos))) = result {
+                    // Check before move: is the active peer still healthy?
+                    let active_is_healthy = state.client.as_ref().map(|c| {
+                        peer_infos.iter().any(|p| p.endpoint == c.endpoint() && p.is_healthy)
+                    }).unwrap_or(false);
+
                     let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(peer_infos));
 
-                    // Only switch active peer if we don't have one yet
-                    if state.client.is_none() {
-                        log::info!("🔗 Using peer: {}", endpoint);
+                    // Switch peer if we have none, or if the active one has become unhealthy
+                    if state.client.is_none() || !active_is_healthy {
+                        if let Some(ref old) = state.client {
+                            log::warn!("🔄 Active peer {} is unhealthy, reconnecting to {}", old.endpoint(), endpoint);
+                        } else {
+                            log::info!("🔗 Using peer: {}", endpoint);
+                        }
                         state.client = Some(MasternodeClient::new(endpoint.clone(), rpc_credentials.clone()));
                         state.config.active_endpoint = Some(endpoint.clone());
                         config.active_endpoint = Some(endpoint);
 
-                        // If wallet is already loaded, start WS and fetch data
+                        // If wallet is already loaded, restart WS and refresh data
                         if !state.addresses.is_empty() {
                             state.start_ws();
                             if let Some(ref client) = state.client {
