@@ -95,27 +95,29 @@ pub async fn run(
         let discovery_svc_tx = state.svc_tx.clone();
         let discovery_endpoints = manual_endpoints.clone();
         let discovery_creds = rpc_credentials.clone();
+        let max_conn = config.max_connections;
         Some(tokio::spawn(async move {
             discover_peers(
                 is_testnet,
                 discovery_endpoints,
                 discovery_creds,
                 &discovery_svc_tx,
+                max_conn,
             )
             .await
         }))
     };
 
-    // Periodic refresh every 5 seconds
-    let mut refresh_interval = tokio::time::interval(std::time::Duration::from_secs(5));
-    refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    // Skip the first immediate tick — the initial discovery is already in flight
-    refresh_interval.tick().await;
+    // Single 5-second poll: block height every tick, heavy data every 3rd tick (15s)
+    let mut poll_interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    poll_interval.tick().await;
+    let mut poll_tick: u8 = 0;
 
-    // Poll balance/transactions every 15 seconds as fallback when WS is down
-    let mut data_poll_interval = tokio::time::interval(std::time::Duration::from_secs(15));
-    data_poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    data_poll_interval.tick().await;
+    // Peer discovery refresh interval (separate from data poll)
+    let mut peer_refresh_interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    peer_refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    peer_refresh_interval.tick().await;
 
     log::info!("🚀 Service loop started ({})", state.config.network);
 
@@ -129,10 +131,17 @@ pub async fn run(
                 break;
             }
 
-            // Periodic balance/transaction polling
-            _ = data_poll_interval.tick() => {
+            // Unified poll: block height every 5s, heavy data every 15s
+            _ = poll_interval.tick() => {
+                poll_tick = poll_tick.wrapping_add(1);
                 if let Some(ref client) = state.client {
-                    if !state.addresses.is_empty() {
+                    // Fast: block height every tick
+                    if let Ok(height) = client.get_block_height().await {
+                        let _ = state.svc_tx.send(ServiceEvent::BlockHeightUpdated(height));
+                    }
+
+                    // Heavy: balance / transactions / UTXOs every 3rd tick (15s)
+                    if poll_tick.is_multiple_of(3) && !state.addresses.is_empty() {
                         match client.get_balances(&state.addresses).await {
                             Ok(bal) => {
                                 if let Some(ref db) = state.wallet_db {
@@ -152,8 +161,6 @@ pub async fn run(
                                 let _ = state.svc_tx.send(ServiceEvent::SyncComplete);
                             }
                         }
-                        // Poll UTXOs so balance verification and reconciliation
-                        // run every sync cycle (finality is at the UTXO level).
                         let mut all_utxos = Vec::new();
                         for addr in &state.addresses {
                             if let Ok(utxos) = client.get_utxos(addr).await {
@@ -166,12 +173,13 @@ pub async fn run(
             }
 
             // Periodic peer refresh
-            _ = refresh_interval.tick(), if discovery_handle.is_none() => {
+            _ = peer_refresh_interval.tick(), if discovery_handle.is_none() => {
                 let tx = state.svc_tx.clone();
                 let eps = manual_endpoints.clone();
                 let creds = rpc_credentials.clone();
+                let max_conn = state.config.max_connections;
                 discovery_handle = Some(tokio::spawn(async move {
-                    discover_peers(is_testnet, eps, creds, &tx).await
+                    discover_peers(is_testnet, eps, creds, &tx, max_conn).await
                 }));
             }
 
@@ -584,8 +592,9 @@ pub async fn run(
                         let eps = manual_endpoints.clone();
                         let tn = is_testnet;
                         let creds = rpc_credentials.clone();
+                        let max_conn = state.config.max_connections;
                         discovery_handle = Some(tokio::spawn(async move {
-                            discover_peers(tn, eps, creds, &tx).await
+                            discover_peers(tn, eps, creds, &tx, max_conn).await
                         }));
                     }
 
@@ -1106,6 +1115,14 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::SetMaxConnections(n) => {
+                        state.config.max_connections = n;
+                        if let Err(e) = state.config.save() {
+                            log::error!("Failed to save config: {}", e);
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::MaxConnectionsUpdated(n));
+                    }
+
                     UiEvent::PersistSendRecords(records) => {
                         if let Some(ref db) = state.wallet_db {
                             for record in &records {
@@ -1429,6 +1446,7 @@ async fn discover_peers(
     manual_endpoints: Vec<String>,
     rpc_credentials: Option<(String, String)>,
     svc_tx: &mpsc::UnboundedSender<ServiceEvent>,
+    max_connections: usize,
 ) -> Result<(String, Vec<PeerInfo>), ()> {
     let rpc_port = if is_testnet { 24101 } else { 24001 };
     let mut endpoints = manual_endpoints;
@@ -1541,6 +1559,11 @@ async fn discover_peers(
                     .cmp(&b.ping_ms.unwrap_or(u64::MAX)),
             )
     });
+
+    // Cap to max_connections: keep the best healthy peers, drop excess
+    if peer_infos.len() > max_connections {
+        peer_infos.truncate(max_connections);
+    }
 
     let active_endpoint = peer_infos
         .iter()

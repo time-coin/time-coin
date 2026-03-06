@@ -15,7 +15,9 @@ use crate::ws_client::TxNotification;
 #[derive(Debug)]
 pub enum UiEvent {
     /// Load an existing wallet (optionally with a password for encrypted wallets).
-    LoadWallet { password: Option<String> },
+    LoadWallet {
+        password: Option<String>,
+    },
 
     /// Create a new wallet from a mnemonic phrase.
     CreateWallet {
@@ -36,7 +38,11 @@ pub enum UiEvent {
     RefreshUtxos,
 
     /// Submit a signed transaction to the masternode.
-    SendTransaction { to: String, amount: u64, fee: u64 },
+    SendTransaction {
+        to: String,
+        amount: u64,
+        fee: u64,
+    },
 
     /// The user navigated to a new screen — the service may prefetch data.
     NavigatedTo(Screen),
@@ -45,22 +51,34 @@ pub enum UiEvent {
     CheckHealth,
 
     /// Switch network (mainnet / testnet). Requires wallet reload.
-    SwitchNetwork { network: String },
+    SwitchNetwork {
+        network: String,
+    },
 
     /// Select network on first run (before any wallet is created).
-    SelectNetwork { network: String },
+    SelectNetwork {
+        network: String,
+    },
 
     /// Update the label for a wallet address (persisted to local db).
-    UpdateAddressLabel { index: usize, label: String },
+    UpdateAddressLabel {
+        index: usize,
+        label: String,
+    },
 
     /// Generate a new receive address from the HD wallet.
     GenerateAddress,
 
     /// Save an external contact (send address book).
-    SaveContact { name: String, address: String },
+    SaveContact {
+        name: String,
+        address: String,
+    },
 
     /// Delete an external contact.
-    DeleteContact { address: String },
+    DeleteContact {
+        address: String,
+    },
 
     /// Update the number of decimal places for amount display.
     UpdateDecimalPlaces(usize),
@@ -72,25 +90,36 @@ pub enum UiEvent {
     RepairDatabase,
 
     /// Open a config file in the system's default text editor.
-    OpenConfigFile { path: std::path::PathBuf },
+    OpenConfigFile {
+        path: std::path::PathBuf,
+    },
 
     /// Clean shutdown.
     Shutdown,
 
     /// Encrypt an unencrypted wallet with the given password.
-    EncryptWallet { password: String },
+    EncryptWallet {
+        password: String,
+    },
 
     /// Set the external editor command (None = OS default).
-    SetEditor { editor: Option<String> },
+    SetEditor {
+        editor: Option<String>,
+    },
+    SetMaxConnections(usize),
 
     /// Save a masternode entry to the database.
     SaveMasternodeEntry(crate::wallet_db::MasternodeEntry),
 
     /// Delete a masternode entry by alias.
-    DeleteMasternodeEntry { alias: String },
+    DeleteMasternodeEntry {
+        alias: String,
+    },
 
     /// Import masternode entries from a masternode.conf file.
-    ImportMasternodeConf { path: std::path::PathBuf },
+    ImportMasternodeConf {
+        path: std::path::PathBuf,
+    },
 
     /// Consolidate many small UTXOs into fewer large ones.
     ConsolidateUtxos,
@@ -262,4 +291,10 @@ pub enum ServiceEvent {
     ConsolidationComplete {
         message: String,
     },
+
+    /// Block height polled from active peer.
+    BlockHeightUpdated(u64),
+
+    /// Max connections setting updated.
+    MaxConnectionsUpdated(usize),
 }

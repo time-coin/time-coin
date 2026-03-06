@@ -34,6 +34,11 @@ pub struct Config {
     #[serde(default)]
     pub rpc_password: Option<String>,
 
+    /// Maximum number of peers to track and display.
+    /// Manual peers in `peers` are always included; discovered peers fill the rest.
+    #[serde(default = "default_max_connections")]
+    pub max_connections: usize,
+
     /// External editor command for opening config files.
     /// Empty or absent uses the OS default handler.
     #[serde(default)]
@@ -52,6 +57,10 @@ pub struct Config {
     pub is_first_run: bool,
 }
 
+fn default_max_connections() -> usize {
+    8
+}
+
 fn default_network() -> String {
     "mainnet".to_string()
 }
@@ -61,6 +70,7 @@ impl Default for Config {
         Self {
             network: default_network(),
             peers: Vec::new(),
+            max_connections: default_max_connections(),
             ws_endpoint: None,
             rpc_user: None,
             rpc_password: None,

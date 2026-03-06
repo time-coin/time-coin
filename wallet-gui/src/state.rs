@@ -129,6 +129,8 @@ pub struct AppState {
     pub decimal_places: usize,
     /// Editor command input for settings UI.
     pub editor_input: String,
+    /// Max peer connections (mirrors config, editable in Settings).
+    pub max_connections: usize,
 
     // -- Persisted send records (correct amounts from wallet, keyed by txid) --
     pub send_records: std::collections::HashMap<String, TransactionRecord>,
@@ -232,6 +234,7 @@ impl Default for AppState {
             loading: false,
             decimal_places: 2,
             editor_input: String::new(),
+            max_connections: 8,
             send_records: std::collections::HashMap::new(),
             wallet_encrypted: true, // assume safe until proven otherwise
             encrypt_password_input: String::new(),
@@ -925,6 +928,31 @@ impl AppState {
 
             ServiceEvent::EditorLoaded(editor) => {
                 self.editor_input = editor.unwrap_or_default();
+            }
+
+            ServiceEvent::BlockHeightUpdated(height) => {
+                // Update health struct (shown in Settings)
+                if let Some(ref mut h) = self.health {
+                    h.block_height = height;
+                } else {
+                    self.health = Some(crate::masternode_client::HealthStatus {
+                        status: "healthy".to_string(),
+                        version: String::new(),
+                        block_height: height,
+                        peer_count: 0,
+                    });
+                }
+                // Update the active peer's block height in the connections list
+                for peer in &mut self.peers {
+                    if peer.is_active {
+                        peer.block_height = Some(height);
+                        break;
+                    }
+                }
+            }
+
+            ServiceEvent::MaxConnectionsUpdated(n) => {
+                self.max_connections = n;
             }
 
             ServiceEvent::WalletExists(exists) => {
