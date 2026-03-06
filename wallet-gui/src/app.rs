@@ -144,10 +144,16 @@ impl eframe::App for App {
                     &self.ui_tx,
                 );
                 ui.separator();
+                let healthy_count = self.state.peers.iter().filter(|p| p.is_healthy).count();
+                let conn_label = if healthy_count > 0 {
+                    format!("🔗 Connections ({healthy_count})")
+                } else {
+                    "🔗 Connections".to_string()
+                };
                 nav_button(
                     ui,
                     &mut self.state,
-                    "🔗 Connections",
+                    &conn_label,
                     Screen::Connections,
                     &self.ui_tx,
                 );
