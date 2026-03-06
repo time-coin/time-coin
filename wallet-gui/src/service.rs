@@ -1053,17 +1053,21 @@ pub async fn run(
                             }
                             log::info!("Created {}", path.display());
                         }
-                        let result = if let Some(ref editor) = state.config.editor {
-                            std::process::Command::new(editor).arg(&path).spawn().map(|_| ())
-                        } else {
-                            open::that(&path)
-                        };
-                        if let Err(e) = result {
-                            log::error!("Failed to open editor: {}", e);
-                            let _ = state.svc_tx.send(ServiceEvent::Error(
-                                format!("Failed to open editor: {}", e),
-                            ));
-                        }
+                        let editor = state.config.editor.clone();
+                        let svc_tx = state.svc_tx.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let result = if let Some(ref ed) = editor {
+                                std::process::Command::new(ed).arg(&path).spawn().map(|_| ())
+                            } else {
+                                open::that(&path)
+                            };
+                            if let Err(e) = result {
+                                log::error!("Failed to open editor: {}", e);
+                                let _ = svc_tx.send(ServiceEvent::Error(
+                                    format!("Failed to open editor: {}", e),
+                                ));
+                            }
+                        });
                     }
 
                     UiEvent::EncryptWallet { password } => {
