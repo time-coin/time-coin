@@ -1460,27 +1460,42 @@ async fn discover_peers(
         let creds = rpc_credentials.clone();
         handles.push(tokio::spawn(async move {
             let client = MasternodeClient::new(endpoint.clone(), creds);
-            let start = Instant::now();
-            let (is_healthy, ping_ms, block_height, version) =
+
+            // TCP connect for accurate network ping (strips http:// scheme)
+            let tcp_addr = endpoint
+                .strip_prefix("http://")
+                .or_else(|| endpoint.strip_prefix("https://"))
+                .unwrap_or(&endpoint)
+                .trim_end_matches('/');
+            let tcp_start = Instant::now();
+            let tcp_ok = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                tokio::net::TcpStream::connect(tcp_addr),
+            )
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false);
+            let ping_ms = if tcp_ok {
+                Some(tcp_start.elapsed().as_millis() as u64)
+            } else {
+                None
+            };
+
+            let (is_healthy, block_height, version) = if tcp_ok {
                 match tokio::time::timeout(probe_timeout, client.health_check()).await {
-                    Ok(Ok(health)) => {
-                        let ms = start.elapsed().as_millis() as u64;
-                        (
-                            true,
-                            Some(ms),
-                            Some(health.block_height),
-                            Some(health.version),
-                        )
-                    }
+                    Ok(Ok(health)) => (true, Some(health.block_height), Some(health.version)),
                     Ok(Err(e)) => {
                         log::warn!("⚠ Peer {} unhealthy: {}", endpoint, e);
-                        (false, None, None, None)
+                        (false, None, None)
                     }
                     Err(_) => {
                         log::warn!("⚠ Peer {} timed out", endpoint);
-                        (false, None, None, None)
+                        (false, None, None)
                     }
-                };
+                }
+            } else {
+                (false, None, None)
+            };
 
             // Probe WebSocket connectivity (WS port = RPC port + 1)
             let ws_available = if is_healthy {
@@ -1568,20 +1583,37 @@ async fn discover_peers(
                     let creds = rpc_credentials.clone();
                     gossip_handles.push(tokio::spawn(async move {
                         let c = MasternodeClient::new(ep.clone(), creds);
-                        let start = Instant::now();
-                        let (is_healthy, ping_ms, block_height, version) =
+
+                        // TCP connect for accurate network ping
+                        let tcp_addr = ep
+                            .strip_prefix("http://")
+                            .or_else(|| ep.strip_prefix("https://"))
+                            .unwrap_or(&ep)
+                            .trim_end_matches('/');
+                        let tcp_start = Instant::now();
+                        let tcp_ok = tokio::time::timeout(
+                            std::time::Duration::from_secs(2),
+                            tokio::net::TcpStream::connect(tcp_addr),
+                        )
+                        .await
+                        .map(|r| r.is_ok())
+                        .unwrap_or(false);
+                        let ping_ms = if tcp_ok {
+                            Some(tcp_start.elapsed().as_millis() as u64)
+                        } else {
+                            None
+                        };
+
+                        let (is_healthy, block_height, version) = if tcp_ok {
                             match tokio::time::timeout(probe_timeout2, c.health_check()).await {
                                 Ok(Ok(health)) => {
-                                    let ms = start.elapsed().as_millis() as u64;
-                                    (
-                                        true,
-                                        Some(ms),
-                                        Some(health.block_height),
-                                        Some(health.version),
-                                    )
+                                    (true, Some(health.block_height), Some(health.version))
                                 }
-                                _ => (false, None, None, None),
-                            };
+                                _ => (false, None, None),
+                            }
+                        } else {
+                            (false, None, None)
+                        };
                         let ws_available = if is_healthy {
                             let ws_url = crate::config_new::Config::derive_ws_url(&ep);
                             tokio::time::timeout(

@@ -45,11 +45,12 @@ pub fn show(ui: &mut Ui, state: &AppState) {
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
             egui::Grid::new("peers_table")
-                .num_columns(6)
+                .num_columns(7)
                 .spacing([12.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
                     // Header
+                    ui.label(egui::RichText::new("#").strong());
                     ui.label(egui::RichText::new("").strong());
                     ui.label(egui::RichText::new("IP Address").strong());
                     ui.label(egui::RichText::new("Status").strong());
@@ -58,7 +59,10 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                     ui.label(egui::RichText::new("Block").strong());
                     ui.end_row();
 
-                    for peer in &state.peers {
+                    for (i, peer) in state.peers.iter().enumerate() {
+                        // Row number
+                        ui.label(egui::RichText::new(format!("{}", i + 1)).weak().monospace());
+
                         // Health dot
                         let dot_color = if !peer.is_healthy {
                             egui::Color32::RED
