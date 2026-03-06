@@ -865,6 +865,11 @@ impl AppState {
                 self.ws_connected = false;
             }
 
+            ServiceEvent::WsCapacityFull(_url) => {
+                // Service is already handling failover; just mark as disconnected
+                self.ws_connected = false;
+            }
+
             ServiceEvent::PasswordRequired => {
                 self.password_required = true;
                 self.loading = false;

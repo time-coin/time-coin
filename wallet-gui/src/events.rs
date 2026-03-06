@@ -213,6 +213,8 @@ pub enum ServiceEvent {
     /// WebSocket connection state changed.
     WsConnected,
     WsDisconnected,
+    /// Masternode WebSocket was at capacity — wallet should failover to another peer.
+    WsCapacityFull(String),
 
     /// The wallet is encrypted and a password is needed to unlock it.
     PasswordRequired,

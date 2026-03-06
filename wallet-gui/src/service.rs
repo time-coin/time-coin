@@ -74,6 +74,7 @@ pub async fn run(
         ws_event_tx,
         ws_shutdown_rx,
         ws_handle: None,
+        last_peers: Vec::new(),
     };
 
     // Auto-load wallet if it exists
@@ -198,6 +199,7 @@ pub async fn run(
                         peer_infos.iter().any(|p| p.endpoint == c.endpoint() && p.is_healthy)
                     }).unwrap_or(false);
 
+                    state.last_peers = peer_infos.clone();
                     let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(peer_infos));
 
                     // Switch peer if we have none, or if the active one has become unhealthy
@@ -1424,6 +1426,27 @@ pub async fn run(
                     WsEvent::Disconnected(_) => {
                         let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
                     }
+                    WsEvent::CapacityFull(url) => {
+                        log::warn!("⚠️ Masternode at capacity: {}. Attempting failover…", url);
+                        let _ = state.svc_tx.send(ServiceEvent::WsCapacityFull(url.clone()));
+                        // The WS URL is derived from the RPC endpoint (port+1), so reverse to find
+                        // the capacity-full endpoint and pick the next healthy one.
+                        let current_endpoint = state.config.active_endpoint.clone();
+                        let next = state.last_peers.iter().find(|p| {
+                            p.is_healthy && Some(&p.endpoint) != current_endpoint.as_ref()
+                        }).cloned();
+                        if let Some(peer) = next {
+                            log::info!("🔀 Failing over to {}", peer.endpoint);
+                            state.client = Some(MasternodeClient::new(peer.endpoint.clone(), rpc_credentials.clone()));
+                            state.config.active_endpoint = Some(peer.endpoint.clone());
+                            config.active_endpoint = Some(peer.endpoint);
+                            if !state.addresses.is_empty() {
+                                state.start_ws();
+                            }
+                        } else {
+                            log::warn!("⚠️ No healthy fallback peer available for WS failover");
+                        }
+                    }
                     WsEvent::TransactionRejected(notif) => {
                         log::warn!("❌ Transaction {} rejected: {}", &notif.txid[..16.min(notif.txid.len())], notif.reason);
                         let _ = state.svc_tx.send(ServiceEvent::TransactionFinalityUpdated {
@@ -1719,6 +1742,8 @@ struct ServiceState {
     ws_event_tx: mpsc::UnboundedSender<WsEvent>,
     ws_shutdown_rx: tokio::sync::watch::Receiver<bool>,
     ws_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Most recent peer list from discovery, for failover on capacity-full.
+    last_peers: Vec<PeerInfo>,
 }
 
 impl ServiceState {

@@ -68,6 +68,8 @@ pub enum WsEvent {
     Connected(String),
     /// WebSocket disconnected
     Disconnected(String),
+    /// Masternode rejected connection because it is at capacity (HTTP 503)
+    CapacityFull(String),
 }
 
 /// WebSocket client that maintains a persistent connection to a masternode
@@ -125,6 +127,18 @@ impl WsClient {
                         let _ = event_tx.send(WsEvent::Disconnected(ws_url.clone()));
                     }
                     Err(e) => {
+                        // If the masternode rejected us with 503 (capacity full),
+                        // notify the service so it can failover — don't retry this endpoint.
+                        if let tokio_tungstenite::tungstenite::Error::Http(ref resp) = e {
+                            if resp.status() == 503 {
+                                log::warn!(
+                                    "⚠️ WebSocket rejected by {} — server at capacity (503)",
+                                    ws_url
+                                );
+                                let _ = event_tx.send(WsEvent::CapacityFull(ws_url.clone()));
+                                break;
+                            }
+                        }
                         log::warn!(
                             "⚠️ WebSocket connection failed: {} (retry in {}s)",
                             e,
