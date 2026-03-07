@@ -146,7 +146,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                 );
             });
 
-            // -- time.conf (masternode config) --
+            // -- time.conf (masternode node config) --
             ui.add_space(8.0);
             let time_conf_path = {
                 #[cfg(target_os = "windows")]
@@ -171,7 +171,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                     let exists = tc_path.exists();
                     let btn = ui.add_enabled(
                         exists,
-                        egui::Button::new("📝 Open time.conf").min_size(egui::vec2(160.0, 28.0)),
+                        egui::Button::new("📝 Open masternode time.conf")
+                            .min_size(egui::vec2(160.0, 28.0)),
                     );
                     if btn.clicked() {
                         let _ = ui_tx.send(UiEvent::OpenConfigFile {
