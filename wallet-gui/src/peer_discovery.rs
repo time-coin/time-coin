@@ -93,7 +93,7 @@ async fn fetch_from_api(is_testnet: bool) -> Result<Vec<String>, PeerDiscoveryEr
 
     let endpoints: Vec<String> = ips
         .into_iter()
-        .map(|ip| format!("http://{}:{}", ip, port))
+        .map(|ip| format!("https://{}:{}", ip, port))
         .collect();
 
     log::info!("✅ Discovered {} peers from API", endpoints.len());

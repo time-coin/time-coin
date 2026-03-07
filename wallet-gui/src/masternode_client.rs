@@ -110,16 +110,18 @@ struct JsonRpcError {
 
 impl MasternodeClient {
     pub fn new(endpoint: String, credentials: Option<(String, String)>) -> Self {
-        // Ensure endpoint is an HTTP URL pointing to the RPC port
+        // Ensure endpoint is an HTTPS URL — masternodes require TLS by default
         let rpc_endpoint = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
             endpoint
         } else {
-            format!("http://{}", endpoint)
+            format!("https://{}", endpoint)
         };
 
+        // Accept self-signed certificates — masternodes use auto-generated certs (TOFU model)
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
+            .danger_accept_invalid_certs(true)
             .build()
             .expect("Failed to create HTTP client");
 

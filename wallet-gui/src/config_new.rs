@@ -365,8 +365,8 @@ impl Config {
         }
     }
 
-    /// Build HTTP endpoint URLs from the manual peer list.
-    /// Each entry can be `ip`, `ip:port`, or a full `http://...` URL.
+    /// Build HTTPS endpoint URLs from the manual peer list.
+    /// Each entry can be `ip`, `ip:port`, or a full `http(s)://...` URL.
     pub fn manual_endpoints(&self) -> Vec<String> {
         let port = self.rpc_port();
         self.peers
@@ -375,9 +375,9 @@ impl Config {
                 if p.starts_with("http://") || p.starts_with("https://") {
                     p.clone()
                 } else if p.contains(':') {
-                    format!("http://{}", p)
+                    format!("https://{}", p)
                 } else {
-                    format!("http://{}:{}", p, port)
+                    format!("https://{}:{}", p, port)
                 }
             })
             .collect()
