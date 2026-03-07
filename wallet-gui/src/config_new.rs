@@ -4,6 +4,21 @@
 //! - Which network (mainnet/testnet)
 //! - Where to find the masternode
 //! - Where to store local data
+//!
+//! Configuration is stored in `~/.time-wallet/time.conf` using Bitcoin-style
+//! key=value syntax. Lines beginning with `#` are comments.
+//!
+//! ## Supported keys
+//!
+//! | Key | Default | Description |
+//! |---|---|---|
+//! | `testnet` | `0` | Set to `1` for testnet |
+//! | `addnode` | — | Masternode peer (IP, IP:port, or URL). Repeatable. |
+//! | `rpcuser` | — | RPC username for masternode auth |
+//! | `rpcpassword` | — | RPC password for masternode auth |
+//! | `maxconnections` | `0` | Max peer connections (0 = unlimited) |
+//! | `wsendpoint` | — | Override WebSocket URL |
+//! | `editor` | — | Path to text editor for opening config files |
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -83,49 +98,68 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load configuration from disk
+    /// Load configuration from disk.
+    ///
+    /// Reads `~/.time-wallet/time.conf`. If that file doesn't exist but the
+    /// legacy `config.toml` does, migrates it automatically.
     pub fn load() -> Result<Self, ConfigError> {
-        let config_path = Self::config_path()?;
+        let conf_path = Self::config_path()?;
+        let data_dir = Self::data_dir()?;
 
-        if config_path.exists() {
-            log::info!("📁 Loading config from: {}", config_path.display());
-            let contents = fs::read_to_string(&config_path)?;
-            let mut config: Config = toml::from_str(&contents)?;
-            config.data_dir = Some(Self::data_dir()?);
-            config.is_first_run = false;
-            // Auto-detect editor if not configured
-            if config.editor.is_none() {
-                config.editor = detect_editor();
-            }
-            log::info!(
-                "✅ Config loaded: network={}, {} manual peers",
-                config.network,
-                config.peers.len()
-            );
-            Ok(config)
+        let mut config = if conf_path.exists() {
+            log::info!("📁 Loading config from: {}", conf_path.display());
+            let contents = fs::read_to_string(&conf_path)?;
+            let mut c = Self::parse_time_conf(&contents);
+            c.data_dir = Some(data_dir);
+            c
         } else {
+            // Migration: convert legacy config.toml → time.conf
+            let toml_path = data_dir.join("config.toml");
+            if toml_path.exists() {
+                log::info!("🔄 Migrating config.toml → time.conf");
+                let contents = fs::read_to_string(&toml_path)?;
+                let mut c: Config = toml::from_str(&contents)?;
+                c.data_dir = Some(data_dir);
+                c.is_first_run = false;
+                if c.editor.is_none() {
+                    c.editor = detect_editor();
+                }
+                // Save in new format and keep old file as backup
+                c.save()?;
+                let backup = toml_path.with_extension("toml.bak");
+                let _ = fs::rename(&toml_path, &backup);
+                log::info!("✅ Migration complete — config.toml renamed to config.toml.bak");
+                return Ok(c);
+            }
             log::info!("📝 First run — no config file found, network selection required");
-            let config = Config {
+            Config {
                 data_dir: Some(Self::data_dir()?),
                 is_first_run: true,
                 editor: detect_editor(),
                 ..Config::default()
-            };
-            // Don't save yet — wait for user to select network
-            Ok(config)
+            }
+        };
+
+        config.is_first_run = false;
+        if config.editor.is_none() {
+            config.editor = detect_editor();
         }
+        log::info!(
+            "✅ Config loaded: network={}, {} manual peers",
+            config.network,
+            config.peers.len()
+        );
+        Ok(config)
     }
 
-    /// Save configuration to disk
+    /// Save configuration to `~/.time-wallet/time.conf`.
     pub fn save(&self) -> Result<(), ConfigError> {
-        let config_path = Self::config_path()?;
-        if let Some(parent) = config_path.parent() {
+        let conf_path = Self::config_path()?;
+        if let Some(parent) = conf_path.parent() {
             fs::create_dir_all(parent)?;
         }
-
-        let contents = toml::to_string_pretty(self)?;
-        fs::write(&config_path, contents)?;
-        log::info!("💾 Config saved to: {}", config_path.display());
+        fs::write(&conf_path, self.to_time_conf())?;
+        log::info!("💾 Config saved to: {}", conf_path.display());
         Ok(())
     }
 
@@ -143,10 +177,10 @@ impl Config {
         }
     }
 
-    /// Get config file path
+    /// Get config file path (`~/.time-wallet/time.conf`)
     fn config_path() -> Result<PathBuf, ConfigError> {
         let mut path = Self::data_dir()?;
-        path.push("config.toml");
+        path.push("time.conf");
         Ok(path)
     }
 
@@ -156,6 +190,115 @@ impl Config {
         let mut path = home;
         path.push(".time-wallet");
         Ok(path)
+    }
+
+    /// Parse a `time.conf` file (Bitcoin-style `key=value`, `#` comments).
+    ///
+    /// Unknown keys are silently ignored so future versions stay compatible.
+    pub fn parse_time_conf(contents: &str) -> Self {
+        let mut config = Config::default();
+
+        for raw in contents.lines() {
+            // Strip inline comments
+            let line = raw.find('#').map_or(raw, |p| &raw[..p]).trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            let value = value.trim();
+
+            match key {
+                "testnet" => {
+                    config.network = if value == "1" {
+                        "testnet".to_string()
+                    } else {
+                        "mainnet".to_string()
+                    };
+                }
+                "addnode" if !value.is_empty() => {
+                    config.peers.push(value.to_string());
+                }
+                "rpcuser" if !value.is_empty() => {
+                    config.rpc_user = Some(value.to_string());
+                }
+                "rpcpassword" if !value.is_empty() => {
+                    config.rpc_password = Some(value.to_string());
+                }
+                "maxconnections" => {
+                    if let Ok(n) = value.parse::<usize>() {
+                        config.max_connections = if n == 0 { usize::MAX } else { n };
+                    }
+                }
+                "wsendpoint" if !value.is_empty() => {
+                    config.ws_endpoint = Some(value.to_string());
+                }
+                "editor" if !value.is_empty() => {
+                    config.editor = Some(value.to_string());
+                }
+                _ => {} // forward-compatible: ignore unknown keys
+            }
+        }
+
+        config
+    }
+
+    /// Serialize config to `time.conf` format (Bitcoin-style key=value).
+    pub fn to_time_conf(&self) -> String {
+        let mut out = String::new();
+
+        out.push_str("# TIME Coin Wallet Configuration\n");
+        out.push_str("# Lines starting with # are comments.\n");
+        out.push_str("# See https://github.com/time-coin for documentation.\n\n");
+
+        out.push_str("# Network: 1=testnet, 0=mainnet\n");
+        out.push_str(&format!(
+            "testnet={}\n\n",
+            if self.is_testnet() { 1 } else { 0 }
+        ));
+
+        out.push_str("# Masternode peers (IP, IP:port, or http://IP:port). Repeat for multiple.\n");
+        if self.peers.is_empty() {
+            out.push_str("#addnode=64.91.241.10:24001\n");
+        } else {
+            for peer in &self.peers {
+                out.push_str(&format!("addnode={}\n", peer));
+            }
+        }
+        out.push('\n');
+
+        out.push_str("# RPC credentials (from the masternode's time.conf)\n");
+        match (&self.rpc_user, &self.rpc_password) {
+            (Some(u), Some(p)) => {
+                out.push_str(&format!("rpcuser={}\n", u));
+                out.push_str(&format!("rpcpassword={}\n", p));
+            }
+            _ => {
+                out.push_str("#rpcuser=timecoinrpc\n");
+                out.push_str("#rpcpassword=\n");
+            }
+        }
+        out.push('\n');
+
+        out.push_str("# Maximum peer connections (0 = unlimited)\n");
+        let mc = if self.max_connections == usize::MAX {
+            0
+        } else {
+            self.max_connections
+        };
+        out.push_str(&format!("maxconnections={}\n\n", mc));
+
+        if let Some(ref ws) = self.ws_endpoint {
+            out.push_str(&format!("wsendpoint={}\n\n", ws));
+        }
+
+        if let Some(ref ed) = self.editor {
+            out.push_str(&format!("editor={}\n\n", ed));
+        }
+
+        out
     }
 
     /// Switch to mainnet
@@ -312,11 +455,9 @@ pub enum ConfigError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Only used during migration from legacy config.toml.
     #[error("TOML parse error: {0}")]
     Toml(#[from] toml::de::Error),
-
-    #[error("TOML serialize error: {0}")]
-    TomlSerialize(#[from] toml::ser::Error),
 
     #[error("Home directory not found")]
     NoHomeDir,
@@ -412,10 +553,53 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let config = Config::default();
-        let toml = toml::to_string(&config).unwrap();
-        let deserialized: Config = toml::from_str(&toml).unwrap();
-        assert_eq!(config.network, deserialized.network);
+        let config = Config {
+            network: "testnet".to_string(),
+            peers: vec!["64.91.241.10:24101".to_string()],
+            rpc_user: Some("user".to_string()),
+            rpc_password: Some("pass".to_string()),
+            ..Config::default()
+        };
+        let conf = config.to_time_conf();
+        let parsed = Config::parse_time_conf(&conf);
+        assert_eq!(parsed.network, "testnet");
+        assert_eq!(parsed.peers, vec!["64.91.241.10:24101"]);
+        assert_eq!(parsed.rpc_user.as_deref(), Some("user"));
+        assert_eq!(parsed.rpc_password.as_deref(), Some("pass"));
+    }
+
+    #[test]
+    fn test_parse_time_conf_basics() {
+        let conf = "\
+testnet=1
+addnode=1.2.3.4:24101
+addnode=5.6.7.8:24101
+rpcuser=alice
+rpcpassword=secret
+maxconnections=20
+# this is a comment
+editor=nano
+";
+        let c = Config::parse_time_conf(conf);
+        assert_eq!(c.network, "testnet");
+        assert_eq!(c.peers, vec!["1.2.3.4:24101", "5.6.7.8:24101"]);
+        assert_eq!(c.rpc_user.as_deref(), Some("alice"));
+        assert_eq!(c.rpc_password.as_deref(), Some("secret"));
+        assert_eq!(c.max_connections, 20);
+        assert_eq!(c.editor.as_deref(), Some("nano"));
+    }
+
+    #[test]
+    fn test_parse_time_conf_maxconnections_zero() {
+        let c = Config::parse_time_conf("maxconnections=0\n");
+        assert_eq!(c.max_connections, usize::MAX);
+    }
+
+    #[test]
+    fn test_parse_time_conf_ignores_unknown_keys() {
+        // Should not panic on unknown keys
+        let c = Config::parse_time_conf("unknownkey=value\ntestnet=0\n");
+        assert_eq!(c.network, "mainnet");
     }
 
     #[test]

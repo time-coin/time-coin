@@ -1488,7 +1488,7 @@ async fn discover_peers(
 
     if endpoints.is_empty() {
         let _ = svc_tx.send(ServiceEvent::Error(
-            "No peers available. Add peers to config.toml or check your internet connection."
+            "No peers available. Add peers to time.conf or check your internet connection."
                 .to_string(),
         ));
         return Err(());
@@ -1702,7 +1702,9 @@ async fn discover_peers(
                             .max_by_key(|(_, p)| p.ping_ms.unwrap_or(u64::MAX));
                         let new_ping = info.ping_ms.unwrap_or(u64::MAX);
                         match slowest_idx {
-                            Some((idx, slowest)) if slowest.ping_ms.unwrap_or(u64::MAX) > new_ping => {
+                            Some((idx, slowest))
+                                if slowest.ping_ms.unwrap_or(u64::MAX) > new_ping =>
+                            {
                                 log::info!(
                                     "🔀 Replacing slow peer {} ({}ms) with {} ({}ms)",
                                     peer_infos[idx].endpoint,
@@ -2259,22 +2261,24 @@ fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
 /// Return a default template for a config file based on its filename.
 fn config_file_template(path: &std::path::Path) -> &'static str {
     match path.file_name().and_then(|n| n.to_str()) {
-        Some("config.toml") => {
+        Some("time.conf") => {
             "\
 # TIME Coin Wallet Configuration
-#
-# Network: \"mainnet\" or \"testnet\"
-network = \"testnet\"
+# Lines starting with # are comments.
 
-# Masternode peers (IP:port or full URL)
-# peers = [\"64.91.241.10:24101\", \"50.28.104.50:24101\"]
+# Network: 1=testnet, 0=mainnet
+testnet=0
 
-# RPC credentials (from masternode's time.conf)
-# rpc_user = \"timecoinrpc\"
-# rpc_password = \"your_rpc_password\"
+# Masternode peers (IP, IP:port, or http://IP:port). Repeat for multiple.
+#addnode=64.91.241.10:24001
+#addnode=50.28.104.50:24001
 
-# External editor for config files (optional, uses OS default if empty)
-# editor = \"notepad\"
+# RPC credentials (from the masternode's time.conf)
+#rpcuser=timecoinrpc
+#rpcpassword=
+
+# Maximum peer connections (0 = unlimited)
+maxconnections=0
 "
         }
         Some("masternode.conf") => {

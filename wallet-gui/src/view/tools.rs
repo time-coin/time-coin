@@ -105,12 +105,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
         ui.add_space(6.0);
 
         if let Ok(data_dir) = Config::data_dir() {
-            let config_path = data_dir.join("config.toml");
+            let config_path = data_dir.join("time.conf");
 
             ui.horizontal(|ui| {
-                let btn = ui.add(
-                    egui::Button::new("📝 Open config.toml").min_size(egui::vec2(160.0, 28.0)),
-                );
+                let btn = ui
+                    .add(egui::Button::new("📝 Open time.conf").min_size(egui::vec2(160.0, 28.0)));
                 if btn.clicked() {
                     let _ = ui_tx.send(UiEvent::OpenConfigFile {
                         path: config_path.clone(),
