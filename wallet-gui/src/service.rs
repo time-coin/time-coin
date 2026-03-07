@@ -1583,7 +1583,8 @@ async fn discover_peers(
             )
     });
 
-    // Cap to max_connections: keep the best healthy peers, drop excess
+    // Keep only healthy peers; cap if max_connections is set below usize::MAX
+    peer_infos.retain(|p| p.is_healthy);
     if peer_infos.len() > max_connections {
         peer_infos.truncate(max_connections);
     }
@@ -1685,17 +1686,40 @@ async fn discover_peers(
                 }
                 for handle in gossip_handles {
                     if let Ok(info) = handle.await {
-                        if info.is_healthy {
-                            log::info!(
-                                "✅ Gossip peer {} is healthy ({}ms)",
-                                info.endpoint,
-                                info.ping_ms.unwrap_or(0)
-                            );
+                        if !info.is_healthy {
+                            continue; // Don't bother adding unhealthy gossip peers
                         }
-                        peer_infos.push(info);
+                        log::info!(
+                            "✅ Gossip peer {} is healthy ({}ms)",
+                            info.endpoint,
+                            info.ping_ms.unwrap_or(0)
+                        );
+                        // If this peer is faster than the slowest current peer, swap it in
+                        let slowest_idx = peer_infos
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, p)| p.is_healthy)
+                            .max_by_key(|(_, p)| p.ping_ms.unwrap_or(u64::MAX));
+                        let new_ping = info.ping_ms.unwrap_or(u64::MAX);
+                        match slowest_idx {
+                            Some((idx, slowest)) if slowest.ping_ms.unwrap_or(u64::MAX) > new_ping => {
+                                log::info!(
+                                    "🔀 Replacing slow peer {} ({}ms) with {} ({}ms)",
+                                    peer_infos[idx].endpoint,
+                                    slowest.ping_ms.unwrap_or(0),
+                                    info.endpoint,
+                                    new_ping
+                                );
+                                peer_infos[idx] = info;
+                            }
+                            _ => {
+                                // No peer to displace — just add it
+                                peer_infos.push(info);
+                            }
+                        }
                     }
                 }
-                // Re-sort after adding gossip peers
+                // Re-sort after integrating gossip peers
                 peer_infos.sort_by(|a, b| {
                     b.is_healthy
                         .cmp(&a.is_healthy)

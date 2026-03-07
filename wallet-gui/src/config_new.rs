@@ -35,7 +35,7 @@ pub struct Config {
     pub rpc_password: Option<String>,
 
     /// Maximum number of peers to track and display.
-    /// Manual peers in `peers` are always included; discovered peers fill the rest.
+    /// Defaults to unlimited (usize::MAX). Set in config to cap the list.
     #[serde(default = "default_max_connections")]
     pub max_connections: usize,
 
@@ -58,7 +58,7 @@ pub struct Config {
 }
 
 fn default_max_connections() -> usize {
-    8
+    usize::MAX
 }
 
 fn default_network() -> String {

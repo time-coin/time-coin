@@ -37,7 +37,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
         return;
     }
 
-    ui.label(format!("{} peers", state.peers.len()));
+    ui.label(format!("{} healthy peers", state.peers.len()));
     ui.add_space(10.0);
 
     egui::Grid::new("peers_table")
@@ -82,10 +82,8 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                 // Status
                 if peer.is_active {
                     ui.colored_label(egui::Color32::GREEN, "Active");
-                } else if peer.is_healthy {
-                    ui.colored_label(egui::Color32::GREEN, "Healthy");
                 } else {
-                    ui.colored_label(egui::Color32::RED, "Offline");
+                    ui.colored_label(egui::Color32::GREEN, "Healthy");
                 }
 
                 // WS
