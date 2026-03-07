@@ -142,6 +142,8 @@ impl WsClient {
         tokio::spawn(async move {
             let mut backoff_secs = 1u64;
             let max_backoff = 60u64;
+            // Once we discover the masternode needs plain ws://, remember it.
+            let mut effective_url = ws_url.clone();
 
             loop {
                 // Check shutdown
@@ -150,21 +152,59 @@ impl WsClient {
                     break;
                 }
 
-                log::info!("📡 Connecting to WebSocket at {}...", ws_url);
+                log::info!("📡 Connecting to WebSocket at {}...", effective_url);
 
-                match tokio_tungstenite::connect_async_tls_with_config(
-                    &ws_url,
+                let tls = if effective_url.starts_with("wss://") {
+                    Some(make_tls_connector())
+                } else {
+                    None
+                };
+
+                let connect_result = tokio_tungstenite::connect_async_tls_with_config(
+                    &effective_url,
                     None,
                     false,
-                    Some(make_tls_connector()),
+                    tls,
                 )
-                .await
-                {
+                .await;
+
+                // If wss:// failed, try plain ws:// once (supports masternodes without TLS).
+                let connect_result = match connect_result {
+                    Err(ref e)
+                        if effective_url.starts_with("wss://")
+                            && !matches!(
+                                e,
+                                tokio_tungstenite::tungstenite::Error::Http(_)
+                            ) =>
+                    {
+                        let fallback = effective_url.replacen("wss://", "ws://", 1);
+                        log::warn!(
+                            "⚠️ TLS connection to {} failed ({}), trying ws:// fallback",
+                            effective_url,
+                            e
+                        );
+                        let result = tokio_tungstenite::connect_async_tls_with_config(
+                            &fallback,
+                            None,
+                            false,
+                            None,
+                        )
+                        .await;
+                        if result.is_ok() {
+                            effective_url = fallback;
+                            log::info!("✅ ws:// fallback succeeded — using {}", effective_url);
+                        }
+                        result
+                    }
+                    other => other,
+                };
+
+                match connect_result {
                     Ok((ws_stream, _response)) => {
-                        log::info!("✅ WebSocket connected to {}", ws_url);
+                        log::info!("✅ WebSocket connected to {}", effective_url);
                         backoff_secs = 1; // Reset backoff on successful connect
 
-                        let _ = event_tx.send(WsEvent::Connected(ws_url.clone()));
+                        let _ = event_tx.send(WsEvent::Connected(effective_url.clone()));
 
                         let result = Self::handle_connection(
                             ws_stream,
@@ -183,7 +223,7 @@ impl WsClient {
                             }
                         }
 
-                        let _ = event_tx.send(WsEvent::Disconnected(ws_url.clone()));
+                        let _ = event_tx.send(WsEvent::Disconnected(effective_url.clone()));
                     }
                     Err(e) => {
                         // If the masternode rejected us with 503 (capacity full),
@@ -192,9 +232,10 @@ impl WsClient {
                             if resp.status() == 503 {
                                 log::warn!(
                                     "⚠️ WebSocket rejected by {} — server at capacity (503)",
-                                    ws_url
+                                    effective_url
                                 );
-                                let _ = event_tx.send(WsEvent::CapacityFull(ws_url.clone()));
+                                let _ =
+                                    event_tx.send(WsEvent::CapacityFull(effective_url.clone()));
                                 break;
                             }
                         }
