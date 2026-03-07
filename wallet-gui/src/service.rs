@@ -1608,20 +1608,34 @@ async fn discover_peers(
     let client = MasternodeClient::new(active_endpoint.clone(), rpc_credentials.clone());
     match client.get_peer_info().await {
         Ok(gossip_peers) => {
-            let known: std::collections::HashSet<&str> =
-                peer_infos.iter().map(|p| p.endpoint.as_str()).collect();
+            // Normalise to "ip:rpc_port" for dedup — ignore http/https scheme differences.
+            let known_hosts: std::collections::HashSet<String> = peer_infos
+                .iter()
+                .filter_map(|p| {
+                    p.endpoint
+                        .trim_start_matches("https://")
+                        .trim_start_matches("http://")
+                        .trim_end_matches('/')
+                        .split(':')
+                        .next()
+                        .map(|ip| format!("{}:{}", ip, rpc_port))
+                })
+                .collect();
             let mut new_endpoints = Vec::new();
             for gp in &gossip_peers {
-                if !gp.active {
-                    continue;
-                }
+                // Include both active and inactive peers — let the health probe decide.
+                // A node that just restarted will show active=false in its neighbour's
+                // peer list but may already be accepting connections.
                 // addr format is "IP:P2P_PORT" — extract IP and use RPC port
                 let ip = gp.addr.split(':').next().unwrap_or(&gp.addr);
-                let ep = format!("http://{}:{}", ip, rpc_port);
-                if !known.contains(ep.as_str()) {
-                    new_endpoints.push(ep);
+                let host_key = format!("{}:{}", ip, rpc_port);
+                if known_hosts.contains(&host_key) {
+                    continue;
                 }
+                let ep = format!("http://{}:{}", ip, rpc_port);
+                new_endpoints.push(ep);
             }
+            new_endpoints.dedup();
             if !new_endpoints.is_empty() {
                 log::info!(
                     "🔗 Gossip discovery: found {} new peers from {}",
