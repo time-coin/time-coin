@@ -6,8 +6,60 @@
 
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::Connector;
+
+/// Build a TLS connector that accepts any certificate (including self-signed).
+/// Used for `wss://` connections to masternodes that generate their own certs.
+pub fn make_tls_connector() -> Connector {
+    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+
+    #[derive(Debug)]
+    struct AcceptAnyCerts;
+
+    impl ServerCertVerifier for AcceptAnyCerts {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &CertificateDer,
+            _intermediates: &[CertificateDer],
+            _server_name: &ServerName,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
+        ) -> Result<ServerCertVerified, rustls::Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+        fn verify_tls12_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer,
+            _dss: &rustls::DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+        fn verify_tls13_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer,
+            _dss: &rustls::DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+            rustls::crypto::ring::default_provider()
+                .signature_verification_algorithms
+                .supported_schemes()
+        }
+    }
+
+    let config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAnyCerts))
+        .with_no_client_auth();
+    Connector::Rustls(Arc::new(config))
+}
 
 /// Notification received from the masternode WebSocket server
 #[derive(Clone, Debug, Deserialize)]
@@ -100,7 +152,14 @@ impl WsClient {
 
                 log::info!("📡 Connecting to WebSocket at {}...", ws_url);
 
-                match tokio_tungstenite::connect_async(&ws_url).await {
+                match tokio_tungstenite::connect_async_tls_with_config(
+                    &ws_url,
+                    None,
+                    false,
+                    Some(make_tls_connector()),
+                )
+                .await
+                {
                     Ok((ws_stream, _response)) => {
                         log::info!("✅ WebSocket connected to {}", ws_url);
                         backoff_secs = 1; // Reset backoff on successful connect

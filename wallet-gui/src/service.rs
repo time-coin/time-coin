@@ -1543,7 +1543,12 @@ async fn discover_peers(
                 let ws_url = crate::config_new::Config::derive_ws_url(&endpoint);
                 tokio::time::timeout(
                     std::time::Duration::from_secs(5),
-                    tokio_tungstenite::connect_async(&ws_url),
+                    tokio_tungstenite::connect_async_tls_with_config(
+                        &ws_url,
+                        None,
+                        false,
+                        Some(crate::ws_client::make_tls_connector()),
+                    ),
                 )
                 .await
                 .map(|r| r.is_ok())
@@ -1665,7 +1670,12 @@ async fn discover_peers(
                             let ws_url = crate::config_new::Config::derive_ws_url(&ep);
                             tokio::time::timeout(
                                 std::time::Duration::from_secs(5),
-                                tokio_tungstenite::connect_async(&ws_url),
+                                tokio_tungstenite::connect_async_tls_with_config(
+                                    &ws_url,
+                                    None,
+                                    false,
+                                    Some(crate::ws_client::make_tls_connector()),
+                                ),
                             )
                             .await
                             .map(|r| r.is_ok())

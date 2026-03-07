@@ -336,17 +336,17 @@ impl Config {
             return Self::derive_ws_url(endpoint);
         }
         // No endpoint yet — return a placeholder that will fail gracefully
-        "ws://127.0.0.1:0/ws".to_string()
+        "wss://127.0.0.1:0/ws".to_string()
     }
 
     /// Derive a WebSocket URL from an RPC endpoint.
     ///
     /// The masternode WS server listens on RPC port + 1, so we bump the port
-    /// and swap the scheme: `http://host:24101` → `ws://host:24102`.
+    /// and swap the scheme: `http://host:24101` → `wss://host:24102`.
     pub fn derive_ws_url(endpoint: &str) -> String {
         let base = endpoint
             .replacen("https://", "wss://", 1)
-            .replacen("http://", "ws://", 1);
+            .replacen("http://", "wss://", 1);
         // Bump port: WS port = RPC port + 1
         if let Some(colon) = base.rfind(':') {
             if let Ok(rpc_port) = base[colon + 1..].parse::<u16>() {
@@ -616,7 +616,7 @@ editor=nano
             ws_endpoint: None,
             ..Default::default()
         };
-        assert_eq!(config2.ws_url(), "ws://127.0.0.1:24102");
+        assert_eq!(config2.ws_url(), "wss://127.0.0.1:24102");
     }
 
     #[test]

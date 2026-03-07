@@ -497,7 +497,8 @@ impl AppState {
                 {
                     self.drift_count = self.drift_count.saturating_add(1);
                     // Require 3 consecutive drifts and a 5-minute cooldown before resyncing
-                    let cooldown_elapsed = self.last_resync_at
+                    let cooldown_elapsed = self
+                        .last_resync_at
                         .is_none_or(|t| t.elapsed().as_secs() >= 300);
                     if self.drift_count >= 3 && cooldown_elapsed {
                         log::warn!(

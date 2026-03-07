@@ -30,6 +30,9 @@ fn main() -> Result<(), eframe::Error> {
 
     env_logger::init();
 
+    // Install the ring-based TLS crypto provider (required by rustls for wss://).
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let config = config_new::Config::load().unwrap_or_default();
     let icon = load_icon();
 
