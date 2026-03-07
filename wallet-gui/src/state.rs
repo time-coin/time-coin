@@ -74,6 +74,10 @@ pub struct AppState {
     pub masternode_available: u64,
     /// Set when computed balance drifts from masternode — triggers auto-resync.
     pub needs_resync: bool,
+    /// Consecutive polls where balance drift was detected (resets on match).
+    pub drift_count: u8,
+    /// When the last auto-resync was triggered (cooldown guard).
+    pub last_resync_at: Option<std::time::Instant>,
 
     // -- Transactions --
     pub transactions: Vec<TransactionRecord>,
@@ -193,6 +197,8 @@ impl Default for AppState {
             masternode_balance: 0,
             masternode_available: 0,
             needs_resync: false,
+            drift_count: 0,
+            last_resync_at: None,
             transactions: Vec::new(),
             selected_transaction: None,
             tx_search: String::new(),
@@ -489,12 +495,23 @@ impl AppState {
                     && !self.resync_in_progress
                     && !self.transactions.is_empty()
                 {
-                    log::warn!(
-                        "Balance drift: computed={}, masternode={}. Triggering resync.",
-                        computed,
-                        balance.total
-                    );
-                    self.needs_resync = true;
+                    self.drift_count = self.drift_count.saturating_add(1);
+                    // Require 3 consecutive drifts and a 5-minute cooldown before resyncing
+                    let cooldown_elapsed = self.last_resync_at
+                        .is_none_or(|t| t.elapsed().as_secs() >= 300);
+                    if self.drift_count >= 3 && cooldown_elapsed {
+                        log::warn!(
+                            "Balance drift ({}× consecutive): computed={}, masternode={}. Triggering resync.",
+                            self.drift_count,
+                            computed,
+                            balance.total
+                        );
+                        self.needs_resync = true;
+                        self.drift_count = 0;
+                        self.last_resync_at = Some(std::time::Instant::now());
+                    }
+                } else {
+                    self.drift_count = 0;
                 }
             }
 
