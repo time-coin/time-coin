@@ -989,6 +989,11 @@ impl AppState {
             }
 
             ServiceEvent::MasternodeEntriesLoaded(entries) => {
+                // Rebuild locked UTXO set from the current entries
+                self.locked_utxos = entries
+                    .iter()
+                    .map(|e| format!("{}:{}", e.collateral_txid, e.collateral_vout))
+                    .collect();
                 self.masternode_entries = entries;
             }
 

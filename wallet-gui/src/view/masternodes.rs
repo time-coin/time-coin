@@ -24,36 +24,32 @@ pub fn render(
     ui.add_space(8.0);
 
     // ---------- Tier requirements info box ----------
-    egui::CollapsingHeader::new("ℹ️ Tier Requirements & Setup Guide")
+    egui::CollapsingHeader::new("Tier Requirements & Setup Guide")
         .default_open(false)
         .show(ui, |ui| {
             ui.add_space(4.0);
             egui::Grid::new("tier_req_grid")
-                .num_columns(3)
+                .num_columns(2)
                 .spacing([16.0, 4.0])
                 .show(ui, |ui| {
                     ui.label(RichText::new("Tier").strong());
                     ui.label(RichText::new("Collateral Required").strong());
-                    ui.label(RichText::new("Reward Weight").strong());
                     ui.end_row();
-                    ui.label(RichText::new("🥇 Gold").color(Color32::from_rgb(255, 200, 50)));
+                    ui.label(RichText::new("Gold").color(Color32::from_rgb(255, 200, 50)).strong());
                     ui.label("100,000 TIME");
-                    ui.label("60×");
                     ui.end_row();
-                    ui.label(RichText::new("🥈 Silver").color(Color32::from_rgb(192, 192, 192)));
+                    ui.label(RichText::new("Silver").color(Color32::from_rgb(192, 192, 192)).strong());
                     ui.label("10,000 TIME");
-                    ui.label("20×");
                     ui.end_row();
-                    ui.label(RichText::new("🟫 Bronze").color(Color32::from_rgb(180, 100, 50)));
+                    ui.label(RichText::new("Bronze").color(Color32::from_rgb(180, 100, 50)).strong());
                     ui.label("1,000 TIME");
-                    ui.label("5×");
                     ui.end_row();
                 });
             ui.add_space(6.0);
             ui.label(RichText::new("How to activate a tiered masternode:").strong());
             ui.label("1. Send the required collateral to a wallet address and note the TXID/vout.");
             ui.label("2. Add the entry below with the collateral TXID and vout.");
-            ui.label("3. Click ▶ Start On-Chain to broadcast the registration transaction.");
+            ui.label("3. Click Copy Conf to get the line for your masternode's masternode.conf.");
             ui.add_space(4.0);
         });
 
