@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use crate::events::{Screen, UiEvent};
 use crate::masternode_client::TransactionStatus;
 use crate::state::AppState;
+use crate::wallet_db::masternode_tier_from_satoshis;
 
 /// Render the transactions screen.
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
@@ -140,9 +141,11 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
         });
 
     // Show "Use as Masternode Collateral" for confirmed received transactions
+    // whose amount matches a valid collateral tier (1k, 10k, or 100k TIME).
     if !tx.is_send
         && !tx.is_fee
         && matches!(tx.status, TransactionStatus::Approved)
+        && masternode_tier_from_satoshis(tx.amount).is_some()
     {
         ui.add_space(16.0);
         ui.separator();
