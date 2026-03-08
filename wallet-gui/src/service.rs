@@ -1989,6 +1989,15 @@ impl ServiceState {
                             }
                         } else {
                             log::info!("Loaded {} masternode entries", entries.len());
+                            sync_masternode_conf(db, &self.config.wallet_dir());
+                            // Ensure collateral UTXOs are locked for all known entries
+                            for entry in &entries {
+                                let _ = db.lock_collateral(
+                                    &entry.collateral_txid,
+                                    entry.collateral_vout,
+                                    &entry.alias,
+                                );
+                            }
                             let _ = self
                                 .svc_tx
                                 .send(ServiceEvent::MasternodeEntriesLoaded(entries));

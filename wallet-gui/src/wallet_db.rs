@@ -603,7 +603,7 @@ impl MasternodeEntry {
         })
     }
 
-    /// Format as a masternode.conf line.
+    /// Format as a masternode.conf line (wallet format — includes key field for reference).
     pub fn to_conf_line(&self) -> String {
         format!(
             "{} {}:{} {} {} {}",
@@ -614,6 +614,35 @@ impl MasternodeEntry {
             self.collateral_txid,
             self.collateral_vout
         )
+    }
+
+    /// Format as the 4-field daemon conf line: `alias IP:port txid vout`
+    /// This is what the timed daemon's masternode.conf expects.
+    pub fn to_daemon_conf_line(&self) -> String {
+        format!(
+            "{} {}:{} {} {}",
+            self.alias, self.ip, self.port, self.collateral_txid, self.collateral_vout
+        )
+    }
+}
+
+// Collateral thresholds in satoshis (1 TIME = 100_000_000 sat)
+const GOLD_COLLATERAL_SATS: u64 = 100_000 * 100_000_000;
+const SILVER_COLLATERAL_SATS: u64 = 10_000 * 100_000_000;
+const BRONZE_COLLATERAL_SATS: u64 = 1_000 * 100_000_000;
+
+/// Compute the masternode tier from a collateral UTXO amount (in satoshis).
+///
+/// Returns `Some("Gold")`, `Some("Silver")`, `Some("Bronze")`, or `None` if below threshold.
+pub fn masternode_tier_from_satoshis(amount: u64) -> Option<&'static str> {
+    if amount >= GOLD_COLLATERAL_SATS {
+        Some("Gold")
+    } else if amount >= SILVER_COLLATERAL_SATS {
+        Some("Silver")
+    } else if amount >= BRONZE_COLLATERAL_SATS {
+        Some("Bronze")
+    } else {
+        None
     }
 }
 
