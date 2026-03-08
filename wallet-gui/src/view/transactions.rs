@@ -3,7 +3,7 @@
 use egui::Ui;
 use tokio::sync::mpsc;
 
-use crate::events::UiEvent;
+use crate::events::{Screen, UiEvent};
 use crate::masternode_client::TransactionStatus;
 use crate::state::AppState;
 
@@ -138,6 +138,28 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                 ui.end_row();
             }
         });
+
+    // Show "Use as Masternode Collateral" for confirmed received transactions
+    if !tx.is_send
+        && !tx.is_fee
+        && matches!(tx.status, TransactionStatus::Approved)
+    {
+        ui.add_space(16.0);
+        ui.separator();
+        ui.add_space(8.0);
+        if ui
+            .button("Use as Masternode Collateral")
+            .on_hover_text("Pre-fill the Masternodes add form with this TXID and vout")
+            .clicked()
+        {
+            state.mn_add_txid = tx.txid.clone();
+            state.mn_add_vout = tx.vout.to_string();
+            state.mn_add_ip = String::new();
+            state.mn_show_add_form = true;
+            state.selected_transaction = None;
+            state.screen = Screen::Masternodes;
+        }
+    }
 }
 
 /// List view of all transactions.
