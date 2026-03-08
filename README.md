@@ -17,7 +17,8 @@ If you are looking for the masternode repository go to [time-masternode](https:/
 - 🔒 **Encrypted storage** — AES-256-GCM encryption with Argon2id key derivation
 - 💾 **Persistent state** — UTXO cache, contacts, send records, and masternodes saved to sled DB
 - 🌐 **Hybrid connectivity** — TCP-first with HTTP fallback, automatic peer discovery and health checks
-- 🖥️ **Masternode management** — Register, import, and manage masternodes from the wallet
+- 🖥️ **Masternode management** — Register masternodes by name + collateral TXID/vout; auto-detects tier (Bronze/Silver/Gold); one-click "Use as Collateral" from transaction detail
+- 🔒 **Locked balance tracking** — Overview shows Available, Locked, and Total; locked collateral UTXOs excluded from send coin selection and per-address balances
 - 📝 **Config file editor** — Open masternode.conf in your preferred text editor
 - 🔄 **Balance verification** — Cross-checks UTXO total against masternode-reported balance
 - 📄 **PDF mnemonic backup** — Printable seed phrase backup with QR code

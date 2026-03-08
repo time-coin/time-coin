@@ -28,6 +28,8 @@ After selecting a network, you can:
 2. Set a new password for the local wallet file
 3. The wallet derives your addresses and syncs with masternodes
 
+---
+
 ## Configuration
 
 The wallet configuration is stored in `~/.time-wallet/config.toml`:
@@ -37,20 +39,12 @@ network = "testnet"
 
 [peers]
 endpoints = ["69.167.168.176:24101", "50.28.104.50:24101"]
-
-[ws_endpoint]
-url = "ws://69.167.168.176:24102"
-
-# Text editor for config files (auto-detected on first run)
-editor = "C:\\Program Files\\Notepad++\\notepad++.exe"
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `network` | `"testnet"` | `"testnet"` or `"mainnet"` |
-| `peers.endpoints` | `[]` | Masternode RPC endpoints |
-| `ws_endpoint.url` | `""` | WebSocket endpoint for real-time notifications |
-| `editor` | auto-detected | Text editor path for config file editing |
+| `peers.endpoints` | `[]` | Masternode RPC endpoints (optional — peer discovery fills these automatically) |
 
 ### Network Ports
 
@@ -69,14 +63,21 @@ editor = "C:\\Program Files\\Notepad++\\notepad++.exe"
 
 Testnet data is stored in a `testnet/` subdirectory. The wallet stores its sled database, wallet file, and masternode configuration here.
 
+---
+
 ## Overview Screen
 
 The overview shows:
 
-- **Balance** — Total balance from UTXOs, with Available (green) and Locked (orange) breakdown when masternode collateral is locked
-- **Balance verification** — Cross-checks UTXO total against masternode-reported balance, shows ✅ Verified when they match
+- **Available** — Large green number showing your spendable balance
+- **Locked / Total** — Shown below Available when masternode collateral is locked; Locked is the total collateral amount, Total is the full wallet balance
+- **Balance verification** — Shows ✅ Verified when UTXO total matches masternode-reported balance, or ⏳ Pending when transactions are unconfirmed
 - **Notifications** — Real-time transaction notifications from WebSocket
 - **Recent Transactions** — Last 10 transactions in a table with Type, Amount, Address, Date, and Status columns
+
+> **Note:** Locked funds are your masternode collateral. They remain in your wallet and are returned when you stop running a masternode.
+
+---
 
 ## Sending Coins
 
@@ -88,7 +89,7 @@ The overview shows:
 6. Review the transaction details and fee (automatically calculated)
 7. Click **Send Transaction** to sign and broadcast
 
-The wallet automatically selects UTXOs and creates change outputs. If UTXOs are temporarily locked (pending finalization), the wallet retries up to 5 times with a 2-second wait.
+The wallet automatically selects spendable UTXOs (locked collateral is excluded) and creates change outputs. If UTXOs are temporarily locked pending finalization, the wallet retries up to 5 times with a 2-second wait.
 
 ### Address Book
 
@@ -103,12 +104,16 @@ Below the send form, the **Address Book** section shows saved contacts:
 
 When sending to one of your own addresses, the wallet immediately shows all three transaction entries: Sent, Fee, and Received — all as Pending until finalized.
 
+---
+
 ## Receiving Coins
 
 1. Navigate to the **📥 Receive** tab
-2. Select an address from your address list (with balance shown for each)
+2. Select an address from your address list — the balance shown per address is spendable funds only (locked collateral is excluded)
 3. Copy the address to clipboard or share the displayed QR code
 4. The wallet derives new addresses from your HD key chain as needed
+
+---
 
 ## Transaction History
 
@@ -127,39 +132,87 @@ The **📋 Transactions** tab shows all transactions in a table format:
 - Search transactions by address, amount, contact name, or transaction ID
 - Striped rows for readability
 
+### Transaction Detail
+
+Click a transaction row to see full details including TxID, Vout, date, sender address, and status.
+
+For confirmed **received** transactions, a **"Use as Masternode Collateral"** button appears at the bottom of the detail view. Clicking it:
+1. Pre-fills the masternode add form with the TXID and Vout
+2. Suggests the next available name (e.g. `mn1`, `mn2`)
+3. Navigates directly to the Masternodes tab
+
 ### Transaction Statuses
 
 - **⏳ Pending** — Transaction broadcast but not yet finalized by masternode consensus
 - **✅ Approved** — Finalized by masternode consensus (instant finality via WebSocket)
 - **❌ Declined** — Rejected by the network (insufficient funds, invalid, etc.)
 
+---
+
 ## Masternodes
 
-The **🖥 Masternodes** tab lets you manage masternode registrations:
+The **🖥 Masternodes** tab lets you register and manage masternode collateral entries.
 
-- **Add** a masternode with: alias, IP address, port, masternode key, collateral TXID, output index, and payout address
-- **Import** from an existing `masternode.conf` file
-- **View** registered masternodes with key details
-- **Delete** entries you no longer need
+### Masternode Tiers
+
+| Tier | Collateral Required |
+|------|-------------------|
+| **Gold** | 100,000 TIME |
+| **Silver** | 10,000 TIME |
+| **Bronze** | 1,000 TIME |
+
+The wallet automatically detects the tier from the collateral amount once the UTXO is seen on the network.
+
+### Adding a Masternode Entry
+
+1. Click **+ Add Masternode** (or use **"Use as Masternode Collateral"** from a transaction detail — this pre-fills the form)
+2. Enter:
+   - **Name** — a local label (e.g. `mn1`). The wallet suggests the next available name automatically.
+   - **Collateral TXID** — the transaction ID of your collateral deposit
+   - **Vout** — the output index (usually `0`)
+   - **Payout Address** (optional) — where masternode rewards are sent
+3. Click **Save**
+
+The entry appears immediately. The tier badge updates within a few seconds once the wallet confirms the collateral amount from the network.
+
+> **Note:** The IP address and masternode key are **not** stored in the wallet. The masternode daemon reads its own IP from `externalip=` in its `time.conf` file.
 
 ### masternode.conf Format
 
+The wallet exports a `masternode.conf` for your masternode daemon. The format is:
+
 ```
-alias  IP:port  masternodeprivkey  collateral_txid  collateral_vout
+alias  collateral_txid  vout
 ```
 
 Example:
 ```
-mn1 69.167.168.176:24100 5KCgSQS9uFLz... 779ae0f565... 0
+mn1  048fa7a49a3eea905581fa803460a22f6f49c790e0a37adeaab1e5cfa7929a73  0
+mn2  61853e9b...e7524489  0
 ```
+
+Click **Copy Conf** on any masternode entry to copy its conf line to the clipboard.
+
+### Editing and Deleting
+
+- Click the **Edit** button on an entry to modify the name, payout address, or collateral details
+- Click **Delete** to remove an entry — this releases the funds from the locked balance
+
+### Locked Balance
+
+When masternode entries are saved, the wallet locks the corresponding UTXOs. The locked amount is shown on the Overview screen. Locked funds cannot be spent while the masternode entry exists.
+
+---
 
 ## Connections
 
 The **🔗 Connections** tab shows:
 
-- Connected masternode endpoints with health status
-- Peer discovery results
-- WebSocket connection state
+- Connected masternode peers with health status, ping, block height, and WebSocket availability
+- Peer discovery fills the list automatically — no manual configuration required
+- The wallet connects to the fastest healthy peer and uses the others as fallbacks
+
+---
 
 ## Settings
 
@@ -168,6 +221,8 @@ The **⚙ Settings** tab provides:
 - **Text Editor** — Configure which editor opens config files (text input + Browse… button)
 - Editor is auto-detected on first run (checks for Notepad++, then Notepad on Windows)
 
+---
+
 ## Tools
 
 The **🔧 Tools** tab offers:
@@ -175,6 +230,8 @@ The **🔧 Tools** tab offers:
 - **Resync Wallet** — Re-fetches all transactions and UTXOs from masternodes
 - **Open config.toml** — Edit wallet configuration in your text editor
 - **Open masternode.conf** — Edit masternode configuration (creates with template if missing)
+
+---
 
 ## Security
 
@@ -204,25 +261,36 @@ Private keys never leave your device. Transaction signing is performed locally, 
 
 Private keys and mnemonic phrases are zeroed from memory using the `zeroize` crate when no longer needed.
 
+---
+
 ## Troubleshooting
 
 ### Cannot connect to masternode
 
 1. Check your internet connection
-2. Verify `peers.endpoints` in config.toml contains reachable addresses
-3. Ensure firewall allows outbound TCP on port 24100/24101 (testnet) or 24000/24001 (mainnet)
-4. Check the **Connections** tab for peer health status
+2. The wallet discovers peers automatically — wait 10–15 seconds for discovery to complete
+3. Verify `peers.endpoints` in `config.toml` contains reachable addresses if automatic discovery fails
+4. Ensure firewall allows outbound TCP on port 24101 (testnet) or 24001 (mainnet)
+5. Check the **Connections** tab for peer health status
 
 ### Wallet shows zero balance
 
 1. Confirm you are on the correct network (testnet vs mainnet)
-2. Wait for sync to complete — the overview shows connection status
+2. Wait for sync to complete — the overview shows a spinner while syncing
 3. If restored from mnemonic, ensure the phrase was entered correctly
 4. Use **Resync Wallet** in the Tools tab to force a full refresh
 
 ### Balance differs on startup
 
-This is normal — the wallet loads cached UTXOs from the last session on startup, then updates to the current blockchain state after syncing. The balance corrects itself within a few seconds.
+The wallet loads cached UTXOs from the last session immediately, then fetches fresh data from masternodes within 5 seconds. A brief discrepancy on startup is normal and self-corrects.
+
+### Locked balance shows 0 on startup
+
+If this is the first time running after adding masternode entries, the wallet needs one UTXO sync to detect the collateral amounts and persist them. After the first sync the amounts are cached and will show immediately on all future startups.
+
+### Tier shows "Tier pending"
+
+The tier is determined from the collateral UTXO amount. It resolves within 5 seconds of startup once the wallet fetches UTXOs from the network. After that, the tier is cached and loads instantly.
 
 ### Forgot password
 
