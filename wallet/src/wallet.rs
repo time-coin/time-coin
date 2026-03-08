@@ -39,6 +39,9 @@ pub enum WalletError {
 
     #[error("Encryption error: {0}")]
     EncryptionError(#[from] EncryptionError),
+
+    #[error("Transaction too large: {inputs} inputs produce ~{estimated_kb} KB — consolidate UTXOs first (Tools → Consolidate UTXOs)")]
+    TxTooLarge { inputs: usize, estimated_kb: usize },
 }
 
 const SATOSHIS_PER_TIME: u64 = 100_000_000;
@@ -517,11 +520,14 @@ impl Wallet {
             });
         }
 
-        // Select UTXOs greedily
+        // Select UTXOs greedily, largest-first to minimise input count and tx size.
+        let mut sorted_utxos = self.utxos.clone();
+        sorted_utxos.sort_unstable_by(|a, b| b.amount.cmp(&a.amount));
+
         let mut input_amount = 0u64;
         let mut selected_utxos = Vec::new();
 
-        for utxo in &self.utxos {
+        for utxo in &sorted_utxos {
             selected_utxos.push(utxo.clone());
             input_amount += utxo.amount;
 
@@ -537,7 +543,20 @@ impl Wallet {
             });
         }
 
-        // Create transaction
+        // Guard: estimate serialized tx size before building.
+        // Each input is ~150 bytes (OutPoint 36 + script_sig 104 + sequence 4 + bincode overhead).
+        // Fixed overhead ~200 bytes covers version, outputs, nonce, etc.
+        // Limit matches the masternode's MAX_TX_SIZE (10 MB).
+        const MAX_TX_BYTES: usize = 10_000_000;
+        const BYTES_PER_INPUT: usize = 150;
+        const TX_FIXED_OVERHEAD: usize = 200;
+        let estimated = TX_FIXED_OVERHEAD + selected_utxos.len() * BYTES_PER_INPUT;
+        if estimated > MAX_TX_BYTES {
+            return Err(WalletError::TxTooLarge {
+                inputs: selected_utxos.len(),
+                estimated_kb: estimated / 1_024,
+            });
+        }
         let mut tx = Transaction::new();
 
         // Add inputs
