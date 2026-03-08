@@ -71,6 +71,9 @@ printpdf = "0.7"
 # Cross-platform file opener
 open = "5"
 
+# Clipboard access (read) for context menu paste
+arboard = { version = "3", default-features = false }
+
 # Native file dialogs
 rfd = "0.15"
 

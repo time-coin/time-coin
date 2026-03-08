@@ -40,11 +40,21 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         }
 
         ui.horizontal(|ui| {
-            ui.add(
+            let resp = ui.add(
                 egui::TextEdit::singleline(&mut state.send_address)
                     .hint_text(format!("{}...", expected_prefix))
                     .desired_width(ui.available_width() - 80.0),
             );
+            resp.context_menu(|ui| {
+                if ui.button("📋 Paste").clicked() {
+                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                        if let Ok(text) = cb.get_text() {
+                            state.send_address = text.trim().to_string();
+                        }
+                    }
+                    ui.close_menu();
+                }
+            });
             if ui
                 .add(egui::Button::new("📷 Scan").min_size(egui::vec2(70.0, 24.0)))
                 .on_hover_text("Scan QR code with webcam")
