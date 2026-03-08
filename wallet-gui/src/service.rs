@@ -1530,13 +1530,18 @@ async fn discover_peers(
     for endpoint in endpoints.clone() {
         let creds = rpc_credentials.clone();
         handles.push(tokio::spawn(async move {
-            let client = MasternodeClient::new(endpoint.clone(), creds);
+            // Always probe the https:// form first; plain-http form is the fallback.
+            let https_ep = if endpoint.starts_with("http://") {
+                endpoint.replacen("http://", "https://", 1)
+            } else {
+                endpoint.clone()
+            };
+            let http_ep = https_ep.replacen("https://", "http://", 1);
 
-            // TCP connect for accurate network ping (strips http:// scheme)
-            let tcp_addr = endpoint
-                .strip_prefix("http://")
-                .or_else(|| endpoint.strip_prefix("https://"))
-                .unwrap_or(&endpoint)
+            // TCP connect for accurate network ping (strips scheme)
+            let tcp_addr = https_ep
+                .strip_prefix("https://")
+                .unwrap_or(&https_ep)
                 .trim_end_matches('/');
             let tcp_start = Instant::now();
             let tcp_ok = tokio::time::timeout(
@@ -1552,25 +1557,38 @@ async fn discover_peers(
                 None
             };
 
-            let (is_healthy, block_height, version) = if tcp_ok {
+            let (is_healthy, block_height, version, working_ep) = if tcp_ok {
+                // Try HTTPS first
+                let client = MasternodeClient::new(https_ep.clone(), creds.clone());
                 match tokio::time::timeout(probe_timeout, client.health_check()).await {
-                    Ok(Ok(health)) => (true, Some(health.block_height), Some(health.version)),
-                    Ok(Err(e)) => {
-                        log::warn!("⚠ Peer {} unhealthy: {}", endpoint, e);
-                        (false, None, None)
-                    }
-                    Err(_) => {
-                        log::warn!("⚠ Peer {} timed out", endpoint);
-                        (false, None, None)
+                    Ok(Ok(health)) => (true, Some(health.block_height), Some(health.version), https_ep.clone()),
+                    _ => {
+                        // HTTPS failed — retry with plain HTTP (masternode auto-detects)
+                        log::debug!("HTTPS failed for {}, retrying with HTTP", https_ep);
+                        let http_client = MasternodeClient::new(http_ep.clone(), creds.clone());
+                        match tokio::time::timeout(probe_timeout, http_client.health_check()).await {
+                            Ok(Ok(health)) => {
+                                log::info!("✅ Peer {} reachable via HTTP (no TLS)", http_ep);
+                                (true, Some(health.block_height), Some(health.version), http_ep.clone())
+                            }
+                            Ok(Err(e)) => {
+                                log::warn!("⚠ Peer {} unhealthy: {}", http_ep, e);
+                                (false, None, None, endpoint.clone())
+                            }
+                            Err(_) => {
+                                log::warn!("⚠ Peer {} timed out", http_ep);
+                                (false, None, None, endpoint.clone())
+                            }
+                        }
                     }
                 }
             } else {
-                (false, None, None)
+                (false, None, None, endpoint.clone())
             };
 
             // Probe WebSocket connectivity (WS port = RPC port + 1)
             let ws_available = if is_healthy {
-                let ws_url = crate::config_new::Config::derive_ws_url(&endpoint);
+                let ws_url = crate::config_new::Config::derive_ws_url(&working_ep);
                 tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     tokio_tungstenite::connect_async_tls_with_config(
@@ -1588,7 +1606,7 @@ async fn discover_peers(
             };
 
             PeerInfo {
-                endpoint,
+                endpoint: working_ep,
                 is_active: false,
                 is_healthy,
                 ws_available,
@@ -1681,12 +1699,12 @@ async fn discover_peers(
         for ep in new_endpoints {
             let creds = rpc_credentials.clone();
             gossip_handles.push(tokio::spawn(async move {
-                let c = MasternodeClient::new(ep.clone(), creds);
+                // Gossip peers are built as https://; fall back to http:// like the initial probe.
+                let http_ep = ep.replacen("https://", "http://", 1);
 
                 // TCP connect for accurate network ping
                 let tcp_addr = ep
-                    .strip_prefix("http://")
-                    .or_else(|| ep.strip_prefix("https://"))
+                    .strip_prefix("https://")
                     .unwrap_or(&ep)
                     .trim_end_matches('/');
                 let tcp_start = Instant::now();
@@ -1703,18 +1721,27 @@ async fn discover_peers(
                     None
                 };
 
-                let (is_healthy, block_height, version) = if tcp_ok {
+                let (is_healthy, block_height, version, working_ep) = if tcp_ok {
+                    let c = MasternodeClient::new(ep.clone(), creds.clone());
                     match tokio::time::timeout(probe_timeout2, c.health_check()).await {
-                        Ok(Ok(health)) => {
-                            (true, Some(health.block_height), Some(health.version))
+                        Ok(Ok(health)) => (true, Some(health.block_height), Some(health.version), ep.clone()),
+                        _ => {
+                            log::debug!("HTTPS failed for gossip peer {}, retrying with HTTP", ep);
+                            let hc = MasternodeClient::new(http_ep.clone(), creds.clone());
+                            match tokio::time::timeout(probe_timeout2, hc.health_check()).await {
+                                Ok(Ok(health)) => {
+                                    log::info!("✅ Gossip peer {} reachable via HTTP (no TLS)", http_ep);
+                                    (true, Some(health.block_height), Some(health.version), http_ep.clone())
+                                }
+                                _ => (false, None, None, ep.clone()),
+                            }
                         }
-                        _ => (false, None, None),
                     }
                 } else {
-                    (false, None, None)
+                    (false, None, None, ep.clone())
                 };
                 let ws_available = if is_healthy {
-                    let ws_url = crate::config_new::Config::derive_ws_url(&ep);
+                    let ws_url = crate::config_new::Config::derive_ws_url(&working_ep);
                     tokio::time::timeout(
                         std::time::Duration::from_secs(5),
                         tokio_tungstenite::connect_async_tls_with_config(
@@ -1731,7 +1758,7 @@ async fn discover_peers(
                     false
                 };
                 PeerInfo {
-                    endpoint: ep,
+                    endpoint: working_ep,
                     is_active: false,
                     is_healthy,
                     ws_available,

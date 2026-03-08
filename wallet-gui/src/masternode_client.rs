@@ -110,11 +110,9 @@ struct JsonRpcError {
 
 impl MasternodeClient {
     pub fn new(endpoint: String, credentials: Option<(String, String)>) -> Self {
-        // Normalise to HTTPS — masternodes require TLS by default.
-        // Convert http:// → https:// so plain-HTTP callers don't trigger TLS errors.
-        let rpc_endpoint = if endpoint.starts_with("http://") {
-            endpoint.replacen("http://", "https://", 1)
-        } else if endpoint.starts_with("https://") {
+        // Preserve http:// if explicitly provided (for nodes without TLS configured).
+        // Add https:// prefix only for bare hostnames with no scheme.
+        let rpc_endpoint = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
             endpoint
         } else {
             format!("https://{}", endpoint)
