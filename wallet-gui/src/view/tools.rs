@@ -5,6 +5,27 @@ use crate::events::UiEvent;
 use crate::state::AppState;
 use tokio::sync::mpsc;
 
+/// Ensure `path` exists (writing a template if new), then open it with the OS default app.
+/// Runs entirely on a background thread — never touches the service loop.
+fn open_conf_file(path: std::path::PathBuf) {
+    std::thread::spawn(move || {
+        if !path.exists() {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let template = crate::service::config_file_template(&path);
+            if let Err(e) = std::fs::write(&path, template) {
+                log::error!("Failed to create {}: {}", path.display(), e);
+                return;
+            }
+            log::info!("Created {}", path.display());
+        }
+        if let Err(e) = open::that(&path) {
+            log::error!("Failed to open {}: {}", path.display(), e);
+        }
+    });
+}
+
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
     ui.heading("🔧 Tools");
     ui.add_space(10.0);
@@ -111,9 +132,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                 let btn = ui
                     .add(egui::Button::new("📝 Open time.conf").min_size(egui::vec2(160.0, 28.0)));
                 if btn.clicked() {
-                    let _ = ui_tx.send(UiEvent::OpenConfigFile {
-                        path: config_path.clone(),
-                    });
+                    open_conf_file(config_path.clone());
                 }
                 ui.label(
                     egui::RichText::new(config_path.display().to_string())
@@ -135,9 +154,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                     egui::Button::new("📝 Open masternode.conf").min_size(egui::vec2(160.0, 28.0)),
                 );
                 if btn.clicked() {
-                    let _ = ui_tx.send(UiEvent::OpenConfigFile {
-                        path: mn_conf_path.clone(),
-                    });
+                    open_conf_file(mn_conf_path.clone());
                 }
                 ui.label(
                     egui::RichText::new(mn_conf_path.display().to_string())

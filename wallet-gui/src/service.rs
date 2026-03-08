@@ -2311,7 +2311,7 @@ fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
 }
 
 /// Return a default template for a config file based on its filename.
-fn config_file_template(path: &std::path::Path) -> &'static str {
+pub fn config_file_template(path: &std::path::Path) -> &'static str {
     match path.file_name().and_then(|n| n.to_str()) {
         Some("time.conf") => {
             "\
