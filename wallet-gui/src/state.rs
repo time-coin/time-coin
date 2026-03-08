@@ -299,16 +299,16 @@ impl AppState {
         bal.max(0) as u64
     }
 
-    /// Compute balance for a single address from UTXOs.
+    /// Compute spendable balance for a single address from UTXOs.
     pub fn address_balance(&self, address: &str) -> u64 {
         self.utxos
             .iter()
-            .filter(|u| u.address == address)
+            .filter(|u| u.address == address && u.spendable)
             .map(|u| u.amount)
             .sum()
     }
 
-    /// Total balance from all UTXOs.
+    /// Total balance from all UTXOs (spendable + locked).
     pub fn utxo_total(&self) -> u64 {
         self.utxos.iter().map(|u| u.amount).sum()
     }
