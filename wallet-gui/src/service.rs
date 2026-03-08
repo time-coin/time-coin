@@ -2050,6 +2050,7 @@ impl ServiceState {
     }
 
     /// Send UtxosUpdated event and persist UTXOs to sled for instant startup.
+    /// Also backfills collateral_amount on masternode entries that are missing it.
     fn send_utxos_updated(&self, utxos: Vec<crate::masternode_client::Utxo>) {
         if let Some(ref db) = self.wallet_db {
             let _ = db.clear_all_utxos();
@@ -2062,6 +2063,20 @@ impl ServiceState {
                     block_height: 0,
                     confirmations: u.confirmations as u64,
                 });
+            }
+            // Backfill collateral_amount on masternode entries and persist
+            if let Ok(entries) = db.get_masternode_entries() {
+                for mut entry in entries {
+                    if entry.collateral_amount.is_none() {
+                        if let Some(u) = utxos.iter().find(|u| {
+                            u.txid == entry.collateral_txid && u.vout == entry.collateral_vout
+                        }) {
+                            entry.collateral_amount = Some(u.amount);
+                            let _ = db.save_masternode_entry(&entry);
+                            log::info!("💾 Backfilled collateral {} for '{}'", u.amount, entry.alias);
+                        }
+                    }
+                }
             }
         }
         let _ = self.svc_tx.send(ServiceEvent::UtxosUpdated(utxos));
