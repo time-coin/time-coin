@@ -59,6 +59,23 @@ pub fn render(
     ui.horizontal(|ui| {
         if ui.button("➕ Add Masternode").clicked() {
             state.mn_show_add_form = !state.mn_show_add_form;
+            if state.mn_show_add_form && state.mn_add_name.is_empty() {
+                // Auto-suggest next available name
+                let existing: std::collections::HashSet<&str> = state
+                    .masternode_entries
+                    .iter()
+                    .map(|e| e.alias.as_str())
+                    .collect();
+                let mut n = 1u32;
+                loop {
+                    let candidate = format!("mn{}", n);
+                    if !existing.contains(candidate.as_str()) {
+                        state.mn_add_name = candidate;
+                        break;
+                    }
+                    n += 1;
+                }
+            }
         }
     });
 
@@ -154,9 +171,6 @@ pub fn render(
                             .map(|u| u.amount);
                         let entry = MasternodeEntry {
                             alias,
-                            ip: String::new(),
-                            port: 0,
-                            masternode_key: String::new(),
                             collateral_txid: txid,
                             collateral_vout: vout,
                             payout_address: None,
@@ -169,6 +183,7 @@ pub fn render(
                         state.mn_show_add_form = false;
                     }
                     if ui.button("Cancel").clicked() {
+                        state.mn_add_name.clear();
                         state.mn_show_add_form = false;
                     }
                 });
@@ -338,9 +353,6 @@ pub fn render(
                                     old_alias,
                                     new_entry: MasternodeEntry {
                                         alias: name_t,
-                                        ip: String::new(),
-                                        port: 0,
-                                        masternode_key: String::new(),
                                         collateral_txid: txid,
                                         collateral_vout: vout,
                                         payout_address: old_payout,

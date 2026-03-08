@@ -154,7 +154,21 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
         {
             state.mn_add_txid = tx.txid.clone();
             state.mn_add_vout = tx.vout.to_string();
-            state.mn_add_name = String::new();
+            // Auto-generate next available name: mn1, mn2, ...
+            let existing: std::collections::HashSet<&str> = state
+                .masternode_entries
+                .iter()
+                .map(|e| e.alias.as_str())
+                .collect();
+            let mut n = 1u32;
+            loop {
+                let candidate = format!("mn{}", n);
+                if !existing.contains(candidate.as_str()) {
+                    state.mn_add_name = candidate;
+                    break;
+                }
+                n += 1;
+            }
             state.mn_show_add_form = true;
             state.selected_transaction = None;
             state.screen = Screen::Masternodes;

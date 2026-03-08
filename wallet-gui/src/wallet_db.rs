@@ -14,6 +14,9 @@ pub enum WalletDbError {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] bincode::Error),
 
+    #[error("JSON error: {0}")]
+    JsonError(#[from] serde_json::Error),
+
     #[error("Not found: {0}")]
     NotFound(String),
 }
@@ -484,23 +487,67 @@ impl WalletDb {
 
     // ==================== Masternode Entries ====================
 
-    /// Save or update a masternode entry.
+    /// Save or update a masternode entry (stored as JSON).
     pub fn save_masternode_entry(&self, entry: &MasternodeEntry) -> Result<(), WalletDbError> {
         let key = format!("masternode:{}", entry.alias);
-        let value = bincode::serialize(entry)?;
+        let value = serde_json::to_vec(entry)?;
         self.db.insert(key.as_bytes(), value)?;
         self.db.flush()?;
         Ok(())
     }
 
     /// Get all masternode entries.
+    /// Tries JSON first; falls back to bincode for entries written by older versions
+    /// and immediately re-saves them as JSON so future reads succeed.
     pub fn get_masternode_entries(&self) -> Result<Vec<MasternodeEntry>, WalletDbError> {
         let mut entries = Vec::new();
+        let mut to_migrate: Vec<MasternodeEntry> = Vec::new();
+
         for item in self.db.scan_prefix(b"masternode:") {
-            let (_, value) = item?;
-            let entry: MasternodeEntry = bincode::deserialize(&value)?;
-            entries.push(entry);
+            let (key, value) = item?;
+            // Try JSON (current format)
+            if let Ok(entry) = serde_json::from_slice::<MasternodeEntry>(&value) {
+                entries.push(entry);
+                continue;
+            }
+            // Fall back to bincode (legacy format — strip removed fields if possible)
+            let key_str = String::from_utf8_lossy(&key);
+            // Extract alias from key ("masternode:<alias>")
+            let alias = key_str.strip_prefix("masternode:").unwrap_or(&key_str).to_string();
+            // Try to parse as legacy bincode with old field layout via a migration struct
+            #[derive(serde::Deserialize)]
+            struct LegacyEntry {
+                alias: String,
+                ip: String,
+                port: u16,
+                masternode_key: String,
+                collateral_txid: String,
+                collateral_vout: u32,
+                payout_address: Option<String>,
+                #[serde(default)]
+                collateral_amount: Option<u64>,
+            }
+            if let Ok(legacy) = bincode::deserialize::<LegacyEntry>(&value) {
+                let entry = MasternodeEntry {
+                    alias: legacy.alias,
+                    collateral_txid: legacy.collateral_txid,
+                    collateral_vout: legacy.collateral_vout,
+                    payout_address: legacy.payout_address,
+                    collateral_amount: legacy.collateral_amount,
+                };
+                log::info!("Migrating masternode entry '{}' from bincode to JSON", entry.alias);
+                to_migrate.push(entry.clone());
+                entries.push(entry);
+            } else {
+                log::warn!("Skipping unreadable masternode entry '{}' (unknown format)", alias);
+            }
         }
+
+        // Re-save migrated entries as JSON
+        for entry in to_migrate {
+            let _ = self.save_masternode_entry(&entry);
+        }
+
         entries.sort_by(|a, b| a.alias.cmp(&b.alias));
         Ok(entries)
     }
@@ -557,16 +604,14 @@ impl WalletDb {
     }
 }
 
-/// Masternode configuration entry (mirrors masternode.conf format).
-/// Format: `alias IP:port masternodeprivkey collateral_txid collateral_vout`
+/// Masternode configuration entry.
+/// Stored as JSON in sled so future field additions remain backward-compatible.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasternodeEntry {
     pub alias: String,
-    pub ip: String,
-    pub port: u16,
-    pub masternode_key: String,
     pub collateral_txid: String,
     pub collateral_vout: u32,
+    #[serde(default)]
     pub payout_address: Option<String>,
     /// Cached collateral amount in satoshis — used for tier display when the
     /// UTXO is not yet in the wallet's fetched UTXO set.
@@ -575,59 +620,35 @@ pub struct MasternodeEntry {
 }
 
 impl MasternodeEntry {
-    /// Parse a masternode.conf line: `alias IP:port masternodeprivkey txid vout`
+    /// Parse a line from masternode.conf.
+    /// New format:    `alias txid vout`
+    /// Legacy format: `alias IP:port [key] txid vout`  (IP/key ignored)
     pub fn parse_conf_line(line: &str) -> Option<Self> {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             return None;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 5 {
-            return None;
-        }
-        let alias = parts[0].to_string();
-        let (ip, port) = if let Some(colon) = parts[1].rfind(':') {
-            let ip = parts[1][..colon].to_string();
-            let port = parts[1][colon + 1..].parse().ok()?;
-            (ip, port)
-        } else {
-            return None;
+        let (txid_idx, vout_idx) = match parts.len() {
+            3 => (1, 2),             // alias txid vout
+            4 => (2, 3),             // alias IP:port txid vout
+            5 => (3, 4),             // alias IP:port key txid vout
+            6 => (4, 5),             // alias IP:port key cert txid vout
+            _ => return None,
         };
-        let masternode_key = parts[2].to_string();
-        let collateral_txid = parts[3].to_string();
-        let collateral_vout = parts[4].parse().ok()?;
         Some(MasternodeEntry {
-            alias,
-            ip,
-            port,
-            masternode_key,
-            collateral_txid,
-            collateral_vout,
+            alias: parts[0].to_string(),
+            collateral_txid: parts[txid_idx].to_string(),
+            collateral_vout: parts[vout_idx].parse().ok()?,
             payout_address: None,
             collateral_amount: None,
         })
     }
 
-    /// Format as a masternode.conf line (wallet format — includes key field for reference).
-    pub fn to_conf_line(&self) -> String {
-        format!(
-            "{} {}:{} {} {} {}",
-            self.alias,
-            self.ip,
-            self.port,
-            self.masternode_key,
-            self.collateral_txid,
-            self.collateral_vout
-        )
-    }
-
-    /// Format as the 3-field daemon conf line: `alias txid vout`
-    /// The daemon reads the node IP from externalip= in time.conf.
+    /// Format as a daemon conf line: `alias txid vout`
+    /// Paste into ~/.timed/masternode.conf on the server, then restart timed.
     pub fn to_daemon_conf_line(&self) -> String {
-        format!(
-            "{} {} {}",
-            self.alias, self.collateral_txid, self.collateral_vout
-        )
+        format!("{} {} {}", self.alias, self.collateral_txid, self.collateral_vout)
     }
 }
 
