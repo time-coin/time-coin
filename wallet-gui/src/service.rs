@@ -1771,29 +1771,28 @@ async fn discover_peers(
                     info.endpoint,
                     info.ping_ms.unwrap_or(0)
                 );
-                // If this peer is faster than the slowest current peer, swap it in
-                let slowest_idx = peer_infos
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, p)| p.is_healthy)
-                    .max_by_key(|(_, p)| p.ping_ms.unwrap_or(u64::MAX));
-                let new_ping = info.ping_ms.unwrap_or(u64::MAX);
-                match slowest_idx {
-                    Some((idx, slowest))
-                        if slowest.ping_ms.unwrap_or(u64::MAX) > new_ping =>
-                    {
-                        log::info!(
-                            "🔀 Replacing slow peer {} ({}ms) with {} ({}ms)",
-                            peer_infos[idx].endpoint,
-                            slowest.ping_ms.unwrap_or(0),
-                            info.endpoint,
-                            new_ping
-                        );
-                        peer_infos[idx] = info;
-                    }
-                    _ => {
-                        // No peer to displace — just add it
-                        peer_infos.push(info);
+                // Add the new peer if we're below the connection cap.
+                // Only replace the slowest when at the limit.
+                if peer_infos.len() < max_connections {
+                    peer_infos.push(info);
+                } else {
+                    let slowest_idx = peer_infos
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, p)| p.is_healthy)
+                        .max_by_key(|(_, p)| p.ping_ms.unwrap_or(u64::MAX));
+                    let new_ping = info.ping_ms.unwrap_or(u64::MAX);
+                    if let Some((idx, slowest)) = slowest_idx {
+                        if slowest.ping_ms.unwrap_or(u64::MAX) > new_ping {
+                            log::info!(
+                                "🔀 Replacing slow peer {} ({}ms) with {} ({}ms)",
+                                peer_infos[idx].endpoint,
+                                slowest.ping_ms.unwrap_or(0),
+                                info.endpoint,
+                                new_ping
+                            );
+                            peer_infos[idx] = info;
+                        }
                     }
                 }
             }
