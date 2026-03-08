@@ -412,22 +412,42 @@ impl MasternodeClient {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        // Masternode returns "chain", fall back to "version" for compat
-        let version = result
+        // "chain" is network type (mainnet/testnet)
+        let network = result
             .get("chain")
-            .or_else(|| result.get("version"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
 
-        let status = HealthStatus {
-            status: "healthy".to_string(),
-            version,
-            block_height: height,
-            peer_count: 0,
+        // Fetch connection count and daemon version from getnetworkinfo
+        let (peer_count, version) = if let Ok(ni) = self
+            .rpc_call("getnetworkinfo", serde_json::json!([]))
+            .await
+        {
+            let peers = ni
+                .get("connections")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+            // subversion is "/timed:0.1.0/" — strip the slashes
+            let ver = ni
+                .get("subversion")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim_matches('/')
+                .to_string();
+            (peers, ver)
+        } else {
+            (0, String::new())
         };
 
-        log::info!("✅ Masternode healthy: height={}", height);
+        let status = HealthStatus {
+            status: "healthy".to_string(),
+            version: format!("{} ({})", network, version),
+            block_height: height,
+            peer_count,
+        };
+
+        log::info!("✅ Masternode healthy: height={}, peers={}", height, peer_count);
         Ok(status)
     }
 

@@ -130,7 +130,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         if let Some(ref health) = state.health {
             ui.label(format!("Block height: {}", health.block_height));
             ui.label(format!("Peers: {}", health.peer_count));
-            ui.label(format!("Version: {}", health.version));
+            ui.label(format!("Network: {}", health.version));
         }
     });
 
