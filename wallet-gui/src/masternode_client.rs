@@ -304,10 +304,10 @@ impl MasternodeClient {
                     amount
                 };
 
-                // Skip zero-amount transactions — the masternode should already
-                // filter these, but guard here too (e.g. scientific notation
-                // amounts that rounded to 0 after parsing).
-                if display_amount == 0 && fee == 0 {
+                // Skip zero-amount received/generate entries — these are staking
+                // inputs with no corresponding payout in that transaction.
+                // (Sent transactions with fee but 0 net are valid and kept.)
+                if display_amount == 0 && !is_send {
                     return None;
                 }
 
