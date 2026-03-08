@@ -356,7 +356,7 @@ pub async fn run(
                                                 tx_hash[i] = (hi << 4) | lo;
                                             }
                                         }
-                                        if valid {
+                                        if valid && utxo.spendable {
                                             wallet_inner.add_utxo(wallet::wallet::UTXO {
                                                 tx_hash,
                                                 output_index: utxo.vout,
@@ -959,6 +959,7 @@ pub async fn run(
                                     }
                                     let mut loaded_balance = 0u64;
                                     for utxo in chunk {
+                                        if !utxo.spendable { continue; }
                                         let mut tx_hash = [0u8; 32];
                                         if let Ok(bytes) = hex::decode(&utxo.txid) {
                                             if bytes.len() == 32 {
@@ -2014,6 +2015,7 @@ impl ServiceState {
                                     amount: r.amount,
                                     address: r.address.clone(),
                                     confirmations: r.confirmations as u32,
+                                    spendable: true,
                                 })
                                 .collect();
                             log::info!("Loaded {} cached UTXOs from database", utxos.len());

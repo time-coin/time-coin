@@ -341,12 +341,6 @@ impl MasternodeClient {
         let utxos: Vec<Utxo> = utxo_values
             .into_iter()
             .filter_map(|u| {
-                // Skip non-spendable UTXOs (locked by instant finality, collateral, etc.)
-                let spendable = u.get("spendable").and_then(|v| v.as_bool()).unwrap_or(true);
-                if !spendable {
-                    return None;
-                }
-
                 let txid = u.get("txid")?.as_str()?.to_string();
                 let vout = u.get("vout")?.as_u64()? as u32;
                 let amount = u.get("amount").map(json_to_satoshis).unwrap_or(0);
@@ -357,6 +351,7 @@ impl MasternodeClient {
                     .to_string();
                 let confirmations =
                     u.get("confirmations").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let spendable = u.get("spendable").and_then(|v| v.as_bool()).unwrap_or(true);
 
                 Some(Utxo {
                     txid,
@@ -364,11 +359,13 @@ impl MasternodeClient {
                     amount,
                     address: addr,
                     confirmations,
+                    spendable,
                 })
             })
             .collect();
 
-        log::info!("✅ Retrieved {} UTXOs", utxos.len());
+        let spendable_count = utxos.iter().filter(|u| u.spendable).count();
+        log::info!("✅ Retrieved {} UTXOs ({} spendable, {} locked)", utxos.len(), spendable_count, utxos.len() - spendable_count);
         Ok(utxos)
     }
 
@@ -533,7 +530,12 @@ pub struct Utxo {
     pub amount: u64,
     pub address: String,
     pub confirmations: u32,
+    /// False for UTXOs locked as masternode collateral or pending finality.
+    #[serde(default = "default_true")]
+    pub spendable: bool,
 }
+
+fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {

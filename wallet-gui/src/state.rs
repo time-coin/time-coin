@@ -1206,6 +1206,7 @@ mod tests {
                 amount: 8_9900_0000,
                 address: "TIME0addr".to_string(),
                 confirmations: 1,
+                spendable: true,
             }],
             ..Default::default()
         };
@@ -1272,6 +1273,7 @@ mod tests {
                 amount: 9_9800_0000,
                 address: "TIME0addr".to_string(),
                 confirmations: 1,
+                spendable: true,
             }],
             ..Default::default()
         };
