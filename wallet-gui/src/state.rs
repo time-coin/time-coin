@@ -181,6 +181,10 @@ pub struct AppState {
     /// Set on first UTXO sync when count exceeds the consolidation threshold.
     /// Dismissed by user; not re-shown until next startup.
     pub suggest_consolidation: bool,
+    /// Set when the user dismisses the consolidation suggestion.
+    /// Prevents suggest_consolidation from being re-raised until consolidation
+    /// actually completes or the wallet is restarted.
+    pub consolidation_dismissed: bool,
 
     // -- Pending DB writes --
     /// Send records whose status changed and need to be persisted.
@@ -269,6 +273,7 @@ impl Default for AppState {
             consolidation_status: String::new(),
             send_too_large: false,
             suggest_consolidation: false,
+            consolidation_dismissed: false,
             dirty_send_records: Vec::new(),
         }
     }
@@ -804,6 +809,7 @@ impl AppState {
                 const CONSOLIDATION_SUGGEST_THRESHOLD: usize = 50;
                 if !self.suggest_consolidation
                     && !self.consolidation_in_progress
+                    && !self.consolidation_dismissed
                     && utxos.iter().filter(|u| u.spendable).count()
                         >= CONSOLIDATION_SUGGEST_THRESHOLD
                 {
@@ -972,8 +978,9 @@ impl AppState {
             ServiceEvent::ConsolidationComplete { message } => {
                 self.consolidation_in_progress = false;
                 self.consolidation_status.clear();
-                // Don't re-suggest after consolidation completes this session.
+                // Consolidation ran — allow the suggestion to reappear if still needed.
                 self.suggest_consolidation = false;
+                self.consolidation_dismissed = false;
                 self.success = Some(message);
             }
 

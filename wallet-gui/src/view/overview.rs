@@ -67,6 +67,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("Dismiss").clicked() {
                             state.suggest_consolidation = false;
+                            state.consolidation_dismissed = true;
                         }
                         if ui.button("Consolidate now").clicked() {
                             state.suggest_consolidation = false;
