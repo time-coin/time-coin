@@ -278,6 +278,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 });
                 state.loading = true;
                 state.error = None;
+                state.send_too_large = false;
             }
         }
 
@@ -287,7 +288,32 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     });
 
     // Status messages
-    if let Some(ref err) = state.error {
+    if state.send_too_large {
+        ui.add_space(10.0);
+        egui::Frame::group(ui.style())
+            .fill(egui::Color32::from_rgb(80, 40, 0))
+            .show(ui, |ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 180, 60),
+                    "⚠ Transaction too large: you have too many small UTXOs to send in one transaction.",
+                );
+                ui.add_space(6.0);
+                ui.label("Consolidating your UTXOs will merge them into fewer, larger ones so this send will work.");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Consolidate UTXOs now").clicked() {
+                        state.send_too_large = false;
+                        let _ = ui_tx.send(UiEvent::ConsolidateUtxos);
+                        state.consolidation_in_progress = true;
+                        state.consolidation_status =
+                            "Consolidation started — try sending again once complete.".to_string();
+                    }
+                    if ui.button("Dismiss").clicked() {
+                        state.send_too_large = false;
+                    }
+                });
+            });
+    } else if let Some(ref err) = state.error {
         ui.add_space(10.0);
         ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
     }

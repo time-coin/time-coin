@@ -242,6 +242,10 @@ pub enum ServiceEvent {
     /// Non-fatal error to display in the UI.
     Error(String),
 
+    /// Send failed because the transaction would be too large.
+    /// Prompt the user to consolidate UTXOs first.
+    SendTooLarge,
+
     /// Network selected on first run — config saved, service reinitialized.
     NetworkConfigured {
         is_testnet: bool,

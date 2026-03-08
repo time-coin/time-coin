@@ -51,6 +51,36 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     ui.separator();
     ui.add_space(10.0);
 
+    // Consolidation suggestion banner (shown when many spendable UTXOs exist)
+    if state.suggest_consolidation {
+        egui::Frame::group(ui.style())
+            .fill(egui::Color32::from_rgb(60, 45, 0))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("⚠ You have many small UTXOs.")
+                            .color(egui::Color32::from_rgb(255, 200, 60))
+                            .strong(),
+                    );
+                    ui.label("Consolidating them will speed up future transactions.");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("Dismiss").clicked() {
+                            state.suggest_consolidation = false;
+                        }
+                        if ui.button("Consolidate now").clicked() {
+                            state.suggest_consolidation = false;
+                            let _ = ui_tx.send(UiEvent::ConsolidateUtxos);
+                            state.consolidation_in_progress = true;
+                            state.consolidation_status =
+                                "Consolidation started in background…".to_string();
+                        }
+                    });
+                });
+            });
+        ui.add_space(6.0);
+    }
+
     // Syncing indicator
     if state.syncing {
         ui.horizontal(|ui| {

@@ -503,9 +503,13 @@ pub async fn run(
                                         }
                                     }
                                     Err(e) => {
-                                        let _ = state.svc_tx.send(ServiceEvent::Error(
-                                            format!("Failed to create transaction: {}", e),
-                                        ));
+                                        if e.contains("too large") || e.contains("TxTooLarge") {
+                                            let _ = state.svc_tx.send(ServiceEvent::SendTooLarge);
+                                        } else {
+                                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                                format!("Failed to create transaction: {}", e),
+                                            ));
+                                        }
                                     }
                                 }
                             } else {

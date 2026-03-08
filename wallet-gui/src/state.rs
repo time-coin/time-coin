@@ -174,6 +174,14 @@ pub struct AppState {
     /// Status message from the last consolidation operation.
     pub consolidation_status: String,
 
+    /// Set when a send fails because the tx would be too large.
+    /// Prompts the user to consolidate UTXOs and retry.
+    pub send_too_large: bool,
+
+    /// Set on first UTXO sync when count exceeds the consolidation threshold.
+    /// Dismissed by user; not re-shown until next startup.
+    pub suggest_consolidation: bool,
+
     // -- Pending DB writes --
     /// Send records whose status changed and need to be persisted.
     pub dirty_send_records: Vec<TransactionRecord>,
@@ -259,6 +267,8 @@ impl Default for AppState {
             repair_in_progress: false,
             consolidation_in_progress: false,
             consolidation_status: String::new(),
+            send_too_large: false,
+            suggest_consolidation: false,
             dirty_send_records: Vec::new(),
         }
     }
@@ -789,6 +799,16 @@ impl AppState {
             }
 
             ServiceEvent::UtxosUpdated(utxos) => {
+                // Suggest consolidation on first sync if there are many spendable UTXOs
+                // and the user hasn't been prompted yet this session.
+                const CONSOLIDATION_SUGGEST_THRESHOLD: usize = 50;
+                if !self.suggest_consolidation
+                    && !self.consolidation_in_progress
+                    && utxos.iter().filter(|u| u.spendable).count()
+                        >= CONSOLIDATION_SUGGEST_THRESHOLD
+                {
+                    self.suggest_consolidation = true;
+                }
                 self.utxos = utxos;
                 // Backfill collateral_amount on entries that don't have it yet
                 for entry in &mut self.masternode_entries {
@@ -929,6 +949,11 @@ impl AppState {
                 self.resync_in_progress = false;
             }
 
+            ServiceEvent::SendTooLarge => {
+                self.send_too_large = true;
+                self.loading = false;
+            }
+
             ServiceEvent::ResyncComplete => {
                 self.resync_in_progress = false;
                 self.syncing = false;
@@ -947,6 +972,8 @@ impl AppState {
             ServiceEvent::ConsolidationComplete { message } => {
                 self.consolidation_in_progress = false;
                 self.consolidation_status.clear();
+                // Don't re-suggest after consolidation completes this session.
+                self.suggest_consolidation = false;
                 self.success = Some(message);
             }
 
