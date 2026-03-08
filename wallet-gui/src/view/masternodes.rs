@@ -176,7 +176,12 @@ pub fn render(
                             payout_address: None,
                             collateral_amount,
                         };
-                        let _ = ui_tx.send(UiEvent::SaveMasternodeEntry(entry));
+                        let _ = ui_tx.send(UiEvent::SaveMasternodeEntry(entry.clone()));
+                        // Optimistic update — show immediately without waiting for async confirmation
+                        state.locked_utxos.insert(format!("{}:{}", entry.collateral_txid, entry.collateral_vout));
+                        state.masternode_entries.retain(|e| e.alias != entry.alias);
+                        state.masternode_entries.push(entry);
+                        state.masternode_entries.sort_by(|a, b| a.alias.cmp(&b.alias));
                         state.mn_add_name.clear();
                         state.mn_add_txid.clear();
                         state.mn_add_vout = "0".to_string();
@@ -200,6 +205,7 @@ pub fn render(
     } else {
         let mut to_delete: Option<String> = None;
         let mut update_event: Option<UiEvent> = None;
+        let mut optimistic_update: Option<(String, MasternodeEntry)> = None; // (old_alias, new_entry)
 
         for entry in &state.masternode_entries {
             // Resolve collateral amount: live UTXO first, cached amount as fallback.
@@ -350,15 +356,22 @@ pub fn render(
                                     .find(|u| u.txid == txid && u.vout == vout)
                                     .map(|u| u.amount);
                                 update_event = Some(UiEvent::UpdateMasternodeEntry {
-                                    old_alias,
+                                    old_alias: old_alias.clone(),
                                     new_entry: MasternodeEntry {
-                                        alias: name_t,
-                                        collateral_txid: txid,
+                                        alias: name_t.clone(),
+                                        collateral_txid: txid.clone(),
                                         collateral_vout: vout,
                                         payout_address: old_payout,
                                         collateral_amount,
                                     },
                                 });
+                                optimistic_update = Some((old_alias, MasternodeEntry {
+                                    alias: name_t,
+                                    collateral_txid: txid,
+                                    collateral_vout: vout,
+                                    payout_address: None,
+                                    collateral_amount,
+                                }));
                                 state.mn_edit_alias = None;
                             }
                             if ui.button("Cancel").clicked() {
@@ -371,10 +384,23 @@ pub fn render(
         }
 
         if let Some(alias) = to_delete {
-            let _ = ui_tx.send(UiEvent::DeleteMasternodeEntry { alias });
+            let _ = ui_tx.send(UiEvent::DeleteMasternodeEntry { alias: alias.clone() });
+            state.masternode_entries.retain(|e| e.alias != alias);
+            state.locked_utxos = state.masternode_entries.iter()
+                .map(|e| format!("{}:{}", e.collateral_txid, e.collateral_vout))
+                .collect();
         }
         if let Some(event) = update_event {
             let _ = ui_tx.send(event);
+        }
+        if let Some((old_alias, new_entry)) = optimistic_update {
+            state.locked_utxos.retain(|k| {
+                !state.masternode_entries.iter().any(|e| e.alias == old_alias && format!("{}:{}", e.collateral_txid, e.collateral_vout) == *k)
+            });
+            state.masternode_entries.retain(|e| e.alias != old_alias);
+            state.locked_utxos.insert(format!("{}:{}", new_entry.collateral_txid, new_entry.collateral_vout));
+            state.masternode_entries.push(new_entry);
+            state.masternode_entries.sort_by(|a, b| a.alias.cmp(&b.alias));
         }
     }
 }
