@@ -81,7 +81,7 @@ pub struct AppState {
 
     // -- Transactions --
     pub transactions: Vec<TransactionRecord>,
-    pub selected_transaction: Option<usize>,
+    pub selected_transaction: Option<String>,
     pub tx_search: String,
     pub tx_page: usize,
 

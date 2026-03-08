@@ -10,9 +10,9 @@ use crate::wallet_db::masternode_tier_from_satoshis;
 
 /// Render the transactions screen.
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
-    // If a transaction is selected, show its detail view
-    if let Some(idx) = state.selected_transaction {
-        if idx < state.transactions.len() {
+    // If a transaction is selected and still exists, show its detail view.
+    if let Some(ref txid) = state.selected_transaction.clone() {
+        if state.transactions.iter().any(|t| &t.txid == txid) {
             show_detail(ui, state, ui_tx);
             return;
         } else {
@@ -25,15 +25,17 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
 /// Detail view for a single transaction.
 fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender<UiEvent>) {
-    let idx = match state.selected_transaction {
-        Some(i) if i < state.transactions.len() => i,
-        _ => {
-            state.selected_transaction = None;
-            return;
-        }
+    // Look up by TXID so the detail is stable even if the list is updated.
+    let tx = match state.selected_transaction.as_deref() {
+        Some(txid) => match state.transactions.iter().find(|t| t.txid == txid) {
+            Some(t) => t.clone(),
+            None => {
+                state.selected_transaction = None;
+                return;
+            }
+        },
+        None => return,
     };
-    // Clone so we can mutate `state` freely later in this frame.
-    let tx = state.transactions[idx].clone();
 
     ui.horizontal(|ui| {
         if ui.button("Back").clicked() {
@@ -283,7 +285,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
     });
     ui.add_space(5.0);
 
-    let mut clicked_idx = None;
+    let mut clicked_txid: Option<String> = None;
     egui::ScrollArea::vertical()
         .id_salt("tx_list_scroll")
         .auto_shrink([false, false])
@@ -324,7 +326,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             )
                             .clicked()
                         {
-                            clicked_idx = Some(i);
+                            clicked_txid = Some(tx.txid.clone());
                         }
 
                         // Amount
@@ -343,7 +345,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             )
                             .clicked()
                         {
-                            clicked_idx = Some(i);
+                            clicked_txid = Some(tx.txid.clone());
                         }
 
                         // Address
@@ -376,7 +378,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             )
                             .clicked()
                         {
-                            clicked_idx = Some(i);
+                            clicked_txid = Some(tx.txid.clone());
                         }
 
                         // Date
@@ -401,7 +403,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             )
                             .clicked()
                         {
-                            clicked_idx = Some(i);
+                            clicked_txid = Some(tx.txid.clone());
                         }
 
                         // Status
@@ -423,7 +425,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             )
                             .clicked()
                         {
-                            clicked_idx = Some(i);
+                            clicked_txid = Some(tx.txid.clone());
                         }
 
                         // TxID
@@ -444,7 +446,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             )
                             .clicked()
                         {
-                            clicked_idx = Some(i);
+                            clicked_txid = Some(tx.txid.clone());
                         }
 
                         ui.end_row();
@@ -452,7 +454,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                 });
         });
 
-    if let Some(idx) = clicked_idx {
-        state.selected_transaction = Some(idx);
+    if let Some(txid) = clicked_txid {
+        state.selected_transaction = Some(txid);
     }
 }
