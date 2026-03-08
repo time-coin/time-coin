@@ -140,6 +140,12 @@ pub enum UiEvent {
         new_payout_address: String,
     },
 
+    /// Update a masternode entry in the DB, replacing the old alias key.
+    UpdateMasternodeEntry {
+        old_alias: String,
+        new_entry: crate::wallet_db::MasternodeEntry,
+    },
+
     /// Persist updated send records to the database.
     PersistSendRecords(Vec<TransactionRecord>),
 }

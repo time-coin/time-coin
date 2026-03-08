@@ -151,18 +151,16 @@ pub struct AppState {
 
     // -- Masternodes --
     pub masternode_entries: Vec<crate::wallet_db::MasternodeEntry>,
-    pub mn_add_alias: String,
     pub mn_add_ip: String,
-    pub mn_add_port: String,
-    pub mn_add_key: String,
     pub mn_add_txid: String,
     pub mn_add_vout: String,
-    pub mn_add_payout: String,
     pub mn_show_add_form: bool,
-    /// Alias of the masternode currently showing the payout update dialog.
-    pub mn_update_payout_alias: Option<String>,
-    /// Input field for the new payout address in the update dialog.
-    pub mn_update_payout_input: String,
+    /// Alias of the masternode currently open in the inline edit form.
+    pub mn_edit_alias: Option<String>,
+    /// Edit form fields (IP:port, TXID, vout).
+    pub mn_edit_ip: String,
+    pub mn_edit_txid: String,
+    pub mn_edit_vout: String,
 
     // -- Sync status --
     /// True while waiting for the first network poll after wallet load.
@@ -249,16 +247,14 @@ impl Default for AppState {
             show_encrypt_dialog: false,
             resync_in_progress: false,
             masternode_entries: Vec::new(),
-            mn_add_alias: String::new(),
             mn_add_ip: String::new(),
-            mn_add_port: "24100".to_string(),
-            mn_add_key: String::new(),
             mn_add_txid: String::new(),
             mn_add_vout: "0".to_string(),
-            mn_add_payout: String::new(),
             mn_show_add_form: false,
-            mn_update_payout_alias: None,
-            mn_update_payout_input: String::new(),
+            mn_edit_alias: None,
+            mn_edit_ip: String::new(),
+            mn_edit_txid: String::new(),
+            mn_edit_vout: "0".to_string(),
             syncing: false,
             repair_in_progress: false,
             consolidation_in_progress: false,

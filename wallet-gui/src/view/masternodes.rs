@@ -4,12 +4,12 @@ use crate::events::UiEvent;
 use crate::state::AppState;
 use crate::wallet_db::{masternode_tier_from_satoshis, MasternodeEntry};
 
-/// Emoji + label for a tier name string.
+/// Colored tier label text (no emoji — relies on color for distinction).
 fn tier_label(tier: &str) -> (&'static str, Color32) {
     match tier {
-        "Gold" => ("🥇 Gold", Color32::from_rgb(255, 200, 50)),
-        "Silver" => ("🥈 Silver", Color32::from_rgb(192, 192, 192)),
-        "Bronze" => ("🟫 Bronze", Color32::from_rgb(180, 100, 50)),
+        "Gold" => ("Gold", Color32::from_rgb(255, 200, 50)),
+        "Silver" => ("Silver", Color32::from_rgb(192, 192, 192)),
+        "Bronze" => ("Bronze", Color32::from_rgb(180, 100, 50)),
         _ => ("Free", Color32::GRAY),
     }
 }
@@ -54,28 +54,15 @@ pub fn render(
             ui.label("1. Send the required collateral to a wallet address and note the TXID/vout.");
             ui.label("2. Add the entry below with the collateral TXID and vout.");
             ui.label("3. Click ▶ Start On-Chain to broadcast the registration transaction.");
-            ui.label("4. On your masternode server, add the daemon conf line (see 📋 button) to");
-            ui.label("   ~/.timed/masternode.conf and restart timed. The daemon auto-detects the");
-            ui.label("   tier from the collateral amount.");
             ui.add_space(4.0);
         });
 
     ui.add_space(8.0);
 
-    // ---------- Add / Import buttons ----------
+    // ---------- Add button ----------
     ui.horizontal(|ui| {
         if ui.button("➕ Add Masternode").clicked() {
             state.mn_show_add_form = !state.mn_show_add_form;
-        }
-        if ui.button("📥 Import masternode.conf").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_title("Select masternode.conf")
-                .add_filter("conf", &["conf"])
-                .add_filter("All files", &["*"])
-                .pick_file()
-            {
-                let _ = ui_tx.send(UiEvent::ImportMasternodeConf { path });
-            }
         }
     });
 
@@ -92,20 +79,10 @@ pub fn render(
                     .num_columns(2)
                     .spacing([8.0, 4.0])
                     .show(ui, |ui| {
-                        ui.label("Alias:");
-                        ui.text_edit_singleline(&mut state.mn_add_alias);
-                        ui.end_row();
-
-                        ui.label("IP Address:");
-                        ui.text_edit_singleline(&mut state.mn_add_ip);
-                        ui.end_row();
-
-                        ui.label("Port:");
-                        ui.text_edit_singleline(&mut state.mn_add_port);
-                        ui.end_row();
-
-                        ui.label("Masternode Key:");
-                        ui.text_edit_singleline(&mut state.mn_add_key);
+                        ui.label("IP Address:")
+                            .on_hover_text("Masternode server IP and optional port, e.g. 1.2.3.4:24100");
+                        ui.text_edit_singleline(&mut state.mn_add_ip)
+                            .on_hover_text("e.g. 1.2.3.4 or 1.2.3.4:24100");
                         ui.end_row();
 
                         ui.label("Collateral TXID:");
@@ -124,20 +101,6 @@ pub fn render(
 
                         ui.label("Collateral Vout:");
                         ui.text_edit_singleline(&mut state.mn_add_vout);
-                        ui.end_row();
-
-                        ui.label("Payout Address:");
-                        let resp2 = ui.text_edit_singleline(&mut state.mn_add_payout);
-                        resp2.context_menu(|ui| {
-                            if ui.button("📋 Paste").clicked() {
-                                if let Ok(mut cb) = arboard::Clipboard::new() {
-                                    if let Ok(t) = cb.get_text() {
-                                        state.mn_add_payout = t.trim().to_string();
-                                    }
-                                }
-                                ui.close_menu();
-                            }
-                        });
                         ui.end_row();
                     });
 
@@ -176,10 +139,8 @@ pub fn render(
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let can_save = !state.mn_add_alias.trim().is_empty()
-                        && !state.mn_add_ip.trim().is_empty()
-                        && state.mn_add_port.trim().parse::<u16>().is_ok()
-                        && !state.mn_add_key.trim().is_empty()
+                    let ip_trimmed = state.mn_add_ip.trim().to_string();
+                    let can_save = !ip_trimmed.is_empty()
                         && !state.mn_add_txid.trim().is_empty()
                         && state.mn_add_vout.trim().parse::<u32>().is_ok();
 
@@ -187,27 +148,34 @@ pub fn render(
                         .add_enabled(can_save, egui::Button::new("💾 Save"))
                         .clicked()
                     {
+                        let (ip, port) = if let Some(colon) = ip_trimmed.rfind(':') {
+                            let port = ip_trimmed[colon + 1..].parse().unwrap_or(24100u16);
+                            (ip_trimmed[..colon].to_string(), port)
+                        } else {
+                            (ip_trimmed.clone(), 24100u16)
+                        };
+                        let alias = format!("{}:{}", ip, port);
+                        let txid = state.mn_add_txid.trim().to_string();
+                        let vout: u32 = state.mn_add_vout.trim().parse().unwrap_or(0);
+                        let collateral_amount = state
+                            .utxos
+                            .iter()
+                            .find(|u| u.txid == txid && u.vout == vout)
+                            .map(|u| u.amount);
                         let entry = MasternodeEntry {
-                            alias: state.mn_add_alias.trim().to_string(),
-                            ip: state.mn_add_ip.trim().to_string(),
-                            port: state.mn_add_port.trim().parse().unwrap_or(24100),
-                            masternode_key: state.mn_add_key.trim().to_string(),
-                            collateral_txid: state.mn_add_txid.trim().to_string(),
-                            collateral_vout: state.mn_add_vout.trim().parse().unwrap_or(0),
-                            payout_address: if state.mn_add_payout.trim().is_empty() {
-                                None
-                            } else {
-                                Some(state.mn_add_payout.trim().to_string())
-                            },
+                            alias,
+                            ip,
+                            port,
+                            masternode_key: String::new(),
+                            collateral_txid: txid,
+                            collateral_vout: vout,
+                            payout_address: None,
+                            collateral_amount,
                         };
                         let _ = ui_tx.send(UiEvent::SaveMasternodeEntry(entry));
-                        state.mn_add_alias.clear();
                         state.mn_add_ip.clear();
-                        state.mn_add_port = "24100".to_string();
-                        state.mn_add_key.clear();
                         state.mn_add_txid.clear();
                         state.mn_add_vout = "0".to_string();
-                        state.mn_add_payout.clear();
                         state.mn_show_add_form = false;
                     }
                     if ui.button("Cancel").clicked() {
@@ -226,17 +194,17 @@ pub fn render(
         ui.label("No masternodes configured. Add one manually or import a masternode.conf file.");
     } else {
         let mut to_delete: Option<String> = None;
-        let mut register_event: Option<UiEvent> = None;
-        let mut register_alias: Option<String> = None;
         let mut update_event: Option<UiEvent> = None;
 
         for entry in &state.masternode_entries {
-            // Compute tier from collateral UTXO in wallet
-            let collateral_utxo = state
+            // Resolve collateral amount: live UTXO first, cached amount as fallback.
+            let live_amount = state
                 .utxos
                 .iter()
-                .find(|u| u.txid == entry.collateral_txid && u.vout == entry.collateral_vout);
-            let tier = collateral_utxo.and_then(|u| masternode_tier_from_satoshis(u.amount));
+                .find(|u| u.txid == entry.collateral_txid && u.vout == entry.collateral_vout)
+                .map(|u| u.amount);
+            let effective_amount = live_amount.or(entry.collateral_amount);
+            let tier = effective_amount.and_then(masternode_tier_from_satoshis);
 
             egui::Frame::group(ui.style())
                 .inner_margin(10.0)
@@ -250,16 +218,19 @@ pub fn render(
                                 ui.label(RichText::new(label).color(color).strong());
                             }
                             None => {
-                                if collateral_utxo.is_some() {
-                                    ui.label(RichText::new("⚠ Below threshold").color(Color32::YELLOW));
-                                } else {
-                                    ui.label(RichText::new("● Tier unknown").color(Color32::GRAY))
-                                        .on_hover_text("Collateral UTXO not found in wallet — it may be locked or belong to a different wallet");
+                                match effective_amount {
+                                    Some(_) => {
+                                        ui.label(RichText::new("⚠ Below threshold").color(Color32::YELLOW));
+                                    }
+                                    None => {
+                                        ui.label(RichText::new("? Tier pending").color(Color32::GRAY))
+                                            .on_hover_text("Collateral UTXO not yet fetched — tier will appear after the next sync");
+                                    }
                                 }
                             }
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🗑").on_hover_text("Delete").clicked() {
+                            if ui.button("Del").on_hover_text("Delete").clicked() {
                                 to_delete = Some(entry.alias.clone());
                             }
                         });
@@ -271,19 +242,6 @@ pub fn render(
                         .show(ui, |ui| {
                             ui.label("Address:");
                             ui.label(format!("{}:{}", entry.ip, entry.port));
-                            ui.end_row();
-
-                            ui.label("Key:");
-                            let short_key = if entry.masternode_key.len() > 16 {
-                                format!(
-                                    "{}…{}",
-                                    &entry.masternode_key[..8],
-                                    &entry.masternode_key[entry.masternode_key.len() - 4..]
-                                )
-                            } else {
-                                entry.masternode_key.clone()
-                            };
-                            ui.label(short_key);
                             ui.end_row();
 
                             ui.label("Collateral:");
@@ -299,7 +257,7 @@ pub fn render(
                             ui.label(format!("{}:{}", short_txid, entry.collateral_vout));
                             ui.end_row();
 
-                            if let Some(amount) = collateral_utxo.map(|u| u.amount) {
+                            if let Some(amount) = effective_amount {
                                 ui.label("Amount:");
                                 ui.label(format!("{:.0} TIME", amount as f64 / 100_000_000.0));
                                 ui.end_row();
@@ -319,31 +277,10 @@ pub fn render(
                     // --- Action buttons ---
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        if ui
-                            .button("▶ Start On-Chain")
-                            .on_hover_text("Broadcast a masternode registration transaction to the network.\nThis locks your collateral and activates the masternode tier.")
-                            .clicked()
-                        {
-                            let payout = entry
-                                .payout_address
-                                .clone()
-                                .or_else(|| state.addresses.first().map(|a| a.address.clone()))
-                                .unwrap_or_default();
-                            register_alias = Some(entry.alias.clone());
-                            register_event = Some(UiEvent::RegisterMasternode {
-                                alias: entry.alias.clone(),
-                                ip: entry.ip.clone(),
-                                port: entry.port,
-                                collateral_txid: entry.collateral_txid.clone(),
-                                collateral_vout: entry.collateral_vout,
-                                payout_address: payout,
-                            });
-                        }
-
                         // Copy daemon conf line
                         let daemon_line = entry.to_daemon_conf_line();
                         if ui
-                            .button("📋 Daemon Conf")
+                            .button("Copy Conf")
                             .on_hover_text(format!(
                                 "Copies the line for your masternode server's masternode.conf:\n\n{}\n\nPaste into ~/.timed/masternode.conf on your server, then restart timed.",
                                 daemon_line
@@ -358,43 +295,82 @@ pub fn render(
                         }
 
                         if ui
-                            .button("💸 Update Payout")
-                            .on_hover_text("Change the payout address for this masternode")
+                            .button("Edit")
+                            .on_hover_text("Edit this masternode entry")
                             .clicked()
                         {
-                            state.mn_update_payout_alias = Some(entry.alias.clone());
-                            state.mn_update_payout_input =
-                                entry.payout_address.clone().unwrap_or_default();
+                            state.mn_edit_alias = Some(entry.alias.clone());
+                            state.mn_edit_ip = format!("{}:{}", entry.ip, entry.port);
+                            state.mn_edit_txid = entry.collateral_txid.clone();
+                            state.mn_edit_vout = entry.collateral_vout.to_string();
                         }
                     });
 
-                    // Inline payout update form
-                    if state.mn_update_payout_alias.as_deref() == Some(&entry.alias) {
+                    // Inline edit form
+                    if state.mn_edit_alias.as_deref() == Some(&entry.alias) {
+                        let old_alias = entry.alias.clone();
+                        let old_payout = entry.payout_address.clone();
                         ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            ui.label("New payout address:");
-                            ui.text_edit_singleline(&mut state.mn_update_payout_input);
-                        });
-                        ui.horizontal(|ui| {
-                            let valid = !state.mn_update_payout_input.trim().is_empty();
-                            if ui
-                                .add_enabled(valid, egui::Button::new("✅ Confirm"))
-                                .clicked()
-                            {
-                                let mn_id = format!("{}:{}", entry.ip, entry.port);
-                                update_event = Some(UiEvent::UpdateMasternodePayout {
-                                    masternode_id: mn_id,
-                                    new_payout_address: state
-                                        .mn_update_payout_input
-                                        .trim()
-                                        .to_string(),
+                        egui::Grid::new(format!("mn_edit_{}", entry.alias))
+                            .num_columns(2)
+                            .spacing([8.0, 4.0])
+                            .show(ui, |ui| {
+                                ui.label("IP Address:");
+                                ui.text_edit_singleline(&mut state.mn_edit_ip);
+                                ui.end_row();
+                                ui.label("Collateral TXID:");
+                                let r = ui.text_edit_singleline(&mut state.mn_edit_txid);
+                                r.context_menu(|ui| {
+                                    if ui.button("Paste").clicked() {
+                                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                                            if let Ok(t) = cb.get_text() {
+                                                state.mn_edit_txid = t.trim().to_string();
+                                            }
+                                        }
+                                        ui.close_menu();
+                                    }
                                 });
-                                state.mn_update_payout_alias = None;
-                                state.mn_update_payout_input.clear();
+                                ui.end_row();
+                                ui.label("Collateral Vout:");
+                                ui.text_edit_singleline(&mut state.mn_edit_vout);
+                                ui.end_row();
+                            });
+                        ui.horizontal(|ui| {
+                            let ip_t = state.mn_edit_ip.trim().to_string();
+                            let valid = !ip_t.is_empty()
+                                && !state.mn_edit_txid.trim().is_empty()
+                                && state.mn_edit_vout.trim().parse::<u32>().is_ok();
+                            if ui.add_enabled(valid, egui::Button::new("Save")).clicked() {
+                                let (ip, port) = if let Some(c) = ip_t.rfind(':') {
+                                    let port = ip_t[c + 1..].parse().unwrap_or(24100u16);
+                                    (ip_t[..c].to_string(), port)
+                                } else {
+                                    (ip_t.clone(), 24100u16)
+                                };
+                                let txid = state.mn_edit_txid.trim().to_string();
+                                let vout: u32 = state.mn_edit_vout.trim().parse().unwrap_or(0);
+                                let collateral_amount = state
+                                    .utxos
+                                    .iter()
+                                    .find(|u| u.txid == txid && u.vout == vout)
+                                    .map(|u| u.amount);
+                                update_event = Some(UiEvent::UpdateMasternodeEntry {
+                                    old_alias,
+                                    new_entry: MasternodeEntry {
+                                        alias: format!("{}:{}", ip, port),
+                                        ip,
+                                        port,
+                                        masternode_key: String::new(),
+                                        collateral_txid: txid,
+                                        collateral_vout: vout,
+                                        payout_address: old_payout,
+                                        collateral_amount,
+                                    },
+                                });
+                                state.mn_edit_alias = None;
                             }
                             if ui.button("Cancel").clicked() {
-                                state.mn_update_payout_alias = None;
-                                state.mn_update_payout_input.clear();
+                                state.mn_edit_alias = None;
                             }
                         });
                     }
@@ -404,12 +380,6 @@ pub fn render(
 
         if let Some(alias) = to_delete {
             let _ = ui_tx.send(UiEvent::DeleteMasternodeEntry { alias });
-        }
-        if let Some(event) = register_event {
-            let _ = ui_tx.send(event);
-            if let Some(alias) = register_alias {
-                state.success = Some(format!("Registering masternode '{}'…", alias));
-            }
         }
         if let Some(event) = update_event {
             let _ = ui_tx.send(event);

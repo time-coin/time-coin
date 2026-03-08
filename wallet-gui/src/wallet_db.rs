@@ -568,6 +568,10 @@ pub struct MasternodeEntry {
     pub collateral_txid: String,
     pub collateral_vout: u32,
     pub payout_address: Option<String>,
+    /// Cached collateral amount in satoshis — used for tier display when the
+    /// UTXO is not yet in the wallet's fetched UTXO set.
+    #[serde(default)]
+    pub collateral_amount: Option<u64>,
 }
 
 impl MasternodeEntry {
@@ -600,6 +604,7 @@ impl MasternodeEntry {
             collateral_txid,
             collateral_vout,
             payout_address: None,
+            collateral_amount: None,
         })
     }
 

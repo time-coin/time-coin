@@ -12,7 +12,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     // If a transaction is selected, show its detail view
     if let Some(idx) = state.selected_transaction {
         if idx < state.transactions.len() {
-            show_detail(ui, state, idx);
+            show_detail(ui, state, ui_tx);
             return;
         } else {
             state.selected_transaction = None;
@@ -23,8 +23,16 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 }
 
 /// Detail view for a single transaction.
-fn show_detail(ui: &mut Ui, state: &mut AppState, idx: usize) {
-    let tx = &state.transactions[idx];
+fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender<UiEvent>) {
+    let idx = match state.selected_transaction {
+        Some(i) if i < state.transactions.len() => i,
+        _ => {
+            state.selected_transaction = None;
+            return;
+        }
+    };
+    // Clone so we can mutate `state` freely later in this frame.
+    let tx = state.transactions[idx].clone();
 
     ui.horizontal(|ui| {
         if ui.button("Back").clicked() {

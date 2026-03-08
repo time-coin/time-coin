@@ -1138,7 +1138,6 @@ pub async fn run(
                             match db.save_masternode_entry(&entry) {
                                 Ok(()) => {
                                     log::info!("💾 Saved masternode entry '{}'", entry.alias);
-                                    sync_masternode_conf(db, &state.config.wallet_dir());
                                     if let Ok(entries) = db.get_masternode_entries() {
                                         let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
                                     }
@@ -1159,9 +1158,27 @@ pub async fn run(
                     UiEvent::DeleteMasternodeEntry { alias } => {
                         if let Some(ref db) = state.wallet_db {
                             let _ = db.delete_masternode_entry(&alias);
-                            sync_masternode_conf(db, &state.config.wallet_dir());
                             if let Ok(entries) = db.get_masternode_entries() {
                                 let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                            }
+                        }
+                    }
+
+                    UiEvent::UpdateMasternodeEntry { old_alias, new_entry } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.delete_masternode_entry(&old_alias);
+                            match db.save_masternode_entry(&new_entry) {
+                                Ok(()) => {
+                                    log::info!("Updated masternode '{}' -> '{}'", old_alias, new_entry.alias);
+                                    if let Ok(entries) = db.get_masternode_entries() {
+                                        let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(
+                                        format!("Failed to update masternode '{}': {}", old_alias, e),
+                                    ));
+                                }
                             }
                         }
                     }
@@ -1178,7 +1195,6 @@ pub async fn run(
                                         }
                                     }
                                     log::info!("Imported {} masternode entries from {}", count, path.display());
-                                    sync_masternode_conf(db, &state.config.wallet_dir());
                                     if let Ok(entries) = db.get_masternode_entries() {
                                         let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
                                     }
@@ -1466,30 +1482,6 @@ pub async fn run(
     }
 
     log::info!("👋 Service loop exited");
-}
-
-/// Write all masternode entries from the DB to `masternode.conf` in the wallet directory.
-fn sync_masternode_conf(db: &crate::wallet_db::WalletDb, wallet_dir: &std::path::Path) {
-    match db.get_masternode_entries() {
-        Ok(entries) => {
-            let conf_path = wallet_dir.join("masternode.conf");
-            let mut lines = vec![
-                "# masternode.conf — managed by TIME Wallet".to_string(),
-                "# Format: alias IP:port masternodeprivkey collateral_txid collateral_vout"
-                    .to_string(),
-                String::new(),
-            ];
-            for e in &entries {
-                lines.push(e.to_conf_line());
-            }
-            let content = lines.join("\n") + "\n";
-            match std::fs::write(&conf_path, content) {
-                Ok(()) => log::info!("💾 masternode.conf updated ({} entries)", entries.len()),
-                Err(e) => log::warn!("Failed to write masternode.conf: {}", e),
-            }
-        }
-        Err(e) => log::warn!("Failed to read masternode entries for conf sync: {}", e),
-    }
 }
 
 /// Discover and health-check peers in the background.
@@ -1989,7 +1981,6 @@ impl ServiceState {
                             }
                         } else {
                             log::info!("Loaded {} masternode entries", entries.len());
-                            sync_masternode_conf(db, &self.config.wallet_dir());
                             // Ensure collateral UTXOs are locked for all known entries
                             for entry in &entries {
                                 let _ = db.lock_collateral(

@@ -5594,6 +5594,7 @@ name = "wallet-gui"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "arboard",
  "argon2",
  "base64",
  "bincode",
