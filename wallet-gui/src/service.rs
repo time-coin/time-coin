@@ -918,20 +918,10 @@ pub async fn run(
                                         Some((addr, kp))
                                     })
                                     .collect();
-                            let signing_kp = match wm.derive_keypair(0) {
-                                Ok(kp) => kp,
-                                Err(_) => {
-                                    let _ = state.svc_tx.send(ServiceEvent::Error(
-                                        "Cannot consolidate: failed to derive keypair.".to_string(),
-                                    ));
-                                    continue;
-                                }
-                            };
                             let client_clone = client.clone();
                             let svc_tx_clone = state.svc_tx.clone();
                             let addresses = state.addresses.clone();
                             let dest_addr = state.addresses.first().cloned().unwrap_or_default();
-                            let network_type = state.network_type;
 
                             tokio::spawn(async move {
                                 consolidate_utxos_background(
@@ -940,8 +930,6 @@ pub async fn run(
                                     addresses,
                                     dest_addr,
                                     addr_to_keypair,
-                                    signing_kp,
-                                    network_type,
                                 )
                                 .await;
                             });
@@ -2297,11 +2285,7 @@ async fn consolidate_utxos_background(
     addresses: Vec<String>,
     dest_addr: String,
     addr_to_keypair: std::collections::HashMap<String, wallet::Keypair>,
-    signing_kp: wallet::Keypair,
-    network_type: NetworkType,
 ) {
-    use wallet::UTXO as WalletUTXO;
-
     // Fetch all spendable UTXOs across all addresses.
     let mut all_utxos: Vec<crate::masternode_client::Utxo> = Vec::new();
     for addr in &addresses {
@@ -2319,6 +2303,17 @@ async fn consolidate_utxos_background(
         });
         return;
     }
+
+    // Validate destination address once up-front.
+    let dest_address = match wallet::Address::from_string(&dest_addr) {
+        Ok(a) => a,
+        Err(e) => {
+            let _ = svc_tx.send(ServiceEvent::ConsolidationComplete {
+                message: format!("Consolidation aborted: invalid destination address — {}", e),
+            });
+            return;
+        }
+    };
 
     let batch_size = 50;
     let total_batches = all_utxos.len().div_ceil(batch_size);
@@ -2341,104 +2336,115 @@ async fn consolidate_utxos_background(
             ),
         });
 
-        // Build a temporary wallet for coin selection and signing.
-        let sk_bytes = signing_kp.secret_key_bytes();
-        let mut temp_wallet = match wallet::Wallet::from_secret_key(&sk_bytes, network_type) {
-            Ok(w) => w,
-            Err(e) => {
-                log::warn!("❌ Consolidation batch {}: failed to build temp wallet: {}", batch_idx + 1, e);
-                failed += 1;
-                continue;
-            }
-        };
+        // Build transaction directly — bypass create_transaction to avoid
+        // double-fee calculation and temp-wallet address mismatch.
+        let mut tx = wallet::Transaction::new();
+        let mut valid_utxos: Vec<&crate::masternode_client::Utxo> = Vec::new();
 
-        let batch_total: u64 = chunk.iter().map(|u| u.amount).sum();
-        let fee = wallet::calculate_fee(batch_total);
-        let send_amount = batch_total.saturating_sub(fee);
-
-        if send_amount == 0 {
-            continue;
-        }
-
-        // Load UTXOs into temp wallet.
         for utxo in chunk {
             let mut tx_hash = [0u8; 32];
             match hex::decode(&utxo.txid) {
                 Ok(bytes) if bytes.len() == 32 => {
                     tx_hash.copy_from_slice(&bytes);
-                    temp_wallet.add_utxo(WalletUTXO {
-                        tx_hash,
-                        output_index: utxo.vout,
-                        amount: utxo.amount,
-                        address: utxo.address.clone(),
-                    });
+                    tx.add_input(wallet::TxInput::new(tx_hash, utxo.vout));
+                    valid_utxos.push(utxo);
                 }
-                _ => continue,
+                _ => {
+                    log::warn!(
+                        "Consolidation batch {}: skipping UTXO with invalid txid '{}'",
+                        batch_idx + 1,
+                        utxo.txid
+                    );
+                }
             }
         }
-        temp_wallet.set_balance(batch_total);
 
-        // Build transaction (signed by temp wallet's key — re-signed below).
-        let tx_result = temp_wallet.create_transaction(&dest_addr, send_amount, fee);
-        match tx_result {
-            Ok(mut tx) => {
-                // Collect (input_idx, keypair) before mutably borrowing tx.
-                let resignings: Vec<(usize, wallet::Keypair)> = tx
-                    .inputs
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(input_idx, input)| {
-                        let input_txid: String = input
-                            .previous_output
-                            .txid
-                            .iter()
-                            .map(|b| format!("{:02x}", b))
-                            .collect();
-                        let input_vout = input.previous_output.vout;
-                        let utxo = chunk
-                            .iter()
-                            .find(|u| u.txid == input_txid && u.vout == input_vout)?;
-                        let kp = addr_to_keypair.get(&utxo.address)?.clone();
-                        Some((input_idx, kp))
-                    })
-                    .collect();
+        if valid_utxos.is_empty() {
+            failed += 1;
+            continue;
+        }
 
-                // Re-sign each input with the correct HD keypair.
-                for (input_idx, kp) in &resignings {
-                    let _ = tx.sign(kp, *input_idx);
+        let batch_total: u64 = valid_utxos.iter().map(|u| u.amount).sum();
+        let fee = wallet::calculate_fee(batch_total);
+        let send_amount = batch_total.saturating_sub(fee);
+
+        if send_amount == 0 {
+            log::info!(
+                "Consolidation batch {}: skipped — batch value {} <= min fee {}",
+                batch_idx + 1,
+                batch_total,
+                fee
+            );
+            continue;
+        }
+
+        if tx.add_output(wallet::TxOutput::new(send_amount, dest_address.clone())).is_err() {
+            log::warn!("Consolidation batch {}: failed to add output", batch_idx + 1);
+            failed += 1;
+            continue;
+        }
+
+        // Sign each input with its address's keypair.
+        let mut unsigned_inputs = 0usize;
+        for (input_idx, utxo) in valid_utxos.iter().enumerate() {
+            match addr_to_keypair.get(&utxo.address) {
+                Some(kp) => {
+                    if let Err(e) = tx.sign(kp, input_idx) {
+                        log::warn!(
+                            "Consolidation batch {}: sign input {} failed: {}",
+                            batch_idx + 1,
+                            input_idx,
+                            e
+                        );
+                    }
                 }
+                None => {
+                    log::warn!(
+                        "Consolidation batch {}: no keypair for address {} (input {})",
+                        batch_idx + 1,
+                        utxo.address,
+                        input_idx
+                    );
+                    unsigned_inputs += 1;
+                }
+            }
+        }
+        if unsigned_inputs > 0 {
+            log::warn!(
+                "Consolidation batch {}: {} unsigned inputs — skipping broadcast",
+                batch_idx + 1,
+                unsigned_inputs
+            );
+            failed += 1;
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            continue;
+        }
 
-                match tx.to_bytes() {
-                    Ok(bytes) => {
-                        let tx_hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-                        match client.broadcast_transaction(&tx_hex).await {
-                            Ok(txid) => {
-                                log::info!(
-                                    "✅ Consolidation batch {}/{}: {}",
-                                    batch_idx + 1,
-                                    total_batches,
-                                    txid
-                                );
-                                consolidated += 1;
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "❌ Consolidation batch {} broadcast failed: {}",
-                                    batch_idx + 1,
-                                    e
-                                );
-                                failed += 1;
-                            }
-                        }
+        match tx.to_bytes() {
+            Ok(bytes) => {
+                let tx_hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                match client.broadcast_transaction(&tx_hex).await {
+                    Ok(txid) => {
+                        log::info!(
+                            "✅ Consolidation batch {}/{}: {}",
+                            batch_idx + 1,
+                            total_batches,
+                            txid
+                        );
+                        consolidated += 1;
                     }
                     Err(e) => {
-                        log::warn!("❌ Consolidation batch {} serialize failed: {}", batch_idx + 1, e);
+                        log::warn!(
+                            "❌ Consolidation batch {} broadcast failed: {}",
+                            batch_idx + 1,
+                            e
+                        );
                         failed += 1;
                     }
                 }
             }
             Err(e) => {
-                log::warn!("❌ Consolidation batch {} create_tx failed: {}", batch_idx + 1, e);
+                log::warn!("❌ Consolidation batch {} serialize failed: {}", batch_idx + 1, e);
                 failed += 1;
             }
         }
