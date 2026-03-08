@@ -1343,12 +1343,16 @@ pub async fn run(
                             let _ = state.svc_tx.send(ServiceEvent::TransactionReceived(notification.clone()));
                         }
 
-                        // Refresh balance immediately
+                        // Refresh balance and transactions immediately
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
                                 match client.get_balances(&state.addresses).await {
                                     Ok(bal) => { let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal)); }
                                     Err(e) => log::warn!("Failed to refresh balance after receive: {}", e),
+                                }
+                                // Refresh transactions so instant-finality status is reflected immediately
+                                if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                    let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                 }
                             }
                         }
