@@ -11,11 +11,10 @@ use std::time::Duration;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Parse a JSON numeric value to satoshis (1 TIME = 100_000_000 satoshis)
-/// without floating-point multiplication. Extracts the raw JSON text and
-/// does integer arithmetic on the decimal string.
+/// Parse a JSON numeric value to satoshis (1 TIME = 100_000_000 satoshis).
+/// Handles plain decimal strings ("12.34567890") and scientific notation
+/// ("1e-8", "1.5e2") that serde_json may emit for very small/large floats.
 pub fn json_to_satoshis(val: &serde_json::Value) -> u64 {
-    // Get the raw number as a string representation
     let s = match val {
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::String(s) => s.clone(),
@@ -26,26 +25,11 @@ pub fn json_to_satoshis(val: &serde_json::Value) -> u64 {
     let negative = s.starts_with('-');
     let s = s.trim_start_matches('-');
 
-    let (whole, frac) = if let Some(dot) = s.find('.') {
-        (&s[..dot], &s[dot + 1..])
-    } else {
-        (s, "")
-    };
-
-    let whole_val: u64 = whole.parse().unwrap_or(0);
-    // Pad or truncate fractional part to exactly 8 digits
-    let frac_padded = format!("{:0<8}", frac);
-    let frac_val: u64 = frac_padded[..8].parse().unwrap_or(0);
-
-    let result = whole_val
-        .saturating_mul(100_000_000)
-        .saturating_add(frac_val);
-
     if negative {
-        0
-    } else {
-        result
+        return 0;
     }
+
+    parse_time_string_to_satoshis(s)
 }
 
 /// Like `json_to_satoshis` but returns the absolute value (for amounts/fees
@@ -57,21 +41,32 @@ fn json_to_satoshis_abs(val: &serde_json::Value) -> u64 {
         _ => return 0,
     };
 
-    let s = s.trim().trim_start_matches('-');
+    parse_time_string_to_satoshis(s.trim().trim_start_matches('-'))
+}
 
-    let (whole, frac) = if let Some(dot) = s.find('.') {
-        (&s[..dot], &s[dot + 1..])
-    } else {
-        (s, "")
-    };
+/// Convert a non-negative decimal or scientific-notation string to satoshis.
+/// Falls back to f64 parsing when the string contains 'e'/'E'.
+fn parse_time_string_to_satoshis(s: &str) -> u64 {
+    // Fast path: plain decimal (no scientific notation)
+    if !s.contains('e') && !s.contains('E') {
+        let (whole, frac) = if let Some(dot) = s.find('.') {
+            (&s[..dot], &s[dot + 1..])
+        } else {
+            (s, "")
+        };
+        let whole_val: u64 = whole.parse().unwrap_or(0);
+        let frac_padded = format!("{:0<8}", &frac[..frac.len().min(8)]);
+        let frac_val: u64 = frac_padded[..8].parse().unwrap_or(0);
+        return whole_val
+            .saturating_mul(100_000_000)
+            .saturating_add(frac_val);
+    }
 
-    let whole_val: u64 = whole.parse().unwrap_or(0);
-    let frac_padded = format!("{:0<8}", frac);
-    let frac_val: u64 = frac_padded[..8].parse().unwrap_or(0);
-
-    whole_val
-        .saturating_mul(100_000_000)
-        .saturating_add(frac_val)
+    // Fallback: scientific notation — use f64 arithmetic
+    match s.parse::<f64>() {
+        Ok(f) if f >= 0.0 => (f * 100_000_000.0).round() as u64,
+        _ => 0,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -308,6 +303,13 @@ impl MasternodeClient {
                 } else {
                     amount
                 };
+
+                // Skip zero-amount transactions — the masternode should already
+                // filter these, but guard here too (e.g. scientific notation
+                // amounts that rounded to 0 after parsing).
+                if display_amount == 0 && fee == 0 {
+                    return None;
+                }
 
                 Some(TransactionRecord {
                     txid,
