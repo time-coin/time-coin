@@ -75,10 +75,10 @@ pub fn render(
                     .num_columns(2)
                     .spacing([8.0, 4.0])
                     .show(ui, |ui| {
-                        ui.label("IP Address:")
-                            .on_hover_text("Masternode server IP and optional port, e.g. 1.2.3.4:24100");
-                        ui.text_edit_singleline(&mut state.mn_add_ip)
-                            .on_hover_text("e.g. 1.2.3.4 or 1.2.3.4:24100");
+                        ui.label("Name:")
+                            .on_hover_text("A short label for this masternode, e.g. mn1");
+                        ui.text_edit_singleline(&mut state.mn_add_name)
+                            .on_hover_text("e.g. mn1");
                         ui.end_row();
 
                         ui.label("Collateral TXID:");
@@ -135,8 +135,8 @@ pub fn render(
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let ip_trimmed = state.mn_add_ip.trim().to_string();
-                    let can_save = !ip_trimmed.is_empty()
+                    let name_trimmed = state.mn_add_name.trim().to_string();
+                    let can_save = !name_trimmed.is_empty()
                         && !state.mn_add_txid.trim().is_empty()
                         && state.mn_add_vout.trim().parse::<u32>().is_ok();
 
@@ -144,13 +144,7 @@ pub fn render(
                         .add_enabled(can_save, egui::Button::new("💾 Save"))
                         .clicked()
                     {
-                        let (ip, port) = if let Some(colon) = ip_trimmed.rfind(':') {
-                            let port = ip_trimmed[colon + 1..].parse().unwrap_or(24100u16);
-                            (ip_trimmed[..colon].to_string(), port)
-                        } else {
-                            (ip_trimmed.clone(), 24100u16)
-                        };
-                        let alias = format!("{}:{}", ip, port);
+                        let alias = name_trimmed;
                         let txid = state.mn_add_txid.trim().to_string();
                         let vout: u32 = state.mn_add_vout.trim().parse().unwrap_or(0);
                         let collateral_amount = state
@@ -160,8 +154,8 @@ pub fn render(
                             .map(|u| u.amount);
                         let entry = MasternodeEntry {
                             alias,
-                            ip,
-                            port,
+                            ip: String::new(),
+                            port: 0,
                             masternode_key: String::new(),
                             collateral_txid: txid,
                             collateral_vout: vout,
@@ -169,7 +163,7 @@ pub fn render(
                             collateral_amount,
                         };
                         let _ = ui_tx.send(UiEvent::SaveMasternodeEntry(entry));
-                        state.mn_add_ip.clear();
+                        state.mn_add_name.clear();
                         state.mn_add_txid.clear();
                         state.mn_add_vout = "0".to_string();
                         state.mn_show_add_form = false;
@@ -236,10 +230,6 @@ pub fn render(
                         .num_columns(2)
                         .spacing([8.0, 2.0])
                         .show(ui, |ui| {
-                            ui.label("Address:");
-                            ui.label(format!("{}:{}", entry.ip, entry.port));
-                            ui.end_row();
-
                             ui.label("Collateral:");
                             let short_txid = if entry.collateral_txid.len() > 16 {
                                 format!(
@@ -296,7 +286,7 @@ pub fn render(
                             .clicked()
                         {
                             state.mn_edit_alias = Some(entry.alias.clone());
-                            state.mn_edit_ip = format!("{}:{}", entry.ip, entry.port);
+                            state.mn_edit_name = entry.alias.clone();
                             state.mn_edit_txid = entry.collateral_txid.clone();
                             state.mn_edit_vout = entry.collateral_vout.to_string();
                         }
@@ -311,8 +301,8 @@ pub fn render(
                             .num_columns(2)
                             .spacing([8.0, 4.0])
                             .show(ui, |ui| {
-                                ui.label("IP Address:");
-                                ui.text_edit_singleline(&mut state.mn_edit_ip);
+                                ui.label("Name:");
+                                ui.text_edit_singleline(&mut state.mn_edit_name);
                                 ui.end_row();
                                 ui.label("Collateral TXID:");
                                 let r = ui.text_edit_singleline(&mut state.mn_edit_txid);
@@ -332,17 +322,11 @@ pub fn render(
                                 ui.end_row();
                             });
                         ui.horizontal(|ui| {
-                            let ip_t = state.mn_edit_ip.trim().to_string();
-                            let valid = !ip_t.is_empty()
+                            let name_t = state.mn_edit_name.trim().to_string();
+                            let valid = !name_t.is_empty()
                                 && !state.mn_edit_txid.trim().is_empty()
                                 && state.mn_edit_vout.trim().parse::<u32>().is_ok();
                             if ui.add_enabled(valid, egui::Button::new("Save")).clicked() {
-                                let (ip, port) = if let Some(c) = ip_t.rfind(':') {
-                                    let port = ip_t[c + 1..].parse().unwrap_or(24100u16);
-                                    (ip_t[..c].to_string(), port)
-                                } else {
-                                    (ip_t.clone(), 24100u16)
-                                };
                                 let txid = state.mn_edit_txid.trim().to_string();
                                 let vout: u32 = state.mn_edit_vout.trim().parse().unwrap_or(0);
                                 let collateral_amount = state
@@ -353,9 +337,9 @@ pub fn render(
                                 update_event = Some(UiEvent::UpdateMasternodeEntry {
                                     old_alias,
                                     new_entry: MasternodeEntry {
-                                        alias: format!("{}:{}", ip, port),
-                                        ip,
-                                        port,
+                                        alias: name_t,
+                                        ip: String::new(),
+                                        port: 0,
                                         masternode_key: String::new(),
                                         collateral_txid: txid,
                                         collateral_vout: vout,

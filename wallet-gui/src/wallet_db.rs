@@ -621,12 +621,12 @@ impl MasternodeEntry {
         )
     }
 
-    /// Format as the 4-field daemon conf line: `alias IP:port txid vout`
-    /// This is what the timed daemon's masternode.conf expects.
+    /// Format as the 3-field daemon conf line: `alias txid vout`
+    /// The daemon reads the node IP from externalip= in time.conf.
     pub fn to_daemon_conf_line(&self) -> String {
         format!(
-            "{} {}:{} {} {}",
-            self.alias, self.ip, self.port, self.collateral_txid, self.collateral_vout
+            "{} {} {}",
+            self.alias, self.collateral_txid, self.collateral_vout
         )
     }
 }

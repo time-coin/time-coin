@@ -151,14 +151,14 @@ pub struct AppState {
 
     // -- Masternodes --
     pub masternode_entries: Vec<crate::wallet_db::MasternodeEntry>,
-    pub mn_add_ip: String,
+    pub mn_add_name: String,
     pub mn_add_txid: String,
     pub mn_add_vout: String,
     pub mn_show_add_form: bool,
     /// Alias of the masternode currently open in the inline edit form.
     pub mn_edit_alias: Option<String>,
-    /// Edit form fields (IP:port, TXID, vout).
-    pub mn_edit_ip: String,
+    /// Edit form fields (name, TXID, vout).
+    pub mn_edit_name: String,
     pub mn_edit_txid: String,
     pub mn_edit_vout: String,
 
@@ -247,12 +247,12 @@ impl Default for AppState {
             show_encrypt_dialog: false,
             resync_in_progress: false,
             masternode_entries: Vec::new(),
-            mn_add_ip: String::new(),
+            mn_add_name: String::new(),
             mn_add_txid: String::new(),
             mn_add_vout: "0".to_string(),
             mn_show_add_form: false,
             mn_edit_alias: None,
-            mn_edit_ip: String::new(),
+            mn_edit_name: String::new(),
             mn_edit_txid: String::new(),
             mn_edit_vout: "0".to_string(),
             syncing: false,
