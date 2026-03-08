@@ -67,83 +67,77 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     ui.group(|ui| {
         ui.set_min_width(ui.available_width());
         ui.vertical(|ui| {
+            let utxo_total = state.utxo_total();
+            let mn_bal = state.masternode_balance;
+            let total = if mn_bal > 0 {
+                mn_bal
+            } else if utxo_total > 0 {
+                utxo_total
+            } else {
+                state.computed_balance()
+            };
+            let locked = state.locked_balance();
+            let available = total.saturating_sub(locked);
+            let has_pending = state.transactions.iter().any(|t| {
+                matches!(
+                    t.status,
+                    crate::masternode_client::TransactionStatus::Pending
+                )
+            });
+
+            // Primary: Available (big)
             ui.label(
-                egui::RichText::new("Balance")
-                    .size(14.0)
+                egui::RichText::new("Available")
+                    .size(13.0)
                     .color(egui::Color32::GRAY),
             );
-            ui.add_space(4.0);
-
-            {
-                let utxo_total = state.utxo_total();
-                let mn_bal = state.masternode_balance;
-                // Use masternode-reported balance (authoritative) when available,
-                // fall back to UTXO total, then computed balance
-                let total = if mn_bal > 0 {
-                    mn_bal
-                } else if utxo_total > 0 {
-                    utxo_total
-                } else {
-                    state.computed_balance()
-                };
-                let has_pending = state.transactions.iter().any(|t| {
-                    matches!(
-                        t.status,
-                        crate::masternode_client::TransactionStatus::Pending
-                    )
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(state.format_time(total))
-                            .size(32.0)
-                            .strong(),
-                    );
-                });
-
-                ui.add_space(4.0);
-
-                // Available / Locked breakdown
-                let locked = state.locked_balance();
-                if locked > 0 {
-                    let available = state.available_balance();
-                    ui.horizontal(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(state.format_time(available))
+                        .size(32.0)
+                        .strong()
+                        .color(egui::Color32::from_rgb(0, 200, 80)),
+                );
+                if !state.syncing {
+                    if has_pending {
                         ui.label(
-                            egui::RichText::new(format!(
-                                "Available: {}",
-                                state.format_time(available)
-                            ))
-                            .size(13.0)
-                            .color(egui::Color32::from_rgb(0, 180, 0)),
-                        );
-                        ui.add_space(12.0);
-                        ui.label(
-                            egui::RichText::new(format!("Locked: {}", state.format_time(locked)))
-                                .size(13.0)
+                            egui::RichText::new("Pending")
                                 .color(egui::Color32::from_rgb(255, 165, 0)),
                         );
-                    });
-                    ui.add_space(4.0);
+                    } else if mn_bal > 0 {
+                        ui.label(
+                            egui::RichText::new("Verified")
+                                .color(egui::Color32::from_rgb(0, 180, 0)),
+                        );
+                    }
                 }
+            });
 
-                if !state.syncing {
-                    ui.horizontal(|ui| {
-                        if has_pending {
-                            ui.label(
-                                egui::RichText::new("Pending")
-                                    .color(egui::Color32::from_rgb(255, 165, 0)),
-                            );
-                        } else if mn_bal > 0 {
-                            // Masternode confirmed balance
-                            ui.label(
-                                egui::RichText::new("Verified")
-                                    .color(egui::Color32::from_rgb(0, 180, 0)),
-                            );
-                        } else {
-                            // Not yet verified — hide until confirmed
-                        }
-                    });
-                }
+            // Secondary rows: Locked + Total
+            if locked > 0 {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Locked:")
+                            .size(13.0)
+                            .color(egui::Color32::GRAY),
+                    );
+                    ui.label(
+                        egui::RichText::new(state.format_time(locked))
+                            .size(13.0)
+                            .color(egui::Color32::from_rgb(255, 165, 0)),
+                    );
+                    ui.add_space(20.0);
+                    ui.label(
+                        egui::RichText::new("Total:")
+                            .size(13.0)
+                            .color(egui::Color32::GRAY),
+                    );
+                    ui.label(
+                        egui::RichText::new(state.format_time(total))
+                            .size(13.0),
+                    );
+                });
             }
         });
     });

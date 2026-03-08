@@ -314,15 +314,18 @@ impl AppState {
     }
 
     /// Balance locked as masternode collateral (not spendable).
+    /// Uses live UTXO amounts where available, falls back to cached collateral_amount.
     pub fn locked_balance(&self) -> u64 {
-        self.utxos
-            .iter()
-            .filter(|u| {
-                let key = format!("{}:{}", u.txid, u.vout);
-                self.locked_utxos.contains(&key)
-            })
-            .map(|u| u.amount)
-            .sum()
+        self.masternode_entries.iter().map(|entry| {
+            // Prefer live UTXO amount
+            if let Some(utxo) = self.utxos.iter().find(|u| {
+                u.txid == entry.collateral_txid && u.vout == entry.collateral_vout
+            }) {
+                return utxo.amount;
+            }
+            // Fall back to cached amount (set at save time or on last UTXO sync)
+            entry.collateral_amount.unwrap_or(0)
+        }).sum()
     }
 
     /// Spendable balance (total minus locked collateral).
@@ -787,6 +790,16 @@ impl AppState {
 
             ServiceEvent::UtxosUpdated(utxos) => {
                 self.utxos = utxos;
+                // Backfill collateral_amount on entries that don't have it yet
+                for entry in &mut self.masternode_entries {
+                    if entry.collateral_amount.is_none() {
+                        if let Some(utxo) = self.utxos.iter().find(|u| {
+                            u.txid == entry.collateral_txid && u.vout == entry.collateral_vout
+                        }) {
+                            entry.collateral_amount = Some(utxo.amount);
+                        }
+                    }
+                }
                 if self.reconcile_transactions_with_utxos() {
                     log::info!("✅ Reconciled transaction list with UTXOs");
                 }
