@@ -141,8 +141,9 @@ pub async fn run(
                         let _ = state.svc_tx.send(ServiceEvent::BlockHeightUpdated(height));
                     }
 
-                    // Heavy: balance / transactions / UTXOs every 3rd tick (15s)
-                    if poll_tick.is_multiple_of(3) && !state.addresses.is_empty() {
+                    // Heavy: balance / transactions / UTXOs every 3rd tick (15s),
+                    // but always on the first tick for instant startup.
+                    if (poll_tick == 1 || poll_tick.is_multiple_of(3)) && !state.addresses.is_empty() {
                         match client.get_balances(&state.addresses).await {
                             Ok(bal) => {
                                 if let Some(ref db) = state.wallet_db {
@@ -2018,7 +2019,7 @@ impl ServiceState {
                                 })
                                 .collect();
                             log::info!("Loaded {} cached UTXOs from database", utxos.len());
-                            let _ = self.svc_tx.send(ServiceEvent::UtxosUpdated(utxos));
+                            self.send_utxos_updated(utxos);
                         }
                     }
                     // Load external contacts for send address book
