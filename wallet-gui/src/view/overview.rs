@@ -164,10 +164,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             .size(13.0)
                             .color(egui::Color32::GRAY),
                     );
-                    ui.label(
-                        egui::RichText::new(state.format_time(total))
-                            .size(13.0),
-                    );
+                    ui.label(egui::RichText::new(state.format_time(total)).size(13.0));
                 });
             }
         });

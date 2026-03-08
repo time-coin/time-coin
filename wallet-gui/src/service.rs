@@ -441,8 +441,7 @@ pub async fn run(
                                                             fee: actual_fee,
                                                             timestamp: now,
                                                             status: crate::masternode_client::TransactionStatus::Pending,
-                                                            is_fee: false,
-                                                            is_change: false,
+                                                            ..Default::default()
                                                         };
                                                         let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(sent_record.clone()));
                                                         // Persist send record so correct amount survives restarts
@@ -461,7 +460,7 @@ pub async fn run(
                                                                 timestamp: now,
                                                                 status: crate::masternode_client::TransactionStatus::Pending,
                                                                 is_fee: true,
-                                                                is_change: false,
+                                                                ..Default::default()
                                                             };
                                                             let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(fee_record));
                                                         }
@@ -477,8 +476,7 @@ pub async fn run(
                                                                 fee: 0,
                                                                 timestamp: now,
                                                                 status: crate::masternode_client::TransactionStatus::Pending,
-                                                                is_fee: false,
-                                                                is_change: false,
+                                                                ..Default::default()
                                                             };
                                                             let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(recv_record));
                                                         }
@@ -1242,8 +1240,7 @@ pub async fn run(
                                 fee: 0,
                                 timestamp: notification.timestamp,
                                 status: TransactionStatus::Pending,
-                                is_fee: false,
-                                is_change: false,
+                                ..Default::default()
                             };
                             let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(tx_record));
                             let _ = state.svc_tx.send(ServiceEvent::TransactionReceived(notification.clone()));
@@ -1294,8 +1291,7 @@ pub async fn run(
                                 fee: 0,
                                 timestamp: chrono::Utc::now().timestamp(),
                                 status: TransactionStatus::Approved,
-                                is_fee: false,
-                                is_change: false,
+                                ..Default::default()
                             };
                             let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(tx_record));
                         }
@@ -1441,15 +1437,26 @@ async fn discover_peers(
                 // Try HTTPS first
                 let client = MasternodeClient::new(https_ep.clone(), creds.clone());
                 match tokio::time::timeout(probe_timeout, client.health_check()).await {
-                    Ok(Ok(health)) => (true, Some(health.block_height), Some(health.version), https_ep.clone()),
+                    Ok(Ok(health)) => (
+                        true,
+                        Some(health.block_height),
+                        Some(health.version),
+                        https_ep.clone(),
+                    ),
                     _ => {
                         // HTTPS failed — retry with plain HTTP (masternode auto-detects)
                         log::debug!("HTTPS failed for {}, retrying with HTTP", https_ep);
                         let http_client = MasternodeClient::new(http_ep.clone(), creds.clone());
-                        match tokio::time::timeout(probe_timeout, http_client.health_check()).await {
+                        match tokio::time::timeout(probe_timeout, http_client.health_check()).await
+                        {
                             Ok(Ok(health)) => {
                                 log::info!("✅ Peer {} reachable via HTTP (no TLS)", http_ep);
-                                (true, Some(health.block_height), Some(health.version), http_ep.clone())
+                                (
+                                    true,
+                                    Some(health.block_height),
+                                    Some(health.version),
+                                    http_ep.clone(),
+                                )
                             }
                             Ok(Err(e)) => {
                                 log::warn!("⚠ Peer {} unhealthy: {}", http_ep, e);
@@ -1572,7 +1579,10 @@ async fn discover_peers(
     }
 
     if !new_endpoints.is_empty() {
-        log::info!("🔗 Gossip discovery: found {} new peers", new_endpoints.len());
+        log::info!(
+            "🔗 Gossip discovery: found {} new peers",
+            new_endpoints.len()
+        );
         // Probe new peers in parallel
         let probe_timeout2 = std::time::Duration::from_secs(8);
         let mut gossip_handles = Vec::new();
@@ -1604,14 +1614,27 @@ async fn discover_peers(
                 let (is_healthy, block_height, version, working_ep) = if tcp_ok {
                     let c = MasternodeClient::new(ep.clone(), creds.clone());
                     match tokio::time::timeout(probe_timeout2, c.health_check()).await {
-                        Ok(Ok(health)) => (true, Some(health.block_height), Some(health.version), ep.clone()),
+                        Ok(Ok(health)) => (
+                            true,
+                            Some(health.block_height),
+                            Some(health.version),
+                            ep.clone(),
+                        ),
                         _ => {
                             log::debug!("HTTPS failed for gossip peer {}, retrying with HTTP", ep);
                             let hc = MasternodeClient::new(http_ep.clone(), creds.clone());
                             match tokio::time::timeout(probe_timeout2, hc.health_check()).await {
                                 Ok(Ok(health)) => {
-                                    log::info!("✅ Gossip peer {} reachable via HTTP (no TLS)", http_ep);
-                                    (true, Some(health.block_height), Some(health.version), http_ep.clone())
+                                    log::info!(
+                                        "✅ Gossip peer {} reachable via HTTP (no TLS)",
+                                        http_ep
+                                    );
+                                    (
+                                        true,
+                                        Some(health.block_height),
+                                        Some(health.version),
+                                        http_ep.clone(),
+                                    )
                                 }
                                 _ => (false, None, None, ep.clone()),
                             }
@@ -1959,7 +1982,11 @@ impl ServiceState {
                         }) {
                             entry.collateral_amount = Some(u.amount);
                             let _ = db.save_masternode_entry(&entry);
-                            log::info!("💾 Backfilled collateral {} for '{}'", u.amount, entry.alias);
+                            log::info!(
+                                "💾 Backfilled collateral {} for '{}'",
+                                u.amount,
+                                entry.alias
+                            );
                         }
                     }
                 }
@@ -2382,8 +2409,14 @@ async fn consolidate_utxos_background(
             continue;
         }
 
-        if tx.add_output(wallet::TxOutput::new(send_amount, dest_address.clone())).is_err() {
-            log::warn!("Consolidation batch {}: failed to add output", batch_idx + 1);
+        if tx
+            .add_output(wallet::TxOutput::new(send_amount, dest_address.clone()))
+            .is_err()
+        {
+            log::warn!(
+                "Consolidation batch {}: failed to add output",
+                batch_idx + 1
+            );
             failed += 1;
             continue;
         }
@@ -2448,7 +2481,11 @@ async fn consolidate_utxos_background(
                 }
             }
             Err(e) => {
-                log::warn!("❌ Consolidation batch {} serialize failed: {}", batch_idx + 1, e);
+                log::warn!(
+                    "❌ Consolidation batch {} serialize failed: {}",
+                    batch_idx + 1,
+                    e
+                );
                 failed += 1;
             }
         }
@@ -2459,7 +2496,10 @@ async fn consolidate_utxos_background(
     let msg = if failed == 0 {
         format!("Consolidation complete: {} batch(es) sent.", consolidated)
     } else {
-        format!("Consolidation finished: {} succeeded, {} failed.", consolidated, failed)
+        format!(
+            "Consolidation finished: {} succeeded, {} failed.",
+            consolidated, failed
+        )
     };
     let _ = svc_tx.send(ServiceEvent::ConsolidationComplete { message: msg });
 

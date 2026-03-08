@@ -375,9 +375,9 @@ impl Config {
                 if p.starts_with("http://") || p.starts_with("https://") {
                     p.clone()
                 } else if p.contains(':') {
-                    format!("https://{}", p)
+                    format!("http://{}", p)
                 } else {
-                    format!("https://{}:{}", p, port)
+                    format!("http://{}:{}", p, port)
                 }
             })
             .collect()

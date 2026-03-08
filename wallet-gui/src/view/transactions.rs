@@ -140,6 +140,41 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                 }
                 ui.end_row();
             }
+
+            // Block Height
+            if tx.block_height > 0 {
+                ui.label(egui::RichText::new("Block Height:").strong());
+                ui.label(format!("{}", tx.block_height));
+                ui.end_row();
+            }
+
+            // Confirmations
+            if tx.confirmations > 0 {
+                ui.label(egui::RichText::new("Confirmations:").strong());
+                ui.label(format!("{}", tx.confirmations));
+                ui.end_row();
+            }
+
+            // Block Hash
+            if !tx.block_hash.is_empty() {
+                ui.label(egui::RichText::new("Block Hash:").strong());
+                let truncated = if tx.block_hash.len() > 20 {
+                    format!("{}…", &tx.block_hash[..20])
+                } else {
+                    tx.block_hash.clone()
+                };
+                if ui
+                    .add(
+                        egui::Label::new(egui::RichText::new(truncated).monospace())
+                            .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text(format!("Click to copy: {}", tx.block_hash))
+                    .clicked()
+                {
+                    ui.ctx().copy_text(tx.block_hash.clone());
+                }
+                ui.end_row();
+            }
         });
 
     // Show "Use as Masternode Collateral" for confirmed received transactions

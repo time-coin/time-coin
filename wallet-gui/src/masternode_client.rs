@@ -110,7 +110,7 @@ impl MasternodeClient {
         let rpc_endpoint = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
             endpoint
         } else {
-            format!("https://{}", endpoint)
+            format!("http://{}", endpoint)
         };
 
         // Accept self-signed certificates — masternodes use auto-generated certs (TOFU model)
@@ -275,6 +275,16 @@ impl MasternodeClient {
                 let amount = tx.get("amount").map(json_to_satoshis_abs).unwrap_or(0);
                 let fee = tx.get("fee").map(json_to_satoshis_abs).unwrap_or(0);
                 let in_block = tx.get("blockhash").and_then(|v| v.as_str()).is_some();
+                let block_hash = tx
+                    .get("blockhash")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let block_height = tx.get("blockheight").and_then(|v| v.as_u64()).unwrap_or(0);
+                let confirmations = tx
+                    .get("confirmations")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let timestamp = tx.get("time").and_then(|v| v.as_i64()).unwrap_or(0);
 
                 // Instant finality: check finalized flag from consensus, then blockhash
@@ -322,6 +332,9 @@ impl MasternodeClient {
                     status,
                     is_fee: false,
                     is_change: false,
+                    block_hash,
+                    block_height,
+                    confirmations,
                 })
             })
             .collect();
@@ -367,7 +380,12 @@ impl MasternodeClient {
             .collect();
 
         let spendable_count = utxos.iter().filter(|u| u.spendable).count();
-        log::info!("✅ Retrieved {} UTXOs ({} spendable, {} locked)", utxos.len(), spendable_count, utxos.len() - spendable_count);
+        log::info!(
+            "✅ Retrieved {} UTXOs ({} spendable, {} locked)",
+            utxos.len(),
+            spendable_count,
+            utxos.len() - spendable_count
+        );
         Ok(utxos)
     }
 
@@ -420,25 +438,20 @@ impl MasternodeClient {
             .to_string();
 
         // Fetch connection count and daemon version from getnetworkinfo
-        let (peer_count, version) = if let Ok(ni) = self
-            .rpc_call("getnetworkinfo", serde_json::json!([]))
-            .await
-        {
-            let peers = ni
-                .get("connections")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
-            // subversion is "/timed:0.1.0/" — strip the slashes
-            let ver = ni
-                .get("subversion")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim_matches('/')
-                .to_string();
-            (peers, ver)
-        } else {
-            (0, String::new())
-        };
+        let (peer_count, version) =
+            if let Ok(ni) = self.rpc_call("getnetworkinfo", serde_json::json!([])).await {
+                let peers = ni.get("connections").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                // subversion is "/timed:0.1.0/" — strip the slashes
+                let ver = ni
+                    .get("subversion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim_matches('/')
+                    .to_string();
+                (peers, ver)
+            } else {
+                (0, String::new())
+            };
 
         let status = HealthStatus {
             status: "healthy".to_string(),
@@ -447,7 +460,11 @@ impl MasternodeClient {
             peer_count,
         };
 
-        log::info!("✅ Masternode healthy: height={}, peers={}", height, peer_count);
+        log::info!(
+            "✅ Masternode healthy: height={}, peers={}",
+            height,
+            peer_count
+        );
         Ok(status)
     }
 
@@ -532,6 +549,35 @@ pub struct TransactionRecord {
     /// True if this is a change output returning to the sender's own wallet.
     #[serde(default)]
     pub is_change: bool,
+    /// Hash of the block containing this transaction (empty if unconfirmed).
+    #[serde(default)]
+    pub block_hash: String,
+    /// Height of the block containing this transaction (0 if unconfirmed).
+    #[serde(default)]
+    pub block_height: u64,
+    /// Number of confirmations (0 if unconfirmed).
+    #[serde(default)]
+    pub confirmations: u64,
+}
+
+impl Default for TransactionRecord {
+    fn default() -> Self {
+        Self {
+            txid: String::new(),
+            vout: 0,
+            is_send: false,
+            address: String::new(),
+            amount: 0,
+            fee: 0,
+            timestamp: 0,
+            status: TransactionStatus::Pending,
+            is_fee: false,
+            is_change: false,
+            block_hash: String::new(),
+            block_height: 0,
+            confirmations: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -557,7 +603,9 @@ pub struct Utxo {
     pub spendable: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {

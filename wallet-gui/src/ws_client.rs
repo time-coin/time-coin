@@ -172,10 +172,7 @@ impl WsClient {
                 let connect_result = match connect_result {
                     Err(ref e)
                         if effective_url.starts_with("wss://")
-                            && !matches!(
-                                e,
-                                tokio_tungstenite::tungstenite::Error::Http(_)
-                            ) =>
+                            && !matches!(e, tokio_tungstenite::tungstenite::Error::Http(_)) =>
                     {
                         let fallback = effective_url.replacen("wss://", "ws://", 1);
                         log::warn!(
@@ -184,10 +181,7 @@ impl WsClient {
                             e
                         );
                         let result = tokio_tungstenite::connect_async_tls_with_config(
-                            &fallback,
-                            None,
-                            false,
-                            None,
+                            &fallback, None, false, None,
                         )
                         .await;
                         if result.is_ok() {
@@ -234,8 +228,7 @@ impl WsClient {
                                     "⚠️ WebSocket rejected by {} — server at capacity (503)",
                                     effective_url
                                 );
-                                let _ =
-                                    event_tx.send(WsEvent::CapacityFull(effective_url.clone()));
+                                let _ = event_tx.send(WsEvent::CapacityFull(effective_url.clone()));
                                 break;
                             }
                         }

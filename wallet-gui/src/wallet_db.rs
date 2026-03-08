@@ -513,7 +513,10 @@ impl WalletDb {
             // Fall back to bincode (legacy format — strip removed fields if possible)
             let key_str = String::from_utf8_lossy(&key);
             // Extract alias from key ("masternode:<alias>")
-            let alias = key_str.strip_prefix("masternode:").unwrap_or(&key_str).to_string();
+            let alias = key_str
+                .strip_prefix("masternode:")
+                .unwrap_or(&key_str)
+                .to_string();
             // Try to parse as legacy bincode with old field layout via a migration struct
             #[derive(serde::Deserialize)]
             struct LegacyEntry {
@@ -535,11 +538,17 @@ impl WalletDb {
                     payout_address: legacy.payout_address,
                     collateral_amount: legacy.collateral_amount,
                 };
-                log::info!("Migrating masternode entry '{}' from bincode to JSON", entry.alias);
+                log::info!(
+                    "Migrating masternode entry '{}' from bincode to JSON",
+                    entry.alias
+                );
                 to_migrate.push(entry.clone());
                 entries.push(entry);
             } else {
-                log::warn!("Skipping unreadable masternode entry '{}' (unknown format)", alias);
+                log::warn!(
+                    "Skipping unreadable masternode entry '{}' (unknown format)",
+                    alias
+                );
             }
         }
 
@@ -630,10 +639,10 @@ impl MasternodeEntry {
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
         let (txid_idx, vout_idx) = match parts.len() {
-            3 => (1, 2),             // alias txid vout
-            4 => (2, 3),             // alias IP:port txid vout
-            5 => (3, 4),             // alias IP:port key txid vout
-            6 => (4, 5),             // alias IP:port key cert txid vout
+            3 => (1, 2), // alias txid vout
+            4 => (2, 3), // alias IP:port txid vout
+            5 => (3, 4), // alias IP:port key txid vout
+            6 => (4, 5), // alias IP:port key cert txid vout
             _ => return None,
         };
         Some(MasternodeEntry {
@@ -648,7 +657,10 @@ impl MasternodeEntry {
     /// Format as a daemon conf line: `alias txid vout`
     /// Paste into ~/.timed/masternode.conf on the server, then restart timed.
     pub fn to_daemon_conf_line(&self) -> String {
-        format!("{} {} {}", self.alias, self.collateral_txid, self.collateral_vout)
+        format!(
+            "{} {} {}",
+            self.alias, self.collateral_txid, self.collateral_vout
+        )
     }
 }
 

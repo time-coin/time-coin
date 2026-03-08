@@ -35,13 +35,25 @@ pub fn render(
                     ui.label(RichText::new("Tier").strong());
                     ui.label(RichText::new("Collateral Required").strong());
                     ui.end_row();
-                    ui.label(RichText::new("Gold").color(Color32::from_rgb(255, 200, 50)).strong());
+                    ui.label(
+                        RichText::new("Gold")
+                            .color(Color32::from_rgb(255, 200, 50))
+                            .strong(),
+                    );
                     ui.label("100,000 TIME");
                     ui.end_row();
-                    ui.label(RichText::new("Silver").color(Color32::from_rgb(192, 192, 192)).strong());
+                    ui.label(
+                        RichText::new("Silver")
+                            .color(Color32::from_rgb(192, 192, 192))
+                            .strong(),
+                    );
                     ui.label("10,000 TIME");
                     ui.end_row();
-                    ui.label(RichText::new("Bronze").color(Color32::from_rgb(180, 100, 50)).strong());
+                    ui.label(
+                        RichText::new("Bronze")
+                            .color(Color32::from_rgb(180, 100, 50))
+                            .strong(),
+                    );
                     ui.label("1,000 TIME");
                     ui.end_row();
                 });
@@ -384,9 +396,13 @@ pub fn render(
         }
 
         if let Some(alias) = to_delete {
-            let _ = ui_tx.send(UiEvent::DeleteMasternodeEntry { alias: alias.clone() });
+            let _ = ui_tx.send(UiEvent::DeleteMasternodeEntry {
+                alias: alias.clone(),
+            });
             state.masternode_entries.retain(|e| e.alias != alias);
-            state.locked_utxos = state.masternode_entries.iter()
+            state.locked_utxos = state
+                .masternode_entries
+                .iter()
                 .map(|e| format!("{}:{}", e.collateral_txid, e.collateral_vout))
                 .collect();
         }
@@ -395,12 +411,20 @@ pub fn render(
         }
         if let Some((old_alias, new_entry)) = optimistic_update {
             state.locked_utxos.retain(|k| {
-                !state.masternode_entries.iter().any(|e| e.alias == old_alias && format!("{}:{}", e.collateral_txid, e.collateral_vout) == *k)
+                !state.masternode_entries.iter().any(|e| {
+                    e.alias == old_alias
+                        && format!("{}:{}", e.collateral_txid, e.collateral_vout) == *k
+                })
             });
             state.masternode_entries.retain(|e| e.alias != old_alias);
-            state.locked_utxos.insert(format!("{}:{}", new_entry.collateral_txid, new_entry.collateral_vout));
+            state.locked_utxos.insert(format!(
+                "{}:{}",
+                new_entry.collateral_txid, new_entry.collateral_vout
+            ));
             state.masternode_entries.push(new_entry);
-            state.masternode_entries.sort_by(|a, b| a.alias.cmp(&b.alias));
+            state
+                .masternode_entries
+                .sort_by(|a, b| a.alias.cmp(&b.alias));
         }
     }
 }

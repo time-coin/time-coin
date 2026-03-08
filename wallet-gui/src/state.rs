@@ -331,16 +331,21 @@ impl AppState {
     /// Balance locked as masternode collateral (not spendable).
     /// Uses live UTXO amounts where available, falls back to cached collateral_amount.
     pub fn locked_balance(&self) -> u64 {
-        self.masternode_entries.iter().map(|entry| {
-            // Prefer live UTXO amount
-            if let Some(utxo) = self.utxos.iter().find(|u| {
-                u.txid == entry.collateral_txid && u.vout == entry.collateral_vout
-            }) {
-                return utxo.amount;
-            }
-            // Fall back to cached amount (set at save time or on last UTXO sync)
-            entry.collateral_amount.unwrap_or(0)
-        }).sum()
+        self.masternode_entries
+            .iter()
+            .map(|entry| {
+                // Prefer live UTXO amount
+                if let Some(utxo) = self
+                    .utxos
+                    .iter()
+                    .find(|u| u.txid == entry.collateral_txid && u.vout == entry.collateral_vout)
+                {
+                    return utxo.amount;
+                }
+                // Fall back to cached amount (set at save time or on last UTXO sync)
+                entry.collateral_amount.unwrap_or(0)
+            })
+            .sum()
     }
 
     /// Spendable balance (total minus locked collateral).
@@ -653,6 +658,9 @@ impl AppState {
                                 status: fee_status,
                                 is_fee: true,
                                 is_change: false,
+                                block_hash: String::new(),
+                                block_height: 0,
+                                confirmations: 0,
                             });
                         }
                     }
@@ -690,6 +698,9 @@ impl AppState {
                             status,
                             is_fee: true,
                             is_change: false,
+                            block_hash: String::new(),
+                            block_height: 0,
+                            confirmations: 0,
                         });
                     }
                 }
@@ -753,6 +764,9 @@ impl AppState {
                             status: send_tx.status.clone(),
                             is_fee: false,
                             is_change: false,
+                            block_hash: String::new(),
+                            block_height: 0,
+                            confirmations: 0,
                         });
                     }
                 }
@@ -1194,6 +1208,9 @@ mod tests {
                     status: TransactionStatus::Approved,
                     is_fee: false,
                     is_change: false,
+                    block_hash: String::new(),
+                    block_height: 0,
+                    confirmations: 0,
                 },
                 TransactionRecord {
                     txid: "bbb".to_string(),
@@ -1206,6 +1223,9 @@ mod tests {
                     status: TransactionStatus::Approved,
                     is_fee: false,
                     is_change: false,
+                    block_hash: String::new(),
+                    block_height: 0,
+                    confirmations: 0,
                 },
                 TransactionRecord {
                     txid: "bbb".to_string(),
@@ -1218,6 +1238,9 @@ mod tests {
                     status: TransactionStatus::Approved,
                     is_fee: true,
                     is_change: false,
+                    block_hash: String::new(),
+                    block_height: 0,
+                    confirmations: 0,
                 },
                 // Phantom receive — no UTXO backs this
                 TransactionRecord {
@@ -1231,6 +1254,9 @@ mod tests {
                     status: TransactionStatus::Approved,
                     is_fee: false,
                     is_change: false,
+                    block_hash: String::new(),
+                    block_height: 0,
+                    confirmations: 0,
                 },
             ],
             // UTXOs: only the change from the send (8.99 TIME)
@@ -1275,6 +1301,9 @@ mod tests {
                     status: TransactionStatus::Approved,
                     is_fee: false,
                     is_change: false,
+                    block_hash: String::new(),
+                    block_height: 0,
+                    confirmations: 0,
                 },
                 TransactionRecord {
                     txid: "spend_tx".to_string(),
@@ -1287,6 +1316,9 @@ mod tests {
                     status: TransactionStatus::Approved,
                     is_fee: false,
                     is_change: false,
+                    block_hash: String::new(),
+                    block_height: 0,
+                    confirmations: 0,
                 },
                 TransactionRecord {
                     txid: "spend_tx".to_string(),
@@ -1299,6 +1331,9 @@ mod tests {
                     status: TransactionStatus::Approved,
                     is_fee: true,
                     is_change: false,
+                    block_hash: String::new(),
+                    block_height: 0,
+                    confirmations: 0,
                 },
             ],
             utxos: vec![Utxo {
