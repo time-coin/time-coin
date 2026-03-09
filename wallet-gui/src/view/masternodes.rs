@@ -281,16 +281,6 @@ pub fn render(
                                 ui.label(format!("{:.0} TIME", amount as f64 / 100_000_000.0));
                                 ui.end_row();
                             }
-
-                            ui.label("Payout:");
-                            if let Some(addr) = &entry.payout_address {
-                                ui.label(
-                                    RichText::new(addr).color(Color32::from_rgb(100, 200, 100)),
-                                );
-                            } else {
-                                ui.label(RichText::new("Not set").color(Color32::GRAY));
-                            }
-                            ui.end_row();
                         });
 
                     // --- Action buttons ---
