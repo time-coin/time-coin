@@ -851,6 +851,7 @@ impl AppState {
                 self.send_amount.clear();
                 self.send_fee.clear();
                 self.send_include_fee = false;
+                self.send_recipient_name.clear();
                 self.loading = false;
             }
 
