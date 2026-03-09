@@ -134,7 +134,16 @@ The **📋 Transactions** tab shows all transactions in a table format:
 
 ### Transaction Detail
 
-Click a transaction row to see full details including TxID, Vout, date, sender address, and status.
+Click a transaction row to see full details including:
+
+- **Status** — Approved, Pending, or Declined
+- **Transaction ID** — full TxID (click to copy)
+- **To / From** — address with contact name if saved (click to copy)
+- **Fee** — network fee paid (send transactions only)
+- **Date** — local timestamp
+- **Block Height** — block number the transaction was included in
+- **Confirmations** — number of confirmations
+- **Block Hash** — block hash (click to copy; shown truncated)
 
 For confirmed **received** transactions, a **"Use as Masternode Collateral"** button appears at the bottom of the detail view. Clicking it:
 1. Pre-fills the masternode add form with the TXID and Vout
@@ -170,7 +179,6 @@ The wallet automatically detects the tier from the collateral amount once the UT
    - **Name** — a local label (e.g. `mn1`). The wallet suggests the next available name automatically.
    - **Collateral TXID** — the transaction ID of your collateral deposit
    - **Vout** — the output index (usually `0`)
-   - **Payout Address** (optional) — where masternode rewards are sent
 3. Click **Save**
 
 The entry appears immediately. The tier badge updates within a few seconds once the wallet confirms the collateral amount from the network.
@@ -179,7 +187,7 @@ The entry appears immediately. The tier badge updates within a few seconds once 
 
 ### masternode.conf Format
 
-The wallet exports a `masternode.conf` for your masternode daemon. The format is:
+The wallet can copy a conf line for your masternode daemon. The format is:
 
 ```
 alias  collateral_txid  vout
@@ -191,11 +199,11 @@ mn1  048fa7a49a3eea905581fa803460a22f6f49c790e0a37adeaab1e5cfa7929a73  0
 mn2  61853e9b...e7524489  0
 ```
 
-Click **Copy Conf** on any masternode entry to copy its conf line to the clipboard.
+Click **Copy Conf** on any masternode entry to copy its conf line to the clipboard. Paste this into `masternode.conf` on the masternode daemon.
 
 ### Editing and Deleting
 
-- Click the **Edit** button on an entry to modify the name, payout address, or collateral details
+- Click the **Edit** button on an entry to modify the name or collateral details
 - Click **Delete** to remove an entry — this releases the funds from the locked balance
 
 ### Locked Balance
@@ -206,11 +214,20 @@ When masternode entries are saved, the wallet locks the corresponding UTXOs. The
 
 ## Connections
 
-The **🔗 Connections** tab shows:
+The **🔗 Connections** tab shows all discovered masternode peers in a table:
 
-- Connected masternode peers with health status, ping, block height, and WebSocket availability
-- Peer discovery fills the list automatically — no manual configuration required
-- The wallet connects to the fastest healthy peer and uses the others as fallbacks
+| Column | Description |
+|--------|-------------|
+| # | Row number |
+| (dot) | Health indicator — green (<100 ms), yellow (<500 ms), red (unhealthy) |
+| IP Address | Peer IP extracted from endpoint |
+| Status | Active (currently in use) or Healthy |
+| WS | WebSocket availability |
+| Ping | TCP round-trip latency |
+| Block | Current block height reported by this peer |
+| Consensus | ✔ green = within 3 blocks of best height; ✗ red = lagging behind |
+
+Peer discovery runs automatically every 5–15 seconds. Peers more than 3 blocks behind the best known height are excluded from the active pool — the wallet only connects to in-consensus nodes.
 
 ---
 
@@ -218,6 +235,7 @@ The **🔗 Connections** tab shows:
 
 The **⚙ Settings** tab provides:
 
+- **Connection** — Shows WebSocket status, block height, peer count, and Network (daemon version + network type e.g. `testnet (timed:0.1.0)`)
 - **Text Editor** — Configure which editor opens config files (text input + Browse… button)
 - Editor is auto-detected on first run (checks for Notepad++, then Notepad on Windows)
 
@@ -228,8 +246,9 @@ The **⚙ Settings** tab provides:
 The **🔧 Tools** tab offers:
 
 - **Resync Wallet** — Re-fetches all transactions and UTXOs from masternodes
-- **Open config.toml** — Edit wallet configuration in your text editor
-- **Open masternode.conf** — Edit masternode configuration (creates with template if missing)
+- **Repair Database** — Backs up a corrupted database and creates a fresh one; re-fetches all data
+- **Consolidate UTXOs** — Merges many small UTXOs into fewer large ones; processes smallest UTXOs first. Runs automatically in the background; a banner prompts when 50+ UTXOs are detected
+- **Open time.conf** — Edit wallet configuration (network, peers, RPC credentials) in your text editor
 
 ---
 

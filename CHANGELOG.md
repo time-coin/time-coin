@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Consensus column on Connections page** — each peer shows ✔ (green) or ✗ (red) indicating whether it is within 3 blocks of the best known height; hover for exact lag
+- **Transaction detail enrichment** — detail view now shows Block Height, Confirmations, and Block Hash (copyable) in addition to existing fields
+- **Consensus-based peer filtering** — masternodes more than 3 blocks behind the best peer are automatically dropped from the pool and trigger failover to an in-consensus peer
 - **Masternode tier display** — Bronze / Silver / Gold badges with colored text (no emoji) based on collateral amount
 - **Locked balance display** — Overview shows Available (large, green), Locked (orange), and Total on a secondary row; locked row only shown when collateral is present
 - **"Use as Masternode Collateral" button** — Click any confirmed received transaction to pre-fill the masternode add form and navigate to Masternodes tab
@@ -18,15 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Instant startup data** — Heavy data (balance, transactions, UTXOs) is fetched on the very first poll tick (5 s) instead of waiting for the 3rd tick (15 s)
 
 ### Changed
-- **Masternode form simplified** — IP address and masternode key fields removed; the masternode daemon reads the IP from `externalip=` in its own `time.conf`; the wallet only stores alias, collateral TXID, and vout
+- **UTXO consolidation order** — Consolidation now processes smallest UTXOs first (dust first), leaving larger UTXOs intact if the run is interrupted
+- **Consolidation dismiss** — Dismissing the consolidation banner suppresses it until the next consolidation completes (previously it reappeared within seconds)
+- **Settings page** — "Version" label renamed to "Network"; now shows actual daemon version (e.g. `testnet (timed:0.1.0)`) and real peer count from `getnetworkinfo`
+- **Masternode form simplified** — IP address, masternode key, and payout address fields removed; the wallet only stores alias, collateral TXID, and vout
+- **masternode.conf removed from Tools** — The `masternode.conf` button and template have been removed; masternode configuration lives on the daemon
 - **masternode.conf format** — Entries now use 3-field format: `alias txid vout` (old 4–6 field format still accepted for backward compatibility)
 - **Masternode entry storage** — Switched from `bincode` to `serde_json`; old bincode entries are auto-migrated on first read
 - **Overview balance layout** — Available is now the primary (large) number; Locked and Total appear on a smaller secondary row below
 - **Tier requirements table** — Reward Weight column removed; only Tier, Collateral Required shown
 - **Per-address balance in Receive tab** — Now shows only spendable balance (excludes locked collateral UTXOs)
+- **Send form** — Recipient name field now clears after a successful send alongside address and amount
 
 ### Fixed
-- **Peer discovery count** — Gossip-discovered peers are now added to the peer list instead of replacing existing ones; wallet correctly shows all reachable peers (was showing 6 instead of 8)
+- **Zero-amount received transactions** — Scientific notation amounts (e.g. `1e-8`) now parse correctly; staking-input-only entries are filtered at the masternode and wallet layers
+- **HTTP endpoint scheme** — Bare IP addresses and hostnames now use `http://` (masternodes do not use TLS on ports 24001/24101)
+- **Peer discovery count** — Gossip-discovered peers are now added to the peer list instead of replacing existing ones; wallet correctly shows all reachable peers
 - **Locked balance for all tiers** — Gold and Bronze entries now register correctly; previously only Silver was counted because locked UTXOs were filtered out before reaching state
 - **Tier detection on startup** — `collateral_amount` is loaded from disk and tier badge resolves without waiting for a UTXO sync
 
