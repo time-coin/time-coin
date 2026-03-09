@@ -41,7 +41,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
     ui.add_space(10.0);
 
     egui::Grid::new("peers_table")
-        .num_columns(7)
+        .num_columns(8)
         .spacing([12.0, 6.0])
         .striped(true)
         .show(ui, |ui| {
@@ -53,7 +53,16 @@ pub fn show(ui: &mut Ui, state: &AppState) {
             ui.label(egui::RichText::new("WS").strong());
             ui.label(egui::RichText::new("Ping").strong());
             ui.label(egui::RichText::new("Block").strong());
+            ui.label(egui::RichText::new("Consensus").strong());
             ui.end_row();
+
+            // Determine best (highest) block height for consensus check
+            let best_height = state
+                .peers
+                .iter()
+                .filter_map(|p| p.block_height)
+                .max()
+                .unwrap_or(0);
 
             for (i, peer) in state.peers.iter().enumerate() {
                 // Row number
@@ -107,6 +116,21 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                     ui.label(format!("#{}", height));
                 } else {
                     ui.colored_label(egui::Color32::GRAY, "--");
+                }
+
+                // Consensus
+                if best_height == 0 {
+                    ui.colored_label(egui::Color32::GRAY, "--");
+                } else {
+                    let height = peer.block_height.unwrap_or(0);
+                    let lag = best_height.saturating_sub(height);
+                    if lag <= 3 {
+                        ui.colored_label(egui::Color32::GREEN, "✔")
+                            .on_hover_text(format!("Within {} block(s) of best height {}", lag, best_height));
+                    } else {
+                        ui.colored_label(egui::Color32::RED, "✘")
+                            .on_hover_text(format!("{} blocks behind consensus height {}", lag, best_height));
+                    }
                 }
 
                 ui.end_row();
