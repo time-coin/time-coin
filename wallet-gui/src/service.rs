@@ -1401,7 +1401,7 @@ async fn discover_peers(
     }
 
     // Probe all peers in parallel with a short timeout
-    let probe_timeout = std::time::Duration::from_secs(8);
+    let probe_timeout = std::time::Duration::from_secs(4);
     let mut handles = Vec::new();
     for endpoint in endpoints.clone() {
         let creds = rpc_credentials.clone();
@@ -1421,7 +1421,7 @@ async fn discover_peers(
                 .trim_end_matches('/');
             let tcp_start = Instant::now();
             let tcp_ok = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
+                std::time::Duration::from_secs(1),
                 tokio::net::TcpStream::connect(tcp_addr),
             )
             .await
@@ -1477,7 +1477,7 @@ async fn discover_peers(
             let ws_available = if is_healthy {
                 let ws_url = crate::config_new::Config::derive_ws_url(&working_ep);
                 tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
+                    std::time::Duration::from_secs(3),
                     tokio_tungstenite::connect_async_tls_with_config(
                         &ws_url,
                         None,
@@ -1611,7 +1611,7 @@ async fn discover_peers(
             new_endpoints.len()
         );
         // Probe new peers in parallel
-        let probe_timeout2 = std::time::Duration::from_secs(8);
+        let probe_timeout2 = std::time::Duration::from_secs(4);
         let mut gossip_handles = Vec::new();
         for ep in new_endpoints {
             let creds = rpc_credentials.clone();
@@ -1626,7 +1626,7 @@ async fn discover_peers(
                     .trim_end_matches('/');
                 let tcp_start = Instant::now();
                 let tcp_ok = tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
+                    std::time::Duration::from_secs(1),
                     tokio::net::TcpStream::connect(tcp_addr),
                 )
                 .await
@@ -1673,7 +1673,7 @@ async fn discover_peers(
                 let ws_available = if is_healthy {
                     let ws_url = crate::config_new::Config::derive_ws_url(&working_ep);
                     tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
+                        std::time::Duration::from_secs(3),
                         tokio_tungstenite::connect_async_tls_with_config(
                             &ws_url,
                             None,
