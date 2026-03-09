@@ -131,7 +131,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                             ui.colored_label(egui::Color32::GREEN, "✔")
                                 .on_hover_text(format!("Within {} block(s) of best height {}", lag, best_height));
                         } else {
-                            ui.colored_label(egui::Color32::RED, "✗")
+                            ui.colored_label(egui::Color32::RED, "X")
                                 .on_hover_text(format!("{} blocks behind consensus height {}", lag, best_height));
                         }
                     }
