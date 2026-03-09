@@ -1525,6 +1525,33 @@ async fn discover_peers(
 
     // Keep only healthy peers; cap if max_connections is set below usize::MAX
     peer_infos.retain(|p| p.is_healthy);
+
+    // Consensus filter: discard peers whose block height lags the best known
+    // height by more than CONSENSUS_LAG blocks. A lagging node has a stale UTXO
+    // set and would return wrong balances / reject valid transactions.
+    const CONSENSUS_LAG: u64 = 3;
+    let best_height = peer_infos
+        .iter()
+        .filter_map(|p| p.block_height)
+        .max()
+        .unwrap_or(0);
+    if best_height > 0 {
+        peer_infos.retain(|p| {
+            let height = p.block_height.unwrap_or(0);
+            let ok = best_height - height <= CONSENSUS_LAG;
+            if !ok {
+                log::warn!(
+                    "⚠ Dropping peer {} from pool: height {} is {} blocks behind consensus ({})",
+                    p.endpoint,
+                    height,
+                    best_height - height,
+                    best_height,
+                );
+            }
+            ok
+        });
+    }
+
     if peer_infos.len() > max_connections {
         peer_infos.truncate(max_connections);
     }
