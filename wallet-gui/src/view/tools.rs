@@ -140,28 +140,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                         .small(),
                 );
             });
-
-            // -- masternode.conf --
-            ui.add_space(8.0);
-            let mn_conf_path = if state.is_testnet {
-                data_dir.join("testnet").join("masternode.conf")
-            } else {
-                data_dir.join("masternode.conf")
-            };
-
-            ui.horizontal(|ui| {
-                let btn = ui.add(
-                    egui::Button::new("📝 Open masternode.conf").min_size(egui::vec2(160.0, 28.0)),
-                );
-                if btn.clicked() {
-                    open_conf_file(mn_conf_path.clone());
-                }
-                ui.label(
-                    egui::RichText::new(mn_conf_path.display().to_string())
-                        .weak()
-                        .small(),
-                );
-            });
         } else {
             ui.label(egui::RichText::new("Could not determine data directory.").weak());
         }

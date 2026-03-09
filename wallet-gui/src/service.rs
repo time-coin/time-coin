@@ -2290,18 +2290,6 @@ testnet=0
 maxconnections=0
 "
         }
-        Some("masternode.conf") => {
-            "\
-# TIME Coin Masternode Configuration
-#
-# Format (one entry per line):
-#   alias  IP:port  masternodeprivkey  collateral_txid  collateral_vout
-#
-# Example:
-#   mn1  69.167.168.176:24100  5KCgSQS9uFLz...  fc5b049a3980...  0
-#
-"
-        }
         _ => "",
     }
 }
