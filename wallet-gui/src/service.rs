@@ -2343,6 +2343,10 @@ async fn consolidate_utxos_background(
     // Only include spendable UTXOs.
     all_utxos.retain(|u| u.spendable);
 
+    // Sort smallest-first so dust is consolidated first; larger UTXOs are left
+    // intact if we run out of transaction space.
+    all_utxos.sort_by_key(|u| u.amount);
+
     if all_utxos.len() <= 1 {
         let _ = svc_tx.send(ServiceEvent::ConsolidationComplete {
             message: "Nothing to consolidate — already 1 UTXO or fewer.".to_string(),
