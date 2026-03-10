@@ -81,7 +81,7 @@ pub struct AppState {
 
     // -- Transactions --
     pub transactions: Vec<TransactionRecord>,
-    pub selected_transaction: Option<String>,
+    pub selected_transaction: Option<usize>,
     pub tx_search: String,
     pub tx_page: usize,
     /// Tracks which field was last copied and when, for "Copied!" feedback.

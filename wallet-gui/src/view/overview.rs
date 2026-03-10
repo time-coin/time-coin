@@ -303,7 +303,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 .italics(),
         );
     } else {
-        let mut clicked_txid: Option<String> = None;
+        let mut clicked_idx: Option<usize> = None;
         egui::Grid::new("recent_tx_grid")
             .num_columns(5)
             .spacing([12.0, 8.0])
@@ -318,7 +318,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 ui.label(egui::RichText::new("Status").size(14.0).strong());
                 ui.end_row();
 
-                for tx in state.transactions.iter().take(10) {
+                for (i, tx) in state.transactions.iter().enumerate().take(10) {
                     // Type
                     let (dir_icon, amount_color) = if tx.is_fee {
                         ("💸 Fee", egui::Color32::from_rgb(255, 165, 0))
@@ -336,7 +336,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         )
                         .clicked()
                     {
-                        clicked_txid = Some(tx.txid.clone());
+                        clicked_idx = Some(i);
                     }
 
                     // Amount
@@ -353,7 +353,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         )
                         .clicked()
                     {
-                        clicked_txid = Some(tx.txid.clone());
+                        clicked_idx = Some(i);
                     }
 
                     // Address
@@ -390,7 +390,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         )
                         .clicked()
                     {
-                        clicked_txid = Some(tx.txid.clone());
+                        clicked_idx = Some(i);
                     }
 
                     // Date
@@ -415,7 +415,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         )
                         .clicked()
                     {
-                        clicked_txid = Some(tx.txid.clone());
+                        clicked_idx = Some(i);
                     }
 
                     // Status
@@ -437,7 +437,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         )
                         .clicked()
                     {
-                        clicked_txid = Some(tx.txid.clone());
+                        clicked_idx = Some(i);
                     }
 
                     ui.end_row();
@@ -459,8 +459,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         }
 
         // Navigate to transaction detail
-        if let Some(txid) = clicked_txid {
-            state.selected_transaction = Some(txid);
+        if let Some(idx) = clicked_idx {
+            state.selected_transaction = Some(idx);
             state.screen = Screen::Transactions;
             let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::Transactions));
         }
