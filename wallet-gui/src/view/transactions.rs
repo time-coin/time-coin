@@ -88,7 +88,7 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                     .filter(|(k, t)| k == "txid" && t.elapsed().as_secs() < 2)
                     .is_some();
                 let label_text = if copied { "Copied!" } else { &tx.txid };
-                let label_color = if copied { egui::Color32::GREEN } else { egui::Color32::WHITE };
+                let label_color = if copied { egui::Color32::GREEN } else { ui.visuals().text_color() };
                 if ui
                     .add(
                         egui::Label::new(egui::RichText::new(label_text).monospace().color(label_color))
