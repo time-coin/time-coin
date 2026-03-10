@@ -86,15 +86,23 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
 
             // Transaction ID
             ui.label(egui::RichText::new("Transaction ID:").strong());
-            if ui
-                .add(
-                    egui::Label::new(egui::RichText::new(&tx.txid).monospace())
-                        .sense(egui::Sense::click()),
-                )
-                .on_hover_text("Click to copy")
-                .clicked()
             {
-                ui.ctx().copy_text(tx.txid.clone());
+                let copied = state.copy_feedback.as_ref()
+                    .filter(|(k, t)| k == "txid" && t.elapsed().as_secs() < 2)
+                    .is_some();
+                let label_text = if copied { "Copied!" } else { &tx.txid };
+                let label_color = if copied { egui::Color32::GREEN } else { egui::Color32::WHITE };
+                if ui
+                    .add(
+                        egui::Label::new(egui::RichText::new(label_text).monospace().color(label_color))
+                            .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text("Click to copy")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(tx.txid.clone());
+                    state.copy_feedback = Some(("txid".to_string(), std::time::Instant::now()));
+                }
             }
             ui.end_row();
 
@@ -158,17 +166,12 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
             // Block Hash
             if !tx.block_hash.is_empty() {
                 ui.label(egui::RichText::new("Block Hash:").strong());
-                let truncated = if tx.block_hash.len() > 20 {
-                    format!("{}…", &tx.block_hash[..20])
-                } else {
-                    tx.block_hash.clone()
-                };
                 if ui
                     .add(
-                        egui::Label::new(egui::RichText::new(truncated).monospace())
+                        egui::Label::new(egui::RichText::new(&tx.block_hash).monospace())
                             .sense(egui::Sense::click()),
                     )
-                    .on_hover_text(format!("Click to copy: {}", tx.block_hash))
+                    .on_hover_text("Click to copy")
                     .clicked()
                 {
                     ui.ctx().copy_text(tx.block_hash.clone());
@@ -230,6 +233,17 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         if search_response.changed() {
             state.tx_page = 0;
         }
+        search_response.context_menu(|ui| {
+            if ui.button("Paste").clicked() {
+                if let Ok(mut cb) = arboard::Clipboard::new() {
+                    if let Ok(text) = cb.get_text() {
+                        state.tx_search = text;
+                        state.tx_page = 0;
+                    }
+                }
+                ui.close_menu();
+            }
+        });
 
         if !state.tx_search.is_empty() && ui.button("Clear").clicked() {
             state.tx_search.clear();

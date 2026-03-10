@@ -84,6 +84,8 @@ pub struct AppState {
     pub selected_transaction: Option<String>,
     pub tx_search: String,
     pub tx_page: usize,
+    /// Tracks which field was last copied and when, for "Copied!" feedback.
+    pub copy_feedback: Option<(String, std::time::Instant)>,
 
     // -- UTXOs --
     pub utxos: Vec<Utxo>,
@@ -213,6 +215,7 @@ impl Default for AppState {
             selected_transaction: None,
             tx_search: String::new(),
             tx_page: 0,
+            copy_feedback: None,
             utxos: Vec::new(),
             locked_utxos: std::collections::HashSet::new(),
             health: None,
