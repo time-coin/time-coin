@@ -823,7 +823,7 @@ impl AppState {
             ServiceEvent::UtxosUpdated(utxos) => {
                 // Suggest consolidation on first sync if there are many spendable UTXOs
                 // and the user hasn't been prompted yet this session.
-                const CONSOLIDATION_SUGGEST_THRESHOLD: usize = 50;
+                const CONSOLIDATION_SUGGEST_THRESHOLD: usize = 1000;
                 if !self.suggest_consolidation
                     && !self.consolidation_in_progress
                     && !self.consolidation_dismissed

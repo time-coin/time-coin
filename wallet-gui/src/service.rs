@@ -2405,7 +2405,7 @@ async fn consolidate_utxos_background(
         }
     };
 
-    let batch_size = 1000;
+    let batch_size = 50;
     let total_batches = all_utxos.len().div_ceil(batch_size);
     let mut consolidated = 0usize;
     let mut failed = 0usize;
