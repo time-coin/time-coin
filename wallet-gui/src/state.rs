@@ -959,6 +959,14 @@ impl AppState {
                 self.peers = peers;
             }
 
+            ServiceEvent::PeerHeightsUpdated(heights) => {
+                for peer in &mut self.peers {
+                    if let Some(&h) = heights.get(&peer.endpoint) {
+                        peer.block_height = Some(h);
+                    }
+                }
+            }
+
             ServiceEvent::AddressGenerated(info) => {
                 self.addresses.push(info);
                 self.selected_address = self.addresses.len() - 1;

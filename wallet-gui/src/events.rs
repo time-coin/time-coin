@@ -239,6 +239,9 @@ pub enum ServiceEvent {
     /// Peer discovery results with health/ping info.
     PeersDiscovered(Vec<crate::state::PeerInfo>),
 
+    /// Lightweight per-peer block height update (endpoint → height).
+    PeerHeightsUpdated(std::collections::HashMap<String, u64>),
+
     /// Non-fatal error to display in the UI.
     Error(String),
 

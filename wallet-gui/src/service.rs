@@ -120,6 +120,11 @@ pub async fn run(
     peer_refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     peer_refresh_interval.tick().await;
 
+    // Fast per-peer height poll — just getblockcount, no full probe
+    let mut height_poll_interval = tokio::time::interval(std::time::Duration::from_secs(2));
+    height_poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    height_poll_interval.tick().await;
+
     log::info!("🚀 Service loop started ({})", state.config.network);
 
     let mut initial_sync_done = false;
@@ -183,6 +188,41 @@ pub async fn run(
                 discovery_handle = Some(tokio::spawn(async move {
                     discover_peers(is_testnet, eps, creds, &tx, max_conn).await
                 }));
+            }
+
+            // Fast block-height poll: query all known peers in parallel every 2s
+            _ = height_poll_interval.tick() => {
+                if !state.last_peers.is_empty() {
+                    let peers_snapshot: Vec<_> = state.last_peers
+                        .iter()
+                        .map(|p| (p.endpoint.clone(), p.is_healthy))
+                        .collect();
+                    let creds = rpc_credentials.clone();
+                    let tx = state.svc_tx.clone();
+                    tokio::spawn(async move {
+                        let mut heights = std::collections::HashMap::new();
+                        let futs = peers_snapshot.into_iter().filter(|(_, h)| *h).map(|(ep, _)| {
+                            let creds = creds.clone();
+                            async move {
+                                let client = MasternodeClient::new(ep.clone(), creds);
+                                let h = tokio::time::timeout(
+                                    std::time::Duration::from_secs(2),
+                                    client.get_block_height(),
+                                ).await.ok().and_then(|r| r.ok());
+                                (ep, h)
+                            }
+                        });
+                        let results = futures_util::future::join_all(futs).await;
+                        for (ep, h) in results {
+                            if let Some(height) = h {
+                                heights.insert(ep, height);
+                            }
+                        }
+                        if !heights.is_empty() {
+                            let _ = tx.send(ServiceEvent::PeerHeightsUpdated(heights));
+                        }
+                    });
+                }
             }
 
             // Peer discovery completes in the background
