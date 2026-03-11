@@ -180,12 +180,28 @@ impl eframe::App for App {
 
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.add_space(4.0);
-                    let network_label = if self.state.is_testnet { "Testnet" } else { "Mainnet" };
+                    let (network_label, bg_color, text_color) = if self.state.is_testnet {
+                        ("Testnet", egui::Color32::from_rgb(255, 250, 200), egui::Color32::from_rgb(120, 100, 0))
+                    } else {
+                        ("Mainnet", egui::Color32::from_rgb(200, 225, 255), egui::Color32::from_rgb(0, 60, 120))
+                    };
                     ui.label(
-                        egui::RichText::new(format!("v{}  •  {}", env!("CARGO_PKG_VERSION"), network_label))
+                        egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                             .small()
                             .weak(),
                     );
+                    egui::Frame::new()
+                        .fill(bg_color)
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(8, 3))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(network_label)
+                                    .small()
+                                    .strong()
+                                    .color(text_color),
+                            );
+                        });
                 });
             }
         });
