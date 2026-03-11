@@ -497,7 +497,7 @@ fn show_mnemonic_setup(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::Unbounde
 
             if state.loading {
                 ui.spinner();
-                ui.label("Creating wallet...");
+                ui.label("Loading wallet...");
             }
         });
     });

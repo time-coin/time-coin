@@ -1110,6 +1110,7 @@ impl AppState {
                 self.recent_notifications.clear();
                 self.health = None;
                 self.ws_connected = false;
+                self.loading = true;
                 self.screen = Screen::MnemonicSetup;
             }
 
