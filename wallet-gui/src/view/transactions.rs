@@ -84,15 +84,25 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
             // Transaction ID
             ui.label(egui::RichText::new("Transaction ID:").strong());
             {
-                let copied = state.copy_feedback.as_ref()
+                let copied = state
+                    .copy_feedback
+                    .as_ref()
                     .filter(|(k, t)| k == "txid" && t.elapsed().as_secs() < 2)
                     .is_some();
                 let label_text = if copied { "Copied!" } else { &tx.txid };
-                let label_color = if copied { egui::Color32::GREEN } else { ui.visuals().text_color() };
+                let label_color = if copied {
+                    egui::Color32::GREEN
+                } else {
+                    ui.visuals().text_color()
+                };
                 if ui
                     .add(
-                        egui::Label::new(egui::RichText::new(label_text).monospace().color(label_color))
-                            .sense(egui::Sense::click()),
+                        egui::Label::new(
+                            egui::RichText::new(label_text)
+                                .monospace()
+                                .color(label_color),
+                        )
+                        .sense(egui::Sense::click()),
                     )
                     .on_hover_text("Click to copy")
                     .clicked()

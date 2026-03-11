@@ -53,9 +53,12 @@ pub fn show(ui: &mut Ui, state: &AppState) {
             ui.label(egui::RichText::new("WS").strong());
             ui.label(egui::RichText::new("Ping").strong());
             ui.label(egui::RichText::new("Block").strong());
-            ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                ui.label(egui::RichText::new("Consensus").strong());
-            });
+            ui.with_layout(
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| {
+                    ui.label(egui::RichText::new("Consensus").strong());
+                },
+            );
             ui.end_row();
 
             // Determine best (highest) block height for consensus check
@@ -121,21 +124,30 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                 }
 
                 // Consensus
-                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                    if best_height == 0 {
-                        ui.colored_label(egui::Color32::GRAY, "--");
-                    } else {
-                        let height = peer.block_height.unwrap_or(0);
-                        let lag = best_height.saturating_sub(height);
-                        if lag <= 3 {
-                            ui.colored_label(egui::Color32::GREEN, "✔")
-                                .on_hover_text(format!("Within {} block(s) of best height {}", lag, best_height));
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        if best_height == 0 {
+                            ui.colored_label(egui::Color32::GRAY, "--");
                         } else {
-                            ui.colored_label(egui::Color32::RED, "X")
-                                .on_hover_text(format!("{} blocks behind consensus height {}", lag, best_height));
+                            let height = peer.block_height.unwrap_or(0);
+                            let lag = best_height.saturating_sub(height);
+                            if lag <= 3 {
+                                ui.colored_label(egui::Color32::GREEN, "✔")
+                                    .on_hover_text(format!(
+                                        "Within {} block(s) of best height {}",
+                                        lag, best_height
+                                    ));
+                            } else {
+                                ui.colored_label(egui::Color32::RED, "X")
+                                    .on_hover_text(format!(
+                                        "{} blocks behind consensus height {}",
+                                        lag, best_height
+                                    ));
+                            }
                         }
-                    }
-                });
+                    },
+                );
 
                 ui.end_row();
             }

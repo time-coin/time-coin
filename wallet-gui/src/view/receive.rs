@@ -152,8 +152,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
                 // Render row contents using a child UI inside the allocated rect
                 let mut child_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(row_rect.shrink2(egui::vec2(10.0, 6.0))),
+                    egui::UiBuilder::new().max_rect(row_rect.shrink2(egui::vec2(10.0, 6.0))),
                 );
                 child_ui.horizontal(|ui| {
                     // Left: label (editable) + truncated address stacked
@@ -178,7 +177,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
                     // Right: balance + copy button
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("📋").on_hover_text("Copy address").clicked() {
+                        if ui
+                            .small_button("📋")
+                            .on_hover_text("Copy address")
+                            .clicked()
+                        {
                             ui.ctx().copy_text(addr.clone());
                         }
                         ui.add_space(4.0);

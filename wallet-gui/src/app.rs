@@ -177,33 +177,69 @@ impl eframe::App for App {
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
-
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                    ui.add_space(4.0);
-                    let (network_label, bg_color, text_color) = if self.state.is_testnet {
-                        ("Testnet", egui::Color32::from_rgb(255, 250, 200), egui::Color32::from_rgb(120, 100, 0))
-                    } else {
-                        ("Mainnet", egui::Color32::from_rgb(200, 225, 255), egui::Color32::from_rgb(0, 60, 120))
-                    };
-                    ui.label(
-                        egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                            .small()
-                            .weak(),
-                    );
-                    egui::Frame::new()
-                        .fill(bg_color)
-                        .corner_radius(4.0)
-                        .inner_margin(egui::Margin::symmetric(8, 3))
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(network_label)
-                                    .small()
-                                    .strong()
-                                    .color(text_color),
-                            );
-                        });
-                });
             }
+
+            // Network badge + version — always visible (even during setup)
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                ui.add_space(4.0);
+                let (network_label, bg_color, text_color) = if self.state.is_testnet {
+                    (
+                        "Testnet",
+                        egui::Color32::from_rgb(255, 250, 200),
+                        egui::Color32::from_rgb(120, 100, 0),
+                    )
+                } else {
+                    (
+                        "Mainnet",
+                        egui::Color32::from_rgb(200, 225, 255),
+                        egui::Color32::from_rgb(0, 60, 120),
+                    )
+                };
+                ui.label(
+                    egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                        .small()
+                        .weak(),
+                );
+
+                // During setup, show a switch-network button below the badge
+                if !self.state.wallet_loaded {
+                    let switch_label = if self.state.is_testnet {
+                        "Switch to Mainnet"
+                    } else {
+                        "Switch to Testnet"
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(egui::RichText::new(switch_label).small())
+                                .min_size(egui::vec2(140.0, 24.0)),
+                        )
+                        .clicked()
+                    {
+                        let new_network = if self.state.is_testnet {
+                            "mainnet"
+                        } else {
+                            "testnet"
+                        };
+                        let _ = self.ui_tx.send(UiEvent::SelectNetwork {
+                            network: new_network.to_string(),
+                        });
+                    }
+                    ui.add_space(4.0);
+                }
+
+                egui::Frame::new()
+                    .fill(bg_color)
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::symmetric(8, 3))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(network_label)
+                                .small()
+                                .strong()
+                                .color(text_color),
+                        );
+                    });
+            });
         });
 
         // 3. Central panel — route to the active view

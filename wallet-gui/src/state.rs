@@ -1094,7 +1094,11 @@ impl AppState {
                 // Clear stale wallet data from the previous network
                 self.wallet_loaded = false;
                 self.addresses.clear();
-                self.balance = Balance { confirmed: 0, pending: 0, total: 0 };
+                self.balance = Balance {
+                    confirmed: 0,
+                    pending: 0,
+                    total: 0,
+                };
                 self.transactions.clear();
                 self.health = None;
                 self.screen = Screen::MnemonicSetup;
