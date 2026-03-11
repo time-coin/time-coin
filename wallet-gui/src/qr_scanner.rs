@@ -70,13 +70,17 @@ impl QrScannerHandle {
         let mut camera = match Camera::new(CameraIndex::Index(0), requested) {
             Ok(c) => c,
             Err(e) => {
-                *error_ref.lock().unwrap() = Some(format!("No camera found: {}", e));
+                if let Ok(mut g) = error_ref.lock().or_else(|p| Ok::<_, ()>(p.into_inner())) {
+                    *g = Some(format!("No camera found: {}", e));
+                }
                 return;
             }
         };
 
         if let Err(e) = camera.open_stream() {
-            *error_ref.lock().unwrap() = Some(format!("Failed to open camera: {}", e));
+            if let Ok(mut g) = error_ref.lock().or_else(|p| Ok::<_, ()>(p.into_inner())) {
+                *g = Some(format!("Failed to open camera: {}", e));
+            }
             return;
         }
 
@@ -105,7 +109,9 @@ impl QrScannerHandle {
                         .strip_prefix("time:")
                         .unwrap_or(&content)
                         .to_string();
-                    *result_ref.lock().unwrap() = Some(address);
+                    if let Ok(mut g) = result_ref.lock().or_else(|p| Ok::<_, ()>(p.into_inner())) {
+                        *g = Some(address);
+                    }
                     running_ref.store(false, Ordering::Relaxed);
                     return;
                 }
@@ -118,7 +124,9 @@ impl QrScannerHandle {
                 .map(|p| egui::Color32::from_rgb(p[0], p[1], p[2]))
                 .collect();
             let color_image = egui::ColorImage { size, pixels };
-            *frame_ref.lock().unwrap() = Some(color_image);
+            if let Ok(mut g) = frame_ref.lock().or_else(|p| Ok::<_, ()>(p.into_inner())) {
+                *g = Some(color_image);
+            }
         }
     }
 

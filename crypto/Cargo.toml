@@ -1,7 +1,7 @@
 [package]
 name = "time-crypto"
 license = "BUSL-1.1"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 
 [dependencies]

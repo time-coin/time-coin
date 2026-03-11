@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-11
+
 ### Added
 - **Consensus column on Connections page** — each peer shows ✔ (green) or ✗ (red) indicating whether it is within 3 blocks of the best known height; hover for exact lag
 - **Transaction detail enrichment** — detail view now shows Block Height, Confirmations, and Block Hash (copyable) in addition to existing fields

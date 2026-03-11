@@ -25,7 +25,8 @@ mod wallet_manager;
 mod ws_client;
 
 fn main() -> Result<(), eframe::Error> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new()
+        .expect("Failed to create Tokio runtime");
     let _guard = rt.enter();
 
     env_logger::init();
