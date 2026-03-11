@@ -12,10 +12,10 @@
 ; ============================================================================
 
 #define MyAppName      "TIME Coin Wallet"
-#define MyAppVersion   "0.1.0"
+#define MyAppVersion   "0.3.0"
 #define MyAppPublisher "TIME Coin Contributors"
 #define MyAppURL       "https://time-coin.io"
-#define MyAppExeName   "wallet-gui.exe"
+#define MyAppExeName   "time-wallet.exe"
 
 [Setup]
 AppId={{B8A3F1D2-7E4C-4A9B-8D5F-1C6E2F3A4B5D}
