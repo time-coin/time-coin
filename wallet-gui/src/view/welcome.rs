@@ -528,15 +528,29 @@ fn render_print_dialog(ctx: &egui::Context, state: &mut AppState) {
 
             // Security warning
             egui::Frame::group(ui.style())
-                .fill(egui::Color32::from_rgb(50, 30, 30))
+                .fill(egui::Color32::from_rgb(60, 20, 20))
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::same(12))
                 .show(ui, |ui| {
                     ui.colored_label(
-                        egui::Color32::RED,
-                        egui::RichText::new("SECURITY WARNING").strong(),
+                        egui::Color32::from_rgb(255, 100, 100),
+                        egui::RichText::new("⚠ SECURITY WARNING")
+                            .strong()
+                            .size(14.0),
                     );
-                    ui.label("Store this document in a safe, secure location.");
-                    ui.label("Never share your recovery phrase with anyone.");
-                    ui.label("This is the ONLY way to recover your wallet.");
+                    ui.add_space(4.0);
+                    ui.colored_label(
+                        egui::Color32::from_rgb(240, 200, 200),
+                        "Store this document in a safe, secure location.",
+                    );
+                    ui.colored_label(
+                        egui::Color32::from_rgb(240, 200, 200),
+                        "Never share your recovery phrase with anyone.",
+                    );
+                    ui.colored_label(
+                        egui::Color32::from_rgb(240, 200, 200),
+                        "This is the ONLY way to recover your wallet.",
+                    );
                 });
 
             ui.add_space(12.0);
@@ -603,17 +617,6 @@ fn render_print_dialog(ctx: &egui::Context, state: &mut AppState) {
 
             // Action buttons
             ui.horizontal(|ui| {
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new("Copy to Clipboard").size(14.0))
-                            .min_size(egui::vec2(150.0, 34.0)),
-                    )
-                    .clicked()
-                {
-                    let phrase = words.join(" ");
-                    ui.ctx().copy_text(phrase);
-                }
-
                 if ui
                     .add(
                         egui::Button::new(egui::RichText::new("🖨 Print PDF").size(14.0))
