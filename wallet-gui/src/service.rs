@@ -633,6 +633,12 @@ pub async fn run(
                             state.load_wallet(None);
                         }
 
+                        // Stop the old WebSocket before switching networks
+                        if let Some(h) = state.ws_handle.take() {
+                            h.abort();
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
+
                         // Re-trigger peer discovery with the correct network
                         is_testnet = selected_testnet;
                         manual_endpoints = state.config.manual_endpoints();

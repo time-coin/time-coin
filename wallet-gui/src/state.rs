@@ -1052,6 +1052,10 @@ impl AppState {
 
             ServiceEvent::WalletExists(exists) => {
                 self.wallet_exists = exists;
+                if !exists && self.switching_network {
+                    self.switching_network = false;
+                    self.screen = Screen::MnemonicSetup;
+                }
             }
 
             ServiceEvent::SendRecordsLoaded(records) => {
@@ -1114,7 +1118,11 @@ impl AppState {
                 self.health = None;
                 self.ws_connected = false;
                 self.switching_network = true;
-                self.screen = Screen::MnemonicSetup;
+                // Only navigate to setup if not already switching from settings;
+                // WalletLoaded will navigate to Overview if a wallet exists.
+                if self.screen != Screen::Settings {
+                    self.screen = Screen::MnemonicSetup;
+                }
             }
 
             ServiceEvent::WalletEncrypted => {
