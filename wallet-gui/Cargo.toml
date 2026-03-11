@@ -82,5 +82,5 @@ arboard = { version = "3", default-features = false }
 rfd = "0.15"
 
 # Local wallet dependency from parent project
-wallet = { path = "../wallet", version = "0.2.0" }
+wallet = { path = "../wallet", version = "0.3.0" }
 
