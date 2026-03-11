@@ -85,16 +85,22 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 .desired_width(250.0)
                 .hint_text("Filter by label or address..."),
         );
+        if !state.receive_search.is_empty() && ui.small_button("✕").clicked() {
+            state.receive_search.clear();
+        }
     });
     ui.add_space(8.0);
 
     let search = state.receive_search.to_lowercase();
+    let accent_color = egui::Color32::from_rgb(0, 120, 200);
+    let hover_fill = egui::Color32::from_rgba_unmultiplied(0, 120, 200, 18);
+    let selected_fill = egui::Color32::from_rgba_unmultiplied(0, 120, 200, 30);
 
-    // Address list
     egui::ScrollArea::vertical()
-        .max_height(400.0)
+        .auto_shrink([false, false])
         .show(ui, |ui| {
-            let mut label_updates = Vec::new();
+            let mut label_updates: Vec<(usize, String)> = Vec::new();
+            let mut clicked_row: Option<usize> = None;
 
             for i in 0..state.addresses.len() {
                 // Filter by search term
@@ -105,59 +111,104 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         continue;
                     }
                 }
+
                 let is_selected = i == state.selected_address;
+                let addr = state.addresses[i].address.clone();
+                let bal = state.address_balance(&addr);
+
+                // Allocate the full row rect for hover/click detection
+                let row_height = 52.0;
+                let (row_rect, row_response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), row_height),
+                    egui::Sense::click(),
+                );
+
+                if row_response.clicked() {
+                    clicked_row = Some(i);
+                }
+
                 let fill = if is_selected {
-                    ui.visuals().selection.bg_fill
+                    selected_fill
+                } else if row_response.hovered() {
+                    hover_fill
                 } else {
-                    ui.visuals().window_fill
+                    egui::Color32::TRANSPARENT
                 };
 
-                egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        // Radio button for selection
-                        ui.radio_value(&mut state.selected_address, i, "");
+                // Row background
+                ui.painter().rect_filled(row_rect, 4.0, fill);
 
-                        // Editable label
-                        let response = ui.add(
+                // Left accent stripe for selected row
+                if is_selected {
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_max(
+                            row_rect.min,
+                            egui::pos2(row_rect.min.x + 3.0, row_rect.max.y),
+                        ),
+                        0.0,
+                        accent_color,
+                    );
+                }
+
+                // Render row contents using a child UI inside the allocated rect
+                let mut child_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(row_rect.shrink2(egui::vec2(10.0, 6.0))),
+                );
+                child_ui.horizontal(|ui| {
+                    // Left: label (editable) + truncated address stacked
+                    ui.vertical(|ui| {
+                        let label_resp = ui.add(
                             egui::TextEdit::singleline(&mut state.addresses[i].label)
-                                .desired_width(150.0)
-                                .hint_text("Label..."),
+                                .font(egui::TextStyle::Body)
+                                .desired_width(180.0)
+                                .hint_text("Unlabeled"),
                         );
-                        if response.lost_focus() {
+                        if label_resp.lost_focus() {
                             label_updates.push((i, state.addresses[i].label.clone()));
                         }
-
-                        ui.add_space(8.0);
-
-                        // Clickable address — selects this row
-                        let addr = &state.addresses[i].address;
-                        let addr_response = ui.add(
-                            egui::Label::new(egui::RichText::new(addr).monospace())
-                                .sense(egui::Sense::click()),
+                        let short = truncate_middle(&addr, 14, 6);
+                        ui.label(
+                            egui::RichText::new(short)
+                                .monospace()
+                                .size(11.0)
+                                .color(egui::Color32::GRAY),
                         );
-                        if addr_response.clicked() {
-                            state.selected_address = i;
-                        }
+                    });
 
-                        // Per-address balance (right-aligned with copy button)
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Copy").clicked() {
-                                ui.ctx().copy_text(state.addresses[i].address.clone());
-                            }
-                            let bal = state.address_balance(addr);
-                            ui.label(
-                                egui::RichText::new(state.format_time(bal))
-                                    .monospace()
-                                    .color(if bal > 0 {
-                                        egui::Color32::from_rgb(0, 180, 0)
-                                    } else {
-                                        egui::Color32::GRAY
-                                    }),
-                            );
-                        });
+                    // Right: balance + copy button
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("📋").on_hover_text("Copy address").clicked() {
+                            ui.ctx().copy_text(addr.clone());
+                        }
+                        ui.add_space(4.0);
+                        let bal_text = if bal > 0 {
+                            egui::RichText::new(state.format_time(bal))
+                                .monospace()
+                                .size(12.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(0, 160, 60))
+                        } else {
+                            egui::RichText::new("—")
+                                .size(12.0)
+                                .color(egui::Color32::GRAY)
+                        };
+                        ui.label(bal_text);
                     });
                 });
+
+                // Thin separator line between rows
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(row_rect.min.x + 10.0, row_rect.max.y),
+                        egui::pos2(row_rect.max.x - 10.0, row_rect.max.y),
+                    ],
+                    egui::Stroke::new(0.5, egui::Color32::from_gray(210)),
+                );
+            }
+
+            if let Some(i) = clicked_row {
+                state.selected_address = i;
             }
 
             // Persist label changes
@@ -165,6 +216,14 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 let _ = ui_tx.send(UiEvent::UpdateAddressLabel { index, label });
             }
         });
+}
+
+/// Shorten an address to `prefix` chars + "…" + `suffix` chars.
+fn truncate_middle(s: &str, prefix: usize, suffix: usize) -> String {
+    if s.len() <= prefix + suffix + 1 {
+        return s.to_string();
+    }
+    format!("{}…{}", &s[..prefix], &s[s.len() - suffix..])
 }
 
 /// Generate QR code as PNG bytes for the given data string.
