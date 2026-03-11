@@ -180,8 +180,9 @@ impl eframe::App for App {
 
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.add_space(4.0);
+                    let network_label = if self.state.is_testnet { "Testnet" } else { "Mainnet" };
                     ui.label(
-                        egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                        egui::RichText::new(format!("v{}  •  {}", env!("CARGO_PKG_VERSION"), network_label))
                             .small()
                             .weak(),
                     );
