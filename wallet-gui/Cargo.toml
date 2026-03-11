@@ -1,8 +1,12 @@
 [package]
 name = "wallet-gui"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 license = "BUSL-1.1"
+
+[[bin]]
+name = "time-wallet"
+path = "src/main.rs"
 
 [dependencies]
 # GUI framework
