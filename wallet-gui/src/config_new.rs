@@ -140,7 +140,6 @@ impl Config {
             }
         };
 
-        config.is_first_run = false;
         if config.editor.is_none() {
             config.editor = detect_editor();
         }
