@@ -7,6 +7,8 @@
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::config_new::Config;
@@ -127,7 +129,7 @@ pub async fn run(
 
     log::info!("🚀 Service loop started ({})", state.config.network);
 
-    let mut initial_sync_done = false;
+    let initial_sync_done = Arc::new(AtomicBool::new(false));
 
     loop {
         tokio::select! {
@@ -141,40 +143,57 @@ pub async fn run(
             _ = poll_interval.tick() => {
                 poll_tick = poll_tick.wrapping_add(1);
                 if let Some(ref client) = state.client {
-                    // Fast: block height every tick
-                    if let Ok(height) = client.get_block_height().await {
-                        let _ = state.svc_tx.send(ServiceEvent::BlockHeightUpdated(height));
-                    }
+                    // Fast: block height every tick (with timeout so it doesn't block)
+                    let height_client = client.clone();
+                    let height_tx = state.svc_tx.clone();
+                    tokio::spawn(async move {
+                        if let Ok(Ok(height)) = tokio::time::timeout(
+                            std::time::Duration::from_secs(3),
+                            height_client.get_block_height(),
+                        ).await {
+                            let _ = height_tx.send(ServiceEvent::BlockHeightUpdated(height));
+                        }
+                    });
 
                     // Heavy: balance / transactions / UTXOs every 3rd tick (15s),
                     // but always on the first tick for instant startup.
+                    // Spawned so it doesn't block the select loop.
                     if (poll_tick == 1 || poll_tick.is_multiple_of(3)) && !state.addresses.is_empty() {
-                        match client.get_balances(&state.addresses).await {
-                            Ok(bal) => {
-                                if let Some(ref db) = state.wallet_db {
-                                    let _ = db.save_cached_balance(&bal);
+                        let heavy_client = client.clone();
+                        let heavy_tx = state.svc_tx.clone();
+                        let heavy_addrs = state.addresses.clone();
+                        let heavy_initial_sync_done = initial_sync_done.clone();
+                        let heavy_db = state.wallet_db.clone();
+                        tokio::spawn(async move {
+                            match heavy_client.get_balances(&heavy_addrs).await {
+                                Ok(bal) => {
+                                    if let Some(ref db) = heavy_db {
+                                        let _ = db.save_cached_balance(&bal);
+                                    }
+                                    let _ = heavy_tx.send(ServiceEvent::BalanceUpdated(bal));
                                 }
-                                let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                                Err(e) => log::warn!("Balance poll failed: {}", e),
                             }
-                            Err(e) => log::warn!("Balance poll failed: {}", e),
-                        }
-                        if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
-                            if let Some(ref db) = state.wallet_db {
-                                let _ = db.save_cached_transactions(&txs);
+                            if let Ok(txs) = heavy_client.get_transactions_multi(&heavy_addrs, 0).await {
+                                if let Some(ref db) = heavy_db {
+                                    let _ = db.save_cached_transactions(&txs);
+                                }
+                                let _ = heavy_tx.send(ServiceEvent::TransactionsUpdated(txs));
+                                if !heavy_initial_sync_done.load(Ordering::Relaxed) {
+                                    heavy_initial_sync_done.store(true, Ordering::Relaxed);
+                                    let _ = heavy_tx.send(ServiceEvent::SyncComplete);
+                                }
                             }
-                            let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
-                            if !initial_sync_done {
-                                initial_sync_done = true;
-                                let _ = state.svc_tx.send(ServiceEvent::SyncComplete);
+                            let mut all_utxos = Vec::new();
+                            for addr in &heavy_addrs {
+                                if let Ok(utxos) = heavy_client.get_utxos(addr).await {
+                                    all_utxos.extend(utxos);
+                                }
                             }
-                        }
-                        let mut all_utxos = Vec::new();
-                        for addr in &state.addresses {
-                            if let Ok(utxos) = client.get_utxos(addr).await {
-                                all_utxos.extend(utxos);
+                            if !all_utxos.is_empty() {
+                                let _ = heavy_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
                             }
-                        }
-                        state.send_utxos_updated(all_utxos);
+                        });
                     }
                 }
             }
@@ -638,6 +657,9 @@ pub async fn run(
                             h.abort();
                         }
                         let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
+
+                        // Reset sync state for the new network
+                        initial_sync_done.store(false, Ordering::Relaxed);
 
                         // Re-trigger peer discovery with the correct network
                         is_testnet = selected_testnet;
