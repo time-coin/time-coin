@@ -414,69 +414,172 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     .color(egui::Color32::GRAY)
                     .small(),
             );
+            ui.add_space(4.0);
+
+            let accent_color = egui::Color32::from_rgb(0, 120, 200);
+            let hover_fill = egui::Color32::from_rgba_unmultiplied(0, 120, 200, 18);
+            let selected_fill = egui::Color32::from_rgba_unmultiplied(0, 120, 200, 30);
+
             let mut delete_addr = None;
             let mut save_edit = None;
             egui::ScrollArea::vertical()
                 .id_salt("contacts_scroll")
-                .max_height(200.0)
+                .max_height(300.0)
                 .show(ui, |ui| {
                     for contact in &filtered {
                         let is_editing =
                             state.editing_contact_address.as_deref() == Some(&contact.address);
+                        let is_selected = state.send_address == contact.address;
 
                         if is_editing {
                             // Inline edit row
-                            ui.horizontal(|ui| {
-                                ui.label("Name:");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut state.editing_contact_name)
-                                        .desired_width(150.0),
+                            let row_height = 48.0;
+                            let (row_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), row_height),
+                                egui::Sense::hover(),
+                            );
+                            ui.painter().rect_filled(row_rect, 4.0, selected_fill);
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_max(
+                                    row_rect.min,
+                                    egui::pos2(row_rect.min.x + 3.0, row_rect.max.y),
+                                ),
+                                0.0,
+                                egui::Color32::from_rgb(200, 160, 0),
+                            );
+                            let mut child_ui = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(row_rect.shrink2(egui::vec2(10.0, 6.0))),
+                            );
+                            child_ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut state.editing_contact_name)
+                                            .font(egui::TextStyle::Body)
+                                            .desired_width(200.0)
+                                            .hint_text("Contact name"),
+                                    );
+                                    let short = truncate_middle(&contact.address, 14, 6);
+                                    ui.label(
+                                        egui::RichText::new(short)
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                });
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui.small_button("Cancel").clicked() {
+                                            state.editing_contact_address = None;
+                                        }
+                                        if ui.small_button("Save").clicked() {
+                                            save_edit = Some((
+                                                state.editing_contact_name.clone(),
+                                                contact.address.clone(),
+                                            ));
+                                        }
+                                    },
                                 );
-                                ui.label(
-                                    egui::RichText::new(&contact.address)
-                                        .monospace()
-                                        .color(egui::Color32::GRAY),
-                                );
-                                if ui.small_button("Save").clicked() {
-                                    save_edit = Some((
-                                        state.editing_contact_name.clone(),
-                                        contact.address.clone(),
-                                    ));
-                                }
-                                if ui.small_button("Cancel").clicked() {
-                                    state.editing_contact_address = None;
-                                }
                             });
+                            // Separator
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(row_rect.min.x + 10.0, row_rect.max.y),
+                                    egui::pos2(row_rect.max.x - 10.0, row_rect.max.y),
+                                ],
+                                egui::Stroke::new(0.5, egui::Color32::from_gray(210)),
+                            );
                         } else {
                             // Normal display row
-                            ui.horizontal(|ui| {
-                                let selected = state.send_address == contact.address;
-                                if ui
-                                    .selectable_label(
-                                        selected,
-                                        format!("{} — {}", contact.name, &contact.address),
-                                    )
-                                    .clicked()
-                                {
-                                    state.send_address = contact.address.clone();
-                                    state.send_recipient_name = contact.name.clone();
-                                }
-                                if ui
-                                    .small_button("Edit")
-                                    .on_hover_text("Edit contact name")
-                                    .clicked()
-                                {
-                                    state.editing_contact_address = Some(contact.address.clone());
-                                    state.editing_contact_name = contact.name.clone();
-                                }
-                                if ui
-                                    .small_button("X")
-                                    .on_hover_text("Remove contact")
-                                    .clicked()
-                                {
-                                    delete_addr = Some(contact.address.clone());
-                                }
+                            let row_height = 48.0;
+                            let (row_rect, row_response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), row_height),
+                                egui::Sense::click(),
+                            );
+
+                            let fill = if is_selected {
+                                selected_fill
+                            } else if row_response.hovered() {
+                                hover_fill
+                            } else {
+                                egui::Color32::TRANSPARENT
+                            };
+                            ui.painter().rect_filled(row_rect, 4.0, fill);
+
+                            if is_selected {
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_max(
+                                        row_rect.min,
+                                        egui::pos2(row_rect.min.x + 3.0, row_rect.max.y),
+                                    ),
+                                    0.0,
+                                    accent_color,
+                                );
+                            }
+
+                            if row_response.clicked() {
+                                state.send_address = contact.address.clone();
+                                state.send_recipient_name = contact.name.clone();
+                            }
+
+                            let mut child_ui = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(row_rect.shrink2(egui::vec2(10.0, 6.0))),
+                            );
+                            child_ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(&contact.name).size(13.0).strong(),
+                                    );
+                                    let short = truncate_middle(&contact.address, 14, 6);
+                                    ui.label(
+                                        egui::RichText::new(short)
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                });
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .small_button("X")
+                                            .on_hover_text("Remove contact")
+                                            .clicked()
+                                        {
+                                            delete_addr = Some(contact.address.clone());
+                                        }
+                                        ui.add_space(4.0);
+                                        if ui
+                                            .small_button("✏")
+                                            .on_hover_text("Edit contact")
+                                            .clicked()
+                                        {
+                                            state.editing_contact_address =
+                                                Some(contact.address.clone());
+                                            state.editing_contact_name = contact.name.clone();
+                                        }
+                                        ui.add_space(4.0);
+                                        if ui
+                                            .small_button("📋")
+                                            .on_hover_text("Copy address")
+                                            .clicked()
+                                        {
+                                            ui.ctx().copy_text(contact.address.clone());
+                                        }
+                                    },
+                                );
                             });
+
+                            // Thin separator line between rows
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(row_rect.min.x + 10.0, row_rect.max.y),
+                                    egui::pos2(row_rect.max.x - 10.0, row_rect.max.y),
+                                ],
+                                egui::Stroke::new(0.5, egui::Color32::from_gray(210)),
+                            );
                         }
                     }
                 });
@@ -500,6 +603,14 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 }
 
 /// Parse a human-readable TIME amount (e.g. "1.5") into satoshi units.
+/// Shorten an address to `prefix` chars + "…" + `suffix` chars.
+fn truncate_middle(s: &str, prefix: usize, suffix: usize) -> String {
+    if s.len() <= prefix + suffix + 1 {
+        return s.to_string();
+    }
+    format!("{}…{}", &s[..prefix], &s[s.len() - suffix..])
+}
+
 fn parse_time_amount(s: &str) -> u64 {
     let s = s.trim();
     if s.is_empty() {
