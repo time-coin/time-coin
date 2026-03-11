@@ -83,17 +83,37 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
     ui.add_space(10.0);
 
-    // Network info
+    // Network section — shows current network with a toggle button
     ui.group(|ui| {
         ui.set_min_width(ui.available_width());
         ui.label(egui::RichText::new("Network").strong());
         ui.add_space(4.0);
-        let network = if state.is_testnet {
-            "Testnet"
-        } else {
-            "Mainnet"
-        };
-        ui.label(format!("Current network: {}", network));
+        ui.horizontal(|ui| {
+            let (network_label, bg, fg) = if state.is_testnet {
+                ("Testnet", egui::Color32::from_rgb(255, 250, 200), egui::Color32::from_rgb(120, 100, 0))
+            } else {
+                ("Mainnet", egui::Color32::from_rgb(200, 225, 255), egui::Color32::from_rgb(0, 60, 120))
+            };
+            egui::Frame::new()
+                .fill(bg)
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(8, 3))
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new(network_label).strong().color(fg));
+                });
+            ui.add_space(8.0);
+            let switch_label = if state.is_testnet { "Switch to Mainnet" } else { "Switch to Testnet" };
+            if ui.button(switch_label).clicked() {
+                let new_network = if state.is_testnet { "mainnet" } else { "testnet" };
+                let _ = ui_tx.send(UiEvent::SelectNetwork { network: new_network.to_string() });
+            }
+        });
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new("Switching network will reload the wallet for that network.")
+                .small()
+                .color(egui::Color32::GRAY),
+        );
     });
 
     ui.add_space(10.0);
@@ -130,7 +150,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         if let Some(ref health) = state.health {
             ui.label(format!("Block height: {}", health.block_height));
             ui.label(format!("Peers: {}", health.peer_count));
-            ui.label(format!("Network: {}", health.version));
         }
     });
 
