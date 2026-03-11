@@ -204,26 +204,33 @@ impl eframe::App for App {
 
                 // During setup, show a switch-network button below the badge
                 if !self.state.wallet_loaded {
-                    let switch_label = if self.state.is_testnet {
-                        "Switch to Mainnet"
-                    } else {
-                        "Switch to Testnet"
-                    };
-                    if ui
-                        .add(
-                            egui::Button::new(egui::RichText::new(switch_label).small())
-                                .min_size(egui::vec2(140.0, 24.0)),
-                        )
-                        .clicked()
-                    {
-                        let new_network = if self.state.is_testnet {
-                            "mainnet"
-                        } else {
-                            "testnet"
-                        };
-                        let _ = self.ui_tx.send(UiEvent::SelectNetwork {
-                            network: new_network.to_string(),
+                    if self.state.switching_network {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(egui::RichText::new("Switching…").small());
                         });
+                    } else {
+                        let switch_label = if self.state.is_testnet {
+                            "Switch to Mainnet"
+                        } else {
+                            "Switch to Testnet"
+                        };
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(switch_label).small())
+                                    .min_size(egui::vec2(140.0, 24.0)),
+                            )
+                            .clicked()
+                        {
+                            let new_network = if self.state.is_testnet {
+                                "mainnet"
+                            } else {
+                                "testnet"
+                            };
+                            let _ = self.ui_tx.send(UiEvent::SelectNetwork {
+                                network: new_network.to_string(),
+                            });
+                        }
                     }
                     ui.add_space(4.0);
                 }

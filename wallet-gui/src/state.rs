@@ -130,6 +130,7 @@ pub struct AppState {
     pub error: Option<String>,
     pub success: Option<String>,
     pub loading: bool,
+    pub switching_network: bool,
 
     // -- Display preferences --
     pub decimal_places: usize,
@@ -251,6 +252,7 @@ impl Default for AppState {
             error: None,
             success: None,
             loading: false,
+            switching_network: false,
             decimal_places: 2,
             editor_input: String::new(),
             max_connections: 8,
@@ -491,6 +493,7 @@ impl AppState {
                 self.wallet_encrypted = is_encrypted;
                 self.screen = Screen::Overview;
                 self.loading = false;
+                self.switching_network = false;
                 self.syncing = true;
                 self.error = None;
                 self.password_required = false;
@@ -1110,7 +1113,7 @@ impl AppState {
                 self.recent_notifications.clear();
                 self.health = None;
                 self.ws_connected = false;
-                self.loading = true;
+                self.switching_network = true;
                 self.screen = Screen::MnemonicSetup;
             }
 

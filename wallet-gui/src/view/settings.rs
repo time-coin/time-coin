@@ -115,7 +115,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             } else {
                 "Switch to Testnet"
             };
-            if ui.button(switch_label).clicked() {
+            if state.switching_network {
+                ui.spinner();
+            } else if ui.button(switch_label).clicked() {
                 let new_network = if state.is_testnet {
                     "mainnet"
                 } else {
