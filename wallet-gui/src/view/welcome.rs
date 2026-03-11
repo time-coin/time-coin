@@ -554,9 +554,13 @@ fn render_print_dialog(ctx: &egui::Context, state: &mut AppState) {
                 ui.set_min_width(420.0);
                 ui.vertical_centered(|ui| {
                     ui.label(
-                        egui::RichText::new("TIME Coin Recovery Phrase")
-                            .size(15.0)
-                            .strong(),
+                        egui::RichText::new(if state.is_testnet {
+                            "TIME Coin Recovery Phrase (Testnet)"
+                        } else {
+                            "TIME Coin Recovery Phrase (Mainnet)"
+                        })
+                        .size(15.0)
+                        .strong(),
                     );
                     ui.label(
                         egui::RichText::new(format!(
@@ -617,7 +621,7 @@ fn render_print_dialog(ctx: &egui::Context, state: &mut AppState) {
                     )
                     .clicked()
                 {
-                    match generate_backup_pdf(&words) {
+                    match generate_backup_pdf(&words, state.is_testnet) {
                         Ok(path) => {
                             log::info!("Paper backup PDF opened for printing: {}", path.display());
                             let _ = open::that(&path);
@@ -677,8 +681,13 @@ fn render_print_dialog(ctx: &egui::Context, state: &mut AppState) {
 }
 
 /// Generate a nicely formatted PDF paper backup of the recovery phrase.
-fn generate_backup_pdf(words: &[&str]) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+fn generate_backup_pdf(
+    words: &[&str],
+    is_testnet: bool,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     use printpdf::*;
+
+    let network_label = if is_testnet { "Testnet" } else { "Mainnet" };
 
     let (doc, page1, layer1) =
         PdfDocument::new("TIME Coin Recovery Phrase", Mm(210.0), Mm(297.0), "Layer 1");
@@ -695,7 +704,13 @@ fn generate_backup_pdf(words: &[&str]) -> Result<std::path::PathBuf, Box<dyn std
     // ---- Header ----
     layer.use_text("TIME Coin Wallet", 28.0, left, y, &font_bold);
     y -= Mm(10.0);
-    layer.use_text("Recovery Phrase - Paper Backup", 16.0, left, y, &font);
+    layer.use_text(
+        format!("Recovery Phrase - Paper Backup ({})", network_label),
+        16.0,
+        left,
+        y,
+        &font,
+    );
     y -= Mm(8.0);
 
     let date = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
