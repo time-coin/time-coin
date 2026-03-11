@@ -7,7 +7,7 @@
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -130,6 +130,9 @@ pub async fn run(
     log::info!("🚀 Service loop started ({})", state.config.network);
 
     let initial_sync_done = Arc::new(AtomicBool::new(false));
+    // Generation counter: incremented on network switch so in-flight spawned
+    // tasks from the old network silently discard their results.
+    let poll_generation = Arc::new(AtomicU64::new(0));
 
     loop {
         tokio::select! {
@@ -146,12 +149,16 @@ pub async fn run(
                     // Fast: block height every tick (with timeout so it doesn't block)
                     let height_client = client.clone();
                     let height_tx = state.svc_tx.clone();
+                    let height_gen = poll_generation.clone();
+                    let cur_gen = poll_generation.load(Ordering::Relaxed);
                     tokio::spawn(async move {
                         if let Ok(Ok(height)) = tokio::time::timeout(
                             std::time::Duration::from_secs(3),
                             height_client.get_block_height(),
                         ).await {
-                            let _ = height_tx.send(ServiceEvent::BlockHeightUpdated(height));
+                            if height_gen.load(Ordering::Relaxed) == cur_gen {
+                                let _ = height_tx.send(ServiceEvent::BlockHeightUpdated(height));
+                            }
                         }
                     });
 
@@ -164,9 +171,14 @@ pub async fn run(
                         let heavy_addrs = state.addresses.clone();
                         let heavy_initial_sync_done = initial_sync_done.clone();
                         let heavy_db = state.wallet_db.clone();
+                        let heavy_gen = poll_generation.clone();
+                        let cur_gen = poll_generation.load(Ordering::Relaxed);
                         tokio::spawn(async move {
+                            // Bail if network switched while we were waiting to run
+                            if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
                             match heavy_client.get_balances(&heavy_addrs).await {
                                 Ok(bal) => {
+                                    if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
                                     if let Some(ref db) = heavy_db {
                                         let _ = db.save_cached_balance(&bal);
                                     }
@@ -174,7 +186,9 @@ pub async fn run(
                                 }
                                 Err(e) => log::warn!("Balance poll failed: {}", e),
                             }
+                            if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
                             if let Ok(txs) = heavy_client.get_transactions_multi(&heavy_addrs, 0).await {
+                                if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
                                 if let Some(ref db) = heavy_db {
                                     let _ = db.save_cached_transactions(&txs);
                                 }
@@ -184,13 +198,14 @@ pub async fn run(
                                     let _ = heavy_tx.send(ServiceEvent::SyncComplete);
                                 }
                             }
+                            if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
                             let mut all_utxos = Vec::new();
                             for addr in &heavy_addrs {
                                 if let Ok(utxos) = heavy_client.get_utxos(addr).await {
                                     all_utxos.extend(utxos);
                                 }
                             }
-                            if !all_utxos.is_empty() {
+                            if !all_utxos.is_empty() && heavy_gen.load(Ordering::Relaxed) == cur_gen {
                                 let _ = heavy_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
                             }
                         });
@@ -644,6 +659,11 @@ pub async fn run(
                         }
                         // Always update UI network state first (clears stale data, sets badge)
                         let _ = state.svc_tx.send(ServiceEvent::NetworkConfigured { is_testnet: selected_testnet });
+
+                        // Invalidate any in-flight poll tasks from the old network
+                        poll_generation.fetch_add(1, Ordering::Relaxed);
+                        initial_sync_done.store(false, Ordering::Relaxed);
+
                         // Check if a wallet already exists for this network
                         let exists = WalletManager::exists(state.network_type);
                         let _ = state.svc_tx.send(ServiceEvent::WalletExists(exists));
@@ -657,9 +677,6 @@ pub async fn run(
                             h.abort();
                         }
                         let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
-
-                        // Reset sync state for the new network
-                        initial_sync_done.store(false, Ordering::Relaxed);
 
                         // Re-trigger peer discovery with the correct network
                         is_testnet = selected_testnet;
