@@ -51,6 +51,7 @@ impl App {
         let state = AppState {
             wallet_exists,
             screen: initial_screen,
+            is_testnet: network_type == wallet::NetworkType::Testnet,
             ..Default::default()
         };
 

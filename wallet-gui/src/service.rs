@@ -623,14 +623,14 @@ pub async fn run(
                         if state.wallet_db.is_some() {
                             log::info!("📂 Wallet database reopened at: {}", db_path.display());
                         }
+                        // Always update UI network state first (clears stale data, sets badge)
+                        let _ = state.svc_tx.send(ServiceEvent::NetworkConfigured { is_testnet: selected_testnet });
                         // Check if a wallet already exists for this network
                         let exists = WalletManager::exists(state.network_type);
                         let _ = state.svc_tx.send(ServiceEvent::WalletExists(exists));
                         if exists {
-                            // Wallet already exists — load it directly instead of going to setup
+                            // Wallet already exists — load it directly
                             state.load_wallet(None);
-                        } else {
-                            let _ = state.svc_tx.send(ServiceEvent::NetworkConfigured { is_testnet: selected_testnet });
                         }
 
                         // Re-trigger peer discovery with the correct network
