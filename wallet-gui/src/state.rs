@@ -1091,7 +1091,7 @@ impl AppState {
 
             ServiceEvent::NetworkConfigured { is_testnet } => {
                 self.is_testnet = is_testnet;
-                // Clear stale wallet data from the previous network
+                // Clear ALL network-specific data from the previous network
                 self.wallet_loaded = false;
                 self.addresses.clear();
                 self.balance = Balance {
@@ -1100,6 +1100,14 @@ impl AppState {
                     total: 0,
                 };
                 self.transactions.clear();
+                self.utxos.clear();
+                self.locked_utxos.clear();
+                self.masternode_entries.clear();
+                self.masternode_balance = 0;
+                self.masternode_available = 0;
+                self.send_records.clear();
+                self.contacts.clear();
+                self.recent_notifications.clear();
                 self.health = None;
                 self.screen = Screen::MnemonicSetup;
             }
