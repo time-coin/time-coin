@@ -830,7 +830,7 @@ fn generate_backup_pdf(
     // ---- Footer ----
     let footer_y = Mm(15.0);
     layer.use_text(
-        "TIME Coin Wallet - https://timecoin.network",
+        "TIME Coin Wallet - https://time-coin.io",
         8.0,
         left,
         footer_y,
