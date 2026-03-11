@@ -1109,6 +1109,7 @@ impl AppState {
                 self.contacts.clear();
                 self.recent_notifications.clear();
                 self.health = None;
+                self.ws_connected = false;
                 self.screen = Screen::MnemonicSetup;
             }
 
