@@ -277,7 +277,7 @@ impl eframe::App for App {
                 view::settings::show(ui, &mut self.state, &self.ui_tx);
             }
             Screen::Connections => {
-                view::connections::show(ui, &self.state);
+                view::connections::show(ui, &self.state, &self.ui_tx);
             }
             Screen::Tools => {
                 view::tools::show(ui, &mut self.state, &self.ui_tx);

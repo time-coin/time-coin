@@ -1,7 +1,9 @@
 //! Connections screen — shows all discovered peers with health and ping info.
 
 use egui::Ui;
+use tokio::sync::mpsc;
 
+use crate::events::UiEvent;
 use crate::state::AppState;
 
 /// Extract the IP from an endpoint like "http://1.2.3.4:24001".
@@ -22,7 +24,7 @@ fn health_dot(ui: &mut Ui, color: egui::Color32) {
 }
 
 /// Render the connections screen.
-pub fn show(ui: &mut Ui, state: &AppState) {
+pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
     ui.heading("Connections");
     ui.separator();
     ui.add_space(10.0);
@@ -41,7 +43,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
     ui.add_space(10.0);
 
     egui::Grid::new("peers_table")
-        .num_columns(8)
+        .num_columns(9)
         .spacing([12.0, 6.0])
         .striped(true)
         .show(ui, |ui| {
@@ -53,6 +55,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
             ui.label(egui::RichText::new("WS").strong());
             ui.label(egui::RichText::new("Ping").strong());
             ui.label(egui::RichText::new("Block").strong());
+            ui.label(egui::RichText::new("").strong());
             ui.with_layout(
                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                 |ui| {
@@ -121,6 +124,20 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                     ui.label(format!("#{}", height));
                 } else {
                     ui.colored_label(egui::Color32::GRAY, "--");
+                }
+
+                // Select link
+                if peer.is_active {
+                    ui.colored_label(egui::Color32::GRAY, "selected");
+                } else if peer.is_healthy {
+                    let link = ui.link("select");
+                    if link.clicked() {
+                        let _ = ui_tx.send(UiEvent::SwitchPeer {
+                            endpoint: peer.endpoint.clone(),
+                        });
+                    }
+                } else {
+                    ui.label("");
                 }
 
                 // Consensus

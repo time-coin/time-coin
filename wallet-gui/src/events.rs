@@ -148,6 +148,11 @@ pub enum UiEvent {
 
     /// Persist updated send records to the database.
     PersistSendRecords(Vec<TransactionRecord>),
+
+    /// Manually switch the active masternode to a specific peer endpoint.
+    SwitchPeer {
+        endpoint: String,
+    },
 }
 
 /// Screens the wallet can display.

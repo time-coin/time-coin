@@ -1109,6 +1109,29 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::SwitchPeer { endpoint } => {
+                        log::info!("🔀 User switching to peer: {}", endpoint);
+                        state.client = Some(MasternodeClient::new(endpoint.clone(), rpc_credentials.clone()));
+                        state.config.active_endpoint = Some(endpoint.clone());
+                        config.active_endpoint = Some(endpoint);
+
+                        // Mark the newly selected peer as active in the peer list
+                        for peer in &mut state.last_peers {
+                            peer.is_active = peer.endpoint == state.config.active_endpoint.as_deref().unwrap_or("");
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(state.last_peers.clone()));
+
+                        // Restart WS and refresh data if wallet is loaded
+                        if !state.addresses.is_empty() {
+                            state.start_ws();
+                            if let Some(ref client) = state.client {
+                                if let Ok(bal) = client.get_balances(&state.addresses).await {
+                                    let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                                }
+                            }
+                        }
+                    }
+
                     UiEvent::SaveMasternodeEntry(entry) => {
                         if let Some(ref db) = state.wallet_db {
                             match db.save_masternode_entry(&entry) {
@@ -1916,12 +1939,35 @@ impl ServiceState {
                     .iter()
                     .enumerate()
                     .map(|(i, addr)| {
-                        let label = self
+                        let existing = self
                             .wallet_db
                             .as_ref()
-                            .and_then(|db| db.get_contact(addr).ok().flatten())
-                            .map(|c| c.label)
+                            .and_then(|db| db.get_contact(addr).ok().flatten());
+                        let label = existing
+                            .as_ref()
+                            .map(|c| c.label.clone())
                             .unwrap_or_else(|| format!("Address #{}", i));
+
+                        // Persist newly-derived addresses to the DB with a default label
+                        if existing.is_none() {
+                            if let Some(ref db) = self.wallet_db {
+                                let contact = crate::wallet_db::AddressContact {
+                                    address: addr.clone(),
+                                    label: label.clone(),
+                                    name: None,
+                                    email: None,
+                                    phone: None,
+                                    notes: None,
+                                    is_default: i == 0,
+                                    is_owned: true,
+                                    derivation_index: Some(i as u32),
+                                    created_at: chrono::Utc::now().timestamp(),
+                                    updated_at: chrono::Utc::now().timestamp(),
+                                };
+                                let _ = db.save_contact(&contact);
+                            }
+                        }
+
                         AddressInfo {
                             address: addr.clone(),
                             label,
@@ -2372,11 +2418,14 @@ async fn build_masternode_update_tx(
     Ok((tx_hex, txid))
 }
 
+/// BIP-44 recommended gap limit: pre-derive this many addresses so that
+/// wallet recovery can discover all previously-used indices.
+const BIP44_GAP_LIMIT: u32 = 20;
+
 /// Derive all known addresses from the wallet manager.
-/// Ensures at least one address exists.
+/// Ensures at least [`BIP44_GAP_LIMIT`] addresses exist.
 fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
-    // Ensure at least one address is derived
-    if wm.get_address_count() == 0 {
+    while wm.get_address_count() < BIP44_GAP_LIMIT {
         let _ = wm.get_next_address();
     }
     (0..wm.get_address_count())
