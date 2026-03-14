@@ -107,6 +107,19 @@ pub struct TxRejectedNotification {
     pub reason: String,
 }
 
+/// A payment request received from another wallet via the masternode P2P network.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PaymentRequestNotification {
+    pub id: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount: f64,
+    pub memo: String,
+    pub pubkey: String,
+    pub timestamp: i64,
+    pub expires: i64,
+}
+
 /// Events sent from the WebSocket client to the wallet UI
 #[derive(Clone, Debug)]
 pub enum WsEvent {
@@ -116,6 +129,8 @@ pub enum WsEvent {
     UtxoFinalized(UtxoFinalizedNotification),
     /// A transaction was rejected by the masternode
     TransactionRejected(TxRejectedNotification),
+    /// A payment request received from another wallet
+    PaymentRequestReceived(PaymentRequestNotification),
     /// WebSocket connected successfully
     Connected(String),
     /// WebSocket disconnected
@@ -375,6 +390,23 @@ impl WsClient {
                             }
                             Err(e) => {
                                 log::warn!("Failed to parse tx_rejected: {}", e);
+                            }
+                        }
+                    }
+                }
+                "payment_request" => {
+                    if let Some(data) = msg.data {
+                        match serde_json::from_value::<PaymentRequestNotification>(data) {
+                            Ok(notif) => {
+                                log::info!(
+                                    "📨 Payment request received from {} for {} TIME",
+                                    notif.from_address,
+                                    notif.amount,
+                                );
+                                let _ = event_tx.send(WsEvent::PaymentRequestReceived(notif));
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to parse payment_request: {}", e);
                             }
                         }
                     }

@@ -193,6 +193,14 @@ pub struct AppState {
     // -- Pending DB writes --
     /// Send records whose status changed and need to be persisted.
     pub dirty_send_records: Vec<TransactionRecord>,
+
+    // -- Payment Requests --
+    /// Incoming payment requests from other wallets.
+    pub payment_requests: Vec<crate::events::PaymentRequest>,
+    /// "Request Payment" form fields.
+    pub pr_address: String,
+    pub pr_amount: String,
+    pub pr_memo: String,
 }
 
 impl Default for AppState {
@@ -282,6 +290,10 @@ impl Default for AppState {
             suggest_consolidation: false,
             consolidation_dismissed: false,
             dirty_send_records: Vec::new(),
+            payment_requests: Vec::new(),
+            pr_address: String::new(),
+            pr_amount: String::new(),
+            pr_memo: String::new(),
         }
     }
 }
@@ -1062,6 +1074,27 @@ impl AppState {
 
             ServiceEvent::MaxConnectionsUpdated(n) => {
                 self.max_connections = n;
+            }
+
+            ServiceEvent::PaymentRequestsUpdated(requests) => {
+                self.payment_requests = requests;
+            }
+
+            ServiceEvent::PaymentRequestReceived(request) => {
+                // Dedup by id
+                if !self.payment_requests.iter().any(|r| r.id == request.id) {
+                    self.payment_requests.push(request);
+                }
+            }
+
+            ServiceEvent::PaymentRequestSent { id } => {
+                self.success = Some(format!(
+                    "Payment request sent ({}...)",
+                    &id[..16.min(id.len())]
+                ));
+                self.pr_address.clear();
+                self.pr_amount.clear();
+                self.pr_memo.clear();
             }
 
             ServiceEvent::WalletExists(exists) => {

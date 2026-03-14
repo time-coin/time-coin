@@ -447,6 +447,60 @@ impl MasternodeClient {
         Ok(Some(pubkey))
     }
 
+    /// Send a signed payment request to the masternode for P2P relay.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn send_payment_request(
+        &self,
+        from_address: &str,
+        to_address: &str,
+        amount: u64,
+        memo: &str,
+        pubkey_hex: &str,
+        signature_hex: &str,
+        timestamp: i64,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.rpc_call(
+            "sendpaymentrequest",
+            serde_json::json!([
+                from_address,
+                to_address,
+                amount,
+                memo,
+                pubkey_hex,
+                signature_hex,
+                timestamp
+            ]),
+        )
+        .await
+    }
+
+    /// Get pending payment requests for the given addresses.
+    pub async fn get_payment_requests(
+        &self,
+        addresses: &[String],
+    ) -> Result<Vec<serde_json::Value>, ClientError> {
+        let result = self
+            .rpc_call("getpaymentrequests", serde_json::json!([addresses]))
+            .await?;
+        match result.as_array() {
+            Some(arr) => Ok(arr.clone()),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Acknowledge (remove) a payment request on the masternode.
+    pub async fn acknowledge_payment_request(
+        &self,
+        request_id: &str,
+        status: &str,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.rpc_call(
+            "acknowledgepaymentrequest",
+            serde_json::json!([request_id, status]),
+        )
+        .await
+    }
+
     /// Check if masternode is reachable via getblockchaininfo
     pub async fn health_check(&self) -> Result<HealthStatus, ClientError> {
         let result = self

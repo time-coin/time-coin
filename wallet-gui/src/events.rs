@@ -7,6 +7,20 @@ use crate::masternode_client::{Balance, HealthStatus, TransactionRecord, Utxo};
 use crate::state::AddressInfo;
 use crate::ws_client::TxNotification;
 
+/// A payment request displayed in the wallet UI.
+#[derive(Debug, Clone)]
+pub struct PaymentRequest {
+    pub id: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount: u64,
+    pub memo: String,
+    pub pubkey_hex: String,
+    pub signature_hex: String,
+    pub timestamp: i64,
+    pub expires: i64,
+}
+
 // ============================================================================
 // UI → Service
 // ============================================================================
@@ -153,6 +167,23 @@ pub enum UiEvent {
     /// Manually switch the active masternode to a specific peer endpoint.
     SwitchPeer {
         endpoint: String,
+    },
+
+    /// Send a payment request to another wallet via the masternode P2P network.
+    SendPaymentRequest {
+        to_address: String,
+        amount: u64,
+        memo: String,
+    },
+
+    /// Pay a received payment request (auto-fills and sends a transaction).
+    PayRequest {
+        request_id: String,
+    },
+
+    /// Decline a received payment request.
+    DeclineRequest {
+        request_id: String,
     },
 }
 
@@ -318,4 +349,15 @@ pub enum ServiceEvent {
 
     /// Max connections setting updated.
     MaxConnectionsUpdated(usize),
+
+    /// Payment requests received (from poll or WS).
+    PaymentRequestsUpdated(Vec<PaymentRequest>),
+
+    /// A single payment request arrived via WebSocket.
+    PaymentRequestReceived(PaymentRequest),
+
+    /// Payment request sent successfully.
+    PaymentRequestSent {
+        id: String,
+    },
 }

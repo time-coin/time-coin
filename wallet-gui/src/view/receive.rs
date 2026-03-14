@@ -3,7 +3,7 @@
 use egui::Ui;
 use tokio::sync::mpsc;
 
-use crate::events::UiEvent;
+use crate::events::{Screen, UiEvent};
 use crate::state::AppState;
 
 /// Render the receive screen.
@@ -219,6 +219,180 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 let _ = ui_tx.send(UiEvent::UpdateAddressLabel { index, label });
             }
         });
+
+    // ── Incoming Payment Requests ──
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let active_requests: Vec<_> = state
+        .payment_requests
+        .iter()
+        .filter(|r| r.expires > now)
+        .collect();
+
+    if !active_requests.is_empty() {
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new(format!(
+                "📨 Incoming Payment Requests ({})",
+                active_requests.len()
+            ))
+            .size(14.0)
+            .strong(),
+        );
+        ui.add_space(6.0);
+
+        let mut pay_id: Option<String> = None;
+        let mut decline_id: Option<String> = None;
+
+        for req in &active_requests {
+            let remaining_mins = (req.expires - now) / 60;
+            let time_str = if remaining_mins > 60 {
+                format!("{}h {}m left", remaining_mins / 60, remaining_mins % 60)
+            } else {
+                format!("{}m left", remaining_mins)
+            };
+
+            egui::Frame::group(ui.style())
+                .inner_margin(egui::Margin::same(8))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "From: {}",
+                                    truncate_middle(&req.from_address, 14, 6),
+                                ))
+                                .monospace()
+                                .size(12.0),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Amount: {} TIME",
+                                    req.amount as f64 / 100_000.0,
+                                ))
+                                .strong(),
+                            );
+                            if !req.memo.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(format!("Memo: {}", req.memo))
+                                        .italics()
+                                        .color(egui::Color32::GRAY),
+                                );
+                            }
+                            ui.label(
+                                egui::RichText::new(format!("⏱ {}", time_str))
+                                    .size(11.0)
+                                    .color(egui::Color32::from_rgb(200, 150, 0)),
+                            );
+                        });
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new("✕ Decline")
+                                        .color(egui::Color32::from_rgb(200, 60, 60)),
+                                )
+                                .clicked()
+                            {
+                                decline_id = Some(req.id.clone());
+                            }
+                            ui.add_space(4.0);
+                            if ui
+                                .button(
+                                    egui::RichText::new("💸 Pay")
+                                        .color(egui::Color32::from_rgb(0, 160, 60)),
+                                )
+                                .clicked()
+                            {
+                                pay_id = Some(req.id.clone());
+                            }
+                        });
+                    });
+                });
+            ui.add_space(2.0);
+        }
+
+        if let Some(id) = pay_id {
+            if let Some(req) = state.payment_requests.iter().find(|r| r.id == id) {
+                state.send_address = req.from_address.clone();
+                state.send_amount = format!("{:.5}", req.amount as f64 / 100_000.0);
+                state.send_memo = req.memo.clone();
+                state.screen = Screen::Send;
+            }
+            let _ = ui_tx.send(UiEvent::PayRequest { request_id: id });
+        }
+        if let Some(id) = decline_id {
+            state.payment_requests.retain(|r| r.id != id);
+            let _ = ui_tx.send(UiEvent::DeclineRequest { request_id: id });
+        }
+    }
+
+    // ── Request Payment Form ──
+    ui.add_space(10.0);
+    ui.separator();
+    ui.add_space(6.0);
+    ui.label(
+        egui::RichText::new("📋 Request Payment")
+            .size(14.0)
+            .strong(),
+    );
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new("Send a payment request to another wallet via the masternode network.")
+            .color(egui::Color32::GRAY)
+            .italics()
+            .size(11.0),
+    );
+    ui.add_space(8.0);
+
+    ui.horizontal(|ui| {
+        ui.label("Payer Address:");
+        ui.add(
+            egui::TextEdit::singleline(&mut state.pr_address)
+                .desired_width(350.0)
+                .hint_text("TIME address of who should pay..."),
+        );
+    });
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label("Amount (TIME):");
+        ui.add(
+            egui::TextEdit::singleline(&mut state.pr_amount)
+                .desired_width(150.0)
+                .hint_text("0.00000"),
+        );
+    });
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label("Memo:");
+        ui.add(
+            egui::TextEdit::singleline(&mut state.pr_memo)
+                .desired_width(300.0)
+                .hint_text("Optional memo..."),
+        );
+    });
+    ui.add_space(8.0);
+
+    let can_send =
+        !state.pr_address.is_empty() && state.pr_amount.parse::<f64>().is_ok_and(|v| v > 0.0);
+
+    if ui
+        .add_enabled(can_send, egui::Button::new("📤 Send Request"))
+        .clicked()
+    {
+        if let Ok(amount_f64) = state.pr_amount.parse::<f64>() {
+            let amount = (amount_f64 * 100_000.0) as u64;
+            let _ = ui_tx.send(UiEvent::SendPaymentRequest {
+                to_address: state.pr_address.clone(),
+                amount,
+                memo: state.pr_memo.clone(),
+            });
+        }
+    }
 }
 
 /// Shorten an address to `prefix` chars + "…" + `suffix` chars.

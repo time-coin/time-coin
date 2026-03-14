@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::config_new::Config;
-use crate::events::{Screen, ServiceEvent, UiEvent};
+use crate::events::{PaymentRequest, Screen, ServiceEvent, UiEvent};
 use crate::masternode_client::{MasternodeClient, TransactionRecord, TransactionStatus};
 use crate::peer_discovery;
 use crate::state::{AddressInfo, PeerInfo};
@@ -1186,6 +1186,92 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::SendPaymentRequest { to_address, amount, memo } => {
+                        if let Some(ref client) = state.client {
+                            if let Some(ref wm) = state.wallet {
+                                match wm.derive_keypair(0) {
+                                    Ok(kp) => {
+                                        let from_address = state.addresses.first()
+                                            .cloned()
+                                            .unwrap_or_default();
+
+                                        let secret_bytes = kp.secret_key_bytes();
+                                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
+                                        let pubkey_bytes = signing_key.verifying_key().to_bytes();
+                                        let pubkey_hex = hex::encode(pubkey_bytes);
+
+                                        let timestamp = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs() as i64;
+
+                                        use sha2::{Digest, Sha256};
+                                        let mut hasher = Sha256::new();
+                                        hasher.update(from_address.as_bytes());
+                                        hasher.update(to_address.as_bytes());
+                                        hasher.update(amount.to_le_bytes());
+                                        hasher.update(timestamp.to_le_bytes());
+                                        let id = hex::encode(hasher.finalize());
+
+                                        let mut sign_data = Vec::new();
+                                        sign_data.extend_from_slice(id.as_bytes());
+                                        sign_data.extend_from_slice(from_address.as_bytes());
+                                        sign_data.extend_from_slice(to_address.as_bytes());
+                                        sign_data.extend_from_slice(&amount.to_le_bytes());
+                                        sign_data.extend_from_slice(memo.as_bytes());
+                                        sign_data.extend_from_slice(&timestamp.to_le_bytes());
+
+                                        use ed25519_dalek::Signer;
+                                        let signature = signing_key.sign(&sign_data);
+                                        let signature_hex = hex::encode(signature.to_bytes());
+
+                                        match client.send_payment_request(
+                                            &from_address,
+                                            &to_address,
+                                            amount,
+                                            &memo,
+                                            &pubkey_hex,
+                                            &signature_hex,
+                                            timestamp,
+                                        ).await {
+                                            Ok(result) => {
+                                                let req_id = result.get("id")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or(&id)
+                                                    .to_string();
+                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestSent { id: req_id });
+                                            }
+                                            Err(e) => {
+                                                let _ = state.svc_tx.send(ServiceEvent::Error(
+                                                    format!("Failed to send payment request: {}", e),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = state.svc_tx.send(ServiceEvent::Error(
+                                            format!("Failed to derive keypair: {}", e),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    UiEvent::PayRequest { request_id } => {
+                        // Find the request and auto-fill send
+                        // We'll read state from the UI side via events
+                        if let Some(ref client) = state.client {
+                            let _ = client.acknowledge_payment_request(&request_id, "paid").await;
+                        }
+                    }
+
+                    UiEvent::DeclineRequest { request_id } => {
+                        if let Some(ref client) = state.client {
+                            let _ = client.acknowledge_payment_request(&request_id, "declined").await;
+                        }
+                    }
+
                     UiEvent::SaveMasternodeEntry(entry) => {
                         if let Some(ref db) = state.wallet_db {
                             match db.save_masternode_entry(&entry) {
@@ -1515,6 +1601,28 @@ pub async fn run(
                     }
                     WsEvent::Connected(_) => {
                         let _ = state.svc_tx.send(ServiceEvent::WsConnected);
+                        // Poll for pending payment requests on WS connect/reconnect
+                        if let Some(ref client) = state.client {
+                            if !state.addresses.is_empty() {
+                                match client.get_payment_requests(&state.addresses).await {
+                                    Ok(raw_requests) => {
+                                        let mut requests = Vec::new();
+                                        for val in &raw_requests {
+                                            if let Some(pr) = parse_payment_request_json(val) {
+                                                requests.push(pr);
+                                            }
+                                        }
+                                        if !requests.is_empty() {
+                                            log::info!("📬 Polled {} pending payment requests", requests.len());
+                                            let _ = state.svc_tx.send(ServiceEvent::PaymentRequestsUpdated(requests));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Failed to poll payment requests: {}", e);
+                                    }
+                                }
+                            }
+                        }
                     }
                     WsEvent::Disconnected(_) => {
                         let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
@@ -1546,6 +1654,22 @@ pub async fn run(
                             txid: notif.txid,
                             finalized: false,
                         });
+                    }
+
+                    WsEvent::PaymentRequestReceived(notif) => {
+                        log::info!("💰 Payment request received from {}", notif.from_address);
+                        let pr = PaymentRequest {
+                            id: notif.id,
+                            from_address: notif.from_address,
+                            to_address: notif.to_address,
+                            amount: (notif.amount * 100_000.0) as u64,
+                            memo: notif.memo,
+                            pubkey_hex: notif.pubkey,
+                            signature_hex: String::new(),
+                            timestamp: notif.timestamp,
+                            expires: notif.expires,
+                        };
+                        let _ = state.svc_tx.send(ServiceEvent::PaymentRequestReceived(pr));
                     }
                 }
             }
@@ -2776,4 +2900,31 @@ async fn consolidate_utxos_background(
     consolidation_txids.lock().unwrap().clear();
     // Re-enable normal polling and WS-triggered refreshes.
     consolidation_active.store(false, Ordering::Relaxed);
+}
+
+/// Parse a JSON value from the `getpaymentrequests` RPC into a `PaymentRequest`.
+fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest> {
+    Some(PaymentRequest {
+        id: val.get("id")?.as_str()?.to_string(),
+        from_address: val.get("from_address")?.as_str()?.to_string(),
+        to_address: val.get("to_address")?.as_str()?.to_string(),
+        amount: val.get("amount")?.as_u64()?,
+        memo: val
+            .get("memo")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        pubkey_hex: val
+            .get("pubkey_hex")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        signature_hex: val
+            .get("signature_hex")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        timestamp: val.get("timestamp")?.as_i64()?,
+        expires: val.get("expires")?.as_i64()?,
+    })
 }
