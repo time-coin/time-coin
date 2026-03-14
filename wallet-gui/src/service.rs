@@ -7,8 +7,9 @@
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::config_new::Config;
@@ -78,6 +79,7 @@ pub async fn run(
         ws_handle: None,
         last_peers: Vec::new(),
         manual_peer: false,
+        consolidation_txids: Arc::new(Mutex::new(HashSet::new())),
     };
 
     // Auto-load wallet if it exists
@@ -1030,6 +1032,9 @@ pub async fn run(
                             let svc_tx_clone = state.svc_tx.clone();
                             let addresses = state.addresses.clone();
                             let dest_addr = state.addresses.first().cloned().unwrap_or_default();
+                            // Clear previous consolidation txids and share with background task
+                            state.consolidation_txids.lock().unwrap().clear();
+                            let txids = Arc::clone(&state.consolidation_txids);
 
                             tokio::spawn(async move {
                                 consolidate_utxos_background(
@@ -1038,6 +1043,7 @@ pub async fn run(
                                     addresses,
                                     dest_addr,
                                     addr_to_keypair,
+                                    txids,
                                 )
                                 .await;
                             });
@@ -1348,7 +1354,13 @@ pub async fn run(
                             .and_then(|db| db.get_send_records().ok())
                             .and_then(|recs| recs.get(&notification.txid).cloned());
                         let is_own_addr = state.addresses.contains(&notification.address);
-                        let is_change = if let Some(ref sr) = send_record {
+                        let is_consolidation = state.consolidation_txids
+                            .lock()
+                            .unwrap()
+                            .contains(&notification.txid);
+                        let is_change = if is_consolidation {
+                            true // consolidation output — always change
+                        } else if let Some(ref sr) = send_record {
                             // It's from a txid we sent — change unless it's send-to-self receive
                             let is_self_send = state.addresses.contains(&sr.address);
                             if is_self_send && is_own_addr && amount_sats == sr.amount {
@@ -1400,7 +1412,13 @@ pub async fn run(
                             .and_then(|db| db.get_send_records().ok())
                             .and_then(|recs| recs.get(&notif.txid).cloned());
                         let is_own_addr = state.addresses.contains(&notif.address);
-                        let is_change = if let Some(ref sr) = send_record {
+                        let is_consolidation = state.consolidation_txids
+                            .lock()
+                            .unwrap()
+                            .contains(&notif.txid);
+                        let is_change = if is_consolidation {
+                            true // consolidation output — always change
+                        } else if let Some(ref sr) = send_record {
                             let is_self_send = state.addresses.contains(&sr.address);
                             if is_self_send && is_own_addr && amount_sats == sr.amount {
                                 false // send-to-self receive
@@ -1911,6 +1929,10 @@ struct ServiceState {
     /// When true, the user manually selected a peer — auto-discovery will not
     /// override the choice unless the selected peer becomes unhealthy.
     manual_peer: bool,
+    /// Txids broadcast by the consolidation background task. Shared with the
+    /// spawned task so the WS handler can identify consolidation outputs as
+    /// change instead of real receives (prevents transient balance inflation).
+    consolidation_txids: Arc<Mutex<HashSet<String>>>,
 }
 
 impl ServiceState {
@@ -2490,6 +2512,7 @@ async fn consolidate_utxos_background(
     addresses: Vec<String>,
     dest_addr: String,
     addr_to_keypair: std::collections::HashMap<String, wallet::Keypair>,
+    consolidation_txids: Arc<Mutex<HashSet<String>>>,
 ) {
     // Fetch all spendable UTXOs across all addresses.
     let mut all_utxos: Vec<crate::masternode_client::Utxo> = Vec::new();
@@ -2646,6 +2669,7 @@ async fn consolidate_utxos_background(
                             total_batches,
                             txid
                         );
+                        consolidation_txids.lock().unwrap().insert(txid.clone());
                         consolidated += 1;
                     }
                     Err(e) => {
@@ -2692,4 +2716,6 @@ async fn consolidate_utxos_background(
     if let Ok(bal) = client.get_balances(&addresses).await {
         let _ = svc_tx.send(ServiceEvent::BalanceUpdated(bal));
     }
+    // Clear consolidation txids — the final refresh has correct data now.
+    consolidation_txids.lock().unwrap().clear();
 }

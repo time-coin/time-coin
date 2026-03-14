@@ -518,6 +518,7 @@ impl AppState {
                 if computed != balance.total
                     && !self.syncing
                     && !self.resync_in_progress
+                    && !self.consolidation_in_progress
                     && !self.transactions.is_empty()
                 {
                     self.drift_count = self.drift_count.saturating_add(1);
