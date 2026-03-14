@@ -77,6 +77,7 @@ pub async fn run(
         ws_shutdown_rx,
         ws_handle: None,
         last_peers: Vec::new(),
+        manual_peer: false,
     };
 
     // Auto-load wallet if it exists
@@ -277,8 +278,23 @@ pub async fn run(
                     state.last_peers = peer_infos.clone();
                     let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(peer_infos));
 
-                    // Switch peer if we have none, or if the active one has become unhealthy
-                    if state.client.is_none() || !active_is_healthy {
+                    // Switch peer if we have none, or if the active one has become unhealthy.
+                    // When the user manually selected a peer, keep it unless it goes unhealthy.
+                    let should_switch = if state.client.is_none() {
+                        true
+                    } else if active_is_healthy {
+                        // Active peer is fine — never auto-switch (manual or not)
+                        false
+                    } else {
+                        // Active peer is unhealthy — clear manual override and failover
+                        if state.manual_peer {
+                            log::info!("📌 Manual peer is unhealthy, releasing override");
+                            state.manual_peer = false;
+                        }
+                        true
+                    };
+
+                    if should_switch {
                         if let Some(ref old) = state.client {
                             log::warn!("🔄 Active peer {} is unhealthy, reconnecting to {}", old.endpoint(), endpoint);
                         } else {
@@ -1110,7 +1126,8 @@ pub async fn run(
                     }
 
                     UiEvent::SwitchPeer { endpoint } => {
-                        log::info!("🔀 User switching to peer: {}", endpoint);
+                        log::info!("📌 User manually switching to peer: {}", endpoint);
+                        state.manual_peer = true;
                         state.client = Some(MasternodeClient::new(endpoint.clone(), rpc_credentials.clone()));
                         state.config.active_endpoint = Some(endpoint.clone());
                         config.active_endpoint = Some(endpoint);
@@ -1891,6 +1908,9 @@ struct ServiceState {
     ws_handle: Option<tokio::task::JoinHandle<()>>,
     /// Most recent peer list from discovery, for failover on capacity-full.
     last_peers: Vec<PeerInfo>,
+    /// When true, the user manually selected a peer — auto-discovery will not
+    /// override the choice unless the selected peer becomes unhealthy.
+    manual_peer: bool,
 }
 
 impl ServiceState {
