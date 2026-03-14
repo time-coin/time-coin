@@ -31,6 +31,10 @@ rand = { workspace = true }
 aes-gcm = "0.10"
 argon2 = "0.5"
 zeroize = { version = "1.8", features = ["derive"] }
+# ECDH key exchange for encrypted memos (Ed25519 → X25519)
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+curve25519-dalek = "4.1"
 
 # Networking
 reqwest = { workspace = true }

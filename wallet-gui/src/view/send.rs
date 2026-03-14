@@ -229,6 +229,22 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
         ui.add_space(15.0);
 
+        // Memo (optional, max 256 chars)
+        ui.label(egui::RichText::new("Memo (optional)").size(14.0));
+        ui.add(
+            egui::TextEdit::singleline(&mut state.send_memo)
+                .hint_text("e.g. Payment for invoice #42")
+                .desired_width(350.0)
+                .char_limit(256),
+        );
+        ui.label(
+            egui::RichText::new(format!("{}/256", state.send_memo.len()))
+                .size(11.0)
+                .color(egui::Color32::GRAY),
+        );
+
+        ui.add_space(15.0);
+
         // Full address validation with checksum
         let address_valid = if state.send_address.starts_with(expected_prefix) {
             wallet::address::Address::from_string(&state.send_address).is_ok()
@@ -275,6 +291,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     to: state.send_address.clone(),
                     amount: send_amount,
                     fee: auto_fee,
+                    memo: state.send_memo.clone(),
                 });
                 state.loading = true;
                 state.error = None;

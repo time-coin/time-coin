@@ -9,6 +9,7 @@ mod encryption;
 mod events;
 #[allow(dead_code)]
 mod masternode_client;
+mod memo;
 mod peer_discovery;
 mod qr_scanner;
 mod service;

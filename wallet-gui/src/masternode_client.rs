@@ -321,6 +321,11 @@ impl MasternodeClient {
                     return None;
                 }
 
+                let memo = tx
+                    .get("memo")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
                 Some(TransactionRecord {
                     txid,
                     vout,
@@ -335,6 +340,7 @@ impl MasternodeClient {
                     block_hash,
                     block_height,
                     confirmations,
+                    memo,
                 })
             })
             .collect();
@@ -415,6 +421,30 @@ impl MasternodeClient {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         Ok(valid)
+    }
+
+    /// Look up the Ed25519 public key for an address from the masternode's
+    /// pubkey cache. Returns `None` if the address has never signed a
+    /// transaction on-chain (pubkey unknown).
+    pub async fn get_address_pubkey(&self, address: &str) -> Result<Option<[u8; 32]>, ClientError> {
+        let result = self
+            .rpc_call("getaddresspubkey", serde_json::json!([address]))
+            .await?;
+
+        let hex_str = match result.get("pubkey").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s,
+            _ => return Ok(None),
+        };
+
+        let bytes = hex::decode(hex_str)
+            .map_err(|_| ClientError::InvalidResponse("invalid pubkey hex".into()))?;
+        if bytes.len() != 32 {
+            return Ok(None);
+        }
+
+        let mut pubkey = [0u8; 32];
+        pubkey.copy_from_slice(&bytes);
+        Ok(Some(pubkey))
     }
 
     /// Check if masternode is reachable via getblockchaininfo
@@ -558,6 +588,9 @@ pub struct TransactionRecord {
     /// Number of confirmations (0 if unconfirmed).
     #[serde(default)]
     pub confirmations: u64,
+    /// Decrypted memo text (populated from masternode response).
+    #[serde(default)]
+    pub memo: Option<String>,
 }
 
 impl Default for TransactionRecord {
@@ -576,6 +609,7 @@ impl Default for TransactionRecord {
             block_hash: String::new(),
             block_height: 0,
             confirmations: 0,
+            memo: None,
         }
     }
 }

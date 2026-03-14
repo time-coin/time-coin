@@ -42,6 +42,7 @@ pub enum UiEvent {
         to: String,
         amount: u64,
         fee: u64,
+        memo: String,
     },
 
     /// The user navigated to a new screen — the service may prefetch data.

@@ -185,6 +185,17 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                 }
                 ui.end_row();
             }
+
+            // Memo
+            if let Some(ref memo) = tx.memo {
+                ui.label(egui::RichText::new("Memo:").strong());
+                ui.label(
+                    egui::RichText::new(memo)
+                        .italics()
+                        .color(egui::Color32::DARK_GRAY),
+                );
+                ui.end_row();
+            }
         });
 
     // Show "Use as Masternode Collateral" for confirmed received transactions
@@ -348,30 +359,31 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
             egui::Grid::new("tx_table")
-                .num_columns(6)
+                .num_columns(7)
                 .spacing([12.0, 8.0])
                 .min_col_width(0.0)
                 .striped(true)
                 .show(ui, |ui| {
                     // Header
-                    ui.label(egui::RichText::new("Type").size(14.0).strong());
+                    ui.label(egui::RichText::new("").size(14.0)); // type icon
                     ui.label(egui::RichText::new("Amount").size(14.0).strong());
                     ui.label(egui::RichText::new("Address").size(14.0).strong());
+                    ui.label(egui::RichText::new("Memo").size(14.0).strong());
                     ui.label(egui::RichText::new("Date").size(14.0).strong());
-                    ui.label(egui::RichText::new("Status").size(14.0).strong());
+                    ui.label(egui::RichText::new("").size(14.0)); // status icon
                     ui.label(egui::RichText::new("TxID").size(14.0).strong());
                     ui.end_row();
 
                     for &i in page_items {
                         let tx = &state.transactions[i];
 
-                        // Type
+                        // Type icon only
                         let (dir_icon, amount_color) = if tx.is_fee {
-                            ("💸 Fee", egui::Color32::from_rgb(255, 165, 0))
+                            ("💸", egui::Color32::from_rgb(255, 165, 0))
                         } else if tx.is_send {
-                            ("📤 Sent", egui::Color32::from_rgb(255, 80, 80))
+                            ("📤", egui::Color32::from_rgb(255, 80, 80))
                         } else {
-                            ("📥 Received", egui::Color32::from_rgb(80, 200, 80))
+                            ("📥", egui::Color32::from_rgb(80, 200, 80))
                         };
                         if ui
                             .add(
@@ -437,6 +449,33 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             clicked_idx = Some(i);
                         }
 
+                        // Memo (truncated)
+                        let memo_text = tx
+                            .memo
+                            .as_deref()
+                            .map(|m| {
+                                if m.len() > 20 {
+                                    format!("{}…", &m[..20])
+                                } else {
+                                    m.to_string()
+                                }
+                            })
+                            .unwrap_or_default();
+                        if ui
+                            .add(
+                                egui::Label::new(
+                                    egui::RichText::new(memo_text)
+                                        .size(13.0)
+                                        .italics()
+                                        .color(egui::Color32::DARK_GRAY),
+                                )
+                                .sense(egui::Sense::click()),
+                            )
+                            .clicked()
+                        {
+                            clicked_idx = Some(i);
+                        }
+
                         // Date
                         let date_str = if tx.timestamp > 0 {
                             chrono::DateTime::from_timestamp(tx.timestamp, 0)
@@ -462,18 +501,18 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             clicked_idx = Some(i);
                         }
 
-                        // Status
-                        let (status_text, status_color) = match tx.status {
-                            TransactionStatus::Approved => ("✅ Approved", egui::Color32::GREEN),
+                        // Status icon only
+                        let (status_icon, status_color) = match tx.status {
+                            TransactionStatus::Approved => ("✔", egui::Color32::GREEN),
                             TransactionStatus::Pending => {
-                                ("⏳ Pending", egui::Color32::from_rgb(255, 165, 0))
+                                ("⏳", egui::Color32::from_rgb(255, 165, 0))
                             }
-                            TransactionStatus::Declined => ("❌ Declined", egui::Color32::RED),
+                            TransactionStatus::Declined => ("✖", egui::Color32::RED),
                         };
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(status_text)
+                                    egui::RichText::new(status_icon)
                                         .size(14.0)
                                         .color(status_color),
                                 )

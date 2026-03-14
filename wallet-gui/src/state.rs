@@ -106,6 +106,7 @@ pub struct AppState {
     pub send_recipient_name: String,
     pub send_amount: String,
     pub send_fee: String,
+    pub send_memo: String,
     pub send_include_fee: bool,
     pub qr_scanner: Option<crate::qr_scanner::QrScannerHandle>,
     pub qr_scan_error: Option<String>,
@@ -228,6 +229,7 @@ impl Default for AppState {
             send_recipient_name: String::new(),
             send_amount: String::new(),
             send_fee: String::new(),
+            send_memo: String::new(),
             send_include_fee: false,
             qr_scanner: None,
             qr_scan_error: None,
@@ -675,6 +677,7 @@ impl AppState {
                                 block_hash: String::new(),
                                 block_height: 0,
                                 confirmations: 0,
+                                memo: None,
                             });
                         }
                     }
@@ -715,6 +718,7 @@ impl AppState {
                             block_hash: String::new(),
                             block_height: 0,
                             confirmations: 0,
+                            memo: None,
                         });
                     }
                 }
@@ -781,6 +785,7 @@ impl AppState {
                             block_hash: String::new(),
                             block_height: 0,
                             confirmations: 0,
+                            memo: None,
                         });
                     }
                 }
@@ -864,6 +869,7 @@ impl AppState {
                 self.send_address.clear();
                 self.send_amount.clear();
                 self.send_fee.clear();
+                self.send_memo.clear();
                 self.send_include_fee = false;
                 self.send_recipient_name.clear();
                 self.loading = false;
@@ -1262,6 +1268,7 @@ mod tests {
                     block_hash: String::new(),
                     block_height: 0,
                     confirmations: 0,
+                    memo: None,
                 },
                 TransactionRecord {
                     txid: "bbb".to_string(),
@@ -1277,6 +1284,7 @@ mod tests {
                     block_hash: String::new(),
                     block_height: 0,
                     confirmations: 0,
+                    memo: None,
                 },
                 TransactionRecord {
                     txid: "bbb".to_string(),
@@ -1292,6 +1300,7 @@ mod tests {
                     block_hash: String::new(),
                     block_height: 0,
                     confirmations: 0,
+                    memo: None,
                 },
                 // Phantom receive — no UTXO backs this
                 TransactionRecord {
@@ -1308,6 +1317,7 @@ mod tests {
                     block_hash: String::new(),
                     block_height: 0,
                     confirmations: 0,
+                    memo: None,
                 },
             ],
             // UTXOs: only the change from the send (8.99 TIME)
@@ -1355,6 +1365,7 @@ mod tests {
                     block_hash: String::new(),
                     block_height: 0,
                     confirmations: 0,
+                    memo: None,
                 },
                 TransactionRecord {
                     txid: "spend_tx".to_string(),
@@ -1370,6 +1381,7 @@ mod tests {
                     block_hash: String::new(),
                     block_height: 0,
                     confirmations: 0,
+                    memo: None,
                 },
                 TransactionRecord {
                     txid: "spend_tx".to_string(),
@@ -1385,6 +1397,7 @@ mod tests {
                     block_hash: String::new(),
                     block_height: 0,
                     confirmations: 0,
+                    memo: None,
                 },
             ],
             utxos: vec![Utxo {

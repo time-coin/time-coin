@@ -106,6 +106,10 @@ pub struct Transaction {
     /// Optional special transaction payload for masternode operations.
     #[serde(default)]
     pub special_data: Option<SpecialTransactionData>,
+    /// Optional encrypted memo (ECDH + AES-256-GCM). Only sender and recipient
+    /// can decrypt. Matches masternode `Transaction::encrypted_memo`.
+    #[serde(default)]
+    pub encrypted_memo: Option<Vec<u8>>,
 }
 
 impl Transaction {
@@ -121,6 +125,7 @@ impl Transaction {
                 .unwrap()
                 .as_secs() as i64,
             special_data: None,
+            encrypted_memo: None,
         }
     }
 

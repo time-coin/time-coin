@@ -404,7 +404,7 @@ pub async fn run(
                         }
                     }
 
-                    UiEvent::SendTransaction { to, amount, fee } => {
+                    UiEvent::SendTransaction { to, amount, fee, memo } => {
                         if let Some(ref client) = state.client {
                             if let Some(ref mut wm) = state.wallet {
                                 // Retry loop: wait for locked UTXOs to finalize
@@ -518,6 +518,27 @@ pub async fn run(
                                             }
                                         }
 
+                                        // Encrypt memo if provided.
+                                        // Silently skip if recipient pubkey is unknown (no on-chain history).
+                                        if !memo.is_empty() {
+                                            if let Ok(ref kp_first) = wm.derive_keypair(0) {
+                                                let sender_key = ed25519_dalek::SigningKey::from_bytes(&kp_first.secret_key_bytes());
+                                                match client.get_address_pubkey(&to).await {
+                                                    Ok(Some(recipient_pub)) => {
+                                                        match crate::memo::encrypt_memo(&sender_key, &recipient_pub, &memo) {
+                                                            Ok(blob) => {
+                                                                tx.encrypted_memo = Some(blob);
+                                                                log::info!("🔒 Memo encrypted ({} bytes)", memo.len());
+                                                            }
+                                                            Err(e) => log::warn!("Memo encryption failed: {}", e),
+                                                        }
+                                                    }
+                                                    Ok(None) => log::info!("ℹ️ Recipient pubkey unknown — memo skipped"),
+                                                    Err(e) => log::warn!("Pubkey lookup failed: {} — memo skipped", e),
+                                                }
+                                            }
+                                        }
+
                                         let actual_fee = wallet::calculate_fee(amount);
                                         // Serialize to bincode bytes then hex-encode for sendrawtransaction
                                         match tx.to_bytes() {
@@ -539,6 +560,7 @@ pub async fn run(
                                                             fee: actual_fee,
                                                             timestamp: now,
                                                             status: crate::masternode_client::TransactionStatus::Pending,
+                                                            memo: if memo.is_empty() { None } else { Some(memo.clone()) },
                                                             ..Default::default()
                                                         };
                                                         let _ = state.svc_tx.send(ServiceEvent::TransactionInserted(sent_record.clone()));
@@ -2680,6 +2702,16 @@ async fn consolidate_utxos_background(
             failed += 1;
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             continue;
+        }
+
+        // Encrypt "UTXO Consolidation" self-memo
+        if let Some(kp) = addr_to_keypair.values().next() {
+            let sender_key = ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes());
+            let own_pub = sender_key.verifying_key().to_bytes();
+            match crate::memo::encrypt_memo(&sender_key, &own_pub, "UTXO Consolidation") {
+                Ok(blob) => tx.encrypted_memo = Some(blob),
+                Err(e) => log::warn!("Consolidation memo encryption failed: {}", e),
+            }
         }
 
         match tx.to_bytes() {
