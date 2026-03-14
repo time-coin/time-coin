@@ -80,6 +80,7 @@ pub async fn run(
         last_peers: Vec::new(),
         manual_peer: false,
         consolidation_txids: Arc::new(Mutex::new(HashSet::new())),
+        consolidation_active: Arc::new(AtomicBool::new(false)),
     };
 
     // Auto-load wallet if it exists
@@ -168,7 +169,12 @@ pub async fn run(
                     // Heavy: balance / transactions / UTXOs every 3rd tick (15s),
                     // but always on the first tick for instant startup.
                     // Spawned so it doesn't block the select loop.
-                    if (poll_tick == 1 || poll_tick.is_multiple_of(3)) && !state.addresses.is_empty() {
+                    // Skipped during consolidation — the background task does its
+                    // own final refresh; intermediate RPC results are unreliable.
+                    if (poll_tick == 1 || poll_tick.is_multiple_of(3))
+                        && !state.addresses.is_empty()
+                        && !state.consolidation_active.load(Ordering::Relaxed)
+                    {
                         let heavy_client = client.clone();
                         let heavy_tx = state.svc_tx.clone();
                         let heavy_addrs = state.addresses.clone();
@@ -1035,6 +1041,8 @@ pub async fn run(
                             // Clear previous consolidation txids and share with background task
                             state.consolidation_txids.lock().unwrap().clear();
                             let txids = Arc::clone(&state.consolidation_txids);
+                            state.consolidation_active.store(true, Ordering::Relaxed);
+                            let active_flag = Arc::clone(&state.consolidation_active);
 
                             tokio::spawn(async move {
                                 consolidate_utxos_background(
@@ -1044,6 +1052,7 @@ pub async fn run(
                                     dest_addr,
                                     addr_to_keypair,
                                     txids,
+                                    active_flag,
                                 )
                                 .await;
                             });
@@ -1388,16 +1397,20 @@ pub async fn run(
                             let _ = state.svc_tx.send(ServiceEvent::TransactionReceived(notification.clone()));
                         }
 
-                        // Refresh balance and transactions immediately
-                        if let Some(ref client) = state.client {
-                            if !state.addresses.is_empty() {
-                                match client.get_balances(&state.addresses).await {
-                                    Ok(bal) => { let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal)); }
-                                    Err(e) => log::warn!("Failed to refresh balance after receive: {}", e),
-                                }
-                                // Refresh transactions so instant-finality status is reflected immediately
-                                if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
-                                    let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
+                        // Refresh balance and transactions immediately.
+                        // Skip during consolidation — intermediate RPC results are
+                        // unreliable; the consolidation task does a final refresh.
+                        if !state.consolidation_active.load(Ordering::Relaxed) {
+                            if let Some(ref client) = state.client {
+                                if !state.addresses.is_empty() {
+                                    match client.get_balances(&state.addresses).await {
+                                        Ok(bal) => { let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal)); }
+                                        Err(e) => log::warn!("Failed to refresh balance after receive: {}", e),
+                                    }
+                                    // Refresh transactions so instant-finality status is reflected immediately
+                                    if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                        let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
+                                    }
                                 }
                             }
                         }
@@ -1449,28 +1462,32 @@ pub async fn run(
                             finalized: true,
                         });
 
-                        // Refresh balance, transactions, and UTXOs after finalization
-                        if let Some(ref client) = state.client {
-                            if !state.addresses.is_empty() {
-                                match client.get_balances(&state.addresses).await {
-                                    Ok(bal) => {
-                                        log::info!("🔍 Post-finalization balance: total={} available={}", bal.total, bal.confirmed);
-                                        let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                        // Refresh balance, transactions, and UTXOs after finalization.
+                        // Skip during consolidation — intermediate RPC results are
+                        // unreliable; the consolidation task does a final refresh.
+                        if !state.consolidation_active.load(Ordering::Relaxed) {
+                            if let Some(ref client) = state.client {
+                                if !state.addresses.is_empty() {
+                                    match client.get_balances(&state.addresses).await {
+                                        Ok(bal) => {
+                                            log::info!("🔍 Post-finalization balance: total={} available={}", bal.total, bal.confirmed);
+                                            let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                                        }
+                                        Err(e) => log::warn!("Failed to refresh balance after finalization: {}", e),
                                     }
-                                    Err(e) => log::warn!("Failed to refresh balance after finalization: {}", e),
-                                }
-                                if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
-                                    let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
-                                }
-                                let mut all_utxos = Vec::new();
-                                for addr in &state.addresses {
-                                    if let Ok(utxos) = client.get_utxos(addr).await {
-                                        all_utxos.extend(utxos);
+                                    if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                        let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                     }
+                                    let mut all_utxos = Vec::new();
+                                    for addr in &state.addresses {
+                                        if let Ok(utxos) = client.get_utxos(addr).await {
+                                            all_utxos.extend(utxos);
+                                        }
+                                    }
+                                    let utxo_sum: u64 = all_utxos.iter().map(|u| u.amount).sum();
+                                    log::info!("🔍 Post-finalization UTXOs: count={} total={}", all_utxos.len(), utxo_sum);
+                                    state.send_utxos_updated(all_utxos);
                                 }
-                                let utxo_sum: u64 = all_utxos.iter().map(|u| u.amount).sum();
-                                log::info!("🔍 Post-finalization UTXOs: count={} total={}", all_utxos.len(), utxo_sum);
-                                state.send_utxos_updated(all_utxos);
                             }
                         }
                     }
@@ -1933,6 +1950,10 @@ struct ServiceState {
     /// spawned task so the WS handler can identify consolidation outputs as
     /// change instead of real receives (prevents transient balance inflation).
     consolidation_txids: Arc<Mutex<HashSet<String>>>,
+    /// True while the consolidation background task is running. Shared with the
+    /// spawned task. Suppresses periodic and WS-triggered balance/tx/UTXO
+    /// refreshes so that transient masternode RPC values don't reach the UI.
+    consolidation_active: Arc<AtomicBool>,
 }
 
 impl ServiceState {
@@ -2513,6 +2534,7 @@ async fn consolidate_utxos_background(
     dest_addr: String,
     addr_to_keypair: std::collections::HashMap<String, wallet::Keypair>,
     consolidation_txids: Arc<Mutex<HashSet<String>>>,
+    consolidation_active: Arc<AtomicBool>,
 ) {
     // Fetch all spendable UTXOs across all addresses.
     let mut all_utxos: Vec<crate::masternode_client::Utxo> = Vec::new();
@@ -2530,6 +2552,7 @@ async fn consolidate_utxos_background(
     all_utxos.sort_by_key(|u| u.amount);
 
     if all_utxos.len() <= 1 {
+        consolidation_active.store(false, Ordering::Relaxed);
         let _ = svc_tx.send(ServiceEvent::ConsolidationComplete {
             message: "Nothing to consolidate — already 1 UTXO or fewer.".to_string(),
         });
@@ -2540,6 +2563,7 @@ async fn consolidate_utxos_background(
     let dest_address = match wallet::Address::from_string(&dest_addr) {
         Ok(a) => a,
         Err(e) => {
+            consolidation_active.store(false, Ordering::Relaxed);
             let _ = svc_tx.send(ServiceEvent::ConsolidationComplete {
                 message: format!("Consolidation aborted: invalid destination address — {}", e),
             });
@@ -2718,4 +2742,6 @@ async fn consolidate_utxos_background(
     }
     // Clear consolidation txids — the final refresh has correct data now.
     consolidation_txids.lock().unwrap().clear();
+    // Re-enable normal polling and WS-triggered refreshes.
+    consolidation_active.store(false, Ordering::Relaxed);
 }

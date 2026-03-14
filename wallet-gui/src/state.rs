@@ -511,8 +511,15 @@ impl AppState {
             ServiceEvent::BalanceUpdated(balance) => {
                 self.loading = false;
                 self.error = None;
-                self.masternode_balance = balance.total;
-                self.masternode_available = balance.confirmed;
+                // During consolidation, freeze the displayed balance at its
+                // pre-consolidation value. Intermediate RPC results are
+                // unreliable (may temporarily double-count UTXOs). The
+                // consolidation task sends a final BalanceUpdated after it
+                // clears the active flag.
+                if !self.consolidation_in_progress {
+                    self.masternode_balance = balance.total;
+                    self.masternode_available = balance.confirmed;
+                }
                 // Detect drift between computed and masternode balance
                 let computed = self.computed_balance();
                 if computed != balance.total
