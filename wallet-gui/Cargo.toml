@@ -38,7 +38,7 @@ curve25519-dalek = "4.1"
 
 # Networking
 reqwest = { workspace = true }
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 rustls = { version = "0.23", features = ["ring"] }
 
