@@ -476,7 +476,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                             .desired_width(200.0)
                                             .hint_text("Contact name"),
                                     );
-                                    let short = truncate_middle(&contact.address, 14, 6);
+                                    let short = super::truncate_middle(&contact.address, 14, 6);
                                     ui.label(
                                         egui::RichText::new(short)
                                             .monospace()
@@ -549,7 +549,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     ui.label(
                                         egui::RichText::new(&contact.name).size(13.0).strong(),
                                     );
-                                    let short = truncate_middle(&contact.address, 14, 6);
+                                    let short = super::truncate_middle(&contact.address, 14, 6);
                                     ui.label(
                                         egui::RichText::new(short)
                                             .monospace()
@@ -617,15 +617,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             }
         }
     }
-}
-
-/// Parse a human-readable TIME amount (e.g. "1.5") into satoshi units.
-/// Shorten an address to `prefix` chars + "…" + `suffix` chars.
-fn truncate_middle(s: &str, prefix: usize, suffix: usize) -> String {
-    if s.len() <= prefix + suffix + 1 {
-        return s.to_string();
-    }
-    format!("{}…{}", &s[..prefix], &s[s.len() - suffix..])
 }
 
 fn parse_time_amount(s: &str) -> u64 {

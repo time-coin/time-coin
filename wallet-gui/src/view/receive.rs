@@ -166,7 +166,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         if label_resp.lost_focus() {
                             label_updates.push((i, state.addresses[i].label.clone()));
                         }
-                        let short = truncate_middle(&addr, 14, 6);
+                        let short = super::truncate_middle(&addr, 14, 6);
                         ui.label(
                             egui::RichText::new(short)
                                 .monospace()
@@ -264,7 +264,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             ui.label(
                                 egui::RichText::new(format!(
                                     "From: {}",
-                                    truncate_middle(&req.from_address, 14, 6),
+                                    super::truncate_middle(&req.from_address, 14, 6),
                                 ))
                                 .monospace()
                                 .size(12.0),
@@ -393,14 +393,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             });
         }
     }
-}
-
-/// Shorten an address to `prefix` chars + "…" + `suffix` chars.
-fn truncate_middle(s: &str, prefix: usize, suffix: usize) -> String {
-    if s.len() <= prefix + suffix + 1 {
-        return s.to_string();
-    }
-    format!("{}…{}", &s[..prefix], &s[s.len() - suffix..])
 }
 
 /// Generate QR code as PNG bytes for the given data string.
