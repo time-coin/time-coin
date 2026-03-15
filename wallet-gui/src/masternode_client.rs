@@ -115,7 +115,7 @@ impl MasternodeClient {
 
         // Accept self-signed certificates — masternodes use auto-generated certs (TOFU model)
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(120))
             .connect_timeout(Duration::from_secs(10))
             .danger_accept_invalid_certs(true)
             .build()
