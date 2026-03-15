@@ -172,7 +172,22 @@ impl MasternodeClient {
             return Err(ClientError::http(response.status().as_u16()));
         }
 
-        let rpc_response: JsonRpcResponse = response.json().await.map_err(|e| {
+        let body = response.text().await.map_err(|e| {
+            ClientError::InvalidResponse(format!("Failed to read response body: {}", e))
+        })?;
+
+        let rpc_response: JsonRpcResponse = serde_json::from_str(&body).map_err(|e| {
+            log::error!(
+                "Failed to parse JSON-RPC response for '{}': {}\nRaw body ({} bytes): {}",
+                method,
+                e,
+                body.len(),
+                if body.len() > 512 {
+                    &body[..512]
+                } else {
+                    &body
+                }
+            );
             ClientError::InvalidResponse(format!("Failed to parse JSON-RPC response: {}", e))
         })?;
 
