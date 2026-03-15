@@ -15,6 +15,7 @@ mod qr_scanner;
 mod service;
 #[allow(dead_code)]
 mod state;
+mod theme;
 mod view;
 #[allow(dead_code)]
 mod wallet_dat;

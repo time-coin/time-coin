@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config_new::Config;
 use crate::events::{Screen, ServiceEvent, UiEvent};
 use crate::state::AppState;
+use crate::theme;
 use crate::view;
 use crate::wallet_manager::WalletManager;
 
@@ -100,155 +101,159 @@ impl eframe::App for App {
         }
 
         // 2. Navigation sidebar
-        egui::SidePanel::left("nav").show(ctx, |ui| {
-            ui.add_space(10.0);
-
-            // Logo
-            let logo_bytes = include_bytes!("../assets/logo.png");
-            let image =
-                egui::Image::from_bytes("bytes://logo.png", logo_bytes.as_slice()).max_width(48.0);
-            ui.add(image);
-
-            ui.add_space(5.0);
-            ui.label(egui::RichText::new("TIME Coin").strong());
-            ui.separator();
-            ui.add_space(5.0);
-
-            if self.state.wallet_loaded {
-                nav_button(
-                    ui,
-                    &mut self.state,
-                    "🏠 Overview",
-                    Screen::Overview,
-                    &self.ui_tx,
-                );
-                nav_button(ui, &mut self.state, "📤 Send", Screen::Send, &self.ui_tx);
-                nav_button(
-                    ui,
-                    &mut self.state,
-                    "📥 Receive",
-                    Screen::Receive,
-                    &self.ui_tx,
-                );
-                nav_button(
-                    ui,
-                    &mut self.state,
-                    "📋 Transactions",
-                    Screen::Transactions,
-                    &self.ui_tx,
-                );
-                nav_button(
-                    ui,
-                    &mut self.state,
-                    "🖥 Masternodes",
-                    Screen::Masternodes,
-                    &self.ui_tx,
-                );
-                ui.separator();
-                let healthy_count = self.state.peers.iter().filter(|p| p.is_healthy).count();
-                let conn_label = if healthy_count > 0 {
-                    format!("🔗 Connections ({healthy_count})")
-                } else {
-                    "🔗 Connections".to_string()
-                };
-                nav_button(
-                    ui,
-                    &mut self.state,
-                    &conn_label,
-                    Screen::Connections,
-                    &self.ui_tx,
-                );
-                nav_button(
-                    ui,
-                    &mut self.state,
-                    "⚙ Settings",
-                    Screen::Settings,
-                    &self.ui_tx,
-                );
-                nav_button(ui, &mut self.state, "🔧 Tools", Screen::Tools, &self.ui_tx);
-
+        egui::SidePanel::left("nav")
+            .exact_width(155.0)
+            .resizable(false)
+            .show(ctx, |ui| {
                 ui.add_space(10.0);
+
+                // Logo + name, centred
+                ui.vertical_centered(|ui| {
+                    let logo_bytes = include_bytes!("../assets/logo.png");
+                    let image = egui::Image::from_bytes("bytes://logo.png", logo_bytes.as_slice())
+                        .max_width(48.0);
+                    ui.add(image);
+                    ui.add_space(5.0);
+                    ui.label(egui::RichText::new("TIME Coin").strong());
+                });
                 ui.separator();
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new("🚪 Exit").size(14.0))
-                            .min_size(egui::vec2(140.0, 28.0)),
-                    )
-                    .clicked()
-                {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            }
+                ui.add_space(5.0);
 
-            // Network badge + version — always visible (even during setup)
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.add_space(4.0);
-                let (network_label, bg_color, text_color) = if self.state.is_testnet {
-                    (
-                        "Testnet",
-                        egui::Color32::from_rgb(255, 250, 200),
-                        egui::Color32::from_rgb(120, 100, 0),
-                    )
-                } else {
-                    (
-                        "Mainnet",
-                        egui::Color32::from_rgb(200, 225, 255),
-                        egui::Color32::from_rgb(0, 60, 120),
-                    )
-                };
-                ui.label(
-                    egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                        .small()
-                        .weak(),
-                );
-
-                // During setup, show a switch-network button below the badge
-                if !self.state.wallet_loaded {
-                    if self.state.switching_network {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(egui::RichText::new("Switching…").small());
-                        });
+                if self.state.wallet_loaded {
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        "🏠 Overview",
+                        Screen::Overview,
+                        &self.ui_tx,
+                    );
+                    nav_button(ui, &mut self.state, "📤 Send", Screen::Send, &self.ui_tx);
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        "📥 Receive",
+                        Screen::Receive,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        "📋 Transactions",
+                        Screen::Transactions,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        "🖥 Masternodes",
+                        Screen::Masternodes,
+                        &self.ui_tx,
+                    );
+                    ui.separator();
+                    let healthy_count = self.state.peers.iter().filter(|p| p.is_healthy).count();
+                    let conn_label = if healthy_count > 0 {
+                        format!("🔗 Connections ({healthy_count})")
                     } else {
-                        let switch_label = if self.state.is_testnet {
-                            "Switch to Mainnet"
-                        } else {
-                            "Switch to Testnet"
-                        };
-                        if ui
-                            .add(
-                                egui::Button::new(egui::RichText::new(switch_label).small())
-                                    .min_size(egui::vec2(140.0, 24.0)),
-                            )
-                            .clicked()
-                        {
-                            let new_network = if self.state.is_testnet {
-                                "mainnet"
-                            } else {
-                                "testnet"
-                            };
-                            let _ = self.ui_tx.send(UiEvent::SelectNetwork {
-                                network: new_network.to_string(),
-                            });
-                        }
+                        "🔗 Connections".to_string()
+                    };
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        &conn_label,
+                        Screen::Connections,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        "⚙ Settings",
+                        Screen::Settings,
+                        &self.ui_tx,
+                    );
+                    nav_button(ui, &mut self.state, "🔧 Tools", Screen::Tools, &self.ui_tx);
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    if ui
+                        .add(
+                            egui::Button::new(egui::RichText::new("🚪 Exit").size(14.0))
+                                .min_size(egui::vec2(140.0, 28.0)),
+                        )
+                        .clicked()
+                    {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    ui.add_space(4.0);
                 }
 
-                egui::Frame::new()
-                    .fill(bg_color)
-                    .corner_radius(4.0)
-                    .inner_margin(egui::Margin::symmetric(8, 3))
-                    .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(network_label)
-                                .small()
-                                .strong()
-                                .color(text_color),
-                        );
-                    });
+                // Network badge + version — always visible (even during setup)
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.add_space(4.0);
+                    let (network_label, bg_color, text_color) = if self.state.is_testnet {
+                        (
+                            "Testnet",
+                            egui::Color32::from_rgb(80, 60, 0),
+                            egui::Color32::from_rgb(255, 200, 60),
+                        )
+                    } else {
+                        (
+                            "Mainnet",
+                            egui::Color32::from_rgb(15, 40, 80),
+                            egui::Color32::from_rgb(100, 180, 255),
+                        )
+                    };
+                    ui.label(
+                        egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                            .small()
+                            .weak(),
+                    );
+
+                    // During setup, show a switch-network button below the badge
+                    if !self.state.wallet_loaded {
+                        if self.state.switching_network {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(egui::RichText::new("Switching…").small());
+                            });
+                        } else {
+                            let switch_label = if self.state.is_testnet {
+                                "Switch to Mainnet"
+                            } else {
+                                "Switch to Testnet"
+                            };
+                            if ui
+                                .add(
+                                    egui::Button::new(egui::RichText::new(switch_label).small())
+                                        .min_size(egui::vec2(140.0, 24.0)),
+                                )
+                                .clicked()
+                            {
+                                let new_network = if self.state.is_testnet {
+                                    "mainnet"
+                                } else {
+                                    "testnet"
+                                };
+                                let _ = self.ui_tx.send(UiEvent::SelectNetwork {
+                                    network: new_network.to_string(),
+                                });
+                            }
+                        }
+                        ui.add_space(4.0);
+                    }
+
+                    egui::Frame::new()
+                        .fill(bg_color)
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(8, 3))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(network_label)
+                                    .small()
+                                    .strong()
+                                    .color(text_color),
+                            );
+                        });
+                });
             });
-        });
 
         // 3. Central panel — route to the active view
         egui::CentralPanel::default().show(ctx, |ui| match self.state.screen {
@@ -298,9 +303,17 @@ fn nav_button(
     ui_tx: &mpsc::UnboundedSender<UiEvent>,
 ) {
     let is_active = state.screen == screen;
-    let button = egui::Button::new(egui::RichText::new(label).size(14.0))
+    let text = if is_active {
+        egui::RichText::new(label)
+            .size(14.0)
+            .color(theme::PRIMARY_LIGHT)
+            .strong()
+    } else {
+        egui::RichText::new(label).size(14.0)
+    };
+    let button = egui::Button::new(text)
         .selected(is_active)
-        .min_size(egui::vec2(140.0, 28.0));
+        .min_size(egui::vec2(140.0, 30.0));
 
     if ui.add(button).clicked() && !is_active {
         state.screen = screen;
@@ -308,8 +321,9 @@ fn nav_button(
     }
 }
 
-/// Setup fonts and image loaders.
+/// Setup fonts, image loaders, and the visual theme.
 fn setup_fonts(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
     ctx.set_fonts(egui::FontDefinitions::default());
+    theme::apply(ctx);
 }

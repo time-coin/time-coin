@@ -81,6 +81,7 @@ pub async fn run(
         manual_peer: false,
         consolidation_txids: Arc::new(Mutex::new(HashSet::new())),
         consolidation_active: Arc::new(AtomicBool::new(false)),
+        signing_keys: Arc::new(Vec::new()),
     };
 
     // Auto-load wallet if it exists
@@ -115,21 +116,19 @@ pub async fn run(
         }))
     };
 
-    // Single 5-second poll: block height every tick, heavy data every 3rd tick (15s)
+    // Single 5-second poll: block height every tick, heavy data every 3rd tick (15s).
+    // Delay::new fires immediately on the first tick so the first poll runs at T+0.
     let mut poll_interval = tokio::time::interval(std::time::Duration::from_secs(5));
     poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    poll_interval.tick().await;
     let mut poll_tick: u8 = 0;
 
     // Peer discovery refresh interval (separate from data poll)
     let mut peer_refresh_interval = tokio::time::interval(std::time::Duration::from_secs(5));
     peer_refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    peer_refresh_interval.tick().await;
 
     // Fast per-peer height poll — just getblockcount, no full probe
     let mut height_poll_interval = tokio::time::interval(std::time::Duration::from_secs(2));
     height_poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    height_poll_interval.tick().await;
 
     log::info!("🚀 Service loop started ({})", state.config.network);
 
@@ -181,23 +180,44 @@ pub async fn run(
                         let heavy_initial_sync_done = initial_sync_done.clone();
                         let heavy_db = state.wallet_db.clone();
                         let heavy_gen = poll_generation.clone();
+                        let heavy_keys = Arc::clone(&state.signing_keys);
                         let cur_gen = poll_generation.load(Ordering::Relaxed);
                         tokio::spawn(async move {
                             // Bail if network switched while we were waiting to run
                             if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
-                            match heavy_client.get_balances(&heavy_addrs).await {
-                                Ok(bal) => {
-                                    if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
-                                    if let Some(ref db) = heavy_db {
-                                        let _ = db.save_cached_balance(&bal);
+
+                            // Fire all three RPC calls in parallel.
+                            let bal_client = heavy_client.clone();
+                            let bal_addrs = heavy_addrs.clone();
+                            let tx_client = heavy_client.clone();
+                            let tx_addrs = heavy_addrs.clone();
+                            let utxo_client = heavy_client;
+                            let utxo_addrs = heavy_addrs;
+                            let (bal_res, tx_res, utxo_res) = tokio::join!(
+                                bal_client.get_balances(&bal_addrs),
+                                tx_client.get_transactions_multi(&tx_addrs, 0),
+                                async {
+                                    let mut all = Vec::new();
+                                    for addr in &utxo_addrs {
+                                        if let Ok(utxos) = utxo_client.get_utxos(addr).await {
+                                            all.extend(utxos);
+                                        }
                                     }
-                                    let _ = heavy_tx.send(ServiceEvent::BalanceUpdated(bal));
-                                }
-                                Err(e) => log::warn!("Balance poll failed: {}", e),
-                            }
+                                    all
+                                },
+                            );
+
                             if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
-                            if let Ok(txs) = heavy_client.get_transactions_multi(&heavy_addrs, 0).await {
-                                if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
+
+                            if let Ok(bal) = bal_res {
+                                if let Some(ref db) = heavy_db {
+                                    let _ = db.save_cached_balance(&bal);
+                                }
+                                let _ = heavy_tx.send(ServiceEvent::BalanceUpdated(bal));
+                            }
+
+                            if let Ok(mut txs) = tx_res {
+                                decrypt_memos(&mut txs, &heavy_keys);
                                 if let Some(ref db) = heavy_db {
                                     let _ = db.save_cached_transactions(&txs);
                                 }
@@ -207,15 +227,9 @@ pub async fn run(
                                     let _ = heavy_tx.send(ServiceEvent::SyncComplete);
                                 }
                             }
-                            if heavy_gen.load(Ordering::Relaxed) != cur_gen { return; }
-                            let mut all_utxos = Vec::new();
-                            for addr in &heavy_addrs {
-                                if let Ok(utxos) = heavy_client.get_utxos(addr).await {
-                                    all_utxos.extend(utxos);
-                                }
-                            }
-                            if !all_utxos.is_empty() && heavy_gen.load(Ordering::Relaxed) == cur_gen {
-                                let _ = heavy_tx.send(ServiceEvent::UtxosUpdated(all_utxos));
+
+                            if !utxo_res.is_empty() {
+                                let _ = heavy_tx.send(ServiceEvent::UtxosUpdated(utxo_res));
                             }
                         });
                     }
@@ -381,7 +395,10 @@ pub async fn run(
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
                                 match client.get_transactions_multi(&state.addresses, 0).await {
-                                    Ok(txs) => { let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs)); }
+                                    Ok(mut txs) => {
+                                        decrypt_memos(&mut txs, &state.signing_keys);
+                                        let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
+                                    }
                                     Err(e) => { let _ = state.svc_tx.send(ServiceEvent::Error(e.to_string())); }
                                 }
                             }
@@ -648,7 +665,8 @@ pub async fn run(
                                         }
                                     }
                                     Screen::Transactions => {
-                                        if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                        if let Ok(mut txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                            decrypt_memos(&mut txs, &state.signing_keys);
                                             let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                         }
                                     }
@@ -891,7 +909,8 @@ pub async fn run(
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
                                 match client.get_transactions_multi(&state.addresses, 0).await {
-                                    Ok(txs) => {
+                                    Ok(mut txs) => {
+                                        decrypt_memos(&mut txs, &state.signing_keys);
                                         if let Some(ref db) = state.wallet_db {
                                             let _ = db.save_cached_transactions(&txs);
                                         }
@@ -1007,7 +1026,8 @@ pub async fn run(
                         if let Some(ref client) = state.client {
                             if !state.addresses.is_empty() {
                                 match client.get_transactions_multi(&state.addresses, 0).await {
-                                    Ok(txs) => {
+                                    Ok(mut txs) => {
+                                        decrypt_memos(&mut txs, &state.signing_keys);
                                         if let Some(ref db) = state.wallet_db {
                                             let _ = db.save_cached_transactions(&txs);
                                         }
@@ -1060,6 +1080,7 @@ pub async fn run(
                             let svc_tx_clone = state.svc_tx.clone();
                             let addresses = state.addresses.clone();
                             let dest_addr = state.addresses.first().cloned().unwrap_or_default();
+                            let db_clone = state.wallet_db.clone();
                             // Clear previous consolidation txids and share with background task
                             state.consolidation_txids.lock().unwrap().clear();
                             let txids = Arc::clone(&state.consolidation_txids);
@@ -1073,6 +1094,7 @@ pub async fn run(
                                     addresses,
                                     dest_addr,
                                     addr_to_keypair,
+                                    db_clone,
                                     txids,
                                     active_flag,
                                 )
@@ -1516,7 +1538,8 @@ pub async fn run(
                                         Err(e) => log::warn!("Failed to refresh balance after receive: {}", e),
                                     }
                                     // Refresh transactions so instant-finality status is reflected immediately
-                                    if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                    if let Ok(mut txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                        decrypt_memos(&mut txs, &state.signing_keys);
                                         let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                     }
                                 }
@@ -1583,7 +1606,8 @@ pub async fn run(
                                         }
                                         Err(e) => log::warn!("Failed to refresh balance after finalization: {}", e),
                                     }
-                                    if let Ok(txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                    if let Ok(mut txs) = client.get_transactions_multi(&state.addresses, 0).await {
+                                        decrypt_memos(&mut txs, &state.signing_keys);
                                         let _ = state.svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
                                     }
                                     let mut all_utxos = Vec::new();
@@ -1898,15 +1922,18 @@ async fn discover_peers(
         .map(|p| p.endpoint.clone())
         .collect();
 
+    // Query all healthy peers for their neighbour lists in parallel.
+    let gossip_handles: Vec<_> = gossip_endpoints
+        .iter()
+        .map(|ep| {
+            let client = MasternodeClient::new(ep.clone(), rpc_credentials.clone());
+            tokio::spawn(async move { client.get_peer_info().await })
+        })
+        .collect();
     let mut new_endpoints: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for ep in &gossip_endpoints {
-        let client = MasternodeClient::new(ep.clone(), rpc_credentials.clone());
-        if let Ok(gossip_peers) = client.get_peer_info().await {
+    for handle in gossip_handles {
+        if let Ok(Ok(gossip_peers)) = handle.await {
             for gp in &gossip_peers {
-                // Include both active and inactive peers — let the health probe decide.
-                // A node that just restarted will show active=false in its neighbour's
-                // peer list but may already be accepting connections.
-                // addr format is "IP:P2P_PORT" — extract IP and use RPC port
                 let ip = gp.addr.split(':').next().unwrap_or(&gp.addr);
                 let host_key = format!("{}:{}", ip, rpc_port);
                 if !known_hosts.contains(&host_key) {
@@ -2100,6 +2127,9 @@ struct ServiceState {
     /// spawned task. Suppresses periodic and WS-triggered balance/tx/UTXO
     /// refreshes so that transient masternode RPC values don't reach the UI.
     consolidation_active: Arc<AtomicBool>,
+    /// Signing keys for all derived addresses. Used to decrypt encrypted memos
+    /// returned by the masternode in transaction history responses.
+    signing_keys: Arc<Vec<ed25519_dalek::SigningKey>>,
 }
 
 impl ServiceState {
@@ -2144,6 +2174,12 @@ impl ServiceState {
                 }
                 let raw_addrs = derive_addresses(&mut wm);
                 self.addresses = raw_addrs.clone();
+                self.signing_keys = Arc::new(
+                    (0..wm.get_address_count())
+                        .filter_map(|i| wm.derive_keypair(i).ok())
+                        .map(|kp| ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes()))
+                        .collect(),
+                );
                 let address_infos: Vec<AddressInfo> = raw_addrs
                     .iter()
                     .enumerate()
@@ -2669,16 +2705,56 @@ maxconnections=0
     }
 }
 
+/// Decrypt encrypted memos on a list of transactions in-place.
+///
+/// The masternode returns `encrypted_memo` bytes as a hex string in the `memo`
+/// field of `listtransactionsmulti`. For each transaction that has a memo, try
+/// to hex-decode it and decrypt with each of the wallet's signing keys. If
+/// decryption succeeds the plaintext replaces the raw hex; otherwise the field
+/// is cleared (we won't show garbled ciphertext to the user).
+fn decrypt_memos(
+    txs: &mut [crate::masternode_client::TransactionRecord],
+    keys: &[ed25519_dalek::SigningKey],
+) {
+    if keys.is_empty() {
+        return;
+    }
+    for tx in txs.iter_mut() {
+        let raw = match tx.memo.take() {
+            Some(s) if !s.is_empty() => s,
+            _ => continue,
+        };
+        // Try hex-decode → decrypt.
+        let plaintext = hex::decode(&raw).ok().and_then(|blob| {
+            keys.iter()
+                .find_map(|key| crate::memo::decrypt_memo(&blob, key))
+        });
+        // If decryption failed, raw might already be plain text (e.g. locally
+        // inserted send records store the unencrypted string).  Keep it if it
+        // is valid UTF-8 that doesn't look like a hex blob (odd length or
+        // non-hex chars).
+        tx.memo = plaintext.or_else(|| {
+            if hex::decode(&raw).is_ok() {
+                None // hex but undecryptable — discard
+            } else {
+                Some(raw) // plain text memo, keep as-is
+            }
+        });
+    }
+}
+
 /// Run UTXO consolidation in a background task.
 ///
 /// This function owns all the data it needs (no references to ServiceState),
 /// so it can run concurrently without blocking the service select! loop.
+#[allow(clippy::too_many_arguments)]
 async fn consolidate_utxos_background(
     client: MasternodeClient,
     svc_tx: mpsc::UnboundedSender<ServiceEvent>,
     addresses: Vec<String>,
     dest_addr: String,
     addr_to_keypair: std::collections::HashMap<String, wallet::Keypair>,
+    wallet_db: Option<WalletDb>,
     consolidation_txids: Arc<Mutex<HashSet<String>>>,
     consolidation_active: Arc<AtomicBool>,
 ) {
@@ -2767,8 +2843,19 @@ async fn consolidate_utxos_background(
         }
 
         let batch_total: u64 = valid_utxos.iter().map(|u| u.amount).sum();
-        let fee = wallet::calculate_fee(batch_total);
-        let send_amount = batch_total.saturating_sub(fee);
+        // Calculate fee on the send_amount (output), not batch_total (input),
+        // because the masternode validates fee against the send amount.
+        // Iterate to converge since fee depends on send_amount which depends on fee.
+        let mut fee = wallet::calculate_fee(batch_total);
+        let mut send_amount = batch_total.saturating_sub(fee);
+        for _ in 0..5 {
+            let required = wallet::calculate_fee(send_amount);
+            if required <= fee {
+                break;
+            }
+            fee = required;
+            send_amount = batch_total.saturating_sub(fee);
+        }
 
         if send_amount == 0 {
             log::info!(
@@ -2790,6 +2877,18 @@ async fn consolidate_utxos_background(
             );
             failed += 1;
             continue;
+        }
+
+        // Encrypt "UTXO Consolidation" self-memo before signing so the memo is
+        // included in the signed message hash (the masternode verifies against the
+        // full serialized transaction including encrypted_memo).
+        if let Some(kp) = addr_to_keypair.values().next() {
+            let sender_key = ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes());
+            let own_pub = sender_key.verifying_key().to_bytes();
+            match crate::memo::encrypt_memo(&sender_key, &own_pub, "UTXO Consolidation") {
+                Ok(blob) => tx.encrypted_memo = Some(blob),
+                Err(e) => log::warn!("Consolidation memo encryption failed: {}", e),
+            }
         }
 
         // Sign each input with its address's keypair.
@@ -2828,16 +2927,6 @@ async fn consolidate_utxos_background(
             continue;
         }
 
-        // Encrypt "UTXO Consolidation" self-memo
-        if let Some(kp) = addr_to_keypair.values().next() {
-            let sender_key = ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes());
-            let own_pub = sender_key.verifying_key().to_bytes();
-            match crate::memo::encrypt_memo(&sender_key, &own_pub, "UTXO Consolidation") {
-                Ok(blob) => tx.encrypted_memo = Some(blob),
-                Err(e) => log::warn!("Consolidation memo encryption failed: {}", e),
-            }
-        }
-
         match tx.to_bytes() {
             Ok(bytes) => {
                 let tx_hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
@@ -2851,6 +2940,32 @@ async fn consolidate_utxos_background(
                         );
                         consolidation_txids.lock().unwrap().insert(txid.clone());
                         consolidated += 1;
+
+                        // Insert a local send record with the plaintext memo.
+                        // listtransactionsmulti does not include memos, so this
+                        // is the only way the memo reaches the UI. The merge
+                        // logic in TransactionsUpdated preserves local send
+                        // records when the RPC entry has no memo.
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        let sent_record = crate::masternode_client::TransactionRecord {
+                            txid: txid.clone(),
+                            vout: 0,
+                            is_send: true,
+                            address: dest_addr.clone(),
+                            amount: send_amount,
+                            fee,
+                            timestamp: now,
+                            status: crate::masternode_client::TransactionStatus::Pending,
+                            memo: Some("UTXO Consolidation".to_string()),
+                            ..Default::default()
+                        };
+                        let _ = svc_tx.send(ServiceEvent::TransactionInserted(sent_record.clone()));
+                        if let Some(ref db) = wallet_db {
+                            let _ = db.save_send_record(&sent_record);
+                        }
                     }
                     Err(e) => {
                         log::warn!(
@@ -2895,6 +3010,15 @@ async fn consolidate_utxos_background(
     let _ = svc_tx.send(ServiceEvent::UtxosUpdated(refreshed));
     if let Ok(bal) = client.get_balances(&addresses).await {
         let _ = svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+    }
+    // Refresh transactions so consolidation txs appear as pending/approved.
+    if let Ok(mut txs) = client.get_transactions_multi(&addresses, 0).await {
+        let keys: Vec<ed25519_dalek::SigningKey> = addr_to_keypair
+            .values()
+            .map(|kp| ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes()))
+            .collect();
+        decrypt_memos(&mut txs, &keys);
+        let _ = svc_tx.send(ServiceEvent::TransactionsUpdated(txs));
     }
     // Clear consolidation txids — the final refresh has correct data now.
     consolidation_txids.lock().unwrap().clear();

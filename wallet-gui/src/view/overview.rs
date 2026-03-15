@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use crate::events::{Screen, UiEvent};
 use crate::masternode_client::TransactionStatus;
 use crate::state::AppState;
+use crate::theme;
 
 /// Render the overview screen.
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
@@ -54,16 +55,21 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     // Consolidation suggestion banner (shown when many spendable UTXOs exist)
     if state.suggest_consolidation {
         egui::Frame::group(ui.style())
-            .fill(egui::Color32::from_rgb(60, 45, 0))
+            .fill(egui::Color32::from_rgb(120, 90, 0))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("⚠ You have many small UTXOs.")
-                            .color(egui::Color32::from_rgb(255, 200, 60))
+                            .color(egui::Color32::from_rgb(255, 220, 80))
                             .strong(),
                     );
-                    ui.label("Consolidating them will speed up future transactions.");
+                    ui.label(
+                        egui::RichText::new(
+                            "Consolidating them will speed up future transactions.",
+                        )
+                        .color(egui::Color32::from_rgb(240, 220, 180)),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("Dismiss").clicked() {
                             state.suggest_consolidation = false;
@@ -95,9 +101,12 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     }
 
     // Balance card
-    ui.group(|ui| {
-        ui.set_min_width(ui.available_width());
-        ui.vertical(|ui| {
+    egui::Frame::new()
+        .fill(egui::Color32::from_rgb(173, 216, 230))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::same(16))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             let utxo_total = state.utxo_total();
             let mn_bal = state.masternode_balance;
             let total = if mn_bal > 0 {
@@ -118,57 +127,72 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
             // Primary: Available (big)
             ui.label(
-                egui::RichText::new("Available")
+                egui::RichText::new("Available Balance")
                     .size(13.0)
-                    .color(egui::Color32::GRAY),
+                    .color(theme::TEXT_SECONDARY),
             );
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(state.format_time(available))
-                        .size(32.0)
+                        .size(36.0)
                         .strong()
-                        .color(egui::Color32::from_rgb(0, 200, 80)),
+                        .color(egui::Color32::BLACK),
                 );
-                if !state.syncing {
-                    if has_pending {
-                        ui.label(
-                            egui::RichText::new("Pending")
-                                .color(egui::Color32::from_rgb(255, 165, 0)),
-                        );
-                    } else if mn_bal > 0 {
-                        ui.label(
-                            egui::RichText::new("Verified")
-                                .color(egui::Color32::from_rgb(0, 180, 0)),
-                        );
-                    }
+                ui.add_space(8.0);
+                if has_pending || state.syncing {
+                    egui::Frame::new()
+                        .fill(theme::ORANGE)
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(8, 2))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new("Pending")
+                                    .size(12.0)
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            );
+                        });
+                } else if mn_bal > 0 {
+                    egui::Frame::new()
+                        .fill(theme::GREEN)
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(8, 2))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new("Verified")
+                                    .size(12.0)
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            );
+                        });
                 }
             });
 
             // Secondary rows: Locked + Total
             if locked > 0 {
-                ui.add_space(6.0);
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Locked:")
                             .size(13.0)
-                            .color(egui::Color32::GRAY),
+                            .color(theme::TEXT_SECONDARY),
                     );
                     ui.label(
                         egui::RichText::new(state.format_time(locked))
                             .size(13.0)
-                            .color(egui::Color32::from_rgb(255, 165, 0)),
+                            .color(theme::ORANGE),
                     );
                     ui.add_space(20.0);
                     ui.label(
                         egui::RichText::new("Total:")
                             .size(13.0)
-                            .color(egui::Color32::GRAY),
+                            .color(theme::TEXT_SECONDARY),
                     );
                     ui.label(egui::RichText::new(state.format_time(total)).size(13.0));
                 });
             }
         });
-    });
 
     ui.add_space(15.0);
 
@@ -384,7 +408,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             egui::Label::new(
                                 egui::RichText::new(addr_display)
                                     .size(14.0)
-                                    .color(egui::Color32::BLACK),
+                                    .color(ui.visuals().text_color()),
                             )
                             .sense(egui::Sense::click()),
                         )
@@ -409,7 +433,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             egui::Label::new(
                                 egui::RichText::new(date_str)
                                     .size(14.0)
-                                    .color(egui::Color32::BLACK),
+                                    .color(ui.visuals().text_color()),
                             )
                             .sense(egui::Sense::click()),
                         )

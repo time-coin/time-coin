@@ -107,6 +107,45 @@ fn derive_aes_key(shared_secret: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Attempt to decrypt an encrypted memo blob using the provided signing key.
+///
+/// Returns `Some(plaintext)` if the key matches either the sender or recipient
+/// embedded in the blob. Returns `None` if the key doesn't match or decryption
+/// fails (wrong key, corrupted blob, etc.).
+pub fn decrypt_memo(blob: &[u8], key: &SigningKey) -> Option<String> {
+    // Minimum size: version(1) + sender_pub(32) + recipient_pub(32) + nonce(12) + auth_tag(16)
+    if blob.len() < 1 + 32 + 32 + 12 + 16 {
+        return None;
+    }
+    if blob[0] != MEMO_VERSION {
+        return None;
+    }
+    let sender_pubkey: [u8; 32] = blob[1..33].try_into().ok()?;
+    let recipient_pubkey: [u8; 32] = blob[33..65].try_into().ok()?;
+    let nonce_bytes: [u8; 12] = blob[65..77].try_into().ok()?;
+    let ciphertext = &blob[77..];
+
+    let our_pubkey = key.verifying_key().to_bytes();
+    // Determine the peer's pubkey based on which role we play.
+    let peer_pubkey = if our_pubkey == recipient_pubkey {
+        sender_pubkey
+    } else if our_pubkey == sender_pubkey {
+        recipient_pubkey
+    } else {
+        return None;
+    };
+
+    let our_x25519 = ed25519_to_x25519_secret(key);
+    let peer_x25519 = ed25519_to_x25519_public(&peer_pubkey);
+    let shared_secret = our_x25519.diffie_hellman(&peer_x25519);
+    let enc_key = derive_aes_key(shared_secret.as_bytes());
+
+    let cipher = Aes256Gcm::new_from_slice(&enc_key).ok()?;
+    let nonce = Nonce::from(nonce_bytes);
+    let plaintext_bytes = cipher.decrypt(&nonce, ciphertext).ok()?;
+    String::from_utf8(plaintext_bytes).ok()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum MemoError {
     #[error("memo is empty")]
@@ -172,5 +211,48 @@ mod tests {
         assert_eq!(blob[0], MEMO_VERSION);
         // sender and recipient pubkeys should be identical
         assert_eq!(&blob[1..33], &blob[33..65]);
+    }
+
+    #[test]
+    fn test_decrypt_round_trip_recipient() {
+        let sender = random_signing_key();
+        let recipient = random_signing_key();
+        let recipient_pub = recipient.verifying_key().to_bytes();
+
+        let blob = encrypt_memo(&sender, &recipient_pub, "Hello TIME!").unwrap();
+        let plaintext = decrypt_memo(&blob, &recipient).unwrap();
+        assert_eq!(plaintext, "Hello TIME!");
+    }
+
+    #[test]
+    fn test_decrypt_round_trip_sender() {
+        let sender = random_signing_key();
+        let recipient = random_signing_key();
+        let recipient_pub = recipient.verifying_key().to_bytes();
+
+        let blob = encrypt_memo(&sender, &recipient_pub, "Hello TIME!").unwrap();
+        let plaintext = decrypt_memo(&blob, &sender).unwrap();
+        assert_eq!(plaintext, "Hello TIME!");
+    }
+
+    #[test]
+    fn test_decrypt_wrong_key_returns_none() {
+        let sender = random_signing_key();
+        let recipient = random_signing_key();
+        let unrelated = random_signing_key();
+        let recipient_pub = recipient.verifying_key().to_bytes();
+
+        let blob = encrypt_memo(&sender, &recipient_pub, "secret").unwrap();
+        assert!(decrypt_memo(&blob, &unrelated).is_none());
+    }
+
+    #[test]
+    fn test_decrypt_self_send() {
+        let key = random_signing_key();
+        let pub_bytes = key.verifying_key().to_bytes();
+
+        let blob = encrypt_memo(&key, &pub_bytes, "UTXO Consolidation").unwrap();
+        let plaintext = decrypt_memo(&blob, &key).unwrap();
+        assert_eq!(plaintext, "UTXO Consolidation");
     }
 }

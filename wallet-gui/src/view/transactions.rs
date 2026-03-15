@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use crate::events::{Screen, UiEvent};
 use crate::masternode_client::TransactionStatus;
 use crate::state::AppState;
+use crate::theme;
 use crate::wallet_db::masternode_tier_from_satoshis;
 
 /// Render the transactions screen.
@@ -192,7 +193,7 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                 ui.label(
                     egui::RichText::new(memo)
                         .italics()
-                        .color(egui::Color32::DARK_GRAY),
+                        .color(theme::TEXT_SECONDARY),
                 );
                 ui.end_row();
             }
@@ -370,14 +371,14 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                     ui.label(egui::RichText::new("Address").size(14.0).strong());
                     ui.label(egui::RichText::new("Memo").size(14.0).strong());
                     ui.label(egui::RichText::new("Date").size(14.0).strong());
-                    ui.label(egui::RichText::new("").size(14.0)); // status icon
+                    ui.label(egui::RichText::new("Status").size(14.0).strong());
                     ui.label(egui::RichText::new("TxID").size(14.0).strong());
                     ui.end_row();
 
                     for &i in page_items {
                         let tx = &state.transactions[i];
 
-                        // Type icon only
+                        // Type icon
                         let (dir_icon, amount_color) = if tx.is_fee {
                             ("💸", egui::Color32::from_rgb(255, 165, 0))
                         } else if tx.is_send {
@@ -440,7 +441,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                 egui::Label::new(
                                     egui::RichText::new(addr_label)
                                         .size(14.0)
-                                        .color(egui::Color32::BLACK),
+                                        .color(ui.visuals().text_color()),
                                 )
                                 .sense(egui::Sense::click()),
                             )
@@ -467,7 +468,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                     egui::RichText::new(memo_text)
                                         .size(13.0)
                                         .italics()
-                                        .color(egui::Color32::DARK_GRAY),
+                                        .color(theme::TEXT_SECONDARY),
                                 )
                                 .sense(egui::Sense::click()),
                             )
@@ -492,7 +493,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                 egui::Label::new(
                                     egui::RichText::new(date_str)
                                         .size(14.0)
-                                        .color(egui::Color32::BLACK),
+                                        .color(ui.visuals().text_color()),
                                 )
                                 .sense(egui::Sense::click()),
                             )
@@ -501,13 +502,13 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             clicked_idx = Some(i);
                         }
 
-                        // Status icon only
+                        // Status
                         let (status_icon, status_color) = match tx.status {
-                            TransactionStatus::Approved => ("✔", egui::Color32::GREEN),
+                            TransactionStatus::Approved => ("✅ Approved", egui::Color32::GREEN),
                             TransactionStatus::Pending => {
-                                ("⏳", egui::Color32::from_rgb(255, 165, 0))
+                                ("⏳ Pending", egui::Color32::from_rgb(255, 165, 0))
                             }
-                            TransactionStatus::Declined => ("✖", egui::Color32::RED),
+                            TransactionStatus::Declined => ("❌ Declined", egui::Color32::RED),
                         };
                         if ui
                             .add(
@@ -535,7 +536,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                     egui::RichText::new(short_txid)
                                         .size(14.0)
                                         .monospace()
-                                        .color(egui::Color32::DARK_GRAY),
+                                        .color(theme::TEXT_SECONDARY),
                                 )
                                 .sense(egui::Sense::click()),
                             )

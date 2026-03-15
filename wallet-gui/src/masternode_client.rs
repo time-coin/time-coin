@@ -334,10 +334,41 @@ impl MasternodeClient {
                     return None;
                 }
 
-                let memo = tx
-                    .get("memo")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                // The masternode stores the memo as `encrypted_memo: Option<Vec<u8>>`
+                // and returns it in the RPC response under "encrypted_memo". It may
+                // be serialized as a hex string or a JSON array of integers. We
+                // normalise to a hex string here so decrypt_memos can handle it
+                // uniformly. Fall back to a plain-text "memo" field if present.
+                let memo = if let Some(enc) = tx.get("encrypted_memo") {
+                    if let Some(s) = enc.as_str() {
+                        // Hex (or other) string — keep as-is for decryption.
+                        if s.is_empty() {
+                            None
+                        } else {
+                            Some(s.to_string())
+                        }
+                    } else if let Some(arr) = enc.as_array() {
+                        // JSON integer array → hex string.
+                        let bytes: Vec<u8> = arr
+                            .iter()
+                            .filter_map(|b| b.as_u64().map(|n| n as u8))
+                            .collect();
+                        if bytes.is_empty() {
+                            None
+                        } else {
+                            Some(hex::encode(bytes))
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    // Plain-text fallback (locally-inserted send records, payment
+                    // request memos, etc.).
+                    tx.get("memo")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                };
 
                 Some(TransactionRecord {
                     txid,
