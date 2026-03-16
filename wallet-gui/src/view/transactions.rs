@@ -357,35 +357,62 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         .show(ui, |ui| {
             egui::Grid::new("tx_table")
                 .num_columns(7)
-                .spacing([12.0, 8.0])
+                .spacing([10.0, 6.0])
                 .min_col_width(0.0)
                 .striped(true)
                 .show(ui, |ui| {
-                    // Header
-                    ui.label(egui::RichText::new("").size(14.0)); // type icon
-                    ui.label(egui::RichText::new("Amount").size(14.0).strong());
-                    ui.label(egui::RichText::new("Address").size(14.0).strong());
-                    ui.label(egui::RichText::new("Memo").size(14.0).strong());
-                    ui.label(egui::RichText::new("Date").size(14.0).strong());
-                    ui.label(egui::RichText::new("Status").size(14.0).strong());
-                    ui.label(egui::RichText::new("TxID").size(14.0).strong());
+                    // Header: icon | Date | Amount | Address | Memo | Status | TxID
+                    ui.label(egui::RichText::new("").size(13.0));
+                    ui.label(egui::RichText::new("Date").size(13.0).strong());
+                    ui.label(egui::RichText::new("Amount").size(13.0).strong());
+                    ui.label(egui::RichText::new("Address").size(13.0).strong());
+                    ui.label(egui::RichText::new("Memo").size(13.0).strong());
+                    ui.label(egui::RichText::new("S").size(13.0).strong())
+                        .on_hover_text("Status");
+                    ui.label(egui::RichText::new("TxID").size(13.0).strong());
                     ui.end_row();
 
                     for &i in page_items {
                         let tx = &state.transactions[i];
 
-                        // Type icon
-                        let (dir_icon, amount_color) = if tx.is_fee {
-                            ("💸", egui::Color32::from_rgb(255, 165, 0))
+                        // Col 1 — type icon
+                        let (dir_icon, dir_hover, amount_color) = if tx.is_fee {
+                            ("💸", "Fee", egui::Color32::from_rgb(255, 165, 0))
                         } else if tx.is_send {
-                            ("📤", egui::Color32::from_rgb(255, 80, 80))
+                            ("📤", "Sent", egui::Color32::from_rgb(255, 80, 80))
                         } else {
-                            ("📥", egui::Color32::from_rgb(80, 200, 80))
+                            ("📥", "Received", egui::Color32::from_rgb(80, 200, 80))
                         };
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(dir_icon).size(14.0).color(amount_color),
+                                    egui::RichText::new(dir_icon).size(13.0).color(amount_color),
+                                )
+                                .sense(egui::Sense::click()),
+                            )
+                            .on_hover_text(dir_hover)
+                            .clicked()
+                        {
+                            clicked_idx = Some(i);
+                        }
+
+                        // Col 2 — Date (short: "Jan 15 14:30")
+                        let date_str = if tx.timestamp > 0 {
+                            chrono::DateTime::from_timestamp(tx.timestamp, 0)
+                                .map(|dt| {
+                                    let local: chrono::DateTime<chrono::Local> = dt.into();
+                                    local.format("%b %d %H:%M").to_string()
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+                        if ui
+                            .add(
+                                egui::Label::new(
+                                    egui::RichText::new(&date_str)
+                                        .size(12.0)
+                                        .color(ui.visuals().weak_text_color()),
                                 )
                                 .sense(egui::Sense::click()),
                             )
@@ -394,7 +421,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             clicked_idx = Some(i);
                         }
 
-                        // Amount
+                        // Col 3 — Amount
                         let is_neg = tx.is_send || tx.is_fee;
                         if ui
                             .add(
@@ -402,7 +429,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                     egui::RichText::new(
                                         state.format_time_signed(tx.amount, is_neg),
                                     )
-                                    .size(14.0)
+                                    .size(13.0)
                                     .strong()
                                     .color(amount_color),
                                 )
@@ -413,14 +440,14 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             clicked_idx = Some(i);
                         }
 
-                        // Address
-                        let addr_label = if tx.is_fee {
+                        // Col 4 — Address (truncated, full on hover)
+                        let addr_short = if tx.is_fee {
                             tx.address.clone()
                         } else {
                             let short = if tx.address.len() > 14 {
                                 format!(
                                     "{}..{}",
-                                    &tx.address[..10],
+                                    &tx.address[..8],
                                     &tx.address[tx.address.len() - 4..]
                                 )
                             } else {
@@ -435,107 +462,88 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(addr_label)
-                                        .size(14.0)
+                                    egui::RichText::new(&addr_short)
+                                        .size(12.0)
+                                        .monospace()
                                         .color(ui.visuals().text_color()),
                                 )
                                 .sense(egui::Sense::click()),
                             )
+                            .on_hover_text(&tx.address)
                             .clicked()
                         {
                             clicked_idx = Some(i);
                         }
 
-                        // Memo (truncated)
-                        let memo_text = tx
+                        // Col 5 — Memo (truncated, full on hover)
+                        let memo_short = tx
                             .memo
                             .as_deref()
                             .map(|m| {
-                                if m.len() > 20 {
-                                    format!("{}…", &m[..20])
+                                if m.chars().count() > 22 {
+                                    format!("{}…", m.chars().take(22).collect::<String>())
                                 } else {
                                     m.to_string()
                                 }
                             })
                             .unwrap_or_default();
-                        if ui
-                            .add(
-                                egui::Label::new(
-                                    egui::RichText::new(memo_text)
-                                        .size(13.0)
-                                        .italics()
-                                        .color(ui.visuals().text_color()),
-                                )
-                                .sense(egui::Sense::click()),
+                        let memo_resp = ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&memo_short)
+                                    .size(12.0)
+                                    .italics()
+                                    .color(ui.visuals().text_color()),
                             )
-                            .clicked()
-                        {
+                            .sense(egui::Sense::click()),
+                        );
+                        if let Some(ref full) = tx.memo {
+                            memo_resp.on_hover_text(full.as_str()).clicked().then(|| {
+                                clicked_idx = Some(i);
+                            });
+                        } else if memo_resp.clicked() {
                             clicked_idx = Some(i);
                         }
 
-                        // Date
-                        let date_str = if tx.timestamp > 0 {
-                            chrono::DateTime::from_timestamp(tx.timestamp, 0)
-                                .map(|dt| {
-                                    let local: chrono::DateTime<chrono::Local> = dt.into();
-                                    local.format("%Y-%m-%d %H:%M").to_string()
-                                })
-                                .unwrap_or_default()
-                        } else {
-                            String::new()
-                        };
-                        if ui
-                            .add(
-                                egui::Label::new(
-                                    egui::RichText::new(date_str)
-                                        .size(14.0)
-                                        .color(ui.visuals().text_color()),
-                                )
-                                .sense(egui::Sense::click()),
-                            )
-                            .clicked()
-                        {
-                            clicked_idx = Some(i);
-                        }
-
-                        // Status
-                        let (status_icon, status_color) = match tx.status {
-                            TransactionStatus::Approved => ("✅ Approved", egui::Color32::GREEN),
+                        // Col 6 — Status (icon only, label on hover)
+                        let (status_icon, status_hover, status_color) = match tx.status {
+                            TransactionStatus::Approved => ("✅", "Approved", egui::Color32::GREEN),
                             TransactionStatus::Pending => {
-                                ("⏳ Pending", egui::Color32::from_rgb(255, 165, 0))
+                                ("⏳", "Pending", egui::Color32::from_rgb(255, 165, 0))
                             }
-                            TransactionStatus::Declined => ("❌ Declined", egui::Color32::RED),
+                            TransactionStatus::Declined => ("❌", "Declined", egui::Color32::RED),
                         };
                         if ui
                             .add(
                                 egui::Label::new(
                                     egui::RichText::new(status_icon)
-                                        .size(14.0)
+                                        .size(13.0)
                                         .color(status_color),
                                 )
                                 .sense(egui::Sense::click()),
                             )
+                            .on_hover_text(status_hover)
                             .clicked()
                         {
                             clicked_idx = Some(i);
                         }
 
-                        // TxID
+                        // Col 7 — TxID (truncated, full on hover)
                         let short_txid = if tx.txid.len() > 12 {
-                            format!("{}..{}", &tx.txid[..8], &tx.txid[tx.txid.len() - 4..])
+                            format!("{}..{}", &tx.txid[..6], &tx.txid[tx.txid.len() - 4..])
                         } else {
                             tx.txid.clone()
                         };
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(short_txid)
-                                        .size(14.0)
+                                    egui::RichText::new(&short_txid)
+                                        .size(12.0)
                                         .monospace()
                                         .color(theme::TEXT_SECONDARY),
                                 )
                                 .sense(egui::Sense::click()),
                             )
+                            .on_hover_text(&tx.txid)
                             .clicked()
                         {
                             clicked_idx = Some(i);

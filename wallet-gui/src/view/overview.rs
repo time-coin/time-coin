@@ -337,8 +337,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 // Header
                 ui.label(egui::RichText::new("Type").size(14.0).strong());
                 ui.label(egui::RichText::new("Amount").size(14.0).strong());
-                ui.label(egui::RichText::new("Address").size(14.0).strong());
                 ui.label(egui::RichText::new("Date").size(14.0).strong());
+                ui.label(egui::RichText::new("Address").size(14.0).strong());
                 ui.label(egui::RichText::new("Memo").size(14.0).strong());
                 ui.label(egui::RichText::new("Status").size(14.0).strong());
                 ui.end_row();
@@ -381,7 +381,32 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         clicked_idx = Some(i);
                     }
 
-                    // Address
+                    // Date (col 3)
+                    let date_str = if tx.timestamp > 0 {
+                        chrono::DateTime::from_timestamp(tx.timestamp, 0)
+                            .map(|dt| {
+                                let local: chrono::DateTime<chrono::Local> = dt.into();
+                                local.format("%Y-%m-%d %H:%M").to_string()
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    if ui
+                        .add(
+                            egui::Label::new(
+                                egui::RichText::new(date_str)
+                                    .size(14.0)
+                                    .color(ui.visuals().weak_text_color()),
+                            )
+                            .sense(egui::Sense::click()),
+                        )
+                        .clicked()
+                    {
+                        clicked_idx = Some(i);
+                    }
+
+                    // Address (col 4)
                     let addr_display = if tx.is_fee {
                         tx.address.clone()
                     } else if let Some(name) = state.contact_name(&tx.address) {
@@ -408,31 +433,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         .add(
                             egui::Label::new(
                                 egui::RichText::new(addr_display)
-                                    .size(14.0)
-                                    .color(ui.visuals().text_color()),
-                            )
-                            .sense(egui::Sense::click()),
-                        )
-                        .clicked()
-                    {
-                        clicked_idx = Some(i);
-                    }
-
-                    // Date
-                    let date_str = if tx.timestamp > 0 {
-                        chrono::DateTime::from_timestamp(tx.timestamp, 0)
-                            .map(|dt| {
-                                let local: chrono::DateTime<chrono::Local> = dt.into();
-                                local.format("%Y-%m-%d %H:%M").to_string()
-                            })
-                            .unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
-                    if ui
-                        .add(
-                            egui::Label::new(
-                                egui::RichText::new(date_str)
                                     .size(14.0)
                                     .color(ui.visuals().text_color()),
                             )
