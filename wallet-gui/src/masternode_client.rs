@@ -598,52 +598,32 @@ impl MasternodeClient {
 
     /// Attempt to determine this masternode's tier.
     ///
-    /// Tries several RPC methods and response shapes in order. Returns `None`
-    /// if none of them succeed — the caller shows "--" in that case.
+    /// Uses `masternodestatus` (the canonical RPC used by the masternode
+    /// dashboard) which returns `{ "tier": "Bronze"|"Silver"|"Gold"|"Free", … }`.
+    /// Falls back to `getpeerinfo` scanning if the first call fails.
+    /// Returns `None` if the node doesn't support either call.
     pub async fn get_tier(&self) -> Option<String> {
-        // Field names to check inside any successful response
-        let tier_fields = ["tier", "masternode_tier", "masternodeTier", "level", "type"];
-
-        // Helper: extract tier string from an arbitrary JSON object
-        let extract = |v: &serde_json::Value| -> Option<String> {
-            // Top-level fields
-            for field in &tier_fields {
-                if let Some(t) = v.get(*field).and_then(|f| f.as_str()) {
-                    return Some(capitalise(t));
-                }
+        // Primary: masternodestatus
+        if let Ok(resp) = self
+            .rpc_call("masternodestatus", serde_json::json!([]))
+            .await
+        {
+            if let Some(t) = resp.get("tier").and_then(|v| v.as_str()) {
+                return Some(capitalise(t));
             }
-            // Nested under "masternode" key
-            if let Some(mn) = v.get("masternode") {
-                for field in &tier_fields {
-                    if let Some(t) = mn.get(*field).and_then(|f| f.as_str()) {
-                        return Some(capitalise(t));
+        }
+
+        // Fallback: getpeerinfo — each entry has an "addr" and "tier" field
+        if let Ok(resp) = self.rpc_call("getpeerinfo", serde_json::json!([])).await {
+            if let Some(peers) = resp.as_array() {
+                // We want the tier of the node itself; it self-reports its own
+                // tier on all peer entries — take the first non-empty one.
+                for peer in peers {
+                    if let Some(t) = peer.get("tier").and_then(|v| v.as_str()) {
+                        if !t.is_empty() {
+                            return Some(capitalise(t));
+                        }
                     }
-                }
-                // Collateral under "masternode"
-                const COIN: u64 = 100_000_000;
-                if let Some(col) = mn.get("collateral").and_then(|f| f.as_u64()) {
-                    return Some(tier_from_collateral(col, COIN));
-                }
-            }
-            // Top-level collateral fallback
-            const COIN: u64 = 100_000_000;
-            if let Some(col) = v.get("collateral").and_then(|f| f.as_u64()) {
-                return Some(tier_from_collateral(col, COIN));
-            }
-            None
-        };
-
-        // Try several RPC methods, stop at the first one that gives us a tier
-        for method in &[
-            "getmasternodeinfo",
-            "getmasternodestatus",
-            "masternodeinfo",
-            "getblockchaininfo",
-            "getnetworkinfo",
-        ] {
-            if let Ok(resp) = self.rpc_call(method, serde_json::json!([])).await {
-                if let Some(tier) = extract(&resp) {
-                    return Some(tier);
                 }
             }
         }
@@ -826,22 +806,6 @@ fn capitalise(s: &str) -> String {
         None => String::new(),
         Some(c) => c.to_uppercase().to_string() + chars.as_str(),
     }
-}
-
-/// Derive a tier name from a collateral amount in satoshis.
-fn tier_from_collateral(collateral: u64, coin: u64) -> String {
-    if collateral >= 100_000 * coin {
-        "Enterprise"
-    } else if collateral >= 10_000 * coin {
-        "Premium"
-    } else if collateral >= 1_000 * coin {
-        "Standard"
-    } else if collateral >= 100 * coin {
-        "Basic"
-    } else {
-        "Free"
-    }
-    .to_string()
 }
 
 // ============================================================================
