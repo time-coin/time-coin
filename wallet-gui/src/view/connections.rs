@@ -99,14 +99,17 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
 
                 // Tier
                 match peer.tier.as_deref() {
-                    Some("Gold") => {
-                        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "Gold");
+                    Some("Enterprise") => {
+                        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "Enterprise");
                     }
-                    Some("Silver") => {
-                        ui.colored_label(egui::Color32::from_rgb(180, 200, 220), "Silver");
+                    Some("Premium") => {
+                        ui.colored_label(egui::Color32::from_rgb(180, 200, 220), "Premium");
                     }
-                    Some("Bronze") => {
-                        ui.colored_label(egui::Color32::from_rgb(200, 130, 70), "Bronze");
+                    Some("Standard") => {
+                        ui.colored_label(egui::Color32::from_rgb(200, 130, 70), "Standard");
+                    }
+                    Some("Basic") => {
+                        ui.colored_label(egui::Color32::from_rgb(120, 180, 120), "Basic");
                     }
                     Some("Free") => {
                         ui.colored_label(egui::Color32::GRAY, "Free");

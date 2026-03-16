@@ -598,41 +598,54 @@ impl MasternodeClient {
 
     /// Attempt to determine this masternode's tier.
     ///
-    /// Tries `getmasternodeinfo` — parses the `tier` field directly, or
-    /// derives the tier from the `collateral` field if present.
-    /// Returns `None` if the node doesn't support the call.
+    /// Tries several RPC methods and response shapes in order. Returns `None`
+    /// if none of them succeed — the caller shows "--" in that case.
     pub async fn get_tier(&self) -> Option<String> {
-        let info = self
-            .rpc_call("getmasternodeinfo", serde_json::json!([]))
-            .await
-            .ok()?;
+        // Field names to check inside any successful response
+        let tier_fields = ["tier", "masternode_tier", "masternodeTier", "level", "type"];
 
-        // Direct tier field (preferred)
-        if let Some(t) = info.get("tier").and_then(|v| v.as_str()) {
-            return Some(
-                t.chars()
-                    .next()
-                    .map(|c| c.to_uppercase().to_string())
-                    .unwrap_or_default()
-                    + &t[t.char_indices().nth(1).map(|(i, _)| i).unwrap_or(t.len())..],
-            );
-        }
-
-        // Derive from collateral amount (satoshis, 1 TIME = 100_000_000)
-        const COIN: u64 = 100_000_000;
-        if let Some(collateral) = info.get("collateral").and_then(|v| v.as_u64()) {
-            return Some(
-                if collateral >= 100_000 * COIN {
-                    "Gold"
-                } else if collateral >= 10_000 * COIN {
-                    "Silver"
-                } else if collateral >= 1_000 * COIN {
-                    "Bronze"
-                } else {
-                    "Free"
+        // Helper: extract tier string from an arbitrary JSON object
+        let extract = |v: &serde_json::Value| -> Option<String> {
+            // Top-level fields
+            for field in &tier_fields {
+                if let Some(t) = v.get(*field).and_then(|f| f.as_str()) {
+                    return Some(capitalise(t));
                 }
-                .to_string(),
-            );
+            }
+            // Nested under "masternode" key
+            if let Some(mn) = v.get("masternode") {
+                for field in &tier_fields {
+                    if let Some(t) = mn.get(*field).and_then(|f| f.as_str()) {
+                        return Some(capitalise(t));
+                    }
+                }
+                // Collateral under "masternode"
+                const COIN: u64 = 100_000_000;
+                if let Some(col) = mn.get("collateral").and_then(|f| f.as_u64()) {
+                    return Some(tier_from_collateral(col, COIN));
+                }
+            }
+            // Top-level collateral fallback
+            const COIN: u64 = 100_000_000;
+            if let Some(col) = v.get("collateral").and_then(|f| f.as_u64()) {
+                return Some(tier_from_collateral(col, COIN));
+            }
+            None
+        };
+
+        // Try several RPC methods, stop at the first one that gives us a tier
+        for method in &[
+            "getmasternodeinfo",
+            "getmasternodestatus",
+            "masternodeinfo",
+            "getblockchaininfo",
+            "getnetworkinfo",
+        ] {
+            if let Ok(resp) = self.rpc_call(method, serde_json::json!([])).await {
+                if let Some(tier) = extract(&resp) {
+                    return Some(tier);
+                }
+            }
         }
 
         None
@@ -800,6 +813,35 @@ pub struct FinalityStatus {
 pub struct PeerInfoResult {
     pub addr: String,
     pub active: bool,
+}
+
+// ============================================================================
+// Tier helpers
+// ============================================================================
+
+/// Capitalise the first letter of a tier string.
+fn capitalise(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+/// Derive a tier name from a collateral amount in satoshis.
+fn tier_from_collateral(collateral: u64, coin: u64) -> String {
+    if collateral >= 100_000 * coin {
+        "Enterprise"
+    } else if collateral >= 10_000 * coin {
+        "Premium"
+    } else if collateral >= 1_000 * coin {
+        "Standard"
+    } else if collateral >= 100 * coin {
+        "Basic"
+    } else {
+        "Free"
+    }
+    .to_string()
 }
 
 // ============================================================================
