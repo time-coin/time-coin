@@ -1825,6 +1825,17 @@ async fn discover_peers(
                 false
             };
 
+            // Best-effort tier query — non-blocking, ignored on failure
+            let tier = if is_healthy {
+                let tier_client = MasternodeClient::new(working_ep.clone(), creds.clone());
+                tokio::time::timeout(std::time::Duration::from_secs(5), tier_client.get_tier())
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+
             PeerInfo {
                 endpoint: working_ep,
                 is_active: false,
@@ -1833,6 +1844,7 @@ async fn discover_peers(
                 ping_ms,
                 block_height,
                 version,
+                tier,
             }
         }));
     }
@@ -2023,6 +2035,15 @@ async fn discover_peers(
                 } else {
                     false
                 };
+                let tier = if is_healthy {
+                    let tier_client = MasternodeClient::new(working_ep.clone(), creds.clone());
+                    tokio::time::timeout(std::time::Duration::from_secs(5), tier_client.get_tier())
+                        .await
+                        .ok()
+                        .flatten()
+                } else {
+                    None
+                };
                 PeerInfo {
                     endpoint: working_ep,
                     is_active: false,
@@ -2031,6 +2052,7 @@ async fn discover_peers(
                     ping_ms,
                     block_height,
                     version,
+                    tier,
                 }
             }));
         }

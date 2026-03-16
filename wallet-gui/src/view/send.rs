@@ -196,7 +196,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         } else {
             send_amount.saturating_add(auto_fee)
         };
+        const MIN_SEND: u64 = 100_000_000; // 1 TIME
         let insufficient = send_amount > 0 && total_cost > available;
+        let below_minimum = send_amount > 0 && send_amount < MIN_SEND;
 
         let bal_color = if insufficient {
             egui::Color32::RED
@@ -216,7 +218,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             let frac = (available % 100_000_000) / 100;
             state.send_amount = format!("{}.{:06}", whole, frac);
         }
-        if insufficient {
+        if below_minimum {
+            ui.colored_label(egui::Color32::RED, "Minimum send amount is 1 TIME.");
+        } else if insufficient {
             ui.colored_label(
                 egui::Color32::RED,
                 format!(
@@ -267,6 +271,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             && !state.send_address.is_empty()
             && !state.send_amount.is_empty()
             && !insufficient
+            && !below_minimum
             && !state.loading;
 
         ui.horizontal(|ui| {

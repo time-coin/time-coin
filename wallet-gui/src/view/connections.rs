@@ -43,7 +43,7 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
     ui.add_space(10.0);
 
     egui::Grid::new("peers_table")
-        .num_columns(9)
+        .num_columns(10)
         .spacing([12.0, 6.0])
         .striped(true)
         .show(ui, |ui| {
@@ -51,6 +51,7 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
             ui.label(egui::RichText::new("#").strong());
             ui.label(egui::RichText::new("").strong());
             ui.label(egui::RichText::new("IP Address").strong());
+            ui.label(egui::RichText::new("Tier").strong());
             ui.label(egui::RichText::new("Status").strong());
             ui.label(egui::RichText::new("WS").strong());
             ui.label(egui::RichText::new("Ping").strong());
@@ -95,6 +96,28 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                 // IP
                 let ip = peer_ip(&peer.endpoint);
                 ui.label(egui::RichText::new(ip).monospace());
+
+                // Tier
+                match peer.tier.as_deref() {
+                    Some("Gold") => {
+                        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "Gold");
+                    }
+                    Some("Silver") => {
+                        ui.colored_label(egui::Color32::from_rgb(180, 200, 220), "Silver");
+                    }
+                    Some("Bronze") => {
+                        ui.colored_label(egui::Color32::from_rgb(200, 130, 70), "Bronze");
+                    }
+                    Some("Free") => {
+                        ui.colored_label(egui::Color32::GRAY, "Free");
+                    }
+                    Some(other) => {
+                        ui.label(other);
+                    }
+                    None => {
+                        ui.colored_label(egui::Color32::GRAY, "--");
+                    }
+                }
 
                 // Status
                 if peer.is_active {

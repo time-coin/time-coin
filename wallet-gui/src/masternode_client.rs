@@ -596,6 +596,48 @@ impl MasternodeClient {
         Ok(status)
     }
 
+    /// Attempt to determine this masternode's tier.
+    ///
+    /// Tries `getmasternodeinfo` — parses the `tier` field directly, or
+    /// derives the tier from the `collateral` field if present.
+    /// Returns `None` if the node doesn't support the call.
+    pub async fn get_tier(&self) -> Option<String> {
+        let info = self
+            .rpc_call("getmasternodeinfo", serde_json::json!([]))
+            .await
+            .ok()?;
+
+        // Direct tier field (preferred)
+        if let Some(t) = info.get("tier").and_then(|v| v.as_str()) {
+            return Some(
+                t.chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_default()
+                    + &t[t.char_indices().nth(1).map(|(i, _)| i).unwrap_or(t.len())..],
+            );
+        }
+
+        // Derive from collateral amount (satoshis, 1 TIME = 100_000_000)
+        const COIN: u64 = 100_000_000;
+        if let Some(collateral) = info.get("collateral").and_then(|v| v.as_u64()) {
+            return Some(
+                if collateral >= 100_000 * COIN {
+                    "Gold"
+                } else if collateral >= 10_000 * COIN {
+                    "Silver"
+                } else if collateral >= 1_000 * COIN {
+                    "Bronze"
+                } else {
+                    "Free"
+                }
+                .to_string(),
+            );
+        }
+
+        None
+    }
+
     /// Get current blockchain height
     pub async fn get_block_height(&self) -> Result<u64, ClientError> {
         let result = self

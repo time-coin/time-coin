@@ -49,6 +49,8 @@ pub struct PeerInfo {
     pub ping_ms: Option<u64>,
     pub block_height: Option<u64>,
     pub version: Option<String>,
+    /// Masternode tier (e.g. "Gold", "Silver", "Bronze", "Free"), if known.
+    pub tier: Option<String>,
 }
 
 /// Information about a wallet address with its user-assigned label.
