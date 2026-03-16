@@ -47,11 +47,11 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
 
     // Direction and amount
     let (dir_label, amount_color) = if tx.is_fee {
-        ("💸 Fee", egui::Color32::from_rgb(255, 165, 0))
+        ("🧾 Fee", egui::Color32::from_rgb(255, 165, 0))
     } else if tx.is_send {
-        ("📤 Sent", egui::Color32::from_rgb(255, 80, 80))
+        ("↑ Sent", egui::Color32::from_rgb(255, 80, 80))
     } else {
-        ("📥 Received", egui::Color32::from_rgb(80, 200, 80))
+        ("↓ Received", egui::Color32::from_rgb(80, 200, 80))
     };
 
     let is_neg = tx.is_send || tx.is_fee;
@@ -377,11 +377,11 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
 
                         // Col 1 — type icon
                         let (dir_icon, dir_hover, amount_color) = if tx.is_fee {
-                            ("💸", "Fee", egui::Color32::from_rgb(255, 165, 0))
+                            ("🧾", "Fee", egui::Color32::from_rgb(255, 165, 0))
                         } else if tx.is_send {
-                            ("📤", "Sent", egui::Color32::from_rgb(255, 80, 80))
+                            ("↑", "Sent", egui::Color32::from_rgb(255, 80, 80))
                         } else {
-                            ("📥", "Received", egui::Color32::from_rgb(80, 200, 80))
+                            ("↓", "Received", egui::Color32::from_rgb(80, 200, 80))
                         };
                         if ui
                             .add(
