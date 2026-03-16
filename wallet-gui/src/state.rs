@@ -8,22 +8,33 @@ use crate::events::{Screen, ServiceEvent};
 use crate::masternode_client::{Balance, HealthStatus, TransactionRecord, TransactionStatus, Utxo};
 use crate::ws_client::TxNotification;
 
-/// Insert commas into the integer part of a formatted number string.
-fn format_with_commas(s: &str) -> String {
+/// Group a formatted number string with spaces every 3 digits, both before
+/// and after the decimal point.
+///
+/// Integer part groups from the right (e.g. "1234567" → "1 234 567").
+/// Decimal part groups from the left (e.g. "89012345" → "890 123 45"),
+/// which makes it easy to count satoshi positions.
+fn format_with_spaces(s: &str) -> String {
     let (int_part, dec_part) = match s.find('.') {
-        Some(pos) => (&s[..pos], Some(&s[pos..])),
+        Some(pos) => (&s[..pos], Some(&s[pos + 1..])),
         None => (s, None),
     };
     let digits: Vec<u8> = int_part.bytes().collect();
-    let mut result = String::with_capacity(s.len() + digits.len() / 3);
+    let mut result = String::with_capacity(s.len() + digits.len() / 3 + 1);
     for (i, &b) in digits.iter().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            result.push(',');
+            result.push(' ');
         }
         result.push(b as char);
     }
     if let Some(dec) = dec_part {
-        result.push_str(dec);
+        result.push('.');
+        for (i, c) in dec.chars().enumerate() {
+            if i > 0 && i.is_multiple_of(3) {
+                result.push(' ');
+            }
+            result.push(c);
+        }
     }
     result
 }
@@ -500,7 +511,7 @@ impl AppState {
     pub fn format_time(&self, sats: u64) -> String {
         let time = sats as f64 / 100_000_000.0;
         let raw = format!("{:.prec$}", time, prec = self.decimal_places);
-        format!("{} TIME", format_with_commas(&raw))
+        format!("{} TIME", format_with_spaces(&raw))
     }
 
     /// Format a satoshi amount with sign prefix (+ or -).
@@ -508,7 +519,7 @@ impl AppState {
         let time = sats as f64 / 100_000_000.0;
         let sign = if is_negative { "-" } else { "+" };
         let raw = format!("{:.prec$}", time, prec = self.decimal_places);
-        format!("{}{} TIME", sign, format_with_commas(&raw))
+        format!("{}{} TIME", sign, format_with_spaces(&raw))
     }
 
     /// Look up a display name for an address. Checks own wallet address labels

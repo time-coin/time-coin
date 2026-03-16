@@ -269,7 +269,7 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
             if mark.value <= 0.0 {
                 String::new()
             } else if mark.value >= 1.0 {
-                insert_commas(&format!("{:.0}", mark.value))
+                insert_spaces(&format!("{:.0}", mark.value))
             } else {
                 format!("{:.4}", mark.value)
             }
@@ -283,7 +283,7 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
                 .unwrap_or_default();
             let tps = value.y;
             if tps >= 1.0 {
-                format!("{}\n{} tx/s", dt_str, format_number_commas(tps))
+                format!("{}\n{} tx/s", dt_str, format_number_spaces(tps))
             } else {
                 format!("{}\n{:.4} tx/s", dt_str, tps)
             }
@@ -511,13 +511,13 @@ fn show_bar_plot(ui: &mut Ui, id: &str, x_labels: &[String], charts: Vec<BarChar
             if mark.value <= 0.0 {
                 String::new()
             } else {
-                insert_commas(&format!("{:.0}", mark.value))
+                insert_spaces(&format!("{:.0}", mark.value))
             }
         })
         .label_formatter(move |series_name, value| {
             let idx = value.x.round() as usize;
             let month = label_vec2.get(idx).map(|s| s.as_str()).unwrap_or("?");
-            let amount_str = format_time_commas(value.y);
+            let amount_str = format_time_spaces(value.y);
             if series_name.is_empty() {
                 format!("{}\n{}", month, amount_str)
             } else {
@@ -535,28 +535,28 @@ fn show_bar_plot(ui: &mut Ui, id: &str, x_labels: &[String], charts: Vec<BarChar
         });
 }
 
-/// Format a TIME amount (f64, already converted from satoshis) with comma
-/// separators and 2 decimal places. E.g. 1234567.89 → "1,234,567.89 TIME".
-fn format_time_commas(time: f64) -> String {
+/// Format a TIME amount (f64, already converted from satoshis) with space
+/// grouping and 2 decimal places. E.g. 1234567.89 → "1 234 567.89 TIME".
+fn format_time_spaces(time: f64) -> String {
     let s = format!("{:.2}", time);
     let (int_part, dec_part) = s.split_once('.').unwrap_or((&s, "00"));
-    format!("{}.{} TIME", insert_commas(int_part), dec_part)
+    format!("{}.{} TIME", insert_spaces(int_part), dec_part)
 }
 
-/// Format a plain number with comma separators (integer, no unit).
-fn format_number_commas(n: f64) -> String {
+/// Format a plain integer with space grouping (no unit).
+fn format_number_spaces(n: f64) -> String {
     let s = format!("{:.0}", n);
-    insert_commas(&s)
+    insert_spaces(&s)
 }
 
-/// Insert thousands-separator commas into a non-negative integer string.
-fn insert_commas(s: &str) -> String {
+/// Insert a space every 3 digits (from the right) into a non-negative integer string.
+fn insert_spaces(s: &str) -> String {
     let digits: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, &c) in digits.iter().enumerate() {
         let remaining = digits.len() - i;
         if i > 0 && remaining.is_multiple_of(3) {
-            out.push(',');
+            out.push(' ');
         }
         out.push(c);
     }
