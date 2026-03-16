@@ -339,8 +339,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 ui.label(egui::RichText::new("Amount").size(14.0).strong());
                 ui.label(egui::RichText::new("Address").size(14.0).strong());
                 ui.label(egui::RichText::new("Date").size(14.0).strong());
-                ui.label(egui::RichText::new("Status").size(14.0).strong());
                 ui.label(egui::RichText::new("Memo").size(14.0).strong());
+                ui.label(egui::RichText::new("Status").size(14.0).strong());
                 ui.end_row();
 
                 for (i, tx) in state.transactions.iter().enumerate().take(10) {
@@ -443,30 +443,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         clicked_idx = Some(i);
                     }
 
-                    // Status — icon only, full label on hover
-                    let (status_icon, status_hover, status_color) = match tx.status {
-                        TransactionStatus::Approved => ("✅", "Approved", egui::Color32::GREEN),
-                        TransactionStatus::Pending => {
-                            ("⏳", "Pending", egui::Color32::from_rgb(255, 165, 0))
-                        }
-                        TransactionStatus::Declined => ("❌", "Declined", egui::Color32::RED),
-                    };
-                    if ui
-                        .add(
-                            egui::Label::new(
-                                egui::RichText::new(status_icon)
-                                    .size(14.0)
-                                    .color(status_color),
-                            )
-                            .sense(egui::Sense::click()),
-                        )
-                        .on_hover_text(status_hover)
-                        .clicked()
-                    {
-                        clicked_idx = Some(i);
-                    }
-
-                    // Memo (truncated, italic, grey)
+                    // Memo (truncated, italic)
                     if let Some(ref memo) = tx.memo {
                         let truncated = if memo.chars().count() > 30 {
                             format!("{}…", memo.chars().take(30).collect::<String>())
@@ -490,6 +467,29 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         }
                     } else {
                         ui.label("");
+                    }
+
+                    // Status — icon only, full label on hover
+                    let (status_icon, status_hover, status_color) = match tx.status {
+                        TransactionStatus::Approved => ("✅", "Approved", egui::Color32::GREEN),
+                        TransactionStatus::Pending => {
+                            ("⏳", "Pending", egui::Color32::from_rgb(255, 165, 0))
+                        }
+                        TransactionStatus::Declined => ("❌", "Declined", egui::Color32::RED),
+                    };
+                    if ui
+                        .add(
+                            egui::Label::new(
+                                egui::RichText::new(status_icon)
+                                    .size(14.0)
+                                    .color(status_color),
+                            )
+                            .sense(egui::Sense::click()),
+                        )
+                        .on_hover_text(status_hover)
+                        .clicked()
+                    {
+                        clicked_idx = Some(i);
                     }
 
                     ui.end_row();
