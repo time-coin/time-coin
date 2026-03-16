@@ -270,6 +270,20 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
                 String::new()
             }
         })
+        .label_formatter(|_name, value| {
+            let dt_str = chrono::DateTime::from_timestamp(value.x as i64, 0)
+                .map(|dt| {
+                    let local: chrono::DateTime<Local> = dt.into();
+                    local.format("%b %d %H:%M").to_string()
+                })
+                .unwrap_or_default();
+            let tps = value.y;
+            if tps >= 1.0 {
+                format!("{}\n{} tx/s", dt_str, format_number_commas(tps))
+            } else {
+                format!("{}\n{:.4} tx/s", dt_str, tps)
+            }
+        })
         .include_y(0.0)
         .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
@@ -472,6 +486,7 @@ fn render_by_address_chart(
 /// Render a bar chart with month labels on the x-axis.
 fn show_bar_plot(ui: &mut Ui, id: &str, x_labels: &[String], charts: Vec<BarChart>) {
     let label_vec = x_labels.to_vec();
+    let label_vec2 = label_vec.clone();
     let n_bars = x_labels.len();
 
     Plot::new(id)
@@ -501,6 +516,16 @@ fn show_bar_plot(ui: &mut Ui, id: &str, x_labels: &[String], charts: Vec<BarChar
                 String::new()
             }
         })
+        .label_formatter(move |series_name, value| {
+            let idx = value.x.round() as usize;
+            let month = label_vec2.get(idx).map(|s| s.as_str()).unwrap_or("?");
+            let amount_str = format_time_commas(value.y);
+            if series_name.is_empty() {
+                format!("{}\n{}", month, amount_str)
+            } else {
+                format!("{} — {}\n{}", series_name, month, amount_str)
+            }
+        })
         .include_x(-0.5)
         .include_x(n_bars as f64 - 0.5)
         .include_y(0.0)
@@ -510,6 +535,34 @@ fn show_bar_plot(ui: &mut Ui, id: &str, x_labels: &[String], charts: Vec<BarChar
                 plot_ui.bar_chart(chart);
             }
         });
+}
+
+/// Format a TIME amount (f64, already converted from satoshis) with comma
+/// separators and 2 decimal places. E.g. 1234567.89 → "1,234,567.89 TIME".
+fn format_time_commas(time: f64) -> String {
+    let s = format!("{:.2}", time);
+    let (int_part, dec_part) = s.split_once('.').unwrap_or((&s, "00"));
+    format!("{}.{} TIME", insert_commas(int_part), dec_part)
+}
+
+/// Format a plain number with comma separators (integer, no unit).
+fn format_number_commas(n: f64) -> String {
+    let s = format!("{:.0}", n);
+    insert_commas(&s)
+}
+
+/// Insert thousands-separator commas into a non-negative integer string.
+fn insert_commas(s: &str) -> String {
+    let digits: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, &c) in digits.iter().enumerate() {
+        let remaining = digits.len() - i;
+        if i > 0 && remaining.is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn month_label(year: i32, month: u32) -> String {
