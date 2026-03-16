@@ -370,8 +370,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                     ui.label(egui::RichText::new("Address").size(13.0).strong());
                     ui.label(egui::RichText::new("Memo").size(13.0).strong());
                     ui.label(egui::RichText::new("TxID").size(13.0).strong());
-                    ui.label(egui::RichText::new("S").size(13.0).strong())
-                        .on_hover_text("Status");
+                    ui.label(egui::RichText::new("Status").size(13.0).strong());
                     ui.end_row();
 
                     for &i in page_items {
@@ -528,8 +527,8 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             clicked_idx = Some(i);
                         }
 
-                        // Col 7 — Status (icon only, label on hover)
-                        let (status_icon, status_hover, status_color) = match tx.status {
+                        // Col 7 — Status (icon + full word)
+                        let (status_icon, status_label, status_color) = match tx.status {
                             TransactionStatus::Approved => ("✅", "Approved", egui::Color32::GREEN),
                             TransactionStatus::Pending => {
                                 ("⏳", "Pending", egui::Color32::from_rgb(255, 165, 0))
@@ -539,13 +538,12 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(status_icon)
+                                    egui::RichText::new(format!("{} {}", status_icon, status_label))
                                         .size(13.0)
                                         .color(status_color),
                                 )
                                 .sense(egui::Sense::click()),
                             )
-                            .on_hover_text(status_hover)
                             .clicked()
                         {
                             clicked_idx = Some(i);
