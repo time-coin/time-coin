@@ -32,16 +32,14 @@ pub fn show_page(ui: &mut Ui, state: &mut AppState) {
     egui::ScrollArea::vertical()
         .id_salt("charts_scroll")
         .auto_shrink([false, false])
-        .show(ui, |ui| {
-            match state.chart_tab {
-                ChartTab::Income => {
-                    render_income_controls(ui, state);
-                    ui.add_space(6.0);
-                    render_income_chart(ui, state);
-                }
-                ChartTab::Tps => {
-                    render_tps_chart(ui, state);
-                }
+        .show(ui, |ui| match state.chart_tab {
+            ChartTab::Income => {
+                render_income_controls(ui, state);
+                ui.add_space(6.0);
+                render_income_chart(ui, state);
+            }
+            ChartTab::Tps => {
+                render_tps_chart(ui, state);
             }
         });
 }
