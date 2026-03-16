@@ -28,16 +28,22 @@ pub fn show_page(ui: &mut Ui, state: &mut AppState) {
     });
     ui.add_space(8.0);
 
-    match state.chart_tab {
-        ChartTab::Income => {
-            render_income_controls(ui, state);
-            ui.add_space(6.0);
-            render_income_chart(ui, state);
-        }
-        ChartTab::Tps => {
-            render_tps_chart(ui, state);
-        }
-    }
+    // Scroll area so content is always reachable regardless of window height
+    egui::ScrollArea::vertical()
+        .id_salt("charts_scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            match state.chart_tab {
+                ChartTab::Income => {
+                    render_income_controls(ui, state);
+                    ui.add_space(6.0);
+                    render_income_chart(ui, state);
+                }
+                ChartTab::Tps => {
+                    render_tps_chart(ui, state);
+                }
+            }
+        });
 }
 
 // ============================================================================
@@ -248,7 +254,7 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
         .name("TPS");
 
     Plot::new("tps_chart")
-        .height(200.0)
+        .height(320.0)
         .allow_drag(false)
         .allow_zoom(false)
         .allow_scroll(false)
@@ -262,12 +268,12 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
             }
         })
         .y_axis_formatter(|mark, _range| {
-            if mark.value >= 1.0 {
-                format!("{:.1}", mark.value)
-            } else if mark.value > 0.0 {
-                format!("{:.3}", mark.value)
-            } else {
+            if mark.value <= 0.0 {
                 String::new()
+            } else if mark.value >= 1.0 {
+                insert_commas(&format!("{:.0}", mark.value))
+            } else {
+                format!("{:.4}", mark.value)
             }
         })
         .label_formatter(|_name, value| {
@@ -490,7 +496,7 @@ fn show_bar_plot(ui: &mut Ui, id: &str, x_labels: &[String], charts: Vec<BarChar
     let n_bars = x_labels.len();
 
     Plot::new(id)
-        .height(200.0)
+        .height(320.0)
         .allow_drag(false)
         .allow_zoom(false)
         .allow_scroll(false)
@@ -504,16 +510,10 @@ fn show_bar_plot(ui: &mut Ui, id: &str, x_labels: &[String], charts: Vec<BarChar
             }
         })
         .y_axis_formatter(|mark, _range| {
-            if mark.value >= 1_000_000.0 {
-                format!("{:.1}M", mark.value / 1_000_000.0)
-            } else if mark.value >= 1_000.0 {
-                format!("{:.1}K", mark.value / 1_000.0)
-            } else if mark.value >= 1.0 {
-                format!("{:.0}", mark.value)
-            } else if mark.value > 0.0 {
-                format!("{:.2}", mark.value)
-            } else {
+            if mark.value <= 0.0 {
                 String::new()
+            } else {
+                insert_commas(&format!("{:.0}", mark.value))
             }
         })
         .label_formatter(move |series_name, value| {
