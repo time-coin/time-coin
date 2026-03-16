@@ -114,6 +114,8 @@ pub struct PaymentRequestNotification {
     pub from_address: String,
     pub to_address: String,
     pub amount: f64,
+    #[serde(default)]
+    pub label: String,
     pub memo: String,
     pub pubkey: String,
     pub timestamp: i64,

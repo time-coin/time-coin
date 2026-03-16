@@ -1206,7 +1206,7 @@ pub async fn run(
                         }
                     }
 
-                    UiEvent::SendPaymentRequest { to_address, amount, memo } => {
+                    UiEvent::SendPaymentRequest { to_address, amount, label, memo } => {
                         if let Some(ref client) = state.client {
                             if let Some(ref wm) = state.wallet {
                                 match wm.derive_keypair(0) {
@@ -1249,6 +1249,7 @@ pub async fn run(
                                             &from_address,
                                             &to_address,
                                             amount,
+                                            &label,
                                             &memo,
                                             &pubkey_hex,
                                             &signature_hex,
@@ -1685,6 +1686,7 @@ pub async fn run(
                             from_address: notif.from_address,
                             to_address: notif.to_address,
                             amount: (notif.amount * 100_000.0) as u64,
+                            label: notif.label,
                             memo: notif.memo,
                             pubkey_hex: notif.pubkey,
                             signature_hex: String::new(),
@@ -3054,6 +3056,11 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
         from_address: val.get("from_address")?.as_str()?.to_string(),
         to_address: val.get("to_address")?.as_str()?.to_string(),
         amount: val.get("amount")?.as_u64()?,
+        label: val
+            .get("label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         memo: val
             .get("memo")
             .and_then(|v| v.as_str())

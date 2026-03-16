@@ -14,6 +14,8 @@ pub struct PaymentRequest {
     pub from_address: String,
     pub to_address: String,
     pub amount: u64,
+    /// Short label / subject for the request (e.g. "Invoice #42").
+    pub label: String,
     pub memo: String,
     pub pubkey_hex: String,
     pub signature_hex: String,
@@ -173,6 +175,7 @@ pub enum UiEvent {
     SendPaymentRequest {
         to_address: String,
         amount: u64,
+        label: String,
         memo: String,
     },
 

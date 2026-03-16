@@ -233,9 +233,13 @@ pub struct AppState {
     /// "Request Payment" form fields.
     pub pr_address: String,
     pub pr_amount: String,
+    pub pr_label: String,
     pub pr_memo: String,
     /// Whether the Request Payment inline form is expanded on the Receive screen.
     pub show_payment_request_form: bool,
+    /// Per-request memo overrides: the payer can edit the memo before approving.
+    /// Key = payment request id.
+    pub pr_memo_overrides: std::collections::HashMap<String, String>,
 
     // -- Charts --
     /// Which chart tab is active on the Charts page.
@@ -338,8 +342,10 @@ impl Default for AppState {
             payment_requests: Vec::new(),
             pr_address: String::new(),
             pr_amount: String::new(),
+            pr_label: String::new(),
             pr_memo: String::new(),
             show_payment_request_form: false,
+            pr_memo_overrides: std::collections::HashMap::new(),
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,
