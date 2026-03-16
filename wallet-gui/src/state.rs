@@ -647,8 +647,22 @@ impl AppState {
                     .cloned()
                     .collect();
 
+                // Snapshot memos from the existing state so they can be
+                // restored when an RPC update returns the same transaction
+                // without a memo (common for block rewards / receives).
+                let existing_memos: std::collections::HashMap<(String, bool, u32), String> = self
+                    .transactions
+                    .iter()
+                    .filter_map(|t| {
+                        t.memo
+                            .as_ref()
+                            .map(|m| ((t.txid.clone(), t.is_send, t.vout), m.clone()))
+                    })
+                    .collect();
+
                 // Deduplicate the RPC results by (txid, is_send, vout).
                 // Replace RPC "send" entries with persisted local versions.
+                // Restore memos on receive entries when the RPC omits them.
                 let mut seen = std::collections::HashSet::new();
                 self.transactions = txs
                     .into_iter()
@@ -664,6 +678,16 @@ impl AppState {
                                     merged.timestamp = t.timestamp;
                                 }
                                 return merged;
+                            }
+                        }
+                        // Preserve a previously-decrypted memo if the RPC entry
+                        // doesn't carry one (e.g. block rewards on subsequent polls).
+                        if t.memo.is_none() {
+                            let key = (t.txid.clone(), t.is_send, t.vout);
+                            if let Some(memo) = existing_memos.get(&key) {
+                                let mut t = t;
+                                t.memo = Some(memo.clone());
+                                return t;
                             }
                         }
                         t
