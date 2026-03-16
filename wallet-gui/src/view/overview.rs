@@ -335,10 +335,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             .min_col_width(0.0)
             .striped(true)
             .show(ui, |ui| {
-                // Header
+                // Header: Type | Date | Amount | Address | Memo | Status
                 ui.label(egui::RichText::new("Type").size(14.0).strong());
-                ui.label(egui::RichText::new("Amount").size(14.0).strong());
                 ui.label(egui::RichText::new("Date").size(14.0).strong());
+                ui.label(egui::RichText::new("Amount").size(14.0).strong());
                 ui.label(egui::RichText::new("Address").size(14.0).strong());
                 ui.label(egui::RichText::new("Memo").size(14.0).strong());
                 ui.label(egui::RichText::new("Status").size(14.0).strong());
@@ -365,24 +365,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         clicked_idx = Some(i);
                     }
 
-                    // Amount
-                    let is_neg = tx.is_send || tx.is_fee;
-                    if ui
-                        .add(
-                            egui::Label::new(
-                                egui::RichText::new(state.format_time_signed(tx.amount, is_neg))
-                                    .size(14.0)
-                                    .strong()
-                                    .color(amount_color),
-                            )
-                            .sense(egui::Sense::click()),
-                        )
-                        .clicked()
-                    {
-                        clicked_idx = Some(i);
-                    }
-
-                    // Date (col 3)
+                    // Date (col 2)
                     let date_str = if tx.timestamp > 0 {
                         chrono::DateTime::from_timestamp(tx.timestamp, 0)
                             .map(|dt| {
@@ -399,6 +382,23 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                 egui::RichText::new(date_str)
                                     .size(14.0)
                                     .color(ui.visuals().weak_text_color()),
+                            )
+                            .sense(egui::Sense::click()),
+                        )
+                        .clicked()
+                    {
+                        clicked_idx = Some(i);
+                    }
+
+                    // Amount (col 3)
+                    let is_neg = tx.is_send || tx.is_fee;
+                    if ui
+                        .add(
+                            egui::Label::new(
+                                egui::RichText::new(state.format_time_signed(tx.amount, is_neg))
+                                    .size(14.0)
+                                    .strong()
+                                    .color(amount_color),
                             )
                             .sense(egui::Sense::click()),
                         )
