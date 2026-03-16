@@ -329,7 +329,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     } else {
         let mut clicked_idx: Option<usize> = None;
         egui::Grid::new("recent_tx_grid")
-            .num_columns(5)
+            .num_columns(6)
             .spacing([12.0, 8.0])
             .min_col_width(0.0)
             .striped(true)
@@ -340,6 +340,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 ui.label(egui::RichText::new("Address").size(14.0).strong());
                 ui.label(egui::RichText::new("Date").size(14.0).strong());
                 ui.label(egui::RichText::new("Status").size(14.0).strong());
+                ui.label(egui::RichText::new("Memo").size(14.0).strong());
                 ui.end_row();
 
                 for (i, tx) in state.transactions.iter().enumerate().take(10) {
@@ -462,6 +463,32 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         .clicked()
                     {
                         clicked_idx = Some(i);
+                    }
+
+                    // Memo (truncated, italic, grey)
+                    if let Some(ref memo) = tx.memo {
+                        let truncated = if memo.chars().count() > 30 {
+                            format!("{}…", memo.chars().take(30).collect::<String>())
+                        } else {
+                            memo.clone()
+                        };
+                        if ui
+                            .add(
+                                egui::Label::new(
+                                    egui::RichText::new(truncated)
+                                        .size(13.0)
+                                        .italics()
+                                        .color(ui.visuals().text_color()),
+                                )
+                                .sense(egui::Sense::click()),
+                            )
+                            .on_hover_text(memo.as_str())
+                            .clicked()
+                        {
+                            clicked_idx = Some(i);
+                        }
+                    } else {
+                        ui.label("");
                     }
 
                     ui.end_row();
