@@ -15,29 +15,29 @@ const SATS_PER_TIME: f64 = 100_000_000.0;
 /// Month key: (year, month 1-12).
 type MonthKey = (i32, u32);
 
-/// Render the chart section (collapsible, with tab switching).
-pub fn show(ui: &mut Ui, state: &mut AppState) {
-    egui::CollapsingHeader::new(egui::RichText::new("Charts").strong())
-        .default_open(state.show_income_chart)
-        .show(ui, |ui| {
-            // Tab bar
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut state.chart_tab, ChartTab::Income, "Income");
-                ui.selectable_value(&mut state.chart_tab, ChartTab::Tps, "Transactions / Second");
-            });
-            ui.add_space(4.0);
+/// Render the full Charts page.
+pub fn show_page(ui: &mut Ui, state: &mut AppState) {
+    ui.heading("Charts");
+    ui.separator();
+    ui.add_space(8.0);
 
-            match state.chart_tab {
-                ChartTab::Income => {
-                    render_income_controls(ui, state);
-                    ui.add_space(4.0);
-                    render_income_chart(ui, state);
-                }
-                ChartTab::Tps => {
-                    render_tps_chart(ui, state);
-                }
-            }
-        });
+    // Tab bar
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut state.chart_tab, ChartTab::Income, "Income");
+        ui.selectable_value(&mut state.chart_tab, ChartTab::Tps, "Transactions / Second");
+    });
+    ui.add_space(8.0);
+
+    match state.chart_tab {
+        ChartTab::Income => {
+            render_income_controls(ui, state);
+            ui.add_space(6.0);
+            render_income_chart(ui, state);
+        }
+        ChartTab::Tps => {
+            render_tps_chart(ui, state);
+        }
+    }
 }
 
 // ============================================================================

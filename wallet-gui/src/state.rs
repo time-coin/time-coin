@@ -223,9 +223,7 @@ pub struct AppState {
     pub pr_memo: String,
 
     // -- Charts --
-    /// Whether to show the chart section on Overview.
-    pub show_income_chart: bool,
-    /// Which chart tab is active.
+    /// Which chart tab is active on the Charts page.
     pub chart_tab: ChartTab,
     /// Number of months of history to display (income chart).
     pub chart_months: usize,
@@ -326,7 +324,6 @@ impl Default for AppState {
             pr_address: String::new(),
             pr_amount: String::new(),
             pr_memo: String::new(),
-            show_income_chart: true,
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,

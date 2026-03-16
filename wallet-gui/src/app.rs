@@ -145,6 +145,13 @@ impl eframe::App for App {
                     nav_button(
                         ui,
                         &mut self.state,
+                        "📊 Charts",
+                        Screen::Charts,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
                         "🖥 Masternodes",
                         Screen::Masternodes,
                         &self.ui_tx,
@@ -286,6 +293,9 @@ impl eframe::App for App {
             }
             Screen::Tools => {
                 view::tools::show(ui, &mut self.state, &self.ui_tx);
+            }
+            Screen::Charts => {
+                view::income_chart::show_page(ui, &mut self.state);
             }
             Screen::Utxos => {
                 view::overview::show(ui, &mut self.state, &self.ui_tx);
