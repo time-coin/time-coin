@@ -84,6 +84,13 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
             ui.label(egui::RichText::new(status_text).color(status_color));
             ui.end_row();
 
+            // Memo (shown prominently, near the top)
+            if let Some(ref memo) = tx.memo {
+                ui.label(egui::RichText::new("Memo:").strong());
+                ui.label(egui::RichText::new(memo).italics());
+                ui.end_row();
+            }
+
             // Transaction ID
             ui.label(egui::RichText::new("Transaction ID:").strong());
             {
@@ -189,12 +196,6 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                 ui.end_row();
             }
 
-            // Memo
-            if let Some(ref memo) = tx.memo {
-                ui.label(egui::RichText::new("Memo:").strong());
-                ui.label(egui::RichText::new(memo).italics());
-                ui.end_row();
-            }
         });
 
     // Show "Use as Masternode Collateral" for confirmed received transactions
