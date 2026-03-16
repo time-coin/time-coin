@@ -13,6 +13,7 @@ path = "src/main.rs"
 eframe = "0.31"
 egui = "0.31"
 egui_extras = { version = "0.31", features = ["image"] }
+egui_plot = "0.31"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Async runtime
@@ -85,5 +86,5 @@ arboard = { version = "3", default-features = false }
 rfd = "0.15"
 
 # Local wallet dependency from parent project
-wallet = { path = "../wallet", version = "0.3.0" }
+wallet = { path = "../wallet", version = "0.4.0" }
 

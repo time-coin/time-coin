@@ -54,6 +54,26 @@ pub struct ContactInfo {
     pub address: String,
 }
 
+/// Income chart display mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartMode {
+    /// All addresses combined into a single total bar per month.
+    Total,
+    /// Each address shown as a separate colored bar per month.
+    ByAddress,
+    /// Only show income for one specific address.
+    SingleAddress,
+}
+
+/// Which chart tab is active on the overview.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartTab {
+    /// Monthly income chart.
+    Income,
+    /// Transactions per second over time.
+    Tps,
+}
+
 /// All application state needed for rendering.
 #[derive(Debug)]
 pub struct AppState {
@@ -201,6 +221,18 @@ pub struct AppState {
     pub pr_address: String,
     pub pr_amount: String,
     pub pr_memo: String,
+
+    // -- Charts --
+    /// Whether to show the chart section on Overview.
+    pub show_income_chart: bool,
+    /// Which chart tab is active.
+    pub chart_tab: ChartTab,
+    /// Number of months of history to display (income chart).
+    pub chart_months: usize,
+    /// Income chart view mode.
+    pub chart_mode: ChartMode,
+    /// When mode is SingleAddress, which address to show.
+    pub chart_address_idx: usize,
 }
 
 impl Default for AppState {
@@ -294,6 +326,11 @@ impl Default for AppState {
             pr_address: String::new(),
             pr_amount: String::new(),
             pr_memo: String::new(),
+            show_income_chart: true,
+            chart_tab: ChartTab::Income,
+            chart_months: 12,
+            chart_mode: ChartMode::Total,
+            chart_address_idx: 0,
         }
     }
 }
@@ -689,7 +726,7 @@ impl AppState {
                                 block_hash: String::new(),
                                 block_height: 0,
                                 confirmations: 0,
-                                memo: None,
+                                memo: local_tx.memo.clone(),
                             });
                         }
                     }
@@ -716,6 +753,12 @@ impl AppState {
                 for (txid, fee, timestamp, status) in send_txids_with_fees {
                     let has_fee = self.transactions.iter().any(|t| t.txid == txid && t.is_fee);
                     if !has_fee {
+                        // Copy memo from the corresponding send entry
+                        let memo = self
+                            .transactions
+                            .iter()
+                            .find(|t| t.txid == txid && t.is_send && !t.is_fee)
+                            .and_then(|t| t.memo.clone());
                         self.transactions.push(TransactionRecord {
                             txid,
                             vout: 0,
@@ -730,7 +773,7 @@ impl AppState {
                             block_hash: String::new(),
                             block_height: 0,
                             confirmations: 0,
-                            memo: None,
+                            memo,
                         });
                     }
                 }
@@ -760,7 +803,12 @@ impl AppState {
                             .unwrap_or(false);
                         if is_self_receive && !kept_self_receive.contains(&tx.txid) {
                             kept_self_receive.insert(tx.txid.clone());
-                            // This is the actual send-to-self receive, keep it
+                            // Copy memo from the local send record to the receive entry
+                            if tx.memo.is_none() {
+                                if let Some(send) = local_sends.get(&tx.txid) {
+                                    tx.memo = send.memo.clone();
+                                }
+                            }
                         } else {
                             tx.is_change = true;
                         }
@@ -797,7 +845,7 @@ impl AppState {
                             block_hash: String::new(),
                             block_height: 0,
                             confirmations: 0,
-                            memo: None,
+                            memo: send_tx.memo.clone(),
                         });
                     }
                 }

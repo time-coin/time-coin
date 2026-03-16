@@ -23,6 +23,19 @@ pub const SURFACE_CARD: Color32 = Color32::from_rgb(26, 32, 44);
 #[allow(dead_code)]
 pub const SURFACE_WARNING: Color32 = Color32::from_rgb(60, 45, 0);
 
+// ── Chart ─────────────────────────────────────────────────────────────────
+/// Color palette for per-address income chart bars.
+pub const CHART_PALETTE: [Color32; 8] = [
+    Color32::from_rgb(0, 200, 80),   // green
+    Color32::from_rgb(33, 150, 243), // blue
+    Color32::from_rgb(255, 193, 7),  // amber
+    Color32::from_rgb(156, 39, 176), // purple
+    Color32::from_rgb(255, 87, 34),  // deep orange
+    Color32::from_rgb(0, 188, 212),  // cyan
+    Color32::from_rgb(233, 30, 99),  // pink
+    Color32::from_rgb(139, 195, 74), // light green
+];
+
 // ── Egui visuals ───────────────────────────────────────────────────────────
 /// Apply the TIME dark theme to an egui context.
 pub fn apply(ctx: &egui::Context) {

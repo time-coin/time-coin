@@ -190,11 +190,7 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
             // Memo
             if let Some(ref memo) = tx.memo {
                 ui.label(egui::RichText::new("Memo:").strong());
-                ui.label(
-                    egui::RichText::new(memo)
-                        .italics()
-                        .color(theme::TEXT_SECONDARY),
-                );
+                ui.label(egui::RichText::new(memo).italics());
                 ui.end_row();
             }
         });
@@ -468,7 +464,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                     egui::RichText::new(memo_text)
                                         .size(13.0)
                                         .italics()
-                                        .color(theme::TEXT_SECONDARY),
+                                        .color(ui.visuals().text_color()),
                                 )
                                 .sense(egui::Sense::click()),
                             )

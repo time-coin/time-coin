@@ -31,5 +31,5 @@ zeroize = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 env_logger = { workspace = true }
-time-core = { version = "0.3.0", path = "../core" }
-time-mempool = { version = "0.3.0", path = "../mempool" }
+time-core = { version = "0.4.0", path = "../core" }
+time-mempool = { version = "0.4.0", path = "../mempool" }

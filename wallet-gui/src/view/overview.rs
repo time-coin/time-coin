@@ -196,6 +196,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
     ui.add_space(15.0);
 
+    // Income chart
+    crate::view::income_chart::show(ui, state);
+
+    ui.add_space(10.0);
+
     // Security warning for unencrypted wallets
     if state.wallet_loaded && !state.wallet_encrypted {
         ui.group(|ui| {

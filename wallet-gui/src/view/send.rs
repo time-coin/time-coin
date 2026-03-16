@@ -269,39 +269,61 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             && !insufficient
             && !state.loading;
 
-        if ui
-            .add_enabled(
-                can_send,
-                egui::Button::new(egui::RichText::new("Send Transaction").size(16.0))
-                    .min_size(egui::vec2(200.0, 36.0)),
-            )
-            .clicked()
-        {
-            if send_amount == 0 {
-                state.error = Some("Invalid amount".to_string());
-            } else {
-                // Auto-save to address book if name is provided
-                if !state.send_recipient_name.trim().is_empty() {
-                    let _ = ui_tx.send(UiEvent::SaveContact {
-                        name: state.send_recipient_name.trim().to_string(),
-                        address: state.send_address.clone(),
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(
+                    can_send,
+                    egui::Button::new(egui::RichText::new("Send Transaction").size(16.0))
+                        .min_size(egui::vec2(200.0, 36.0)),
+                )
+                .clicked()
+            {
+                if send_amount == 0 {
+                    state.error = Some("Invalid amount".to_string());
+                } else {
+                    // Auto-save to address book if name is provided
+                    if !state.send_recipient_name.trim().is_empty() {
+                        let _ = ui_tx.send(UiEvent::SaveContact {
+                            name: state.send_recipient_name.trim().to_string(),
+                            address: state.send_address.clone(),
+                        });
+                    }
+                    let _ = ui_tx.send(UiEvent::SendTransaction {
+                        to: state.send_address.clone(),
+                        amount: send_amount,
+                        fee: auto_fee,
+                        memo: state.send_memo.clone(),
                     });
+                    state.loading = true;
+                    state.error = None;
+                    state.send_too_large = false;
                 }
-                let _ = ui_tx.send(UiEvent::SendTransaction {
-                    to: state.send_address.clone(),
-                    amount: send_amount,
-                    fee: auto_fee,
-                    memo: state.send_memo.clone(),
-                });
-                state.loading = true;
-                state.error = None;
-                state.send_too_large = false;
             }
-        }
 
-        if state.loading {
-            ui.spinner();
-        }
+            ui.add_space(8.0);
+
+            if ui
+                .add(
+                    egui::Button::new(egui::RichText::new("Clear").size(16.0))
+                        .min_size(egui::vec2(80.0, 36.0)),
+                )
+                .clicked()
+            {
+                state.send_address.clear();
+                state.send_recipient_name.clear();
+                state.send_amount.clear();
+                state.send_fee.clear();
+                state.send_memo.clear();
+                state.send_include_fee = false;
+                state.send_too_large = false;
+                state.error = None;
+                state.success = None;
+            }
+
+            if state.loading {
+                ui.spinner();
+            }
+        });
     });
 
     // Status messages

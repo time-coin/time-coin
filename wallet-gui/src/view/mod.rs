@@ -12,6 +12,7 @@ pub(super) fn truncate_middle(s: &str, prefix: usize, suffix: usize) -> String {
 }
 
 pub mod connections;
+pub mod income_chart;
 pub mod masternodes;
 pub mod overview;
 pub mod receive;
