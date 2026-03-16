@@ -349,6 +349,9 @@ fn setup_fonts(ctx: &egui::Context) {
             .push("segoe_bold".to_owned());
     }
 
+    // Register Phosphor icon font (egui-phosphor regular weight).
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+
     ctx.set_fonts(fonts);
     theme::apply(ctx);
 }

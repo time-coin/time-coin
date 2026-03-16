@@ -1,6 +1,7 @@
 //! Overview screen — balance display and recent transactions.
 
 use egui::Ui;
+use egui_phosphor::regular as ph;
 use tokio::sync::mpsc;
 
 use crate::events::{Screen, UiEvent};
@@ -346,11 +347,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 for (i, tx) in state.transactions.iter().enumerate().take(10) {
                     // Type
                     let (dir_icon, amount_color) = if tx.is_fee {
-                        ("🧾 Fee", egui::Color32::from_rgb(255, 165, 0))
+                        (ph::RECEIPT, egui::Color32::from_rgb(255, 165, 0))
                     } else if tx.is_send {
-                        ("↑ Sent", egui::Color32::from_rgb(255, 80, 80))
+                        (ph::ARROW_UP_RIGHT, egui::Color32::from_rgb(255, 80, 80))
                     } else {
-                        ("↓ Received", egui::Color32::from_rgb(80, 200, 80))
+                        (ph::ARROW_DOWN_LEFT, egui::Color32::from_rgb(80, 200, 80))
                     };
                     if ui
                         .add(

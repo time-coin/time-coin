@@ -1,6 +1,7 @@
 //! Transactions screen — transaction history list with detail view.
 
 use egui::Ui;
+use egui_phosphor::regular as ph;
 use tokio::sync::mpsc;
 
 use crate::events::{Screen, UiEvent};
@@ -46,18 +47,19 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
     ui.add_space(10.0);
 
     // Direction and amount
-    let (dir_label, amount_color) = if tx.is_fee {
-        ("🧾 Fee", egui::Color32::from_rgb(255, 165, 0))
+    let (dir_icon, dir_label, amount_color) = if tx.is_fee {
+        (ph::RECEIPT, "Fee", egui::Color32::from_rgb(255, 165, 0))
     } else if tx.is_send {
-        ("↑ Sent", egui::Color32::from_rgb(255, 80, 80))
+        (ph::ARROW_UP_RIGHT, "Sent", egui::Color32::from_rgb(255, 80, 80))
     } else {
-        ("↓ Received", egui::Color32::from_rgb(80, 200, 80))
+        (ph::ARROW_DOWN_LEFT, "Received", egui::Color32::from_rgb(80, 200, 80))
     };
 
     let is_neg = tx.is_send || tx.is_fee;
     ui.label(
         egui::RichText::new(format!(
-            "{} {}",
+            "{} {} {}",
+            dir_icon,
             dir_label,
             state.format_time_signed(tx.amount, is_neg)
         ))
@@ -377,11 +379,11 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
 
                         // Col 1 — type icon
                         let (dir_icon, dir_hover, amount_color) = if tx.is_fee {
-                            ("🧾", "Fee", egui::Color32::from_rgb(255, 165, 0))
+                            (ph::RECEIPT, "Fee", egui::Color32::from_rgb(255, 165, 0))
                         } else if tx.is_send {
-                            ("↑", "Sent", egui::Color32::from_rgb(255, 80, 80))
+                            (ph::ARROW_UP_RIGHT, "Sent", egui::Color32::from_rgb(255, 80, 80))
                         } else {
-                            ("↓", "Received", egui::Color32::from_rgb(80, 200, 80))
+                            (ph::ARROW_DOWN_LEFT, "Received", egui::Color32::from_rgb(80, 200, 80))
                         };
                         if ui
                             .add(
