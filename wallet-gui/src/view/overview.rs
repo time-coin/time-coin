@@ -346,12 +346,12 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
                 for (i, tx) in state.transactions.iter().enumerate().take(10) {
                     // Type
-                    let (dir_icon, amount_color) = if tx.is_fee {
-                        (ph::RECEIPT, egui::Color32::from_rgb(255, 165, 0))
+                    let (dir_icon, dir_hover, amount_color) = if tx.is_fee {
+                        (ph::RECEIPT, "Network Fee", egui::Color32::from_rgb(255, 165, 0))
                     } else if tx.is_send {
-                        (ph::ARROW_UP_RIGHT, egui::Color32::from_rgb(255, 80, 80))
+                        (ph::ARROW_UP_RIGHT, "Sent", egui::Color32::from_rgb(255, 80, 80))
                     } else {
-                        (ph::ARROW_DOWN_LEFT, egui::Color32::from_rgb(80, 200, 80))
+                        (ph::ARROW_DOWN_LEFT, "Received", egui::Color32::from_rgb(80, 200, 80))
                     };
                     if ui
                         .add(
@@ -360,6 +360,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             )
                             .sense(egui::Sense::click()),
                         )
+                        .on_hover_text(dir_hover)
                         .clicked()
                     {
                         clicked_idx = Some(i);
