@@ -136,7 +136,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 ui.label(
                     egui::RichText::new(state.format_time(available))
                         .size(36.0)
-                        .strong()
+                        .family(egui::FontFamily::Name("Bold".into()))
                         .color(egui::Color32::BLACK),
                 );
                 ui.add_space(8.0);
@@ -181,7 +181,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     ui.label(
                         egui::RichText::new(state.format_time(locked))
                             .size(13.0)
-                            .color(theme::ORANGE),
+                            .color(egui::Color32::BLACK),
                     );
                     ui.add_space(20.0);
                     ui.label(
@@ -386,7 +386,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         chrono::DateTime::from_timestamp(tx.timestamp, 0)
                             .map(|dt| {
                                 let local: chrono::DateTime<chrono::Local> = dt.into();
-                                local.format("%Y-%m-%d %H:%M").to_string()
+                                local.format("%b %d %H:%M").to_string()
                             })
                             .unwrap_or_default()
                     } else {

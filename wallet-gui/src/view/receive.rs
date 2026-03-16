@@ -47,9 +47,15 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             ui.add_space(8.0);
             ui.label(egui::RichText::new(&selected_addr).monospace().size(13.0));
             ui.add_space(8.0);
-            if ui.button("Copy Address").clicked() {
-                ui.ctx().copy_text(selected_addr.clone());
-            }
+            ui.horizontal(|ui| {
+                if ui.button("Copy Address").clicked() {
+                    ui.ctx().copy_text(selected_addr.clone());
+                }
+                ui.add_space(8.0);
+                if ui.button("Request Payment").clicked() {
+                    state.show_payment_request_form = !state.show_payment_request_form;
+                }
+            });
         });
     });
 
@@ -331,67 +337,80 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         }
     }
 
-    // ── Request Payment Form ──
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(6.0);
-    ui.label(
-        egui::RichText::new("📋 Request Payment")
-            .size(14.0)
-            .strong(),
-    );
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new("Send a payment request to another wallet via the masternode network.")
+    // ── Request Payment Form (inline, toggled by button) ──
+    if state.show_payment_request_form {
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("📋 Request Payment")
+                .size(14.0)
+                .strong(),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(
+                "Send a payment request to another wallet via the masternode network.",
+            )
             .color(egui::Color32::GRAY)
             .italics()
             .size(11.0),
-    );
-    ui.add_space(8.0);
-
-    ui.horizontal(|ui| {
-        ui.label("Payer Address:");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.pr_address)
-                .desired_width(350.0)
-                .hint_text("TIME address of who should pay..."),
         );
-    });
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.label("Amount (TIME):");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.pr_amount)
-                .desired_width(150.0)
-                .hint_text("0.00000"),
-        );
-    });
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.label("Memo:");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.pr_memo)
-                .desired_width(300.0)
-                .hint_text("Optional memo..."),
-        );
-    });
-    ui.add_space(8.0);
+        ui.add_space(8.0);
 
-    let can_send =
-        !state.pr_address.is_empty() && state.pr_amount.parse::<f64>().is_ok_and(|v| v > 0.0);
+        ui.horizontal(|ui| {
+            ui.label("Payer Address:");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.pr_address)
+                    .desired_width(350.0)
+                    .hint_text("TIME address of who should pay..."),
+            );
+        });
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label("Amount (TIME):");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.pr_amount)
+                    .desired_width(150.0)
+                    .hint_text("0.00000"),
+            );
+        });
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label("Memo:");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.pr_memo)
+                    .desired_width(300.0)
+                    .hint_text("Optional memo..."),
+            );
+        });
+        ui.add_space(8.0);
 
-    if ui
-        .add_enabled(can_send, egui::Button::new("📤 Send Request"))
-        .clicked()
-    {
-        if let Ok(amount_f64) = state.pr_amount.parse::<f64>() {
-            let amount = (amount_f64 * 100_000.0) as u64;
-            let _ = ui_tx.send(UiEvent::SendPaymentRequest {
-                to_address: state.pr_address.clone(),
-                amount,
-                memo: state.pr_memo.clone(),
-            });
-        }
+        let can_send = !state.pr_address.is_empty()
+            && state.pr_amount.parse::<f64>().is_ok_and(|v| v > 0.0);
+
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(can_send, egui::Button::new("📤 Send Request"))
+                .clicked()
+            {
+                if let Ok(amount_f64) = state.pr_amount.parse::<f64>() {
+                    let amount = (amount_f64 * 100_000.0) as u64;
+                    let _ = ui_tx.send(UiEvent::SendPaymentRequest {
+                        to_address: state.pr_address.clone(),
+                        amount,
+                        memo: state.pr_memo.clone(),
+                    });
+                    state.show_payment_request_form = false;
+                }
+            }
+            if ui.button("Cancel").clicked() {
+                state.show_payment_request_form = false;
+                state.pr_address.clear();
+                state.pr_amount.clear();
+                state.pr_memo.clear();
+            }
+        });
     }
 }
 

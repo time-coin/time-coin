@@ -234,6 +234,8 @@ pub struct AppState {
     pub pr_address: String,
     pub pr_amount: String,
     pub pr_memo: String,
+    /// Whether the Request Payment inline form is expanded on the Receive screen.
+    pub show_payment_request_form: bool,
 
     // -- Charts --
     /// Which chart tab is active on the Charts page.
@@ -337,6 +339,7 @@ impl Default for AppState {
             pr_address: String::new(),
             pr_amount: String::new(),
             pr_memo: String::new(),
+            show_payment_request_form: false,
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,
@@ -661,12 +664,32 @@ impl AppState {
                     .collect();
 
                 // Deduplicate the RPC results by (txid, is_send, vout).
+                // When duplicates exist (e.g. a block reward appearing in both the
+                // finalized pool as "receive" and in the confirmed block as "generate"),
+                // prefer the entry that carries a memo so "Block Reward" isn't lost.
                 // Replace RPC "send" entries with persisted local versions.
                 // Restore memos on receive entries when the RPC omits them.
-                let mut seen = std::collections::HashSet::new();
-                self.transactions = txs
+                //
+                // Two-pass dedup: first pass builds the best entry per key (prefer
+                // memo-bearing entries); second pass applies local-send / memo-restore
+                // logic to preserve insertion order.
+                let mut best: std::collections::HashMap<(String, bool, u32), usize> =
+                    std::collections::HashMap::new();
+                let mut ordered: Vec<crate::masternode_client::TransactionRecord> = Vec::new();
+                for t in txs.into_iter() {
+                    let key = (t.txid.clone(), t.is_send, t.vout);
+                    if let Some(&idx) = best.get(&key) {
+                        // Upgrade to this entry if it has a memo and the current best doesn't.
+                        if ordered[idx].memo.is_none() && t.memo.is_some() {
+                            ordered[idx] = t;
+                        }
+                    } else {
+                        best.insert(key, ordered.len());
+                        ordered.push(t);
+                    }
+                }
+                self.transactions = ordered
                     .into_iter()
-                    .filter(|t| seen.insert((t.txid.clone(), t.is_send, t.vout)))
                     .map(|t| {
                         if t.is_send && !t.is_fee {
                             if let Some(local) = local_sends.get(&t.txid) {

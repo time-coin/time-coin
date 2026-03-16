@@ -334,6 +334,21 @@ fn nav_button(
 /// Setup fonts, image loaders, and the visual theme.
 fn setup_fonts(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
-    ctx.set_fonts(egui::FontDefinitions::default());
+
+    let mut fonts = egui::FontDefinitions::default();
+
+    // Load Segoe UI Bold from Windows system fonts for use as "Bold" family.
+    if let Ok(bytes) = std::fs::read("C:/Windows/Fonts/segoeuib.ttf") {
+        fonts
+            .font_data
+            .insert("segoe_bold".to_owned(), egui::FontData::from_owned(bytes).into());
+        fonts
+            .families
+            .entry(egui::FontFamily::Name("Bold".into()))
+            .or_default()
+            .push("segoe_bold".to_owned());
+    }
+
+    ctx.set_fonts(fonts);
     theme::apply(ctx);
 }

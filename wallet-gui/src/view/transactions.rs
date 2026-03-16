@@ -361,15 +361,15 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                 .min_col_width(0.0)
                 .striped(true)
                 .show(ui, |ui| {
-                    // Header: icon | Date | Amount | Address | Memo | Status | TxID
+                    // Header: icon | Date | Amount | Address | Memo | TxID | Status
                     ui.label(egui::RichText::new("").size(13.0));
                     ui.label(egui::RichText::new("Date").size(13.0).strong());
                     ui.label(egui::RichText::new("Amount").size(13.0).strong());
                     ui.label(egui::RichText::new("Address").size(13.0).strong());
                     ui.label(egui::RichText::new("Memo").size(13.0).strong());
+                    ui.label(egui::RichText::new("TxID").size(13.0).strong());
                     ui.label(egui::RichText::new("S").size(13.0).strong())
                         .on_hover_text("Status");
-                    ui.label(egui::RichText::new("TxID").size(13.0).strong());
                     ui.end_row();
 
                     for &i in page_items {
@@ -504,7 +504,29 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                             clicked_idx = Some(i);
                         }
 
-                        // Col 6 — Status (icon only, label on hover)
+                        // Col 6 — TxID (truncated, full on hover)
+                        let short_txid = if tx.txid.len() > 12 {
+                            format!("{}..{}", &tx.txid[..6], &tx.txid[tx.txid.len() - 4..])
+                        } else {
+                            tx.txid.clone()
+                        };
+                        if ui
+                            .add(
+                                egui::Label::new(
+                                    egui::RichText::new(&short_txid)
+                                        .size(12.0)
+                                        .monospace()
+                                        .color(theme::TEXT_SECONDARY),
+                                )
+                                .sense(egui::Sense::click()),
+                            )
+                            .on_hover_text(&tx.txid)
+                            .clicked()
+                        {
+                            clicked_idx = Some(i);
+                        }
+
+                        // Col 7 — Status (icon only, label on hover)
                         let (status_icon, status_hover, status_color) = match tx.status {
                             TransactionStatus::Approved => ("✅", "Approved", egui::Color32::GREEN),
                             TransactionStatus::Pending => {
@@ -522,28 +544,6 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                                 .sense(egui::Sense::click()),
                             )
                             .on_hover_text(status_hover)
-                            .clicked()
-                        {
-                            clicked_idx = Some(i);
-                        }
-
-                        // Col 7 — TxID (truncated, full on hover)
-                        let short_txid = if tx.txid.len() > 12 {
-                            format!("{}..{}", &tx.txid[..6], &tx.txid[tx.txid.len() - 4..])
-                        } else {
-                            tx.txid.clone()
-                        };
-                        if ui
-                            .add(
-                                egui::Label::new(
-                                    egui::RichText::new(&short_txid)
-                                        .size(12.0)
-                                        .monospace()
-                                        .color(theme::TEXT_SECONDARY),
-                                )
-                                .sense(egui::Sense::click()),
-                            )
-                            .on_hover_text(&tx.txid)
                             .clicked()
                         {
                             clicked_idx = Some(i);
