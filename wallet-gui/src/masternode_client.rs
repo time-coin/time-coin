@@ -113,9 +113,11 @@ impl MasternodeClient {
             format!("http://{}", endpoint)
         };
 
-        // Accept self-signed certificates — masternodes use auto-generated certs (TOFU model)
+        // Accept self-signed certificates — masternodes use auto-generated certs (TOFU model).
+        // Timeout is set to 5 minutes to accommodate slow chain-scan RPCs
+        // (listtransactionsmulti on a large chain can take 60–90 s per chunk).
         let client = Client::builder()
-            .timeout(Duration::from_secs(120))
+            .timeout(Duration::from_secs(300))
             .connect_timeout(Duration::from_secs(10))
             .danger_accept_invalid_certs(true)
             .build()
@@ -258,20 +260,66 @@ impl MasternodeClient {
         Self::parse_transaction_list(result)
     }
 
-    /// Get transaction history across multiple addresses (batch query for HD wallets)
+    /// Get transaction history across multiple addresses (batch query for HD wallets).
+    ///
+    /// Addresses are split into chunks of 25 to avoid server-side timeouts when
+    /// scanning large chains with many addresses.  Results from all chunks are
+    /// merged and de-duplicated by (txid, is_send, vout) before returning.
     pub async fn get_transactions_multi(
         &self,
         addresses: &[String],
         limit: u32,
     ) -> Result<Vec<TransactionRecord>, ClientError> {
-        let result = self
-            .rpc_call(
-                "listtransactionsmulti",
-                serde_json::json!([addresses, limit]),
-            )
-            .await?;
+        const CHUNK_SIZE: usize = 25;
 
-        Self::parse_transaction_list(result)
+        if addresses.len() <= CHUNK_SIZE {
+            // Fast path — single call for small wallets.
+            let result = self
+                .rpc_call(
+                    "listtransactionsmulti",
+                    serde_json::json!([addresses, limit]),
+                )
+                .await?;
+            return Self::parse_transaction_list(result);
+        }
+
+        // Slow path — send in chunks and merge.
+        let mut all: Vec<TransactionRecord> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for chunk in addresses.chunks(CHUNK_SIZE) {
+            let result = self
+                .rpc_call(
+                    "listtransactionsmulti",
+                    serde_json::json!([chunk, limit]),
+                )
+                .await;
+
+            match result {
+                Ok(data) => {
+                    if let Ok(records) = Self::parse_transaction_list(data) {
+                        for r in records {
+                            let key = (r.txid.clone(), r.is_send, r.vout);
+                            if seen.insert(key) {
+                                all.push(r);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "listtransactionsmulti chunk ({} addrs) failed: {}",
+                        chunk.len(),
+                        e
+                    );
+                    // Continue with remaining chunks rather than aborting entirely.
+                }
+            }
+        }
+
+        // Sort newest-first (mirrors single-call ordering).
+        all.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        Ok(all)
     }
 
     /// Parse a JSON array of transaction objects into TransactionRecords
