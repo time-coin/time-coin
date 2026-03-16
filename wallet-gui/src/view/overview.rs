@@ -443,23 +443,24 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         clicked_idx = Some(i);
                     }
 
-                    // Status
-                    let (status_text, status_color) = match tx.status {
-                        TransactionStatus::Approved => ("✅ Approved", egui::Color32::GREEN),
+                    // Status — icon only, full label on hover
+                    let (status_icon, status_hover, status_color) = match tx.status {
+                        TransactionStatus::Approved => ("✅", "Approved", egui::Color32::GREEN),
                         TransactionStatus::Pending => {
-                            ("⏳ Pending", egui::Color32::from_rgb(255, 165, 0))
+                            ("⏳", "Pending", egui::Color32::from_rgb(255, 165, 0))
                         }
-                        TransactionStatus::Declined => ("❌ Declined", egui::Color32::RED),
+                        TransactionStatus::Declined => ("❌", "Declined", egui::Color32::RED),
                     };
                     if ui
                         .add(
                             egui::Label::new(
-                                egui::RichText::new(status_text)
+                                egui::RichText::new(status_icon)
                                     .size(14.0)
                                     .color(status_color),
                             )
                             .sense(egui::Sense::click()),
                         )
+                        .on_hover_text(status_hover)
                         .clicked()
                     {
                         clicked_idx = Some(i);
