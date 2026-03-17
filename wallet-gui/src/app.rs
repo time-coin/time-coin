@@ -339,9 +339,10 @@ fn setup_fonts(ctx: &egui::Context) {
 
     // Load Segoe UI Bold from Windows system fonts for use as "Bold" family.
     if let Ok(bytes) = std::fs::read("C:/Windows/Fonts/segoeuib.ttf") {
-        fonts
-            .font_data
-            .insert("segoe_bold".to_owned(), egui::FontData::from_owned(bytes).into());
+        fonts.font_data.insert(
+            "segoe_bold".to_owned(),
+            egui::FontData::from_owned(bytes).into(),
+        );
         fonts
             .families
             .entry(egui::FontFamily::Name("Bold".into()))

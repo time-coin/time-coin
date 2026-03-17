@@ -50,9 +50,17 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
     let (dir_icon, dir_label, amount_color) = if tx.is_fee {
         (ph::RECEIPT, "Fee", egui::Color32::from_rgb(255, 165, 0))
     } else if tx.is_send {
-        (ph::ARROW_UP_RIGHT, "Sent", egui::Color32::from_rgb(255, 80, 80))
+        (
+            ph::ARROW_UP_RIGHT,
+            "Sent",
+            egui::Color32::from_rgb(255, 80, 80),
+        )
     } else {
-        (ph::ARROW_DOWN_LEFT, "Received", egui::Color32::from_rgb(80, 200, 80))
+        (
+            ph::ARROW_DOWN_LEFT,
+            "Received",
+            egui::Color32::from_rgb(80, 200, 80),
+        )
     };
 
     let is_neg = tx.is_send || tx.is_fee;
@@ -195,7 +203,6 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                 }
                 ui.end_row();
             }
-
         });
 
     // Show "Use as Masternode Collateral" for confirmed received transactions
@@ -381,9 +388,17 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         let (dir_icon, dir_hover, amount_color) = if tx.is_fee {
                             (ph::RECEIPT, "Fee", egui::Color32::from_rgb(255, 165, 0))
                         } else if tx.is_send {
-                            (ph::ARROW_UP_RIGHT, "Sent", egui::Color32::from_rgb(255, 80, 80))
+                            (
+                                ph::ARROW_UP_RIGHT,
+                                "Sent",
+                                egui::Color32::from_rgb(255, 80, 80),
+                            )
                         } else {
-                            (ph::ARROW_DOWN_LEFT, "Received", egui::Color32::from_rgb(80, 200, 80))
+                            (
+                                ph::ARROW_DOWN_LEFT,
+                                "Received",
+                                egui::Color32::from_rgb(80, 200, 80),
+                            )
                         };
                         if ui
                             .add(
@@ -539,9 +554,12 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
                         if ui
                             .add(
                                 egui::Label::new(
-                                    egui::RichText::new(format!("{} {}", status_icon, status_label))
-                                        .size(13.0)
-                                        .color(status_color),
+                                    egui::RichText::new(format!(
+                                        "{} {}",
+                                        status_icon, status_label
+                                    ))
+                                    .size(13.0)
+                                    .color(status_color),
                                 )
                                 .sense(egui::Sense::click()),
                             )

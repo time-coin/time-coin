@@ -260,16 +260,21 @@ impl MasternodeClient {
         Self::parse_transaction_list(result)
     }
 
-    /// Get transaction history across multiple addresses (batch query for HD wallets).
+    /// Get transaction history across multiple addresses.
     ///
-    /// Addresses are split into chunks of 25 to avoid server-side timeouts when
-    /// scanning large chains with many addresses.  Results from all chunks are
-    /// merged and de-duplicated by (txid, is_send, vout) before returning.
+    /// `from_height` enables incremental polling: pass the last-known block
+    /// height so the masternode only scans newer blocks.  Use 0 for a full
+    /// historical scan (first load or explicit refresh).
+    ///
+    /// Returns a [`TransactionBatch`] containing the records and the current
+    /// chain height reported by the masternode, which the caller should store
+    /// and pass back as `from_height` on the next poll.
     pub async fn get_transactions_multi(
         &self,
         addresses: &[String],
         limit: u32,
-    ) -> Result<Vec<TransactionRecord>, ClientError> {
+        from_height: u64,
+    ) -> Result<TransactionBatch, ClientError> {
         const CHUNK_SIZE: usize = 25;
 
         if addresses.len() <= CHUNK_SIZE {
@@ -277,28 +282,32 @@ impl MasternodeClient {
             let result = self
                 .rpc_call(
                     "listtransactionsmulti",
-                    serde_json::json!([addresses, limit]),
+                    serde_json::json!([addresses, limit, from_height]),
                 )
                 .await?;
-            return Self::parse_transaction_list(result);
+            return Self::parse_transaction_batch(result);
         }
 
         // Slow path — send in chunks and merge.
         let mut all: Vec<TransactionRecord> = Vec::new();
         let mut seen = std::collections::HashSet::new();
+        let mut max_chain_height: u64 = 0;
 
         for chunk in addresses.chunks(CHUNK_SIZE) {
             let result = self
                 .rpc_call(
                     "listtransactionsmulti",
-                    serde_json::json!([chunk, limit]),
+                    serde_json::json!([chunk, limit, from_height]),
                 )
                 .await;
 
             match result {
                 Ok(data) => {
-                    if let Ok(records) = Self::parse_transaction_list(data) {
-                        for r in records {
+                    if let Ok(batch) = Self::parse_transaction_batch(data) {
+                        if batch.chain_height > max_chain_height {
+                            max_chain_height = batch.chain_height;
+                        }
+                        for r in batch.transactions {
                             let key = (r.txid.clone(), r.is_send, r.vout);
                             if seen.insert(key) {
                                 all.push(r);
@@ -319,7 +328,36 @@ impl MasternodeClient {
 
         // Sort newest-first (mirrors single-call ordering).
         all.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        Ok(all)
+        Ok(TransactionBatch {
+            transactions: all,
+            chain_height: max_chain_height,
+        })
+    }
+
+    /// Parse a wrapped `{"transactions":[...], "chain_height":N}` response from
+    /// the masternode, returning a [`TransactionBatch`].
+    fn parse_transaction_batch(result: serde_json::Value) -> Result<TransactionBatch, ClientError> {
+        // Support both the new wrapped format and the legacy plain-array format
+        // (older masternodes that have not yet been updated).
+        let (txs_value, chain_height) = if result.is_array() {
+            (result, 0u64)
+        } else {
+            let ch = result
+                .get("chain_height")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let txs = result
+                .get("transactions")
+                .cloned()
+                .unwrap_or(serde_json::Value::Array(vec![]));
+            (txs, ch)
+        };
+
+        let records = Self::parse_transaction_list(txs_value)?;
+        Ok(TransactionBatch {
+            transactions: records,
+            chain_height,
+        })
     }
 
     /// Parse a JSON array of transaction objects into TransactionRecords
@@ -803,6 +841,18 @@ impl Default for TransactionRecord {
             memo: None,
         }
     }
+}
+
+/// Result of a [`MasternodeClient::get_transactions_multi`] call.
+///
+/// `chain_height` is the masternode's current tip height at the time of the
+/// query.  The caller should store it and pass it back as `from_height` on the
+/// next poll to enable incremental scanning (only new blocks).
+#[derive(Debug, Clone)]
+pub struct TransactionBatch {
+    pub transactions: Vec<TransactionRecord>,
+    /// Current chain tip height as reported by the masternode.
+    pub chain_height: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

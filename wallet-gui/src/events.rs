@@ -231,8 +231,16 @@ pub enum ServiceEvent {
     /// Updated balance from masternode.
     BalanceUpdated(Balance),
 
-    /// Updated transaction list.
+    /// Updated transaction list (full replace — used on first load and manual refresh).
     TransactionsUpdated(Vec<TransactionRecord>),
+
+    /// New transactions from an incremental poll (merge into existing list).
+    /// `chain_height` is the masternode's current tip so the wallet can update
+    /// `last_synced_height` for the next incremental poll.
+    TransactionsAppended {
+        new_txs: Vec<TransactionRecord>,
+        chain_height: u64,
+    },
 
     /// Updated UTXO set.
     UtxosUpdated(Vec<Utxo>),

@@ -113,6 +113,10 @@ pub struct AppState {
     pub last_resync_at: Option<std::time::Instant>,
 
     // -- Transactions --
+    /// Chain tip height at the time of the last successful transaction poll.
+    /// Passed as `from_height` on the next incremental poll so the masternode
+    /// only scans newly-added blocks.  0 = not yet synced (full scan needed).
+    pub last_synced_height: u64,
     pub transactions: Vec<TransactionRecord>,
     pub selected_transaction: Option<usize>,
     pub tx_search: String,
@@ -270,6 +274,7 @@ impl Default for AppState {
             needs_resync: false,
             drift_count: 0,
             last_resync_at: None,
+            last_synced_height: 0,
             transactions: Vec::new(),
             selected_transaction: None,
             tx_search: String::new(),
@@ -957,6 +962,126 @@ impl AppState {
                         order(a).cmp(&order(b))
                     })
                 });
+
+                // Update incremental-sync height (0 = full scan happened but
+                // chain height is unknown; keep 0 so next poll is also full).
+                // The service will send a separate TransactionsAppended with the
+                // authoritative chain_height once incremental polling is active.
+                // For now just leave last_synced_height at whatever it was
+                // (the service updates it directly after TransactionsUpdated).
+            }
+
+            ServiceEvent::TransactionsAppended {
+                new_txs,
+                chain_height,
+            } => {
+                // Incremental update: merge new_txs into the existing list.
+                // Only add entries that are genuinely new (not already present).
+                let existing_keys: std::collections::HashSet<(String, bool, u32)> = self
+                    .transactions
+                    .iter()
+                    .map(|t| (t.txid.clone(), t.is_send, t.vout))
+                    .collect();
+
+                let approved_txids: std::collections::HashSet<String> = self
+                    .transactions
+                    .iter()
+                    .filter(|t| matches!(t.status, TransactionStatus::Approved))
+                    .map(|t| t.txid.clone())
+                    .collect();
+
+                let existing_memos: std::collections::HashMap<(String, bool, u32), String> = self
+                    .transactions
+                    .iter()
+                    .filter_map(|t| {
+                        t.memo
+                            .as_ref()
+                            .map(|m| ((t.txid.clone(), t.is_send, t.vout), m.clone()))
+                    })
+                    .collect();
+
+                let mut added = false;
+                for mut t in new_txs {
+                    let key = (t.txid.clone(), t.is_send, t.vout);
+                    if existing_keys.contains(&key) {
+                        // Update status on existing entry if it improved.
+                        if matches!(t.status, TransactionStatus::Approved) {
+                            for existing in &mut self.transactions {
+                                if existing.txid == t.txid
+                                    && existing.is_send == t.is_send
+                                    && existing.vout == t.vout
+                                {
+                                    existing.status = TransactionStatus::Approved;
+                                    if t.timestamp > 0 {
+                                        existing.timestamp = t.timestamp;
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    // Restore memo from existing state when RPC omits it.
+                    if t.memo.is_none() {
+                        if let Some(m) = existing_memos.get(&key) {
+                            t.memo = Some(m.clone());
+                        }
+                    }
+                    // Synthesize fee entry for new sends.
+                    if t.is_send && !t.is_fee && t.fee > 0 {
+                        let fee_key = (t.txid.clone(), true, 0u32);
+                        if !existing_keys.contains(&fee_key) {
+                            self.transactions.push(TransactionRecord {
+                                txid: t.txid.clone(),
+                                vout: 0,
+                                is_send: true,
+                                address: "Network Fee".to_string(),
+                                amount: t.fee,
+                                fee: 0,
+                                timestamp: t.timestamp,
+                                status: t.status.clone(),
+                                is_fee: true,
+                                is_change: false,
+                                block_hash: String::new(),
+                                block_height: 0,
+                                confirmations: 0,
+                                memo: t.memo.clone(),
+                            });
+                        }
+                    }
+                    self.transactions.push(t);
+                    added = true;
+                }
+
+                // Restore Approved status from existing finality records.
+                for tx in &mut self.transactions {
+                    if matches!(tx.status, TransactionStatus::Pending)
+                        && approved_txids.contains(&tx.txid)
+                    {
+                        tx.status = TransactionStatus::Approved;
+                    }
+                }
+
+                if added {
+                    self.transactions.sort_by(|a, b| {
+                        b.timestamp.cmp(&a.timestamp).then_with(|| {
+                            fn order(t: &TransactionRecord) -> u8 {
+                                if t.is_send && !t.is_fee {
+                                    2
+                                } else if t.is_fee {
+                                    1
+                                } else {
+                                    0
+                                }
+                            }
+                            order(a).cmp(&order(b))
+                        })
+                    });
+                }
+
+                // Advance the watermark regardless of whether new txs arrived.
+                if chain_height > self.last_synced_height {
+                    self.last_synced_height = chain_height;
+                }
             }
 
             ServiceEvent::UtxosUpdated(utxos) => {
