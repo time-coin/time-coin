@@ -24,7 +24,7 @@ pub fn show_page(ui: &mut Ui, state: &mut AppState) {
     // Tab bar
     ui.horizontal(|ui| {
         ui.selectable_value(&mut state.chart_tab, ChartTab::Income, "Income");
-        ui.selectable_value(&mut state.chart_tab, ChartTab::Tps, "Transactions / Second");
+        ui.selectable_value(&mut state.chart_tab, ChartTab::Tps, "Transaction Activity");
     });
     ui.add_space(8.0);
 
@@ -162,18 +162,22 @@ fn render_income_chart(ui: &mut Ui, state: &AppState) {
 // TPS Chart
 // ============================================================================
 
-/// Render the transactions-per-second chart.
+/// Render the transaction activity chart.
 ///
-/// Computes a rolling average TPS from the transaction history, bucketed into
-/// hourly intervals over the last 24 hours, or daily intervals over longer
-/// periods.
+/// Shows how many of the wallet's transactions occurred in each time bucket.
+/// Bucket size scales with data span: hourly for ≤1 day, 6-hourly for ≤1 week,
+/// daily for longer periods.
 fn render_tps_chart(ui: &mut Ui, state: &AppState) {
-    // Use all approved transactions with valid timestamps
+    // All approved wallet transactions (sends + receives, no fee line items,
+    // no consolidations — those don't represent real economic activity).
     let mut timestamps: Vec<i64> = state
         .transactions
         .iter()
         .filter(|tx| {
-            matches!(tx.status, TransactionStatus::Approved) && tx.timestamp > 0 && !tx.is_fee
+            matches!(tx.status, TransactionStatus::Approved)
+                && tx.timestamp > 0
+                && !tx.is_fee
+                && !tx.is_consolidation
         })
         .map(|tx| tx.timestamp)
         .collect();
@@ -199,22 +203,18 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
 
     // Choose bucket size based on data span
     let (bucket_secs, bucket_label) = if span <= 86_400 {
-        // <= 1 day: 1-hour buckets
-        (3_600i64, "Hourly avg")
+        (3_600i64, "per hour")
     } else if span <= 7 * 86_400 {
-        // <= 1 week: 6-hour buckets
-        (6 * 3_600, "6-hour avg")
+        (6 * 3_600, "per 6 hours")
     } else {
-        // > 1 week: daily buckets
-        (86_400, "Daily avg")
+        (86_400, "per day")
     };
 
-    // Build buckets: count transactions per bucket, compute TPS
+    // Build buckets: count transactions per bucket
     let first_bucket = oldest - (oldest % bucket_secs);
     let last_bucket = now - (now % bucket_secs);
 
     let mut counts: BTreeMap<i64, u32> = BTreeMap::new();
-    // Pre-fill all buckets in range with 0
     let mut t = first_bucket;
     while t <= last_bucket {
         counts.entry(t).or_insert(0);
@@ -225,32 +225,22 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
         *counts.entry(bucket).or_insert(0) += 1;
     }
 
-    // Convert to TPS (transactions per second within each bucket)
+    // Points: x = bucket timestamp, y = transaction count
     let points: Vec<[f64; 2]> = counts
         .iter()
-        .map(|(&bucket_start, &count)| {
-            let x = bucket_start as f64;
-            let tps = count as f64 / bucket_secs as f64;
-            [x, tps]
-        })
+        .map(|(&bucket_start, &count)| [bucket_start as f64, count as f64])
         .collect();
 
     if points.is_empty() {
         return;
     }
 
-    // Compute summary stats
     let total_tx: u32 = counts.values().sum();
-    let avg_tps = if span > 0 {
-        total_tx as f64 / span as f64
-    } else {
-        0.0
-    };
-    let peak_tps = points.iter().map(|p| p[1]).fold(0.0f64, f64::max);
+    let peak: u32 = counts.values().copied().max().unwrap_or(0);
 
     let line = Line::new(PlotPoints::new(points))
         .color(theme::PRIMARY_LIGHT)
-        .name("TPS");
+        .name("Transactions");
 
     Plot::new("tps_chart")
         .height(320.0)
@@ -261,7 +251,11 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
         .x_axis_formatter(move |mark, _range| {
             if let Some(dt) = chrono::DateTime::from_timestamp(mark.value as i64, 0) {
                 let local: chrono::DateTime<Local> = dt.into();
-                local.format("%b %d %H:%M").to_string()
+                if bucket_secs >= 86_400 {
+                    local.format("%b %d").to_string()
+                } else {
+                    local.format("%b %d %H:%M").to_string()
+                }
             } else {
                 String::new()
             }
@@ -269,25 +263,28 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
         .y_axis_formatter(|mark, _range| {
             if mark.value <= 0.0 {
                 String::new()
-            } else if mark.value >= 1.0 {
-                insert_spaces(&format!("{:.0}", mark.value))
             } else {
-                format!("{:.4}", mark.value)
+                insert_spaces(&format!("{:.0}", mark.value))
             }
         })
-        .label_formatter(|_name, value| {
+        .label_formatter(move |_name, value| {
             let dt_str = chrono::DateTime::from_timestamp(value.x as i64, 0)
                 .map(|dt| {
                     let local: chrono::DateTime<Local> = dt.into();
-                    local.format("%b %d %H:%M").to_string()
+                    if bucket_secs >= 86_400 {
+                        local.format("%b %d %Y").to_string()
+                    } else {
+                        local.format("%b %d %H:%M").to_string()
+                    }
                 })
                 .unwrap_or_default();
-            let tps = value.y;
-            if tps >= 1.0 {
-                format!("{}\n{} tx/s", dt_str, format_number_spaces(tps))
-            } else {
-                format!("{}\n{:.4} tx/s", dt_str, tps)
-            }
+            let count = value.y.round() as u32;
+            format!(
+                "{}\n{} transaction{}",
+                dt_str,
+                count,
+                if count == 1 { "" } else { "s" }
+            )
         })
         .include_y(0.0)
         .legend(egui_plot::Legend::default())
@@ -298,8 +295,8 @@ fn render_tps_chart(ui: &mut Ui, state: &AppState) {
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(format!(
-                "{} | {} total transactions | Avg: {:.4} TPS | Peak: {:.4} TPS",
-                bucket_label, total_tx, avg_tps, peak_tps,
+                "{} | {} total transactions | Peak: {} {}",
+                bucket_label, total_tx, peak, bucket_label,
             ))
             .small()
             .weak(),
@@ -542,12 +539,6 @@ fn format_time_spaces(time: f64) -> String {
     let s = format!("{:.2}", time);
     let (int_part, dec_part) = s.split_once('.').unwrap_or((&s, "00"));
     format!("{}.{} TIME", insert_spaces(int_part), dec_part)
-}
-
-/// Format a plain integer with space grouping (no unit).
-fn format_number_spaces(n: f64) -> String {
-    let s = format!("{:.0}", n);
-    insert_spaces(&s)
 }
 
 /// Insert a space every 3 digits (from the right) into a non-negative integer string.
