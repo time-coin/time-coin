@@ -62,7 +62,7 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
             ui.label(egui::RichText::new("IP Address").strong());
             ui.label(egui::RichText::new("Tier").strong());
             ui.label(egui::RichText::new("Status").strong());
-            ui.label(egui::RichText::new("WS").strong());
+            ui.label(egui::RichText::new("WebSocket").strong());
             ui.label(egui::RichText::new("Ping").strong());
             ui.label(egui::RichText::new("Block").strong());
             ui.label(egui::RichText::new("").strong());
