@@ -36,7 +36,6 @@ pub async fn run(
     mut config: Config,
 ) {
     let (ws_event_tx, mut ws_event_rx) = mpsc::unbounded_channel::<WsEvent>();
-    let (ws_shutdown_tx, ws_shutdown_rx) = tokio::sync::watch::channel(false);
 
     let network_type = if config.is_testnet() {
         NetworkType::Testnet
@@ -75,8 +74,10 @@ pub async fn run(
         network_type,
         config: config.clone(),
         ws_event_tx,
-        ws_shutdown_rx,
-        ws_handle: None,
+        ws_conn_shutdown_senders: Vec::new(),
+        ws_handles: Vec::new(),
+        ws_connected_count: 0,
+        ws_seen: std::collections::HashMap::new(),
         last_peers: Vec::new(),
         manual_peer: false,
         consolidation_txids: Arc::new(Mutex::new(HashSet::new())),
@@ -142,7 +143,9 @@ pub async fn run(
         tokio::select! {
             _ = token.cancelled() => {
                 log::info!("🛑 Service loop shutting down");
-                let _ = ws_shutdown_tx.send(true);
+                for tx in state.ws_conn_shutdown_senders.drain(..) {
+                    let _ = tx.send(true);
+                }
                 break;
             }
 
@@ -366,7 +369,9 @@ pub async fn run(
             Some(event) = ui_rx.recv() => {
                 match event {
                     UiEvent::Shutdown => {
-                        let _ = ws_shutdown_tx.send(true);
+                        for tx in state.ws_conn_shutdown_senders.drain(..) {
+                            let _ = tx.send(true);
+                        }
                         break;
                     }
 
@@ -770,10 +775,14 @@ pub async fn run(
                             state.load_wallet(None);
                         }
 
-                        // Stop the old WebSocket before switching networks
-                        if let Some(h) = state.ws_handle.take() {
+                        // Stop the old WebSocket before switching networks (graceful close)
+                        for tx in state.ws_conn_shutdown_senders.drain(..) {
+                            let _ = tx.send(true);
+                        }
+                        for h in state.ws_handles.drain(..) {
                             h.abort();
                         }
+                        state.ws_connected_count = 0;
                         let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
 
                         // Re-trigger peer discovery with the correct network
@@ -1521,6 +1530,9 @@ pub async fn run(
             Some(ws_event) = ws_event_rx.recv() => {
                 match ws_event {
                     WsEvent::TransactionReceived(notification) => {
+                        if ws_dedup(&mut state.ws_seen, format!("tx:{}", notification.txid)) {
+                            log::debug!("Dedup: skipping duplicate tx:{}", notification.txid);
+                        } else {
                         let amount_sats = crate::masternode_client::json_to_satoshis(&notification.amount);
 
                         // Determine if this is a change output vs a real receive
@@ -1581,8 +1593,12 @@ pub async fn run(
                                 }
                             }
                         }
+                        } // end dedup else
                     }
                     WsEvent::UtxoFinalized(notif) => {
+                        if ws_dedup(&mut state.ws_seen, format!("fin:{}:{}", notif.txid, notif.output_index)) {
+                            log::debug!("Dedup: skipping duplicate fin:{}:{}", notif.txid, notif.output_index);
+                        } else {
                         // UTXO finalized by masternode consensus — mark tx as Approved
                         let amount_sats = crate::masternode_client::json_to_satoshis(&notif.amount);
                         log::info!("✅ UTXO finalized: txid={}... vout={} amount={}", &notif.txid[..16.min(notif.txid.len())], notif.output_index, amount_sats);
@@ -1659,79 +1675,100 @@ pub async fn run(
                                 }
                             }
                         }
+                        } // end dedup else
                     }
-                    WsEvent::Connected(_) => {
-                        let _ = state.svc_tx.send(ServiceEvent::WsConnected);
-                        // Poll for pending payment requests on WS connect/reconnect
-                        if let Some(ref client) = state.client {
-                            if !state.addresses.is_empty() {
-                                match client.get_payment_requests(&state.addresses).await {
-                                    Ok(raw_requests) => {
-                                        let mut requests = Vec::new();
-                                        for val in &raw_requests {
-                                            if let Some(pr) = parse_payment_request_json(val) {
-                                                requests.push(pr);
+                    WsEvent::Connected(url) => {
+                        state.ws_connected_count = state.ws_connected_count.saturating_add(1);
+                        log::info!("✅ WS connected: {} (total active: {})", url, state.ws_connected_count);
+                        if state.ws_connected_count == 1 {
+                            let _ = state.svc_tx.send(ServiceEvent::WsConnected);
+                            // Poll for pending payment requests only on first connection
+                            if let Some(ref client) = state.client {
+                                if !state.addresses.is_empty() {
+                                    match client.get_payment_requests(&state.addresses).await {
+                                        Ok(raw_requests) => {
+                                            let mut requests = Vec::new();
+                                            for val in &raw_requests {
+                                                if let Some(pr) = parse_payment_request_json(val) {
+                                                    requests.push(pr);
+                                                }
+                                            }
+                                            if !requests.is_empty() {
+                                                log::info!("📬 Polled {} pending payment requests", requests.len());
+                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestsUpdated(requests));
                                             }
                                         }
-                                        if !requests.is_empty() {
-                                            log::info!("📬 Polled {} pending payment requests", requests.len());
-                                            let _ = state.svc_tx.send(ServiceEvent::PaymentRequestsUpdated(requests));
+                                        Err(e) => {
+                                            log::warn!("Failed to poll payment requests: {}", e);
                                         }
-                                    }
-                                    Err(e) => {
-                                        log::warn!("Failed to poll payment requests: {}", e);
                                     }
                                 }
                             }
                         }
                     }
-                    WsEvent::Disconnected(_) => {
-                        let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
+                    WsEvent::Disconnected(url) => {
+                        state.ws_connected_count = state.ws_connected_count.saturating_sub(1);
+                        log::info!("🔌 WS disconnected: {} (remaining active: {})", url, state.ws_connected_count);
+                        if state.ws_connected_count == 0 {
+                            let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
+                        }
                     }
                     WsEvent::CapacityFull(url) => {
                         log::warn!("⚠️ Masternode at capacity: {}. Attempting failover…", url);
+                        // CapacityFull means the WsClient task exited without sending Disconnected
+                        state.ws_connected_count = state.ws_connected_count.saturating_sub(1);
                         let _ = state.svc_tx.send(ServiceEvent::WsCapacityFull(url.clone()));
-                        // The WS URL is derived from the RPC endpoint (port+1), so reverse to find
-                        // the capacity-full endpoint and pick the next healthy one.
-                        let current_endpoint = state.config.active_endpoint.clone();
-                        let next = state.last_peers.iter().find(|p| {
-                            p.is_healthy && Some(&p.endpoint) != current_endpoint.as_ref()
-                        }).cloned();
-                        if let Some(peer) = next {
-                            log::info!("🔀 Failing over to {}", peer.endpoint);
-                            state.client = Some(MasternodeClient::new(peer.endpoint.clone(), rpc_credentials.clone()));
-                            state.config.active_endpoint = Some(peer.endpoint.clone());
-                            config.active_endpoint = Some(peer.endpoint);
-                            if !state.addresses.is_empty() {
-                                state.start_ws();
+
+                        if state.ws_connected_count == 0 {
+                            // All connections gone — failover RPC client + restart WS on a different peer
+                            let current_endpoint = state.config.active_endpoint.clone();
+                            let next = state.last_peers.iter().find(|p| {
+                                p.is_healthy && Some(&p.endpoint) != current_endpoint.as_ref()
+                            }).cloned();
+                            if let Some(peer) = next {
+                                log::info!("🔀 Failing over to {}", peer.endpoint);
+                                state.client = Some(MasternodeClient::new(peer.endpoint.clone(), rpc_credentials.clone()));
+                                state.config.active_endpoint = Some(peer.endpoint.clone());
+                                config.active_endpoint = Some(peer.endpoint);
+                                if !state.addresses.is_empty() {
+                                    state.start_ws();
+                                }
+                            } else {
+                                log::warn!("⚠️ No healthy fallback peer available for WS failover");
                             }
-                        } else {
-                            log::warn!("⚠️ No healthy fallback peer available for WS failover");
                         }
                     }
                     WsEvent::TransactionRejected(notif) => {
-                        log::warn!("❌ Transaction {} rejected: {}", &notif.txid[..16.min(notif.txid.len())], notif.reason);
-                        let _ = state.svc_tx.send(ServiceEvent::TransactionFinalityUpdated {
-                            txid: notif.txid,
-                            finalized: false,
-                        });
+                        if !ws_dedup(&mut state.ws_seen, format!("rej:{}", notif.txid)) {
+                            log::warn!("❌ Transaction {} rejected: {}", &notif.txid[..16.min(notif.txid.len())], notif.reason);
+                            let _ = state.svc_tx.send(ServiceEvent::TransactionFinalityUpdated {
+                                txid: notif.txid,
+                                finalized: false,
+                            });
+                        } else {
+                            log::debug!("Dedup: skipping duplicate rej:{}", notif.txid);
+                        }
                     }
 
                     WsEvent::PaymentRequestReceived(notif) => {
-                        log::info!("💰 Payment request received from {}", notif.from_address);
-                        let pr = PaymentRequest {
-                            id: notif.id,
-                            from_address: notif.from_address,
-                            to_address: notif.to_address,
-                            amount: (notif.amount * 100_000.0) as u64,
-                            label: notif.label,
-                            memo: notif.memo,
-                            pubkey_hex: notif.pubkey,
-                            signature_hex: String::new(),
-                            timestamp: notif.timestamp,
-                            expires: notif.expires,
-                        };
-                        let _ = state.svc_tx.send(ServiceEvent::PaymentRequestReceived(pr));
+                        if !ws_dedup(&mut state.ws_seen, format!("pr:{}", notif.id)) {
+                            log::info!("💰 Payment request received from {}", notif.from_address);
+                            let pr = PaymentRequest {
+                                id: notif.id,
+                                from_address: notif.from_address,
+                                to_address: notif.to_address,
+                                amount: (notif.amount * 100_000.0) as u64,
+                                label: notif.label,
+                                memo: notif.memo,
+                                pubkey_hex: notif.pubkey,
+                                signature_hex: String::new(),
+                                timestamp: notif.timestamp,
+                                expires: notif.expires,
+                            };
+                            let _ = state.svc_tx.send(ServiceEvent::PaymentRequestReceived(pr));
+                        } else {
+                            log::debug!("Dedup: skipping duplicate pr:{}", notif.id);
+                        }
                     }
                 }
             }
@@ -1739,6 +1776,18 @@ pub async fn run(
     }
 
     log::info!("👋 Service loop exited");
+}
+
+/// Returns true if this event is a duplicate (already seen within the dedup window).
+fn ws_dedup(seen: &mut std::collections::HashMap<String, std::time::Instant>, key: String) -> bool {
+    let now = std::time::Instant::now();
+    // Purge stale entries (older than 60s) to prevent unbounded growth
+    seen.retain(|_, t| now.duration_since(*t).as_secs() < 60);
+    if seen.contains_key(&key) {
+        return true; // duplicate
+    }
+    seen.insert(key, now);
+    false
 }
 
 /// Discover and health-check peers in the background.
@@ -2172,8 +2221,14 @@ struct ServiceState {
     network_type: NetworkType,
     config: Config,
     ws_event_tx: mpsc::UnboundedSender<WsEvent>,
-    ws_shutdown_rx: tokio::sync::watch::Receiver<bool>,
-    ws_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Per-connection shutdown senders. Signalling `true` triggers a graceful
+    /// Close frame so the server-side subscription is cleaned up immediately.
+    ws_conn_shutdown_senders: Vec<tokio::sync::watch::Sender<bool>>,
+    ws_handles: Vec<tokio::task::JoinHandle<()>>,
+    ws_connected_count: usize,
+    /// Dedup cache: event fingerprint → time first seen. Prevents duplicate
+    /// UI updates when the same event arrives from multiple WS connections.
+    ws_seen: std::collections::HashMap<String, std::time::Instant>,
     /// Most recent peer list from discovery, for failover on capacity-full.
     last_peers: Vec<PeerInfo>,
     /// When true, the user manually selected a peer — auto-discovery will not
@@ -2470,17 +2525,49 @@ impl ServiceState {
     }
 
     /// Start (or restart) the WebSocket client for current addresses.
+    ///
+    /// Signals existing connections to close gracefully (sending a WebSocket
+    /// Close frame so the server unsubscribes immediately) before spawning new ones.
     fn start_ws(&mut self) {
-        if let Some(h) = self.ws_handle.take() {
+        // Signal old connections to send a graceful Close frame.
+        // This causes the server to clean up subscriptions right away rather than
+        // waiting for a TCP keepalive timeout (which was causing 60+ subscription accumulation).
+        for tx in self.ws_conn_shutdown_senders.drain(..) {
+            let _ = tx.send(true);
+        }
+        // Abort handles after signalling (belt-and-suspenders).
+        for h in self.ws_handles.drain(..) {
             h.abort();
         }
-        let handle = WsClient::start(
-            self.config.ws_url(),
-            self.addresses.clone(),
-            self.ws_event_tx.clone(),
-            self.ws_shutdown_rx.clone(),
-        );
-        self.ws_handle = Some(handle);
+        self.ws_connected_count = 0;
+
+        let addrs = self.addresses.clone();
+        let event_tx = self.ws_event_tx.clone();
+
+        // Primary connection — always the configured endpoint
+        let primary_url = self.config.ws_url();
+        let (sd_tx1, sd_rx1) = tokio::sync::watch::channel(false);
+        self.ws_conn_shutdown_senders.push(sd_tx1);
+        self.ws_handles.push(WsClient::start(
+            primary_url,
+            addrs.clone(),
+            event_tx.clone(),
+            sd_rx1,
+        ));
+
+        // Secondary connection — first healthy peer that differs from the primary endpoint
+        let primary_ep = self.config.active_endpoint.clone().unwrap_or_default();
+        if let Some(peer) = self
+            .last_peers
+            .iter()
+            .find(|p| p.is_healthy && p.endpoint != primary_ep)
+        {
+            let secondary_url = crate::config_new::Config::derive_ws_url(&peer.endpoint);
+            let (sd_tx2, sd_rx2) = tokio::sync::watch::channel(false);
+            self.ws_conn_shutdown_senders.push(sd_tx2);
+            self.ws_handles
+                .push(WsClient::start(secondary_url, addrs, event_tx, sd_rx2));
+        }
     }
 }
 
@@ -2729,14 +2816,24 @@ async fn build_masternode_update_tx(
     Ok((tx_hex, txid))
 }
 
-/// BIP-44 recommended gap limit: pre-derive this many addresses so that
-/// wallet recovery can discover all previously-used indices.
-const BIP44_GAP_LIMIT: u32 = 20;
+/// Number of addresses to pre-derive *beyond* the highest known-used index.
+/// Keeps a small forward window for receiving without wasteful WS subscriptions.
+/// Full BIP-44 gap-limit recovery is handled by "Refresh Transactions" (full scan).
+const FORWARD_GAP: u32 = 3;
 
-/// Derive all known addresses from the wallet manager.
-/// Ensures at least [`BIP44_GAP_LIMIT`] addresses exist.
+/// Derive the wallet's active address set.
+///
+/// Restores all previously-used addresses (via the DB-synced index) and adds
+/// [`FORWARD_GAP`] fresh addresses for future receives.  This is much smaller
+/// than the full BIP-44 gap limit of 20, keeping WS subscriptions minimal.
 fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
-    while wm.get_address_count() < BIP44_GAP_LIMIT {
+    // Always have at least one address.
+    if wm.get_address_count() == 0 {
+        let _ = wm.get_next_address();
+    }
+    // Add a small forward window beyond the current max.
+    let target = wm.get_address_count() + FORWARD_GAP;
+    while wm.get_address_count() < target {
         let _ = wm.get_next_address();
     }
     (0..wm.get_address_count())
