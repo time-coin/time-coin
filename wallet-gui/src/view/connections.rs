@@ -167,9 +167,20 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                     ui.colored_label(egui::Color32::GRAY, "--");
                 }
 
-                // Select link
+                // Select / deselect link
                 if peer.is_active {
-                    ui.colored_label(egui::Color32::GRAY, "selected");
+                    let link = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new("selected")
+                                .color(egui::Color32::GREEN)
+                                .strong(),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if link.clicked() {
+                        let _ = ui_tx.send(UiEvent::ClearPreferredPeer);
+                    }
+                    link.on_hover_text("Click to deselect and return to automatic peer selection");
                 } else if peer.is_healthy {
                     let link = ui.link("select");
                     if link.clicked() {

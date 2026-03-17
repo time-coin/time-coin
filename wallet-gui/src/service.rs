@@ -1277,6 +1277,21 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::ClearPreferredPeer => {
+                        log::info!("📌 Clearing preferred peer — returning to auto-discovery");
+                        state.manual_peer = false;
+                        state.config.preferred_endpoint = None;
+                        config.preferred_endpoint = None;
+                        if let Err(e) = state.config.save() {
+                            log::error!("Failed to save config after clearing preferred peer: {}", e);
+                        }
+                        // Unmark all peers; next discovery cycle will pick the fastest
+                        for peer in &mut state.last_peers {
+                            peer.is_active = false;
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(state.last_peers.clone()));
+                    }
+
                     UiEvent::SendPaymentRequest { to_address, amount, label, memo } => {
                         if let Some(ref client) = state.client {
                             if let Some(ref wm) = state.wallet {

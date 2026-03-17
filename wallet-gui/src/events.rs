@@ -171,6 +171,9 @@ pub enum UiEvent {
         endpoint: String,
     },
 
+    /// Clear the manually-selected peer and return to automatic peer discovery.
+    ClearPreferredPeer,
+
     /// Send a payment request to another wallet via the masternode P2P network.
     SendPaymentRequest {
         to_address: String,
