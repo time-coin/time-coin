@@ -67,6 +67,12 @@ pub struct Config {
     #[serde(skip)]
     pub active_endpoint: Option<String>,
 
+    /// Last peer the user explicitly selected. Persisted so the choice
+    /// survives restarts; peer discovery will not override it unless the
+    /// peer becomes unhealthy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_endpoint: Option<String>,
+
     /// True when no config file existed on disk (first launch).
     #[serde(skip)]
     pub is_first_run: bool,
@@ -92,6 +98,7 @@ impl Default for Config {
             editor: None,
             data_dir: None,
             active_endpoint: None,
+            preferred_endpoint: None,
             is_first_run: false,
         }
     }

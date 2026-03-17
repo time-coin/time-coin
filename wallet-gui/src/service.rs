@@ -77,14 +77,23 @@ pub async fn run(
         ws_conn_shutdown_senders: Vec::new(),
         ws_handles: Vec::new(),
         ws_connected_count: 0,
+        ws_active_urls: std::collections::HashSet::new(),
         ws_seen: std::collections::HashMap::new(),
         last_peers: Vec::new(),
-        manual_peer: false,
+        // Restore manual peer selection from config (persisted via preferred_endpoint).
+        manual_peer: config.preferred_endpoint.is_some(),
         consolidation_txids: Arc::new(Mutex::new(HashSet::new())),
         consolidation_active: Arc::new(AtomicBool::new(false)),
         signing_keys: Arc::new(Vec::new()),
         last_synced_height: Arc::new(AtomicU64::new(0)),
     };
+
+    // Restore manually-selected peer so discovery doesn't override it on first result.
+    if let Some(ref ep) = config.preferred_endpoint.clone() {
+        state.client = Some(MasternodeClient::new(ep.clone(), config.rpc_credentials()));
+        state.config.active_endpoint = Some(ep.clone());
+        log::info!("📌 Restoring preferred peer from config: {}", ep);
+    }
 
     // Auto-load wallet if it exists
     if WalletManager::exists(network_type) {
@@ -318,14 +327,11 @@ pub async fn run(
                 }
             } => {
                 discovery_handle = None;
-                if let Ok(Ok((endpoint, peer_infos))) = result {
+                if let Ok(Ok((endpoint, mut peer_infos))) = result {
                     // Check before move: is the active peer still healthy?
                     let active_is_healthy = state.client.as_ref().map(|c| {
                         peer_infos.iter().any(|p| p.endpoint == c.endpoint() && p.is_healthy)
                     }).unwrap_or(false);
-
-                    state.last_peers = peer_infos.clone();
-                    let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(peer_infos));
 
                     // Switch peer if we have none, or if the active one has become unhealthy.
                     // When the user manually selected a peer, keep it unless it goes unhealthy.
@@ -339,6 +345,11 @@ pub async fn run(
                         if state.manual_peer {
                             log::info!("📌 Manual peer is unhealthy, releasing override");
                             state.manual_peer = false;
+                            state.config.preferred_endpoint = None;
+                            config.preferred_endpoint = None;
+                            if let Err(e) = state.config.save() {
+                                log::error!("Failed to save config: {}", e);
+                            }
                         }
                         true
                     };
@@ -363,6 +374,15 @@ pub async fn run(
                             }
                         }
                     }
+
+                    // Mark is_active based on the actual current client (post-switch),
+                    // so the connections page always reflects which peer is truly active.
+                    let current_ep = state.client.as_ref().map(|c| c.endpoint().to_string());
+                    for p in &mut peer_infos {
+                        p.is_active = current_ep.as_deref() == Some(p.endpoint.as_str());
+                    }
+                    state.last_peers = peer_infos.clone();
+                    let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(peer_infos));
                 }
             }
 
@@ -1232,7 +1252,13 @@ pub async fn run(
                         state.manual_peer = true;
                         state.client = Some(MasternodeClient::new(endpoint.clone(), rpc_credentials.clone()));
                         state.config.active_endpoint = Some(endpoint.clone());
-                        config.active_endpoint = Some(endpoint);
+                        state.config.preferred_endpoint = Some(endpoint.clone());
+                        config.active_endpoint = Some(endpoint.clone());
+                        config.preferred_endpoint = Some(endpoint);
+                        // Persist so the choice survives a restart.
+                        if let Err(e) = state.config.save() {
+                            log::error!("Failed to save config after peer switch: {}", e);
+                        }
 
                         // Mark the newly selected peer as active in the peer list
                         for peer in &mut state.last_peers {
@@ -1679,6 +1705,9 @@ pub async fn run(
                     }
                     WsEvent::Connected(url) => {
                         state.ws_connected_count = state.ws_connected_count.saturating_add(1);
+                        state.ws_active_urls.insert(url.clone());
+                        let active: Vec<String> = state.ws_active_urls.iter().cloned().collect();
+                        let _ = state.svc_tx.send(ServiceEvent::WsActiveUrlsChanged(active));
                         log::info!("✅ WS connected: {} (total active: {})", url, state.ws_connected_count);
                         if state.ws_connected_count == 1 {
                             let _ = state.svc_tx.send(ServiceEvent::WsConnected);
@@ -1708,6 +1737,9 @@ pub async fn run(
                     }
                     WsEvent::Disconnected(url) => {
                         state.ws_connected_count = state.ws_connected_count.saturating_sub(1);
+                        state.ws_active_urls.remove(&url);
+                        let active: Vec<String> = state.ws_active_urls.iter().cloned().collect();
+                        let _ = state.svc_tx.send(ServiceEvent::WsActiveUrlsChanged(active));
                         log::info!("🔌 WS disconnected: {} (remaining active: {})", url, state.ws_connected_count);
                         if state.ws_connected_count == 0 {
                             let _ = state.svc_tx.send(ServiceEvent::WsDisconnected);
@@ -2226,6 +2258,9 @@ struct ServiceState {
     ws_conn_shutdown_senders: Vec<tokio::sync::watch::Sender<bool>>,
     ws_handles: Vec<tokio::task::JoinHandle<()>>,
     ws_connected_count: usize,
+    /// WS URLs currently connected (one per active connection). Sent to the UI
+    /// so the connections page can mark which peers have active WS links.
+    ws_active_urls: std::collections::HashSet<String>,
     /// Dedup cache: event fingerprint → time first seen. Prevents duplicate
     /// UI updates when the same event arrives from multiple WS connections.
     ws_seen: std::collections::HashMap<String, std::time::Instant>,
@@ -2540,6 +2575,7 @@ impl ServiceState {
             h.abort();
         }
         self.ws_connected_count = 0;
+        self.ws_active_urls.clear();
 
         let addrs = self.addresses.clone();
         let event_tx = self.ws_event_tx.clone();

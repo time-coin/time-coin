@@ -6,13 +6,22 @@ use tokio::sync::mpsc;
 use crate::events::UiEvent;
 use crate::state::AppState;
 
-/// Extract the IP from an endpoint like "http://1.2.3.4:24001".
+/// Extract the host from an endpoint like "http://1.2.3.4:24001".
 fn peer_ip(endpoint: &str) -> &str {
     let s = endpoint
         .strip_prefix("http://")
         .or_else(|| endpoint.strip_prefix("https://"))
         .unwrap_or(endpoint);
     // Strip port
+    s.rsplit_once(':').map(|(host, _)| host).unwrap_or(s)
+}
+
+/// Extract the host from a WS URL like "wss://1.2.3.4:24002" or "ws://1.2.3.4:24002".
+fn ws_url_host(url: &str) -> &str {
+    let s = url
+        .strip_prefix("wss://")
+        .or_else(|| url.strip_prefix("ws://"))
+        .unwrap_or(url);
     s.rsplit_once(':').map(|(host, _)| host).unwrap_or(s)
 }
 
@@ -126,9 +135,18 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                     ui.colored_label(egui::Color32::GREEN, "Healthy");
                 }
 
-                // WS
-                if peer.ws_available {
-                    ui.colored_label(egui::Color32::GREEN, "Yes");
+                // WS — show whether we're actively connected, just available, or unsupported
+                let host = peer_ip(&peer.endpoint);
+                let ws_live = state
+                    .ws_active_urls
+                    .iter()
+                    .any(|u| ws_url_host(u) == host);
+                if ws_live {
+                    ui.colored_label(egui::Color32::GREEN, "Connected")
+                        .on_hover_text("Active WebSocket connection to this peer");
+                } else if peer.ws_available {
+                    ui.colored_label(egui::Color32::GRAY, "Available")
+                        .on_hover_text("Peer supports WebSocket but wallet is not currently connected");
                 } else if peer.is_healthy {
                     ui.colored_label(egui::Color32::GRAY, "No");
                 } else {

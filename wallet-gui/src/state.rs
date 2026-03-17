@@ -132,6 +132,8 @@ pub struct AppState {
     // -- Masternode --
     pub health: Option<HealthStatus>,
     pub ws_connected: bool,
+    /// WS URLs currently connected (one per active WS connection).
+    pub ws_active_urls: Vec<String>,
     pub peers: Vec<PeerInfo>,
 
     // -- Notifications (real-time from WebSocket) --
@@ -284,6 +286,7 @@ impl Default for AppState {
             locked_utxos: std::collections::HashSet::new(),
             health: None,
             ws_connected: false,
+            ws_active_urls: Vec::new(),
             peers: Vec::new(),
             recent_notifications: Vec::new(),
             wallet_exists: false,
@@ -1218,6 +1221,10 @@ impl AppState {
                 self.ws_connected = false;
             }
 
+            ServiceEvent::WsActiveUrlsChanged(urls) => {
+                self.ws_active_urls = urls;
+            }
+
             ServiceEvent::PasswordRequired => {
                 self.password_required = true;
                 self.loading = false;
@@ -1412,6 +1419,7 @@ impl AppState {
                 self.recent_notifications.clear();
                 self.health = None;
                 self.ws_connected = false;
+                self.ws_active_urls.clear();
                 self.switching_network = true;
                 // Only navigate to setup if not already switching from settings;
                 // WalletLoaded will navigate to Overview if a wallet exists.
