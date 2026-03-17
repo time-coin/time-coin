@@ -479,6 +479,7 @@ impl MasternodeClient {
                     block_height,
                     confirmations,
                     memo,
+                    is_consolidation: category == "consolidate",
                 })
             })
             .collect();
@@ -820,6 +821,12 @@ pub struct TransactionRecord {
     /// Decrypted memo text (populated from masternode response).
     #[serde(default)]
     pub memo: Option<String>,
+    /// True when this transaction is a UTXO consolidation (coins sent to
+    /// self).  Consolidations should not be counted as income in charts
+    /// or balance calculations — the underlying UTXOs are already accounted
+    /// for by the individual receive entries that created them.
+    #[serde(default)]
+    pub is_consolidation: bool,
 }
 
 impl Default for TransactionRecord {
@@ -839,6 +846,7 @@ impl Default for TransactionRecord {
             block_height: 0,
             confirmations: 0,
             memo: None,
+            is_consolidation: false,
         }
     }
 }

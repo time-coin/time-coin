@@ -121,6 +121,7 @@ fn render_income_chart(ui: &mut Ui, state: &AppState) {
         .filter(|tx| {
             !tx.is_send
                 && !tx.is_fee
+                && !tx.is_consolidation
                 && matches!(tx.status, TransactionStatus::Approved)
                 && tx.timestamp > 0
         })

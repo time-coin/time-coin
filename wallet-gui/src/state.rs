@@ -368,6 +368,11 @@ impl AppState {
             if matches!(tx.status, TransactionStatus::Declined) {
                 continue;
             }
+            // Consolidation transactions move coins between our own addresses —
+            // they don't change total balance and must not be double-counted.
+            if tx.is_consolidation {
+                continue;
+            }
             if tx.is_send || tx.is_fee {
                 bal -= tx.amount as i64;
             } else {
@@ -383,6 +388,9 @@ impl AppState {
         let mut bal: i64 = 0;
         for tx in &self.transactions {
             if !matches!(tx.status, TransactionStatus::Approved) {
+                continue;
+            }
+            if tx.is_consolidation {
                 continue;
             }
             if tx.is_send || tx.is_fee {
@@ -795,6 +803,7 @@ impl AppState {
                                 block_height: 0,
                                 confirmations: 0,
                                 memo: local_tx.memo.clone(),
+                                is_consolidation: false,
                             });
                         }
                     }
@@ -842,6 +851,7 @@ impl AppState {
                             block_height: 0,
                             confirmations: 0,
                             memo,
+                            is_consolidation: false,
                         });
                     }
                 }
@@ -914,6 +924,7 @@ impl AppState {
                             block_height: 0,
                             confirmations: 0,
                             memo: send_tx.memo.clone(),
+                            is_consolidation: false,
                         });
                     }
                 }
@@ -1045,6 +1056,7 @@ impl AppState {
                                 block_height: 0,
                                 confirmations: 0,
                                 memo: t.memo.clone(),
+                                is_consolidation: false,
                             });
                         }
                     }
@@ -1538,6 +1550,7 @@ mod tests {
                     block_height: 0,
                     confirmations: 0,
                     memo: None,
+                    is_consolidation: false,
                 },
                 TransactionRecord {
                     txid: "bbb".to_string(),
@@ -1554,6 +1567,7 @@ mod tests {
                     block_height: 0,
                     confirmations: 0,
                     memo: None,
+                    is_consolidation: false,
                 },
                 TransactionRecord {
                     txid: "bbb".to_string(),
@@ -1570,6 +1584,7 @@ mod tests {
                     block_height: 0,
                     confirmations: 0,
                     memo: None,
+                    is_consolidation: false,
                 },
                 // Phantom receive — no UTXO backs this
                 TransactionRecord {
@@ -1587,6 +1602,7 @@ mod tests {
                     block_height: 0,
                     confirmations: 0,
                     memo: None,
+                    is_consolidation: false,
                 },
             ],
             // UTXOs: only the change from the send (8.99 TIME)
@@ -1635,6 +1651,7 @@ mod tests {
                     block_height: 0,
                     confirmations: 0,
                     memo: None,
+                    is_consolidation: false,
                 },
                 TransactionRecord {
                     txid: "spend_tx".to_string(),
@@ -1651,6 +1668,7 @@ mod tests {
                     block_height: 0,
                     confirmations: 0,
                     memo: None,
+                    is_consolidation: false,
                 },
                 TransactionRecord {
                     txid: "spend_tx".to_string(),
@@ -1667,6 +1685,7 @@ mod tests {
                     block_height: 0,
                     confirmations: 0,
                     memo: None,
+                    is_consolidation: false,
                 },
             ],
             utxos: vec![Utxo {
