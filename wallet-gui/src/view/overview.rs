@@ -47,6 +47,15 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         .weak(),
                 );
             }
+            if let Some(ref health) = state.health {
+                if health.block_height > 0 {
+                    ui.label(
+                        egui::RichText::new(format!("Block {}", health.block_height))
+                            .small()
+                            .weak(),
+                    );
+                }
+            }
         });
     });
 

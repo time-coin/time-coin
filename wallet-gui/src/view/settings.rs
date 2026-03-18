@@ -168,9 +168,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         };
         ui.label(ws_status);
 
+        let healthy_peers = state.peers.iter().filter(|p| p.is_healthy).count();
+        ui.label(format!("Connections: {}", healthy_peers));
         if let Some(ref health) = state.health {
             ui.label(format!("Block height: {}", health.block_height));
-            ui.label(format!("Peers: {}", health.peer_count));
         }
     });
 
