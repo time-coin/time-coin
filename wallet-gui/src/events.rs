@@ -86,6 +86,11 @@ pub enum UiEvent {
     /// Generate a new receive address from the HD wallet.
     GenerateAddress,
 
+    /// Delete an owned receive address (must be unused — zero balance, no transactions).
+    DeleteAddress {
+        address: String,
+    },
+
     /// Save an external contact (send address book).
     SaveContact {
         name: String,
@@ -286,6 +291,9 @@ pub enum ServiceEvent {
 
     /// A new address was generated.
     AddressGenerated(AddressInfo),
+
+    /// An owned address was deleted from the receive list.
+    AddressDeleted(String),
 
     /// External contacts list updated.
     ContactsUpdated(Vec<crate::state::ContactInfo>),

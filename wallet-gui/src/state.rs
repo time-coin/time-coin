@@ -1259,6 +1259,13 @@ impl AppState {
                 self.selected_address = self.addresses.len() - 1;
             }
 
+            ServiceEvent::AddressDeleted(address) => {
+                self.addresses.retain(|a| a.address != address);
+                if self.selected_address >= self.addresses.len() && !self.addresses.is_empty() {
+                    self.selected_address = self.addresses.len() - 1;
+                }
+            }
+
             ServiceEvent::Error(msg) => {
                 self.error = Some(msg);
                 self.loading = false;

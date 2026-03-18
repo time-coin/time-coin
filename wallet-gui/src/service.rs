@@ -901,6 +901,28 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::DeleteAddress { address } => {
+                        // Find the index — index 0 (primary address) cannot be deleted.
+                        let idx = state.addresses.iter().position(|a| a == &address);
+                        match idx {
+                            Some(0) => {
+                                let _ = state.svc_tx.send(ServiceEvent::Error(
+                                    "Cannot delete the primary address.".to_string(),
+                                ));
+                            }
+                            Some(_) => {
+                                if let Some(ref db) = state.wallet_db {
+                                    if let Err(e) = db.delete_contact(&address) {
+                                        log::warn!("Failed to delete address from DB: {}", e);
+                                    }
+                                }
+                                state.addresses.retain(|a| a != &address);
+                                let _ = state.svc_tx.send(ServiceEvent::AddressDeleted(address));
+                            }
+                            None => {}
+                        }
+                    }
+
                     UiEvent::SaveContact { name, address } => {
                         if let Some(ref db) = state.wallet_db {
                             let contact = crate::wallet_db::AddressContact {
@@ -2873,24 +2895,14 @@ async fn build_masternode_update_tx(
     Ok((tx_hex, txid))
 }
 
-/// Number of addresses to pre-derive *beyond* the highest known-used index.
-/// Keeps a small forward window for receiving without wasteful WS subscriptions.
-/// Full BIP-44 gap-limit recovery is handled by "Refresh Transactions" (full scan).
-const FORWARD_GAP: u32 = 3;
-
-/// Derive the wallet's active address set.
+/// Derive the wallet's active address set from the DB-synced index.
 ///
-/// Restores all previously-used addresses (via the DB-synced index) and adds
-/// [`FORWARD_GAP`] fresh addresses for future receives.  This is much smaller
-/// than the full BIP-44 gap limit of 20, keeping WS subscriptions minimal.
+/// On first run this produces exactly one address. On subsequent runs it
+/// restores exactly the addresses the user has explicitly generated — no gap
+/// window is added automatically.
 fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
-    // Always have at least one address.
+    // Always have at least one address on first run.
     if wm.get_address_count() == 0 {
-        let _ = wm.get_next_address();
-    }
-    // Add a small forward window beyond the current max.
-    let target = wm.get_address_count() + FORWARD_GAP;
-    while wm.get_address_count() < target {
         let _ = wm.get_next_address();
     }
     (0..wm.get_address_count())

@@ -406,6 +406,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             {
                 let mut label_updates: Vec<(usize, String)> = Vec::new();
                 let mut clicked_row: Option<usize> = None;
+                let mut delete_addr: Option<String> = None;
 
                 for i in 0..state.addresses.len() {
                     // Filter by search term
@@ -481,8 +482,21 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             );
                         });
 
-                        // Right: balance + copy button
+                        // Right: balance + copy + delete buttons
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Delete button — only for non-primary unused addresses
+                            let has_txns = state.transactions.iter().any(|tx| tx.address == addr);
+                            let can_delete = i > 0 && bal == 0 && !has_txns;
+                            if can_delete {
+                                if ui
+                                    .small_button("🗑")
+                                    .on_hover_text("Delete unused address")
+                                    .clicked()
+                                {
+                                    delete_addr = Some(addr.clone());
+                                }
+                                ui.add_space(4.0);
+                            }
                             if ui
                                 .small_button("📋")
                                 .on_hover_text("Copy address")
@@ -518,6 +532,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
                 if let Some(i) = clicked_row {
                     state.selected_address = i;
+                }
+
+                if let Some(addr) = delete_addr {
+                    let _ = ui_tx.send(UiEvent::DeleteAddress { address: addr });
                 }
 
                 // Persist label changes
