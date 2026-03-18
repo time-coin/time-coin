@@ -1401,6 +1401,7 @@ impl AppState {
             ServiceEvent::NetworkConfigured { is_testnet } => {
                 self.is_testnet = is_testnet;
                 // Clear ALL network-specific data from the previous network
+                self.peers.clear();
                 self.wallet_loaded = false;
                 self.addresses.clear();
                 self.balance = Balance {
