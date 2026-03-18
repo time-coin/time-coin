@@ -114,24 +114,29 @@ pub struct PaymentRequestNotification {
     pub from_address: String,
     pub to_address: String,
     pub amount: f64,
-    #[serde(default)]
+    /// Masternode sends "requester_name"; accept "label" as fallback.
+    #[serde(alias = "requester_name", default)]
     pub label: String,
+    #[serde(default)]
     pub memo: String,
+    #[serde(default)]
     pub pubkey: String,
     pub timestamp: i64,
     pub expires: i64,
 }
 
 /// A response from the payer to one of our sent payment requests.
+/// Masternode sends: { "id": "...", "payer_address": "...", "accepted": bool, "txid": "..." }
 #[derive(Clone, Debug, Deserialize)]
 pub struct PaymentRequestResponseNotification {
-    /// The id of the original payment request.
+    /// The id of the original payment request (masternode field: "id").
+    #[serde(rename = "id")]
     pub request_id: String,
-    /// "accepted" or "declined"
-    pub status: String,
-    /// The payer's address (for display / logging).
+    /// The payer's address.
     #[serde(default)]
     pub payer_address: String,
+    /// Whether the payer accepted (true) or declined (false).
+    pub accepted: bool,
 }
 
 /// Events sent from the WebSocket client to the wallet UI
@@ -434,7 +439,7 @@ impl WsClient {
                                 log::info!(
                                     "📬 Payment request {} {}",
                                     notif.request_id,
-                                    notif.status,
+                                    if notif.accepted { "accepted" } else { "declined" },
                                 );
                                 let _ = event_tx.send(WsEvent::PaymentRequestResponse(notif));
                             }

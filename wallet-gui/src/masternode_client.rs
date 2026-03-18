@@ -599,17 +599,19 @@ impl MasternodeClient {
         signature_hex: &str,
         timestamp: i64,
     ) -> Result<serde_json::Value, ClientError> {
+        // Masternode parameter order:
+        // [from_address, to_address, amount, memo, pubkey_hex, signature_hex, timestamp, requester_name]
         self.rpc_call(
             "sendpaymentrequest",
             serde_json::json!([
                 from_address,
                 to_address,
                 amount,
-                label,
                 memo,
                 pubkey_hex,
                 signature_hex,
-                timestamp
+                timestamp,
+                label
             ]),
         )
         .await

@@ -1857,18 +1857,13 @@ pub async fn run(
 
                     WsEvent::PaymentRequestResponse(notif) => {
                         if !ws_dedup(&mut state.ws_seen, format!("pr_resp:{}", notif.request_id)) {
+                            let new_status = if notif.accepted { "paid" } else { "declined" }.to_string();
                             log::info!(
                                 "📬 Payment request {} {} by {}",
                                 notif.request_id,
-                                notif.status,
+                                new_status,
                                 notif.payer_address,
                             );
-                            // Map "accepted" → "paid" (payment is being sent) or keep "declined"
-                            let new_status = if notif.status == "accepted" {
-                                "paid".to_string()
-                            } else {
-                                "declined".to_string()
-                            };
                             if let Some(ref db) = state.wallet_db {
                                 let _ = db.update_sent_payment_request_status(
                                     &notif.request_id,
@@ -3356,9 +3351,14 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
         id: val.get("id")?.as_str()?.to_string(),
         from_address: val.get("from_address")?.as_str()?.to_string(),
         to_address: val.get("to_address")?.as_str()?.to_string(),
-        amount: val.get("amount")?.as_u64()?,
+        // amount may come as float (TIME) or integer (satoshis) depending on masternode version
+        amount: val
+            .get("amount")
+            .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))?,
+        // masternode returns "requester_name" for what the wallet calls "label"
         label: val
-            .get("label")
+            .get("requester_name")
+            .or_else(|| val.get("label"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
@@ -3367,8 +3367,10 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
+        // masternode returns "pubkey" not "pubkey_hex"
         pubkey_hex: val
-            .get("pubkey_hex")
+            .get("pubkey")
+            .or_else(|| val.get("pubkey_hex"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
