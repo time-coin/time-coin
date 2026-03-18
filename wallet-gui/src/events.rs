@@ -213,6 +213,7 @@ pub enum Screen {
     Overview,
     Send,
     Receive,
+    PaymentRequests,
     Transactions,
     Utxos,
     Masternodes,

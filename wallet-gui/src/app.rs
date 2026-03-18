@@ -164,6 +164,38 @@ impl eframe::App for App {
                         Screen::Receive,
                         &self.ui_tx,
                     );
+
+                    // Show pending count badge on the nav button when there are
+                    // active incoming or outgoing payment requests.
+                    let now_nav = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    let pr_pending = self
+                        .state
+                        .payment_requests
+                        .iter()
+                        .filter(|r| r.expires > now_nav)
+                        .count()
+                        + self
+                            .state
+                            .sent_payment_requests
+                            .iter()
+                            .filter(|r| r.status == "pending" && r.expires > now_nav)
+                            .count();
+                    let pr_label = if pr_pending > 0 {
+                        format!("💳 Requests ({})", pr_pending)
+                    } else {
+                        "💳 Requests".to_string()
+                    };
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        &pr_label,
+                        Screen::PaymentRequests,
+                        &self.ui_tx,
+                    );
+
                     nav_button(
                         ui,
                         &mut self.state,
@@ -308,6 +340,9 @@ impl eframe::App for App {
             }
             Screen::Receive => {
                 view::receive::show(ui, &mut self.state, &self.ui_tx);
+            }
+            Screen::PaymentRequests => {
+                view::payment_requests::show(ui, &mut self.state, &self.ui_tx);
             }
             Screen::Transactions => {
                 view::transactions::show(ui, &mut self.state, &self.ui_tx);

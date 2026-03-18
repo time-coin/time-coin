@@ -15,6 +15,7 @@ pub mod connections;
 pub mod income_chart;
 pub mod masternodes;
 pub mod overview;
+pub mod payment_requests;
 pub mod receive;
 pub mod send;
 pub mod settings;
