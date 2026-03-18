@@ -19,6 +19,9 @@ pub struct App {
     pub ui_tx: mpsc::UnboundedSender<UiEvent>,
     svc_rx: mpsc::UnboundedReceiver<ServiceEvent>,
     shutdown_token: CancellationToken,
+    /// True once we have sent `UiEvent::Shutdown` so we don't send it twice
+    /// (Exit button fires Close → close_requested appears the next frame).
+    shutdown_sent: bool,
 }
 
 impl App {
@@ -61,23 +64,49 @@ impl App {
             ui_tx,
             svc_rx,
             shutdown_token: token,
+            shutdown_sent: false,
         }
+    }
+}
+
+impl App {
+    /// Flush pending state and tell the service task to shut down gracefully.
+    /// Safe to call multiple times — subsequent calls are no-ops.
+    fn begin_shutdown(&mut self) {
+        if self.shutdown_sent {
+            return;
+        }
+        self.shutdown_sent = true;
+
+        // Flush any pending send record status changes.
+        if !self.state.dirty_send_records.is_empty() {
+            let records = std::mem::take(&mut self.state.dirty_send_records);
+            let _ = self.ui_tx.send(UiEvent::PersistSendRecords(records));
+        }
+
+        // Signal the service to close WebSocket connections gracefully and stop.
+        let _ = self.ui_tx.send(UiEvent::Shutdown);
     }
 }
 
 impl Drop for App {
     fn drop(&mut self) {
-        // Flush any pending send record updates before shutdown
-        if !self.state.dirty_send_records.is_empty() {
-            let records = std::mem::take(&mut self.state.dirty_send_records);
-            let _ = self.ui_tx.send(UiEvent::PersistSendRecords(records));
-        }
+        // Ensure shutdown is initiated even if begin_shutdown was never called
+        // (e.g. panic path or early exit).
+        self.begin_shutdown();
         self.shutdown_token.cancel();
     }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Intercept both the OS X button and any programmatic Close command.
+        // This ensures a clean shutdown (WS close frames, pending record flush)
+        // regardless of whether the user clicked Exit or the window title-bar X.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.begin_shutdown();
+        }
+
         // Ensure we repaint regularly to pick up background service events
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
 
@@ -188,6 +217,7 @@ impl eframe::App for App {
                         )
                         .clicked()
                     {
+                        self.begin_shutdown();
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 }

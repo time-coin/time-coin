@@ -236,6 +236,8 @@ pub struct AppState {
     // -- Payment Requests --
     /// Incoming payment requests from other wallets.
     pub payment_requests: Vec<crate::events::PaymentRequest>,
+    /// Payment requests sent by this wallet to other wallets.
+    pub sent_payment_requests: Vec<crate::wallet_db::SentPaymentRequest>,
     /// "Request Payment" form fields.
     pub pr_address: String,
     pub pr_amount: String,
@@ -348,6 +350,7 @@ impl Default for AppState {
             consolidation_dismissed: false,
             dirty_send_records: Vec::new(),
             payment_requests: Vec::new(),
+            sent_payment_requests: Vec::new(),
             pr_address: String::new(),
             pr_amount: String::new(),
             pr_label: String::new(),
@@ -1357,6 +1360,16 @@ impl AppState {
                 self.pr_address.clear();
                 self.pr_amount.clear();
                 self.pr_memo.clear();
+            }
+
+            ServiceEvent::SentPaymentRequestsLoaded(reqs) => {
+                self.sent_payment_requests = reqs;
+            }
+
+            ServiceEvent::SentPaymentRequestStatusUpdated { id, status } => {
+                if let Some(req) = self.sent_payment_requests.iter_mut().find(|r| r.id == id) {
+                    req.status = status;
+                }
             }
 
             ServiceEvent::WalletExists(exists) => {

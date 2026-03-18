@@ -196,6 +196,11 @@ pub enum UiEvent {
     DeclineRequest {
         request_id: String,
     },
+
+    /// Cancel a sent payment request (withdraws it before the payer responds).
+    CancelPaymentRequest {
+        request_id: String,
+    },
 }
 
 /// Screens the wallet can display.
@@ -384,5 +389,15 @@ pub enum ServiceEvent {
     /// Payment request sent successfully.
     PaymentRequestSent {
         id: String,
+    },
+
+    /// Sent payment requests loaded from the database on startup.
+    SentPaymentRequestsLoaded(Vec<crate::wallet_db::SentPaymentRequest>),
+
+    /// Status of a sent payment request updated (payer responded or we cancelled).
+    SentPaymentRequestStatusUpdated {
+        id: String,
+        /// "declined" | "cancelled" | "paid"
+        status: String,
     },
 }

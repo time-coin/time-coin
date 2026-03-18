@@ -1374,7 +1374,30 @@ pub async fn run(
                                                     .and_then(|v| v.as_str())
                                                     .unwrap_or(&id)
                                                     .to_string();
-                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestSent { id: req_id });
+
+                                                // Persist the sent request so it survives restarts
+                                                let sent_req = crate::wallet_db::SentPaymentRequest {
+                                                    id: req_id.clone(),
+                                                    to_address: to_address.clone(),
+                                                    from_address: from_address.clone(),
+                                                    amount,
+                                                    label: label.clone(),
+                                                    memo: memo.clone(),
+                                                    status: "pending".to_string(),
+                                                    created_at: timestamp,
+                                                    expires: timestamp + 7 * 24 * 3600,
+                                                };
+                                                if let Some(ref db) = state.wallet_db {
+                                                    let _ = db.save_sent_payment_request(&sent_req);
+                                                }
+
+                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestSent { id: req_id.clone() });
+                                                // Push directly into sent list
+                                                let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestsLoaded(
+                                                    state.wallet_db.as_ref()
+                                                        .and_then(|db| db.get_all_sent_payment_requests().ok())
+                                                        .unwrap_or_default(),
+                                                ));
                                             }
                                             Err(e) => {
                                                 let _ = state.svc_tx.send(ServiceEvent::Error(
@@ -1394,8 +1417,6 @@ pub async fn run(
                     }
 
                     UiEvent::PayRequest { request_id } => {
-                        // Find the request and auto-fill send
-                        // We'll read state from the UI side via events
                         if let Some(ref client) = state.client {
                             let _ = client.acknowledge_payment_request(&request_id, "paid").await;
                         }
@@ -1405,6 +1426,19 @@ pub async fn run(
                         if let Some(ref client) = state.client {
                             let _ = client.acknowledge_payment_request(&request_id, "declined").await;
                         }
+                    }
+
+                    UiEvent::CancelPaymentRequest { request_id } => {
+                        if let Some(ref client) = state.client {
+                            let _ = client.acknowledge_payment_request(&request_id, "cancelled").await;
+                        }
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.update_sent_payment_request_status(&request_id, "cancelled");
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestStatusUpdated {
+                            id: request_id,
+                            status: "cancelled".to_string(),
+                        });
                     }
 
                     UiEvent::SaveMasternodeEntry(entry) => {
@@ -1822,6 +1856,33 @@ pub async fn run(
                             });
                         } else {
                             log::debug!("Dedup: skipping duplicate rej:{}", notif.txid);
+                        }
+                    }
+
+                    WsEvent::PaymentRequestResponse(notif) => {
+                        if !ws_dedup(&mut state.ws_seen, format!("pr_resp:{}", notif.request_id)) {
+                            log::info!(
+                                "📬 Payment request {} {} by {}",
+                                notif.request_id,
+                                notif.status,
+                                notif.payer_address,
+                            );
+                            // Map "accepted" → "paid" (payment is being sent) or keep "declined"
+                            let new_status = if notif.status == "accepted" {
+                                "paid".to_string()
+                            } else {
+                                "declined".to_string()
+                            };
+                            if let Some(ref db) = state.wallet_db {
+                                let _ = db.update_sent_payment_request_status(
+                                    &notif.request_id,
+                                    &new_status,
+                                );
+                            }
+                            let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestStatusUpdated {
+                                id: notif.request_id,
+                                status: new_status,
+                            });
                         }
                     }
 
@@ -2548,6 +2609,16 @@ impl ServiceState {
                                 .send(ServiceEvent::MasternodeEntriesLoaded(entries));
                         }
                     }
+                    // Load persisted sent payment requests
+                    if let Ok(sent_reqs) = db.get_all_sent_payment_requests() {
+                        if !sent_reqs.is_empty() {
+                            log::info!("Loaded {} sent payment requests", sent_reqs.len());
+                            let _ = self
+                                .svc_tx
+                                .send(ServiceEvent::SentPaymentRequestsLoaded(sent_reqs));
+                        }
+                    }
+
                     if !cached_txs.is_empty() {
                         log::info!(
                             "Loaded {} cached transactions from database",

@@ -684,6 +684,85 @@ pub fn masternode_tier_from_satoshis(amount: u64) -> Option<&'static str> {
     }
 }
 
+/// A payment request sent by this wallet to another wallet.
+/// Stored in sled as JSON so future field additions stay backward-compatible.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentPaymentRequest {
+    pub id: String,
+    /// The address being asked to pay (the payer).
+    pub to_address: String,
+    /// Our address that should receive the payment.
+    pub from_address: String,
+    pub amount: u64,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub memo: String,
+    /// "pending" | "declined" | "cancelled" | "paid"
+    pub status: String,
+    pub created_at: i64,
+    pub expires: i64,
+}
+
+impl WalletDb {
+    // ==================== Sent Payment Requests ====================
+
+    /// Save or update a sent payment request.
+    pub fn save_sent_payment_request(
+        &self,
+        req: &SentPaymentRequest,
+    ) -> Result<(), WalletDbError> {
+        let key = format!("sent_pr:{}", req.id);
+        let value = serde_json::to_vec(req)?;
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Get all sent payment requests, newest first.
+    pub fn get_all_sent_payment_requests(
+        &self,
+    ) -> Result<Vec<SentPaymentRequest>, WalletDbError> {
+        let mut reqs = Vec::new();
+        for item in self.db.scan_prefix(b"sent_pr:") {
+            let (_key, value) = item?;
+            match serde_json::from_slice::<SentPaymentRequest>(&value) {
+                Ok(req) => reqs.push(req),
+                Err(e) => {
+                    log::warn!("Failed to deserialize sent payment request, skipping: {}", e);
+                }
+            }
+        }
+        reqs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(reqs)
+    }
+
+    /// Update the status of a sent payment request.
+    pub fn update_sent_payment_request_status(
+        &self,
+        id: &str,
+        status: &str,
+    ) -> Result<(), WalletDbError> {
+        let key = format!("sent_pr:{}", id);
+        if let Some(data) = self.db.get(key.as_bytes())? {
+            let mut req: SentPaymentRequest = serde_json::from_slice(&data)?;
+            req.status = status.to_string();
+            let value = serde_json::to_vec(&req)?;
+            self.db.insert(key.as_bytes(), value)?;
+            self.db.flush()?;
+        }
+        Ok(())
+    }
+
+    /// Delete a sent payment request by id.
+    pub fn delete_sent_payment_request(&self, id: &str) -> Result<(), WalletDbError> {
+        let key = format!("sent_pr:{}", id);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
+}
+
 /// UTXO record for wallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UtxoRecord {

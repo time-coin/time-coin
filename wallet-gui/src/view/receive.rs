@@ -6,6 +6,42 @@ use tokio::sync::mpsc;
 use crate::events::{Screen, UiEvent};
 use crate::state::AppState;
 
+/// Format a timestamp as a human-readable "time ago" string.
+fn time_ago(ts: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let secs = (now - ts).max(0);
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
+fn status_color(status: &str) -> egui::Color32 {
+    match status {
+        "paid" => egui::Color32::from_rgb(0, 160, 60),
+        "declined" => egui::Color32::from_rgb(200, 60, 60),
+        "cancelled" => egui::Color32::from_rgb(150, 150, 150),
+        _ => egui::Color32::from_rgb(200, 140, 0), // pending = amber
+    }
+}
+
+fn status_label(status: &str) -> &'static str {
+    match status {
+        "paid" => "Paid",
+        "declined" => "Declined",
+        "cancelled" => "Cancelled",
+        _ => "Pending",
+    }
+}
+
 /// Render the receive screen.
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
     ui.heading("Receive TIME");
@@ -169,6 +205,152 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 });
 
                 ui.add_space(10.0);
+            }
+
+            // ── Sent Payment Requests ──
+            let now_ts_sent = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+
+            if !state.sent_payment_requests.is_empty() {
+                ui.separator();
+                ui.add_space(6.0);
+
+                let pending_count = state
+                    .sent_payment_requests
+                    .iter()
+                    .filter(|r| r.status == "pending" && r.expires > now_ts_sent)
+                    .count();
+
+                ui.label(
+                    egui::RichText::new(format!(
+                        "📤 Sent Payment Requests ({}{})",
+                        state.sent_payment_requests.len(),
+                        if pending_count > 0 {
+                            format!(" · {} pending", pending_count)
+                        } else {
+                            String::new()
+                        }
+                    ))
+                    .size(14.0)
+                    .strong(),
+                );
+                ui.add_space(6.0);
+
+                let mut cancel_id: Option<String> = None;
+
+                // Show pending first, then completed
+                let mut sorted: Vec<_> = state.sent_payment_requests.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_pending = a.status == "pending";
+                    let b_pending = b.status == "pending";
+                    b_pending.cmp(&a_pending).then(b.created_at.cmp(&a.created_at))
+                });
+
+                for req in &sorted {
+                    let is_pending = req.status == "pending" && req.expires > now_ts_sent;
+
+                    egui::Frame::group(ui.style())
+                        .inner_margin(egui::Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+
+                            ui.horizontal(|ui| {
+                                if !req.label.is_empty() {
+                                    ui.label(egui::RichText::new(&req.label).strong().size(13.0));
+                                }
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            egui::RichText::new(status_label(&req.status))
+                                                .size(11.0)
+                                                .strong()
+                                                .color(status_color(&req.status)),
+                                        );
+                                    },
+                                );
+                            });
+
+                            ui.add_space(4.0);
+
+                            egui::Grid::new(format!("sent_pr_grid_{}", req.id))
+                                .num_columns(2)
+                                .spacing([8.0, 4.0])
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new("To:").weak().size(12.0));
+                                    ui.label(
+                                        egui::RichText::new(super::truncate_middle(
+                                            &req.to_address,
+                                            14,
+                                            6,
+                                        ))
+                                        .monospace()
+                                        .size(12.0),
+                                    )
+                                    .on_hover_text(&req.to_address);
+                                    ui.end_row();
+
+                                    ui.label(egui::RichText::new("Amount:").weak().size(12.0));
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} TIME",
+                                            req.amount as f64 / 100_000.0,
+                                        ))
+                                        .strong()
+                                        .size(13.0),
+                                    );
+                                    ui.end_row();
+
+                                    if !req.memo.is_empty() {
+                                        ui.label(egui::RichText::new("Memo:").weak().size(12.0));
+                                        ui.label(
+                                            egui::RichText::new(&req.memo)
+                                                .size(12.0)
+                                                .italics()
+                                                .color(egui::Color32::GRAY),
+                                        );
+                                        ui.end_row();
+                                    }
+
+                                    ui.label(egui::RichText::new("Sent:").weak().size(12.0));
+                                    ui.label(
+                                        egui::RichText::new(time_ago(req.created_at))
+                                            .size(11.0)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                    ui.end_row();
+                                });
+
+                            if is_pending {
+                                ui.add_space(6.0);
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .button(
+                                            egui::RichText::new("✕ Cancel")
+                                                .color(egui::Color32::from_rgb(200, 60, 60))
+                                                .size(12.0),
+                                        )
+                                        .on_hover_text("Withdraw this payment request")
+                                        .clicked()
+                                    {
+                                        cancel_id = Some(req.id.clone());
+                                    }
+                                });
+                            }
+                        });
+                    ui.add_space(4.0);
+                }
+
+                if let Some(id) = cancel_id {
+                    if let Some(req) = state.sent_payment_requests.iter_mut().find(|r| r.id == id) {
+                        req.status = "cancelled".to_string();
+                    }
+                    let _ = ui_tx.send(UiEvent::CancelPaymentRequest { request_id: id });
+                }
+
+                ui.add_space(6.0);
             }
 
             // ── Incoming Payment Requests ──
@@ -470,7 +652,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     .desired_width(180.0)
                                     .hint_text("Unlabeled"),
                             );
-                            if label_resp.lost_focus() {
+                            if label_resp.changed() {
                                 label_updates.push((i, state.addresses[i].label.clone()));
                             }
                             let short = super::truncate_middle(&addr, 14, 6);

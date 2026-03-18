@@ -122,6 +122,18 @@ pub struct PaymentRequestNotification {
     pub expires: i64,
 }
 
+/// A response from the payer to one of our sent payment requests.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PaymentRequestResponseNotification {
+    /// The id of the original payment request.
+    pub request_id: String,
+    /// "accepted" or "declined"
+    pub status: String,
+    /// The payer's address (for display / logging).
+    #[serde(default)]
+    pub payer_address: String,
+}
+
 /// Events sent from the WebSocket client to the wallet UI
 #[derive(Clone, Debug)]
 pub enum WsEvent {
@@ -133,6 +145,8 @@ pub enum WsEvent {
     TransactionRejected(TxRejectedNotification),
     /// A payment request received from another wallet
     PaymentRequestReceived(PaymentRequestNotification),
+    /// A payer responded to one of our sent payment requests.
+    PaymentRequestResponse(PaymentRequestResponseNotification),
     /// WebSocket connected successfully
     Connected(String),
     /// WebSocket disconnected
@@ -409,6 +423,23 @@ impl WsClient {
                             }
                             Err(e) => {
                                 log::warn!("Failed to parse payment_request: {}", e);
+                            }
+                        }
+                    }
+                }
+                "payment_request_response" => {
+                    if let Some(data) = msg.data {
+                        match serde_json::from_value::<PaymentRequestResponseNotification>(data) {
+                            Ok(notif) => {
+                                log::info!(
+                                    "📬 Payment request {} {}",
+                                    notif.request_id,
+                                    notif.status,
+                                );
+                                let _ = event_tx.send(WsEvent::PaymentRequestResponse(notif));
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to parse payment_request_response: {}", e);
                             }
                         }
                     }
