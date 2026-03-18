@@ -15,10 +15,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// Mainnet peer list URL.
-const MAINNET_PEERS_URL: &str = "https://time-coin.io/api/peers";
+const MAINNET_PEERS_URL: &str = "https://time-coin.io/api/v1/nodes/peers/mainnet";
 
 /// Testnet peer list URL.
-const TESTNET_PEERS_URL: &str = "https://www.time-coin.io/api/testnet/peers";
+const TESTNET_PEERS_URL: &str = "https://time-coin.io/api/v1/nodes/peers/testnet";
 
 /// Mainnet RPC port.
 const MAINNET_PORT: u16 = 24001;

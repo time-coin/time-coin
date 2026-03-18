@@ -65,9 +65,10 @@ pub struct HttpDiscovery {
 impl HttpDiscovery {
     /// Create new HTTP discovery client
     pub fn new(network: NetworkType) -> Self {
-        // The API endpoint is the same for both networks
-        // The actual network filtering happens based on port numbers
-        let base_url = "https://time-coin.io/api/peers";
+        let base_url = match network {
+            NetworkType::Mainnet => "https://time-coin.io/api/v1/nodes/peers/mainnet",
+            NetworkType::Testnet => "https://time-coin.io/api/v1/nodes/peers/testnet",
+        };
 
         HttpDiscovery {
             base_url: base_url.to_string(),
