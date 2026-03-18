@@ -2360,58 +2360,95 @@ impl ServiceState {
     fn finish_wallet_init(&mut self, result: Result<WalletManager, wallet_dat::WalletDatError>) {
         match result {
             Ok(mut wm) => {
-                // Sync address index from DB so all generated addresses are restored
-                if let Some(ref db) = self.wallet_db {
-                    if let Ok(owned) = db.get_owned_addresses() {
-                        if let Some(max_idx) = owned.iter().filter_map(|c| c.derivation_index).max()
-                        {
-                            wm.sync_address_index(max_idx);
-                        }
-                    }
-                }
-                let raw_addrs = derive_addresses(&mut wm);
-                self.addresses = raw_addrs.clone();
-                // Force a full transaction rescan whenever a wallet is (re)loaded.
-                self.last_synced_height.store(0, Ordering::Relaxed);
-                self.signing_keys = Arc::new(
-                    (0..wm.get_address_count())
-                        .filter_map(|i| wm.derive_keypair(i).ok())
-                        .map(|kp| ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes()))
-                        .collect(),
-                );
-                let address_infos: Vec<AddressInfo> = raw_addrs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, addr)| {
-                        let existing = self
-                            .wallet_db
-                            .as_ref()
-                            .and_then(|db| db.get_contact(addr).ok().flatten());
-                        let label = existing
-                            .as_ref()
-                            .map(|c| c.label.clone())
-                            .unwrap_or_else(|| format!("Address #{}", i));
+                // Load owned addresses from the DB. Derive only those specific indices
+                // so that explicitly deleted addresses do not resurface after a reload.
+                let owned_from_db: Vec<crate::wallet_db::AddressContact> = self
+                    .wallet_db
+                    .as_ref()
+                    .and_then(|db| db.get_owned_addresses().ok())
+                    .unwrap_or_default();
 
-                        // Persist newly-derived addresses to the DB with a default label
-                        if existing.is_none() {
+                // Collect derivation indices that are recorded in the DB, sorted ascending.
+                let mut db_indices: Vec<u32> = owned_from_db
+                    .iter()
+                    .filter_map(|c| c.derivation_index)
+                    .collect();
+                db_indices.sort_unstable();
+
+                // Advance the counter past the highest known index so the next
+                // generated address does not collide with any existing one.
+                if let Some(&max_idx) = db_indices.last() {
+                    wm.sync_address_index(max_idx);
+                }
+
+                // Build the active address set.
+                // First run: no DB entries yet — create the primary address and persist it.
+                let raw_addrs: Vec<String> = if db_indices.is_empty() {
+                    match wm.get_next_address() {
+                        Ok(addr) => {
                             if let Some(ref db) = self.wallet_db {
-                                let contact = crate::wallet_db::AddressContact {
+                                let now = chrono::Utc::now().timestamp();
+                                let _ = db.save_contact(&crate::wallet_db::AddressContact {
                                     address: addr.clone(),
-                                    label: label.clone(),
+                                    label: "Address #0".to_string(),
                                     name: None,
                                     email: None,
                                     phone: None,
                                     notes: None,
-                                    is_default: i == 0,
+                                    is_default: true,
                                     is_owned: true,
-                                    derivation_index: Some(i as u32),
-                                    created_at: chrono::Utc::now().timestamp(),
-                                    updated_at: chrono::Utc::now().timestamp(),
-                                };
-                                let _ = db.save_contact(&contact);
+                                    derivation_index: Some(0),
+                                    created_at: now,
+                                    updated_at: now,
+                                });
                             }
+                            vec![addr]
                         }
+                        Err(e) => {
+                            log::error!("Failed to derive primary address: {}", e);
+                            vec![]
+                        }
+                    }
+                } else {
+                    // Normal run — derive only the indices present in the DB.
+                    db_indices
+                        .iter()
+                        .filter_map(|&i| wm.derive_address(i).ok())
+                        .collect()
+                };
 
+                self.addresses = raw_addrs.clone();
+                // Force a full transaction rescan whenever a wallet is (re)loaded.
+                self.last_synced_height.store(0, Ordering::Relaxed);
+
+                // Build signing keys only for the active address indices.
+                let active_indices: Vec<u32> = if db_indices.is_empty() {
+                    vec![0]
+                } else {
+                    db_indices.clone()
+                };
+                self.signing_keys = Arc::new(
+                    active_indices
+                        .iter()
+                        .filter_map(|&i| wm.derive_keypair(i).ok())
+                        .map(|kp| ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes()))
+                        .collect(),
+                );
+
+                // Build AddressInfo from the DB contacts; labels are already persisted so
+                // no re-save is needed (and re-saving would resurrect deleted addresses).
+                let contact_map: std::collections::HashMap<
+                    String,
+                    &crate::wallet_db::AddressContact,
+                > = owned_from_db.iter().map(|c| (c.address.clone(), c)).collect();
+                let address_infos: Vec<AddressInfo> = raw_addrs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, addr)| {
+                        let label = contact_map
+                            .get(addr)
+                            .map(|c| c.label.clone())
+                            .unwrap_or_else(|| format!("Address #{}", i));
                         AddressInfo {
                             address: addr.clone(),
                             label,
@@ -2895,20 +2932,6 @@ async fn build_masternode_update_tx(
     Ok((tx_hex, txid))
 }
 
-/// Derive the wallet's active address set from the DB-synced index.
-///
-/// On first run this produces exactly one address. On subsequent runs it
-/// restores exactly the addresses the user has explicitly generated — no gap
-/// window is added automatically.
-fn derive_addresses(wm: &mut WalletManager) -> Vec<String> {
-    // Always have at least one address on first run.
-    if wm.get_address_count() == 0 {
-        let _ = wm.get_next_address();
-    }
-    (0..wm.get_address_count())
-        .filter_map(|i| wm.derive_address(i).ok())
-        .collect()
-}
 
 /// Return a default template for a config file based on its filename.
 pub fn config_file_template(path: &std::path::Path) -> &'static str {
