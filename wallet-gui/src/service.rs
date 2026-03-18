@@ -765,6 +765,11 @@ pub async fn run(
                         } else {
                             NetworkType::Mainnet
                         };
+                        // Clear any manually-pinned peer from the old network so discovery
+                        // starts fresh on the new network.
+                        state.manual_peer = false;
+                        state.config.preferred_endpoint = None;
+                        config.preferred_endpoint = None;
                         // Save config now that user has chosen
                         if let Err(e) = state.config.save() {
                             log::error!("Failed to save config: {}", e);
@@ -810,6 +815,7 @@ pub async fn run(
                         manual_endpoints = state.config.manual_endpoints();
                         rpc_credentials = state.config.rpc_credentials();
                         state.client = None;
+                        state.last_peers.clear();
                         let tx = state.svc_tx.clone();
                         let eps = manual_endpoints.clone();
                         let tn = is_testnet;
