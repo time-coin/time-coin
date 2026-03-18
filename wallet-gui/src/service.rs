@@ -1793,16 +1793,12 @@ pub async fn run(
                                 if !state.addresses.is_empty() {
                                     match client.get_payment_requests(&state.addresses).await {
                                         Ok(raw_requests) => {
-                                            let mut requests = Vec::new();
-                                            for val in &raw_requests {
-                                                if let Some(pr) = parse_payment_request_json(val) {
-                                                    requests.push(pr);
-                                                }
-                                            }
-                                            if !requests.is_empty() {
-                                                log::info!("📬 Polled {} pending payment requests", requests.len());
-                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestsUpdated(requests));
-                                            }
+                                            let requests: Vec<_> = raw_requests
+                                                .iter()
+                                                .filter_map(parse_payment_request_json)
+                                                .collect();
+                                            log::info!("📬 Polled {} pending payment requests", requests.len());
+                                            let _ = state.svc_tx.send(ServiceEvent::PaymentRequestsUpdated(requests));
                                         }
                                         Err(e) => {
                                             log::warn!("Failed to poll payment requests: {}", e);
