@@ -115,6 +115,44 @@ When sending to one of your own addresses, the wallet immediately shows all thre
 
 ---
 
+## Payment Requests
+
+The **📋 Requests** tab lets you send payment requests to other wallets and respond to incoming ones.
+
+### Sending a Request
+
+1. Click **Request Payment** to open the request form
+2. Enter:
+   - **Payer Address** — the TIME address of the wallet you want to pay you
+   - **Amount (TIME)** — the amount you are requesting
+   - **Label** — a short description (e.g. "Invoice #42", "Rent")
+   - **Memo** — optional note visible to the payer
+3. Click **Send Request**
+
+The request is saved locally immediately and appears in the **Sent** section. If the masternode cannot be reached, the status shows **Failed** in red.
+
+### Incoming Requests
+
+Pending requests from other wallets appear in the **Incoming** section with:
+- Sender address, amount (including estimated fee), and expiry timer
+- An editable memo field so you can annotate before approving
+- **Approve** — pre-fills the Send screen with the payer's address, amount, and memo; the masternode is notified of payment only after the transaction actually broadcasts
+- **Decline** — rejects the request and notifies the sender
+
+### Sent Request Statuses
+
+| Status | Meaning |
+|--------|---------|
+| **Pending** | Awaiting response from the payer |
+| **Paid** | Payer approved and transaction was broadcast |
+| **Declined** | Payer rejected the request |
+| **Cancelled** | You withdrew the request before the payer responded |
+| **Failed** | Masternode could not be reached when sending; request was not relayed |
+
+> **Note:** Incoming requests are saved to the local database and restored on startup. They remain visible until they expire or are acted upon.
+
+---
+
 ## Transaction History
 
 The **📋 Transactions** tab shows all transactions in a table format:
@@ -152,9 +190,9 @@ For confirmed **received** transactions, a **"Use as Masternode Collateral"** bu
 
 ### Transaction Statuses
 
-- **⏳ Pending** — Transaction broadcast but not yet finalized by masternode consensus
-- **✅ Approved** — Finalized by masternode consensus (instant finality via WebSocket)
-- **❌ Declined** — Rejected by the network (insufficient funds, invalid, etc.)
+- **⏳ Pending** — Transaction broadcast but not yet included in a block
+- **✅ Approved** — Transaction is included in a block (synchronized). Block rewards are always Approved
+- **❌ Declined** — Rejected by the network (insufficient funds, invalid signature, etc.)
 
 ---
 

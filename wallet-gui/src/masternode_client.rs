@@ -373,7 +373,6 @@ impl MasternodeClient {
                 let category = tx.get("category")?.as_str().unwrap_or("unknown");
                 let amount = tx.get("amount").map(json_to_satoshis_abs).unwrap_or(0);
                 let fee = tx.get("fee").map(json_to_satoshis_abs).unwrap_or(0);
-                let in_block = tx.get("blockhash").and_then(|v| v.as_str()).is_some();
                 let block_hash = tx
                     .get("blockhash")
                     .and_then(|v| v.as_str())
@@ -386,7 +385,10 @@ impl MasternodeClient {
                     .unwrap_or(0);
                 let timestamp = tx.get("time").and_then(|v| v.as_i64()).unwrap_or(0);
 
-                // Instant finality: check finalized flag from consensus, then blockhash
+                // Approved once the transaction is included in a block (synchronized),
+                // or earlier if the masternode consensus has already finalized it.
+                // Block rewards (generate) are always in a block even if blockhash is absent.
+                let in_block = !block_hash.is_empty() || category == "generate";
                 let finalized = tx
                     .get("finalized")
                     .and_then(|v| v.as_bool())
@@ -599,6 +601,8 @@ impl MasternodeClient {
         signature_hex: &str,
         timestamp: i64,
     ) -> Result<serde_json::Value, ClientError> {
+        // Masternode expects amount as float TIME (e.g. 1.0), not satoshis.
+        let amount_time = amount as f64 / 100_000.0;
         // Masternode parameter order:
         // [from_address, to_address, amount, memo, pubkey_hex, signature_hex, timestamp, requester_name]
         self.rpc_call(
@@ -606,7 +610,7 @@ impl MasternodeClient {
             serde_json::json!([
                 from_address,
                 to_address,
-                amount,
+                amount_time,
                 memo,
                 pubkey_hex,
                 signature_hex,

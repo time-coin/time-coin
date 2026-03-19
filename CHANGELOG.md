@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Payment Requests screen** — Send payment requests to other wallets via the masternode P2P network. Incoming requests show amount, sender, and expiry timer; approve to pre-fill the Send form or decline to reject
+- **Incoming payment request persistence** — Received payment requests are saved to the local sled database and restored on startup so they survive restarts
+- **Sent payment request persistence** — Sent requests are saved locally before the RPC call; they appear immediately in the Sent section and show a red "Failed" badge if the network call does not succeed
+- **"Request Payment" button on Requests page** — Replaced the non-functional unicode toggle with a plain button; form opens by default when the page loads
+
+### Changed
+- **Payment request acknowledgement deferred until send** — Clicking "Approve" on an incoming request no longer immediately fires `acknowledged = paid` on the masternode; the acknowledgement is sent only after the transaction is successfully broadcast, preventing the sender from seeing "Paid" when the payer navigated away without confirming
+- **Transaction status: Approved on block inclusion** — Transactions transition to `✅ Approved` once included in a block (`blockhash` present), or when the masternode RPC returns `finalized: true`. Block rewards (`generate` category) are always Approved since they cannot exist outside a block
+- **Payment request amount wire format** — Amount is now sent as float TIME (e.g. `1.0`) in the `sendpaymentrequest` RPC call; previously raw satoshis were sent (e.g. `100000`) which the masternode rejected. Incoming amounts from the poll RPC are now correctly converted from float TIME to satoshis
+
+### Fixed
+- **UTXO consolidation balance inflation** — Consolidation send records are now marked `is_consolidation: true` so they are excluded from `computed_balance()`. Consolidation output receive entries are now treated as change (not income) during transaction list reconstruction, preventing the consolidated amount from being double-counted alongside the original input receive entries
+- **Transactions not appearing on receiving wallet** — The transaction hash (`txid()`) now excludes `encrypted_memo` before hashing. Previously, the memo was attached to the transaction *after* signing, causing the masternode to fail signature verification (hash mismatch) and reject the transaction
+
 ## [0.2.0] - 2026-03-11
 
 ### Added

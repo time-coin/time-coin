@@ -3309,6 +3309,7 @@ async fn consolidate_utxos_background(
                                 timestamp: now,
                                 status: crate::masternode_client::TransactionStatus::Pending,
                                 memo: Some("UTXO Consolidation".to_string()),
+                                is_consolidation: true,
                                 ..Default::default()
                             };
                             let _ =
@@ -3384,10 +3385,13 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
         id: val.get("id")?.as_str()?.to_string(),
         from_address: val.get("from_address")?.as_str()?.to_string(),
         to_address: val.get("to_address")?.as_str()?.to_string(),
-        // amount may come as float (TIME) or integer (satoshis) depending on masternode version
+        // Masternode returns amount as float TIME; convert to satoshis.
         amount: val
             .get("amount")
-            .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))?,
+            .and_then(|v| {
+                v.as_f64().map(|f| (f * 100_000.0).round() as u64)
+                    .or_else(|| v.as_u64())
+            })?,
         // masternode returns "requester_name" for what the wallet calls "label"
         label: val
             .get("requester_name")

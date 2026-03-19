@@ -880,11 +880,13 @@ impl AppState {
                         && sent_txids.contains(tx.txid.as_str())
                         && own_addrs.contains(tx.address.as_str())
                     {
-                        // Check if this is a send-to-self receive (amount matches send)
+                        // Check if this is a send-to-self receive (amount matches send).
+                        // Consolidation sends always produce change — never count as income.
                         let is_self_receive = local_sends
                             .get(&tx.txid)
                             .map(|send| {
-                                own_addrs.contains(send.address.as_str())
+                                !send.is_consolidation
+                                    && own_addrs.contains(send.address.as_str())
                                     && tx.amount == send.amount
                             })
                             .unwrap_or(false);

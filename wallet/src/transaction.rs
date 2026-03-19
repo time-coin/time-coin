@@ -143,9 +143,15 @@ impl Transaction {
         Ok(())
     }
 
-    /// Calculate transaction hash (JSON-based, matches masternode txid())
+    /// Calculate transaction hash (JSON-based, matches masternode txid()).
+    ///
+    /// `encrypted_memo` is excluded from the hash so that attaching a memo after
+    /// signing does not invalidate the signature (memo is metadata, not part of
+    /// the UTXO commitment).
     pub fn hash(&self) -> [u8; 32] {
-        let json = serde_json::to_string(self).expect("JSON serialization should succeed");
+        let mut hasher_tx = self.clone();
+        hasher_tx.encrypted_memo = None;
+        let json = serde_json::to_string(&hasher_tx).expect("JSON serialization should succeed");
         Sha256::digest(json.as_bytes()).into()
     }
 
