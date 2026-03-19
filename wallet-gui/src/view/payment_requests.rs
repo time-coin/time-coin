@@ -149,11 +149,29 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         ui.end_row();
 
                         ui.label(egui::RichText::new("Payer Address:").strong());
-                        ui.add(
+                        let addr_resp = ui.add(
                             egui::TextEdit::singleline(&mut state.pr_address)
                                 .desired_width(350.0)
                                 .hint_text("TIME address of who should pay..."),
                         );
+                        addr_resp.context_menu(|ui| {
+                            if ui.button("Paste").clicked() {
+                                if let Ok(mut cb) = arboard::Clipboard::new() {
+                                    if let Ok(text) = cb.get_text() {
+                                        state.pr_address = text;
+                                    }
+                                }
+                                ui.close_menu();
+                            }
+                            if ui.button("Copy").clicked() {
+                                ui.ctx().copy_text(state.pr_address.clone());
+                                ui.close_menu();
+                            }
+                            if ui.button("Clear").clicked() {
+                                state.pr_address.clear();
+                                ui.close_menu();
+                            }
+                        });
                         ui.end_row();
 
                         ui.label(egui::RichText::new("Amount (TIME):").strong());
@@ -222,6 +240,18 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     }
                     ui.add_space(8.0);
                     if ui.button("Clear").clicked() {
+                        state.pr_address.clear();
+                        state.pr_amount.clear();
+                        state.pr_label.clear();
+                        state.pr_memo.clear();
+                    }
+                    ui.add_space(8.0);
+                    if ui
+                        .button(egui::RichText::new("Cancel").color(egui::Color32::GRAY))
+                        .on_hover_text("Close this form without sending")
+                        .clicked()
+                    {
+                        state.show_payment_request_form = false;
                         state.pr_address.clear();
                         state.pr_amount.clear();
                         state.pr_label.clear();
