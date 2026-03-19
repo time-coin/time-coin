@@ -298,6 +298,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         amount: send_amount,
                         fee: auto_fee,
                         memo: state.send_memo.clone(),
+                        payment_request_id: state.pending_payment_request_id.take(),
                     });
                     state.loading = true;
                     state.error = None;

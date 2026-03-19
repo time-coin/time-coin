@@ -248,6 +248,8 @@ pub struct AppState {
     /// Per-request memo overrides: the payer can edit the memo before approving.
     /// Key = payment request id.
     pub pr_memo_overrides: std::collections::HashMap<String, String>,
+    /// The incoming payment request id being fulfilled by the current Send, if any.
+    pub pending_payment_request_id: Option<String>,
 
     // -- Charts --
     /// Which chart tab is active on the Charts page.
@@ -355,8 +357,9 @@ impl Default for AppState {
             pr_amount: String::new(),
             pr_label: String::new(),
             pr_memo: String::new(),
-            show_payment_request_form: false,
+            show_payment_request_form: true,
             pr_memo_overrides: std::collections::HashMap::new(),
+            pending_payment_request_id: None,
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,
@@ -1339,6 +1342,15 @@ impl AppState {
 
             ServiceEvent::MaxConnectionsUpdated(n) => {
                 self.max_connections = n;
+            }
+
+            ServiceEvent::IncomingPaymentRequestsLoaded(requests) => {
+                // Merge DB-loaded requests without overwriting any already in memory
+                for req in requests {
+                    if !self.payment_requests.iter().any(|r| r.id == req.id) {
+                        self.payment_requests.push(req);
+                    }
+                }
             }
 
             ServiceEvent::PaymentRequestsUpdated(requests) => {

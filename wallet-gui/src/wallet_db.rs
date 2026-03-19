@@ -761,6 +761,46 @@ impl WalletDb {
         self.db.flush()?;
         Ok(())
     }
+
+    // ==================== Incoming Payment Requests ====================
+
+    /// Save or update an incoming payment request.
+    pub fn save_incoming_payment_request(
+        &self,
+        req: &crate::events::PaymentRequest,
+    ) -> Result<(), WalletDbError> {
+        let key = format!("incoming_pr:{}", req.id);
+        let value = serde_json::to_vec(req)?;
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Get all saved incoming payment requests.
+    pub fn get_all_incoming_payment_requests(
+        &self,
+    ) -> Result<Vec<crate::events::PaymentRequest>, WalletDbError> {
+        let mut reqs = Vec::new();
+        for item in self.db.scan_prefix(b"incoming_pr:") {
+            let (_key, value) = item?;
+            match serde_json::from_slice::<crate::events::PaymentRequest>(&value) {
+                Ok(req) => reqs.push(req),
+                Err(e) => {
+                    log::warn!("Failed to deserialize incoming payment request, skipping: {}", e);
+                }
+            }
+        }
+        reqs.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        Ok(reqs)
+    }
+
+    /// Delete an incoming payment request by id (after paid, declined, or expired).
+    pub fn delete_incoming_payment_request(&self, id: &str) -> Result<(), WalletDbError> {
+        let key = format!("incoming_pr:{}", id);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
 }
 
 /// UTXO record for wallet

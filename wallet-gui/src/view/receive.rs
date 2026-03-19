@@ -3,7 +3,7 @@
 use egui::Ui;
 use tokio::sync::mpsc;
 
-use crate::events::{Screen, UiEvent};
+use crate::events::UiEvent;
 use crate::state::AppState;
 
 /// Render the receive screen.
@@ -47,22 +47,12 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             ui.add_space(8.0);
             ui.label(egui::RichText::new(&selected_addr).monospace().size(13.0));
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("Copy Address").clicked() {
-                    ui.ctx().copy_text(selected_addr.clone());
-                }
-                ui.add_space(8.0);
-                if ui.button("Request Payment").clicked() {
-                    state.screen = Screen::PaymentRequests;
-                    state.show_payment_request_form = true;
-                    let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::PaymentRequests));
-                }
-            });
+            if ui.button("Copy Address").clicked() {
+                ui.ctx().copy_text(selected_addr.clone());
+            }
         });
     });
 
-    // Wrap everything below the heading in a single scroll area so the
-    // payment-request form and incoming requests are never hidden.
     egui::ScrollArea::vertical()
         .auto_shrink([false, true])
         .show(ui, |ui| {

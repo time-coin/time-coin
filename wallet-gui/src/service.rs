@@ -477,7 +477,7 @@ pub async fn run(
                         }
                     }
 
-                    UiEvent::SendTransaction { to, amount, fee, memo } => {
+                    UiEvent::SendTransaction { to, amount, fee, memo, payment_request_id } => {
                         if let Some(ref client) = state.client {
                             if let Some(ref mut wm) = state.wallet {
                                 // Retry loop: wait for locked UTXOs to finalize
@@ -620,6 +620,13 @@ pub async fn run(
                                                 match client.broadcast_transaction(&tx_hex).await {
                                                     Ok(txid) => {
                                                         let _ = state.svc_tx.send(ServiceEvent::TransactionSent { txid: txid.clone() });
+                                                        // If this send was fulfilling a payment request, acknowledge it now
+                                                        if let Some(ref req_id) = payment_request_id {
+                                                            let _ = client.acknowledge_payment_request(req_id, "paid").await;
+                                                            if let Some(ref db) = state.wallet_db {
+                                                                let _ = db.delete_incoming_payment_request(req_id);
+                                                            }
+                                                        }
                                                         let now = std::time::SystemTime::now()
                                                             .duration_since(std::time::UNIX_EPOCH)
                                                             .map(|d| d.as_secs() as i64)
@@ -1359,6 +1366,27 @@ pub async fn run(
                                         let signature = signing_key.sign(&sign_data);
                                         let signature_hex = hex::encode(signature.to_bytes());
 
+                                        // Save locally first so it appears in the UI immediately
+                                        let sent_req = crate::wallet_db::SentPaymentRequest {
+                                            id: id.clone(),
+                                            to_address: to_address.clone(),
+                                            from_address: from_address.clone(),
+                                            amount,
+                                            label: label.clone(),
+                                            memo: memo.clone(),
+                                            status: "pending".to_string(),
+                                            created_at: timestamp,
+                                            expires: timestamp + 7 * 24 * 3600,
+                                        };
+                                        if let Some(ref db) = state.wallet_db {
+                                            let _ = db.save_sent_payment_request(&sent_req);
+                                        }
+                                        let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestsLoaded(
+                                            state.wallet_db.as_ref()
+                                                .and_then(|db| db.get_all_sent_payment_requests().ok())
+                                                .unwrap_or_default(),
+                                        ));
+
                                         match client.send_payment_request(
                                             &from_address,
                                             &to_address,
@@ -1374,32 +1402,18 @@ pub async fn run(
                                                     .and_then(|v| v.as_str())
                                                     .unwrap_or(&id)
                                                     .to_string();
-
-                                                // Persist the sent request so it survives restarts
-                                                let sent_req = crate::wallet_db::SentPaymentRequest {
-                                                    id: req_id.clone(),
-                                                    to_address: to_address.clone(),
-                                                    from_address: from_address.clone(),
-                                                    amount,
-                                                    label: label.clone(),
-                                                    memo: memo.clone(),
-                                                    status: "pending".to_string(),
-                                                    created_at: timestamp,
-                                                    expires: timestamp + 7 * 24 * 3600,
-                                                };
+                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestSent { id: req_id });
+                                            }
+                                            Err(e) => {
+                                                // Mark as failed in DB so the user can see it didn't go through
                                                 if let Some(ref db) = state.wallet_db {
-                                                    let _ = db.save_sent_payment_request(&sent_req);
+                                                    let _ = db.update_sent_payment_request_status(&id, "failed");
                                                 }
-
-                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestSent { id: req_id.clone() });
-                                                // Push directly into sent list
                                                 let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestsLoaded(
                                                     state.wallet_db.as_ref()
                                                         .and_then(|db| db.get_all_sent_payment_requests().ok())
                                                         .unwrap_or_default(),
                                                 ));
-                                            }
-                                            Err(e) => {
                                                 let _ = state.svc_tx.send(ServiceEvent::Error(
                                                     format!("Failed to send payment request: {}", e),
                                                 ));
@@ -1416,15 +1430,17 @@ pub async fn run(
                         }
                     }
 
-                    UiEvent::PayRequest { request_id } => {
-                        if let Some(ref client) = state.client {
-                            let _ = client.acknowledge_payment_request(&request_id, "paid").await;
-                        }
+                    UiEvent::PayRequest { .. } => {
+                        // Acknowledge is deferred until the transaction is actually broadcast.
+                        // Nothing to do here.
                     }
 
                     UiEvent::DeclineRequest { request_id } => {
                         if let Some(ref client) = state.client {
                             let _ = client.acknowledge_payment_request(&request_id, "declined").await;
+                        }
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.delete_incoming_payment_request(&request_id);
                         }
                     }
 
@@ -1798,6 +1814,11 @@ pub async fn run(
                                                 .filter_map(parse_payment_request_json)
                                                 .collect();
                                             log::info!("📬 Polled {} pending payment requests", requests.len());
+                                            if let Some(ref db) = state.wallet_db {
+                                                for req in &requests {
+                                                    let _ = db.save_incoming_payment_request(req);
+                                                }
+                                            }
                                             let _ = state.svc_tx.send(ServiceEvent::PaymentRequestsUpdated(requests));
                                         }
                                         Err(e) => {
@@ -1892,6 +1913,9 @@ pub async fn run(
                                 timestamp: notif.timestamp,
                                 expires: notif.expires,
                             };
+                            if let Some(ref db) = state.wallet_db {
+                                let _ = db.save_incoming_payment_request(&pr);
+                            }
                             let _ = state.svc_tx.send(ServiceEvent::PaymentRequestReceived(pr));
                         } else {
                             log::debug!("Dedup: skipping duplicate pr:{}", notif.id);
@@ -2598,6 +2622,15 @@ impl ServiceState {
                             let _ = self
                                 .svc_tx
                                 .send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                        }
+                    }
+                    // Load persisted incoming payment requests
+                    if let Ok(incoming_reqs) = db.get_all_incoming_payment_requests() {
+                        if !incoming_reqs.is_empty() {
+                            log::info!("Loaded {} incoming payment requests", incoming_reqs.len());
+                            let _ = self
+                                .svc_tx
+                                .send(ServiceEvent::IncomingPaymentRequestsLoaded(incoming_reqs));
                         }
                     }
                     // Load persisted sent payment requests

@@ -8,7 +8,7 @@ use crate::state::AddressInfo;
 use crate::ws_client::TxNotification;
 
 /// A payment request displayed in the wallet UI.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PaymentRequest {
     pub id: String,
     pub from_address: String,
@@ -59,6 +59,8 @@ pub enum UiEvent {
         amount: u64,
         fee: u64,
         memo: String,
+        /// If this send is fulfilling a payment request, the request id to acknowledge after broadcast.
+        payment_request_id: Option<String>,
     },
 
     /// The user navigated to a new screen — the service may prefetch data.
@@ -391,6 +393,9 @@ pub enum ServiceEvent {
     PaymentRequestSent {
         id: String,
     },
+
+    /// Incoming payment requests loaded from the database on startup.
+    IncomingPaymentRequestsLoaded(Vec<PaymentRequest>),
 
     /// Sent payment requests loaded from the database on startup.
     SentPaymentRequestsLoaded(Vec<crate::wallet_db::SentPaymentRequest>),

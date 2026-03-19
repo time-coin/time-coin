@@ -26,7 +26,7 @@ fn time_ago(ts: i64) -> String {
 fn status_color(status: &str) -> egui::Color32 {
     match status {
         "paid" => egui::Color32::from_rgb(0, 160, 60),
-        "declined" => egui::Color32::from_rgb(200, 60, 60),
+        "declined" | "failed" => egui::Color32::from_rgb(200, 60, 60),
         "cancelled" => egui::Color32::from_rgb(150, 150, 150),
         _ => egui::Color32::from_rgb(200, 140, 0),
     }
@@ -37,6 +37,7 @@ fn status_label(status: &str) -> &'static str {
         "paid" => "Paid",
         "declined" => "Declined",
         "cancelled" => "Cancelled",
+        "failed" => "Failed",
         _ => "Pending",
     }
 }
@@ -95,19 +96,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         .auto_shrink([false, true])
         .show(ui, |ui| {
             // ── New Request Form ──────────────────────────────────────────
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("📋 New Request").size(14.0).strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let toggle_label = if state.show_payment_request_form {
-                        "▲ Hide"
-                    } else {
-                        "▼ Show"
-                    };
-                    if ui.small_button(toggle_label).clicked() {
-                        state.show_payment_request_form = !state.show_payment_request_form;
-                    }
-                });
-            });
+            if !state.show_payment_request_form {
+                if ui.button("Request Payment").clicked() {
+                    state.show_payment_request_form = true;
+                }
+            } else {
+                ui.label(egui::RichText::new("New Request").size(14.0).strong());
+            }
 
             if state.show_payment_request_form {
                 ui.add_space(4.0);
@@ -387,11 +382,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         state.send_address = req.from_address.clone();
                         state.send_amount = format!("{:.5}", req.amount as f64 / 100_000.0);
                         state.send_memo = memo;
+                        state.pending_payment_request_id = Some(id.clone());
                         state.screen = Screen::Send;
                     }
-                    let _ = ui_tx.send(UiEvent::PayRequest {
-                        request_id: id.clone(),
-                    });
                     state.pr_memo_overrides.remove(&id);
                 }
                 if let Some(id) = decline_id {
