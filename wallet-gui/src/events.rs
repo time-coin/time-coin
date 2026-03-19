@@ -183,6 +183,11 @@ pub enum UiEvent {
 
     /// Send a payment request to another wallet via the masternode P2P network.
     SendPaymentRequest {
+        /// Our address the payer should send funds to.
+        from_address: String,
+        /// HD derivation index of `from_address` (used to sign the request).
+        from_address_idx: usize,
+        /// The payer's TIME address (who we are asking to pay us).
         to_address: String,
         amount: u64,
         label: String,

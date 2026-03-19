@@ -120,6 +120,34 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     .num_columns(2)
                     .spacing([8.0, 6.0])
                     .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Receive To:").strong());
+                        // Clamp index in case addresses changed
+                        if state.pr_from_address_idx >= state.addresses.len() {
+                            state.pr_from_address_idx = 0;
+                        }
+                        let selected_label = state.addresses.get(state.pr_from_address_idx)
+                            .map(|a| {
+                                let label = if a.label.is_empty() { "Unlabeled" } else { &a.label };
+                                format!("{} ({}…{})", label,
+                                    &a.address[..8.min(a.address.len())],
+                                    &a.address[a.address.len().saturating_sub(6)..])
+                            })
+                            .unwrap_or_else(|| "No addresses".to_string());
+                        egui::ComboBox::from_id_salt("pr_from_addr")
+                            .selected_text(selected_label)
+                            .width(350.0)
+                            .show_ui(ui, |ui| {
+                                for (i, addr_info) in state.addresses.iter().enumerate() {
+                                    let label = if addr_info.label.is_empty() { "Unlabeled" } else { &addr_info.label };
+                                    let display = format!("{} — {}…{}",
+                                        label,
+                                        &addr_info.address[..8.min(addr_info.address.len())],
+                                        &addr_info.address[addr_info.address.len().saturating_sub(6)..]);
+                                    ui.selectable_value(&mut state.pr_from_address_idx, i, display);
+                                }
+                            });
+                        ui.end_row();
+
                         ui.label(egui::RichText::new("Payer Address:").strong());
                         ui.add(
                             egui::TextEdit::singleline(&mut state.pr_address)
@@ -173,7 +201,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     {
                         if let Ok(amount_f64) = state.pr_amount.parse::<f64>() {
                             let amount = (amount_f64 * 100_000.0) as u64;
+                            let from_address = state.addresses
+                                .get(state.pr_from_address_idx)
+                                .map(|a| a.address.clone())
+                                .unwrap_or_default();
                             let _ = ui_tx.send(UiEvent::SendPaymentRequest {
+                                from_address,
+                                from_address_idx: state.pr_from_address_idx,
                                 to_address: state.pr_address.clone(),
                                 amount,
                                 label: state.pr_label.clone(),

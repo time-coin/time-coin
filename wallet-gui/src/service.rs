@@ -1327,14 +1327,11 @@ pub async fn run(
                         let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(state.last_peers.clone()));
                     }
 
-                    UiEvent::SendPaymentRequest { to_address, amount, label, memo } => {
+                    UiEvent::SendPaymentRequest { from_address, from_address_idx, to_address, amount, label, memo } => {
                         if let Some(ref client) = state.client {
                             if let Some(ref wm) = state.wallet {
-                                match wm.derive_keypair(0) {
+                                match wm.derive_keypair(from_address_idx as u32) {
                                     Ok(kp) => {
-                                        let from_address = state.addresses.first()
-                                            .cloned()
-                                            .unwrap_or_default();
 
                                         let secret_bytes = kp.secret_key_bytes();
                                         let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
@@ -1376,7 +1373,7 @@ pub async fn run(
                                             memo: memo.clone(),
                                             status: "pending".to_string(),
                                             created_at: timestamp,
-                                            expires: timestamp + 7 * 24 * 3600,
+                                            expires: timestamp + 86400, // 24 hours, matching masternode TTL
                                         };
                                         if let Some(ref db) = state.wallet_db {
                                             let _ = db.save_sent_payment_request(&sent_req);
@@ -1388,6 +1385,7 @@ pub async fn run(
                                         ));
 
                                         match client.send_payment_request(
+                                            &id,
                                             &from_address,
                                             &to_address,
                                             amount,
@@ -3385,12 +3383,12 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
         id: val.get("id")?.as_str()?.to_string(),
         from_address: val.get("from_address")?.as_str()?.to_string(),
         to_address: val.get("to_address")?.as_str()?.to_string(),
-        // Masternode returns amount as float TIME; convert to satoshis.
+        // Masternode returns amount as u64 satoshis; accept float as fallback.
         amount: val
             .get("amount")
             .and_then(|v| {
-                v.as_f64().map(|f| (f * 100_000.0).round() as u64)
-                    .or_else(|| v.as_u64())
+                v.as_u64()
+                    .or_else(|| v.as_f64().map(|f| (f * 100_000.0).round() as u64))
             })?,
         // masternode returns "requester_name" for what the wallet calls "label"
         label: val

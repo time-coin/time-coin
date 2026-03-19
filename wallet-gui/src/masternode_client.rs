@@ -589,9 +589,14 @@ impl MasternodeClient {
     }
 
     /// Send a signed payment request to the masternode for P2P relay.
+    ///
+    /// The masternode expects params[0] to be a JSON object with named fields.
+    /// Amount is in satoshis (u64). The client-computed `id` is passed so the
+    /// masternode stores the request under the same ID the wallet already saved locally.
     #[allow(clippy::too_many_arguments)]
     pub async fn send_payment_request(
         &self,
+        id: &str,
         from_address: &str,
         to_address: &str,
         amount: u64,
@@ -601,22 +606,19 @@ impl MasternodeClient {
         signature_hex: &str,
         timestamp: i64,
     ) -> Result<serde_json::Value, ClientError> {
-        // Masternode expects amount as float TIME (e.g. 1.0), not satoshis.
-        let amount_time = amount as f64 / 100_000.0;
-        // Masternode parameter order:
-        // [from_address, to_address, amount, memo, pubkey_hex, signature_hex, timestamp, requester_name]
         self.rpc_call(
             "sendpaymentrequest",
-            serde_json::json!([
-                from_address,
-                to_address,
-                amount_time,
-                memo,
-                pubkey_hex,
-                signature_hex,
-                timestamp,
-                label
-            ]),
+            serde_json::json!([{
+                "id": id,
+                "requester_address": from_address,
+                "payer_address": to_address,
+                "amount": amount,
+                "memo": memo,
+                "requester_name": label,
+                "pubkey_hex": pubkey_hex,
+                "signature_hex": signature_hex,
+                "timestamp": timestamp,
+            }]),
         )
         .await
     }
