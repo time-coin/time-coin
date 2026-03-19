@@ -302,16 +302,14 @@ impl WsClient {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-        // Subscribe to all wallet addresses
-        for address in addresses {
-            let subscribe_msg = ClientMessage {
-                method: "subscribe".to_string(),
-                params: serde_json::json!({"address": address}),
-            };
-            let json = serde_json::to_string(&subscribe_msg)?;
-            ws_sender.send(Message::Text(json)).await?;
-        }
-        log::info!("📡 Subscribed to {} addresses", addresses.len());
+        // Subscribe to all wallet addresses in one batch message
+        let subscribe_msg = ClientMessage {
+            method: "subscribe_batch".to_string(),
+            params: serde_json::json!({"addresses": addresses}),
+        };
+        let json = serde_json::to_string(&subscribe_msg)?;
+        ws_sender.send(Message::Text(json)).await?;
+        log::info!("📡 Subscribed to {} addresses (batch)", addresses.len());
 
         // Heartbeat interval
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(25));
