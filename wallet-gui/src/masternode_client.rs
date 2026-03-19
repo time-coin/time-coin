@@ -458,9 +458,10 @@ impl MasternodeClient {
                         .map(|s| s.to_string())
                 };
 
-                // Block rewards (coinbase / reward-distribution) carry category
-                // "generate". Auto-label them when no explicit memo is present.
-                let memo = if memo.is_none() && category == "generate" {
+                // Block rewards (coinbase / reward-distribution) always show
+                // "Block Reward". The masternode stores its own encrypted_memo
+                // on these entries, but that's internal data — override it.
+                let memo = if category == "generate" {
                     Some("Block Reward".to_string())
                 } else {
                     memo
