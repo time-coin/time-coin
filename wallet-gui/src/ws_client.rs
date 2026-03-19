@@ -111,7 +111,11 @@ pub struct TxRejectedNotification {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PaymentRequestNotification {
     pub id: String,
+    /// Masternode WS sends "requester_address"; accept "from_address" as fallback.
+    #[serde(alias = "requester_address")]
     pub from_address: String,
+    /// Masternode WS sends "payer_address"; accept "to_address" as fallback.
+    #[serde(alias = "payer_address")]
     pub to_address: String,
     pub amount: f64,
     /// Masternode sends "requester_name"; accept "label" as fallback.

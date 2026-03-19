@@ -269,6 +269,39 @@ pub async fn run(
                             }
                         });
                     }
+
+                    // Payment request poll every 30s (6th tick), but only after initial sync.
+                    if poll_tick.is_multiple_of(6)
+                        && !state.addresses.is_empty()
+                        && initial_sync_done.load(Ordering::Relaxed)
+                    {
+                        let pr_client = client.clone();
+                        let pr_addrs = state.addresses.clone();
+                        let pr_tx = state.svc_tx.clone();
+                        let pr_db = state.wallet_db.clone();
+                        let pr_gen = poll_generation.clone();
+                        let cur_gen = poll_generation.load(Ordering::Relaxed);
+                        tokio::spawn(async move {
+                            if pr_gen.load(Ordering::Relaxed) != cur_gen { return; }
+                            match pr_client.get_payment_requests(&pr_addrs).await {
+                                Ok(raw_requests) => {
+                                    let requests: Vec<_> = raw_requests
+                                        .iter()
+                                        .filter_map(parse_payment_request_json)
+                                        .collect();
+                                    if let Some(ref db) = pr_db {
+                                        for req in &requests {
+                                            let _ = db.save_incoming_payment_request(req);
+                                        }
+                                    }
+                                    let _ = pr_tx.send(ServiceEvent::PaymentRequestsUpdated(requests));
+                                }
+                                Err(e) => {
+                                    log::debug!("Payment request poll failed: {}", e);
+                                }
+                            }
+                        });
+                    }
                 }
             }
 
