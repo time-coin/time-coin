@@ -458,10 +458,12 @@ impl MasternodeClient {
                         .map(|s| s.to_string())
                 };
 
-                // Block rewards (coinbase / reward-distribution) always show
-                // "Block Reward". The masternode stores its own encrypted_memo
-                // on these entries, but that's internal data — override it.
-                let memo = if category == "generate" {
+                // Block rewards (coinbase / reward-distribution) carry category
+                // "generate". The masternode decrypts its own block-reward memo
+                // server-side and returns it as a plain-text "memo" field, so the
+                // wallet normally receives "Block Reward" directly. This fallback
+                // handles the edge case where no memo arrived at all.
+                let memo = if memo.is_none() && category == "generate" {
                     Some("Block Reward".to_string())
                 } else {
                     memo
