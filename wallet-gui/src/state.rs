@@ -245,6 +245,8 @@ pub struct AppState {
     pub pr_memo: String,
     /// Which of our own addresses to receive payment into (index into `addresses`).
     pub pr_from_address_idx: usize,
+    /// Error message from the last failed payment request send attempt.
+    pub pr_send_error: Option<String>,
     /// Whether the Request Payment inline form is expanded on the Receive screen.
     pub show_payment_request_form: bool,
     /// Per-request memo overrides: the payer can edit the memo before approving.
@@ -360,6 +362,7 @@ impl Default for AppState {
             pr_label: String::new(),
             pr_memo: String::new(),
             pr_from_address_idx: 0,
+            pr_send_error: None,
             show_payment_request_form: true,
             pr_memo_overrides: std::collections::HashMap::new(),
             pending_payment_request_id: None,
@@ -1370,6 +1373,7 @@ impl AppState {
             }
 
             ServiceEvent::PaymentRequestSent { id } => {
+                self.pr_send_error = None;
                 self.success = Some(format!(
                     "Payment request sent ({}...)",
                     &id[..16.min(id.len())]
@@ -1377,6 +1381,10 @@ impl AppState {
                 self.pr_address.clear();
                 self.pr_amount.clear();
                 self.pr_memo.clear();
+            }
+
+            ServiceEvent::PaymentRequestFailed(reason) => {
+                self.pr_send_error = Some(reason);
             }
 
             ServiceEvent::SentPaymentRequestsLoaded(reqs) => {

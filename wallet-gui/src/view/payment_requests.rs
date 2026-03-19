@@ -99,9 +99,27 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             if !state.show_payment_request_form {
                 if ui.button("Request Payment").clicked() {
                     state.show_payment_request_form = true;
+                    state.pr_send_error = None;
                 }
             } else {
                 ui.label(egui::RichText::new("New Request").size(14.0).strong());
+            }
+
+            // Show last send error inline on this screen
+            if let Some(ref err) = state.pr_send_error.clone() {
+                ui.add_space(4.0);
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(200, 60, 60, 30))
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("⚠ Failed to send: {}", err))
+                                .color(egui::Color32::from_rgb(220, 60, 60))
+                                .size(12.0),
+                        );
+                    });
+                ui.add_space(4.0);
             }
 
             if state.show_payment_request_form {
@@ -252,6 +270,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         .clicked()
                     {
                         state.show_payment_request_form = false;
+                        state.pr_send_error = None;
                         state.pr_address.clear();
                         state.pr_amount.clear();
                         state.pr_label.clear();
@@ -493,6 +512,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 );
             } else {
                 let mut cancel_id: Option<String> = None;
+                let mut delete_id: Option<String> = None;
 
                 let mut sorted: Vec<_> = state.sent_payment_requests.iter().collect();
                 sorted.sort_by(|a, b| {
@@ -584,9 +604,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     ui.end_row();
                                 });
 
-                            if is_pending {
-                                ui.add_space(6.0);
-                                ui.horizontal(|ui| {
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                if is_pending {
                                     if ui
                                         .button(
                                             egui::RichText::new("✕ Cancel")
@@ -598,8 +618,16 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     {
                                         cancel_id = Some(req.id.clone());
                                     }
-                                });
-                            }
+                                    ui.add_space(8.0);
+                                }
+                                if ui
+                                    .small_button("🗑")
+                                    .on_hover_text("Remove from list")
+                                    .clicked()
+                                {
+                                    delete_id = Some(req.id.clone());
+                                }
+                            });
                         });
                     ui.add_space(4.0);
                 }
@@ -612,6 +640,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     }
                     let _ =
                         ui_tx.send(UiEvent::CancelPaymentRequest { request_id: id });
+                }
+                if let Some(id) = delete_id {
+                    state.sent_payment_requests.retain(|r| r.id != id);
+                    let _ = ui_tx.send(UiEvent::DeleteSentPaymentRequest { request_id: id });
                 }
             }
 

@@ -1403,6 +1403,8 @@ pub async fn run(
                                                 let _ = state.svc_tx.send(ServiceEvent::PaymentRequestSent { id: req_id });
                                             }
                                             Err(e) => {
+                                                let reason = format!("{}", e);
+                                                log::error!("sendpaymentrequest failed: {}", reason);
                                                 // Mark as failed in DB so the user can see it didn't go through
                                                 if let Some(ref db) = state.wallet_db {
                                                     let _ = db.update_sent_payment_request_status(&id, "failed");
@@ -1412,9 +1414,7 @@ pub async fn run(
                                                         .and_then(|db| db.get_all_sent_payment_requests().ok())
                                                         .unwrap_or_default(),
                                                 ));
-                                                let _ = state.svc_tx.send(ServiceEvent::Error(
-                                                    format!("Failed to send payment request: {}", e),
-                                                ));
+                                                let _ = state.svc_tx.send(ServiceEvent::PaymentRequestFailed(reason));
                                             }
                                         }
                                     }
@@ -1453,6 +1453,17 @@ pub async fn run(
                             id: request_id,
                             status: "cancelled".to_string(),
                         });
+                    }
+
+                    UiEvent::DeleteSentPaymentRequest { request_id } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.delete_sent_payment_request(&request_id);
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestsLoaded(
+                            state.wallet_db.as_ref()
+                                .and_then(|db| db.get_all_sent_payment_requests().ok())
+                                .unwrap_or_default(),
+                        ));
                     }
 
                     UiEvent::SaveMasternodeEntry(entry) => {

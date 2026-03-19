@@ -208,6 +208,11 @@ pub enum UiEvent {
     CancelPaymentRequest {
         request_id: String,
     },
+
+    /// Remove a sent payment request from the local list (any status).
+    DeleteSentPaymentRequest {
+        request_id: String,
+    },
 }
 
 /// Screens the wallet can display.
@@ -411,4 +416,7 @@ pub enum ServiceEvent {
         /// "declined" | "cancelled" | "paid"
         status: String,
     },
+
+    /// A payment request send attempt failed; carry the human-readable reason.
+    PaymentRequestFailed(String),
 }
