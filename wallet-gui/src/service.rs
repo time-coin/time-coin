@@ -659,6 +659,9 @@ pub async fn run(
                                                             let _ = client.respond_payment_request(req_id, payer_addr, true, Some(txid.as_str())).await;
                                                             if let Some(ref db) = state.wallet_db {
                                                                 let _ = db.delete_incoming_payment_request(req_id);
+                                                                // Notify the UI to remove it from state.payment_requests
+                                                                let remaining = db.get_all_incoming_payment_requests().unwrap_or_default();
+                                                                let _ = state.svc_tx.send(ServiceEvent::IncomingPaymentRequestsLoaded(remaining));
                                                             }
                                                         }
                                                         let now = std::time::SystemTime::now()
