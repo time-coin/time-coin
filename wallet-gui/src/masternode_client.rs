@@ -639,15 +639,54 @@ impl MasternodeClient {
         }
     }
 
-    /// Acknowledge (remove) a payment request on the masternode.
-    pub async fn acknowledge_payment_request(
+    /// Notify the masternode that the payer has accepted or declined a payment request.
+    pub async fn respond_payment_request(
         &self,
         request_id: &str,
-        status: &str,
+        payer_address: &str,
+        accepted: bool,
+        txid: Option<&str>,
+    ) -> Result<serde_json::Value, ClientError> {
+        let mut obj = serde_json::json!({
+            "id": request_id,
+            "payer_address": payer_address,
+            "accepted": accepted,
+        });
+        if let Some(t) = txid {
+            obj["txid"] = serde_json::json!(t);
+        }
+        self.rpc_call("respondpaymentrequest", serde_json::json!([obj]))
+            .await
+    }
+
+    /// Cancel a sent payment request (requester withdraws it before the payer responds).
+    pub async fn cancel_payment_request(
+        &self,
+        request_id: &str,
+        requester_address: &str,
     ) -> Result<serde_json::Value, ClientError> {
         self.rpc_call(
-            "acknowledgepaymentrequest",
-            serde_json::json!([request_id, status]),
+            "cancelpaymentrequest",
+            serde_json::json!([{
+                "id": request_id,
+                "requester_address": requester_address,
+            }]),
+        )
+        .await
+    }
+
+    /// Mark a received payment request as viewed by the payer.
+    pub async fn mark_payment_request_viewed(
+        &self,
+        request_id: &str,
+        payer_address: &str,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.rpc_call(
+            "markpaymentrequestviewed",
+            serde_json::json!([{
+                "id": request_id,
+                "payer_address": payer_address,
+            }]),
         )
         .await
     }

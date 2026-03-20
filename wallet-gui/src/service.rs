@@ -653,9 +653,10 @@ pub async fn run(
                                                 match client.broadcast_transaction(&tx_hex).await {
                                                     Ok(txid) => {
                                                         let _ = state.svc_tx.send(ServiceEvent::TransactionSent { txid: txid.clone() });
-                                                        // If this send was fulfilling a payment request, acknowledge it now
+                                                        // If this send was fulfilling a payment request, respond now
                                                         if let Some(ref req_id) = payment_request_id {
-                                                            let _ = client.acknowledge_payment_request(req_id, "paid").await;
+                                                            let payer_addr = state.addresses.first().map(|s| s.as_str()).unwrap_or("");
+                                                            let _ = client.respond_payment_request(req_id, payer_addr, true, Some(txid.as_str())).await;
                                                             if let Some(ref db) = state.wallet_db {
                                                                 let _ = db.delete_incoming_payment_request(req_id);
                                                             }
@@ -1468,7 +1469,8 @@ pub async fn run(
 
                     UiEvent::DeclineRequest { request_id } => {
                         if let Some(ref client) = state.client {
-                            let _ = client.acknowledge_payment_request(&request_id, "declined").await;
+                            let payer_addr = state.addresses.first().map(|s| s.as_str()).unwrap_or("");
+                            let _ = client.respond_payment_request(&request_id, payer_addr, false, None).await;
                         }
                         if let Some(ref db) = state.wallet_db {
                             let _ = db.delete_incoming_payment_request(&request_id);
@@ -1477,7 +1479,8 @@ pub async fn run(
 
                     UiEvent::CancelPaymentRequest { request_id } => {
                         if let Some(ref client) = state.client {
-                            let _ = client.acknowledge_payment_request(&request_id, "cancelled").await;
+                            let requester_addr = state.addresses.first().map(|s| s.as_str()).unwrap_or("");
+                            let _ = client.cancel_payment_request(&request_id, requester_addr).await;
                         }
                         if let Some(ref db) = state.wallet_db {
                             let _ = db.update_sent_payment_request_status(&request_id, "cancelled");
@@ -3462,3 +3465,4 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
         expires: val.get("expires")?.as_i64()?,
     })
 }
+

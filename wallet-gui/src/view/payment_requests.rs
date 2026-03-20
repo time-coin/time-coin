@@ -196,7 +196,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         ui.add(
                             egui::TextEdit::singleline(&mut state.pr_amount)
                                 .desired_width(150.0)
-                                .hint_text("0.00000"),
+                                .hint_text("0.00000000"),
                         );
                         ui.end_row();
 
@@ -236,7 +236,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         .clicked()
                     {
                         if let Ok(amount_f64) = state.pr_amount.parse::<f64>() {
-                            let amount = (amount_f64 * 100_000.0) as u64;
+                            let amount = (amount_f64 * 100_000_000.0) as u64;
                             let from_address = state.addresses
                                 .get(state.pr_from_address_idx)
                                 .map(|a| a.address.clone())
@@ -380,8 +380,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     ui.label(
                                         egui::RichText::new(format!(
                                             "{} TIME  (+{} TIME fee)",
-                                            req.amount as f64 / 100_000.0,
-                                            fee as f64 / 100_000.0,
+                                            req.amount as f64 / 100_000_000.0,
+                                            fee as f64 / 100_000_000.0,
                                         ))
                                         .strong()
                                         .size(13.0),
@@ -410,8 +410,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                 ui.label(
                                     egui::RichText::new(format!(
                                         "⚠ Insufficient funds — need {} TIME (inc. fee), have {} TIME",
-                                        total_needed as f64 / 100_000.0,
-                                        available as f64 / 100_000.0,
+                                        total_needed as f64 / 100_000_000.0,
+                                        available as f64 / 100_000_000.0,
                                     ))
                                     .color(egui::Color32::from_rgb(220, 80, 80))
                                     .size(12.0),
@@ -463,7 +463,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             .cloned()
                             .unwrap_or_else(|| req.memo.clone());
                         state.send_address = req.from_address.clone();
-                        state.send_amount = format!("{:.5}", req.amount as f64 / 100_000.0);
+                        state.send_amount = format!("{:.8}", req.amount as f64 / 100_000_000.0);
                         state.send_memo = memo;
                         state.pending_payment_request_id = Some(id.clone());
                         state.screen = Screen::Send;
@@ -575,7 +575,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     ui.label(
                                         egui::RichText::new(format!(
                                             "{} TIME",
-                                            req.amount as f64 / 100_000.0,
+                                            req.amount as f64 / 100_000_000.0,
                                         ))
                                         .strong()
                                         .size(13.0),
