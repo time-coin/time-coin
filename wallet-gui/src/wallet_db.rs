@@ -702,6 +702,9 @@ pub struct SentPaymentRequest {
     pub status: String,
     pub created_at: i64,
     pub expires: i64,
+    /// Transaction ID of the payment, populated when the payer responds with accepted=true.
+    #[serde(default)]
+    pub payment_txid: Option<String>,
 }
 
 impl WalletDb {
@@ -742,11 +745,15 @@ impl WalletDb {
         &self,
         id: &str,
         status: &str,
+        payment_txid: Option<&str>,
     ) -> Result<(), WalletDbError> {
         let key = format!("sent_pr:{}", id);
         if let Some(data) = self.db.get(key.as_bytes())? {
             let mut req: SentPaymentRequest = serde_json::from_slice(&data)?;
             req.status = status.to_string();
+            if let Some(txid) = payment_txid {
+                req.payment_txid = Some(txid.to_string());
+            }
             let value = serde_json::to_vec(&req)?;
             self.db.insert(key.as_bytes(), value)?;
             self.db.flush()?;

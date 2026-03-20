@@ -602,6 +602,21 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                             .color(egui::Color32::GRAY),
                                     );
                                     ui.end_row();
+
+                                    if let Some(ref txid) = req.payment_txid {
+                                        ui.label(egui::RichText::new("Paid txid:").weak().size(12.0));
+                                        let short = format!("{}…{}", &txid[..12.min(txid.len())], &txid[txid.len().saturating_sub(8)..]);
+                                        let resp = ui.label(
+                                            egui::RichText::new(short)
+                                                .monospace()
+                                                .size(11.0)
+                                                .color(egui::Color32::from_rgb(100, 180, 255)),
+                                        ).on_hover_text(txid.as_str());
+                                        if resp.clicked() {
+                                            ui.ctx().copy_text(txid.clone());
+                                        }
+                                        ui.end_row();
+                                    }
                                 });
 
                             ui.add_space(6.0);

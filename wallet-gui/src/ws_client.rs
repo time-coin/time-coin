@@ -141,6 +141,9 @@ pub struct PaymentRequestResponseNotification {
     pub payer_address: String,
     /// Whether the payer accepted (true) or declined (false).
     pub accepted: bool,
+    /// Transaction ID of the payment, if accepted.
+    #[serde(default)]
+    pub txid: Option<String>,
 }
 
 /// Events sent from the WebSocket client to the wallet UI

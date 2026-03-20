@@ -1411,6 +1411,7 @@ pub async fn run(
                                             status: "pending".to_string(),
                                             created_at: timestamp,
                                             expires: timestamp + 86400, // 24 hours, matching masternode TTL
+                                            payment_txid: None,
                                         };
                                         if let Some(ref db) = state.wallet_db {
                                             let _ = db.save_sent_payment_request(&sent_req);
@@ -1444,7 +1445,7 @@ pub async fn run(
                                                 log::error!("sendpaymentrequest failed: {}", reason);
                                                 // Mark as failed in DB so the user can see it didn't go through
                                                 if let Some(ref db) = state.wallet_db {
-                                                    let _ = db.update_sent_payment_request_status(&id, "failed");
+                                                    let _ = db.update_sent_payment_request_status(&id, "failed", None);
                                                 }
                                                 let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestsLoaded(
                                                     state.wallet_db.as_ref()
@@ -1486,11 +1487,12 @@ pub async fn run(
                             let _ = client.cancel_payment_request(&request_id, requester_addr).await;
                         }
                         if let Some(ref db) = state.wallet_db {
-                            let _ = db.update_sent_payment_request_status(&request_id, "cancelled");
+                            let _ = db.update_sent_payment_request_status(&request_id, "cancelled", None);
                         }
                         let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestStatusUpdated {
                             id: request_id,
                             status: "cancelled".to_string(),
+                            payment_txid: None,
                         });
                     }
 
@@ -1928,20 +1930,23 @@ pub async fn run(
                         if !ws_dedup(&mut state.ws_seen, format!("pr_resp:{}", notif.request_id)) {
                             let new_status = if notif.accepted { "paid" } else { "declined" }.to_string();
                             log::info!(
-                                "📬 Payment request {} {} by {}",
+                                "📬 Payment request {} {} by {} txid={:?}",
                                 notif.request_id,
                                 new_status,
                                 notif.payer_address,
+                                notif.txid,
                             );
                             if let Some(ref db) = state.wallet_db {
                                 let _ = db.update_sent_payment_request_status(
                                     &notif.request_id,
                                     &new_status,
+                                    notif.txid.as_deref(),
                                 );
                             }
                             let _ = state.svc_tx.send(ServiceEvent::SentPaymentRequestStatusUpdated {
                                 id: notif.request_id,
                                 status: new_status,
+                                payment_txid: notif.txid,
                             });
                         }
                     }

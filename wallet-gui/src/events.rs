@@ -415,6 +415,8 @@ pub enum ServiceEvent {
         id: String,
         /// "declined" | "cancelled" | "paid"
         status: String,
+        /// Transaction ID of the payment (present when status == "paid").
+        payment_txid: Option<String>,
     },
 
     /// A payment request send attempt failed; carry the human-readable reason.

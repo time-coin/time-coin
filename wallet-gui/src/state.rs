@@ -1032,17 +1032,21 @@ impl AppState {
                 for mut t in new_txs {
                     let key = (t.txid.clone(), t.is_send, t.vout);
                     if existing_keys.contains(&key) {
-                        // Update status on existing entry if it improved.
-                        if matches!(t.status, TransactionStatus::Approved) {
-                            for existing in &mut self.transactions {
-                                if existing.txid == t.txid
-                                    && existing.is_send == t.is_send
-                                    && existing.vout == t.vout
-                                {
+                        // Update status and memo on existing entry if they improved.
+                        for existing in &mut self.transactions {
+                            if existing.txid == t.txid
+                                && existing.is_send == t.is_send
+                                && existing.vout == t.vout
+                            {
+                                if matches!(t.status, TransactionStatus::Approved) {
                                     existing.status = TransactionStatus::Approved;
-                                    if t.timestamp > 0 {
-                                        existing.timestamp = t.timestamp;
-                                    }
+                                }
+                                if t.timestamp > 0 {
+                                    existing.timestamp = t.timestamp;
+                                }
+                                // Copy memo if the poll decrypted one the WS-inserted record lacks.
+                                if existing.memo.is_none() && t.memo.is_some() {
+                                    existing.memo = t.memo.clone();
                                 }
                             }
                         }
@@ -1391,9 +1395,12 @@ impl AppState {
                 self.sent_payment_requests = reqs;
             }
 
-            ServiceEvent::SentPaymentRequestStatusUpdated { id, status } => {
+            ServiceEvent::SentPaymentRequestStatusUpdated { id, status, payment_txid } => {
                 if let Some(req) = self.sent_payment_requests.iter_mut().find(|r| r.id == id) {
                     req.status = status;
+                    if payment_txid.is_some() {
+                        req.payment_txid = payment_txid;
+                    }
                 }
             }
 
