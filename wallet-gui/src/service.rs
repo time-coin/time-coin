@@ -617,6 +617,8 @@ pub async fn run(
                                                 }
                                             }
                                         }
+                                        // Capture sender HD index before resignings is consumed.
+                                        let sender_idx = resignings.first().map(|&(_, i)| i).unwrap_or(0);
                                         for (input_idx, hd_index) in resignings {
                                             if let Ok(kp) = wm.derive_keypair(hd_index) {
                                                 log::info!("Signing input {} with HD key index {}", input_idx, hd_index);
@@ -625,10 +627,11 @@ pub async fn run(
                                         }
 
                                         // Encrypt memo if provided.
-                                        // Silently skip if recipient pubkey is unknown (no on-chain history).
+                                        // Use the HD key for the first spending input so the
+                                        // recipient can identify the sender; fall back to index 0.
                                         if !memo.is_empty() {
-                                            if let Ok(ref kp_first) = wm.derive_keypair(0) {
-                                                let sender_key = ed25519_dalek::SigningKey::from_bytes(&kp_first.secret_key_bytes());
+                                            if let Ok(ref kp_sender) = wm.derive_keypair(sender_idx) {
+                                                let sender_key = ed25519_dalek::SigningKey::from_bytes(&kp_sender.secret_key_bytes());
                                                 match client.get_address_pubkey(&to).await {
                                                     Ok(Some(recipient_pub)) => {
                                                         match crate::memo::encrypt_memo(&sender_key, &recipient_pub, &memo) {
@@ -2556,6 +2559,18 @@ impl ServiceState {
                 } else {
                     db_indices.clone()
                 };
+                // Collect (address, pubkey) pairs for node pre-registration.
+                // Must happen before `wm` is moved into self.wallet.
+                let addr_pubkeys: Vec<(String, [u8; 32])> = active_indices
+                    .iter()
+                    .zip(raw_addrs.iter())
+                    .filter_map(|(&i, addr)| {
+                        let kp = wm.derive_keypair(i).ok()?;
+                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes());
+                        Some((addr.clone(), signing_key.verifying_key().to_bytes()))
+                    })
+                    .collect();
+
                 self.signing_keys = Arc::new(
                     active_indices
                         .iter()
@@ -2740,6 +2755,20 @@ impl ServiceState {
                 // Only start WS if we already have a peer connection
                 if self.config.active_endpoint.is_some() {
                     self.start_ws();
+                }
+
+                // Pre-register address pubkeys with the node so it can encrypt memos
+                // to us before we have any on-chain history as a sender.
+                if let Some(ref client) = self.client {
+                    let reg_client = client.clone();
+                    tokio::spawn(async move {
+                        for (addr, pubkey) in addr_pubkeys {
+                            match reg_client.register_address_pubkey(&addr, &pubkey).await {
+                                Ok(()) => log::debug!("📬 Registered pubkey for {}", addr),
+                                Err(e) => log::warn!("Failed to register pubkey for {}: {}", addr, e),
+                            }
+                        }
+                    });
                 }
             }
             Err(e) => {

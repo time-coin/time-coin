@@ -116,7 +116,7 @@ echo ============================================
 echo   Installer built successfully!
 echo ============================================
 echo.
-echo   Output: installer\TIMECoinWallet-Setup-0.1.0.exe
+echo   Output: installer\TIMECoinWallet-Setup-0.6.0.exe
 echo.
 pause
 exit /b 0

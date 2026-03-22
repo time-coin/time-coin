@@ -590,6 +590,24 @@ impl MasternodeClient {
         Ok(Some(pubkey))
     }
 
+    /// Pre-register an Ed25519 public key for a TIME address on the node.
+    ///
+    /// This allows the node to encrypt memos to this address before any
+    /// on-chain transaction reveals the pubkey via script_sig.
+    pub async fn register_address_pubkey(
+        &self,
+        address: &str,
+        pubkey: &[u8; 32],
+    ) -> Result<(), ClientError> {
+        let pubkey_hex = hex::encode(pubkey);
+        self.rpc_call(
+            "registeraddresspubkey",
+            serde_json::json!([address, pubkey_hex]),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Send a signed payment request to the masternode for P2P relay.
     ///
     /// The masternode expects params[0] to be a JSON object with named fields.
