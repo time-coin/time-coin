@@ -8,6 +8,7 @@ use argon2::{
     Argon2,
 };
 use rand::Rng;
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zeroize::ZeroizeOnDrop;
@@ -135,7 +136,7 @@ impl PinAuth {
         }
 
         // Generate salt
-        let salt = SaltString::generate(&mut rand::thread_rng());
+        let salt = SaltString::generate(OsRng);
 
         // Hash PIN with Argon2id
         let argon2 = Argon2::default();
@@ -205,8 +206,8 @@ impl PinAuth {
 
     /// Generate random PIN
     pub fn generate_random_pin(length: usize) -> SecurePin {
-        let mut rng = rand::thread_rng();
-        let pin_num = rng.gen_range(10_u32.pow((length - 1) as u32)..10_u32.pow(length as u32));
+        let mut rng = rand::rng();
+        let pin_num = rng.random_range(10_u32.pow((length - 1) as u32)..10_u32.pow(length as u32));
         SecurePin::from_number(pin_num)
     }
 

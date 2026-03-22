@@ -8,7 +8,8 @@ authors.workspace = true
 [dependencies]
 ed25519-dalek = { workspace = true }
 hmac = "0.12"
-rand = "0.8"
+rand = { workspace = true }
+rand_core = { version = "0.6", features = ["getrandom"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 bincode = { workspace = true }
@@ -20,7 +21,7 @@ chrono = { workspace = true }
 bip39 = { version = "2.2", features = ["serde", "rand"] }
 qrcode = "0.14"
 sled = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
 log = { workspace = true }
 
 # Encryption dependencies
@@ -31,5 +32,5 @@ zeroize = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 env_logger = { workspace = true }
-time-core = { version = "0.5.0", path = "../core" }
-time-mempool = { version = "0.5.0", path = "../mempool" }
+time-core = { version = "0.6.0", path = "../core" }
+time-mempool = { version = "0.6.0", path = "../mempool" }
