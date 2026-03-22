@@ -402,7 +402,23 @@ fn setup_fonts(ctx: &egui::Context) {
 
     let mut fonts = egui::FontDefinitions::default();
 
-    // Load Segoe UI Bold from Windows system fonts for use as "Bold" family.
+    // Load Segoe UI Regular as the primary proportional font.  It has broad
+    // Unicode coverage (including arrows such as →) which the egui default
+    // fonts lack.  Falls back silently to the egui built-in font if the file
+    // is not present (non-Windows platforms, sandboxed environments, etc.).
+    if let Ok(bytes) = std::fs::read("C:/Windows/Fonts/segoeui.ttf") {
+        fonts.font_data.insert(
+            "segoe_ui".to_owned(),
+            egui::FontData::from_owned(bytes).into(),
+        );
+        fonts
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default()
+            .insert(0, "segoe_ui".to_owned());
+    }
+
+    // Load Segoe UI Bold for the named "Bold" family used by headings/labels.
     if let Ok(bytes) = std::fs::read("C:/Windows/Fonts/segoeuib.ttf") {
         fonts.font_data.insert(
             "segoe_bold".to_owned(),
@@ -412,7 +428,7 @@ fn setup_fonts(ctx: &egui::Context) {
             .families
             .entry(egui::FontFamily::Name("Bold".into()))
             .or_default()
-            .push("segoe_bold".to_owned());
+            .insert(0, "segoe_bold".to_owned());
     }
 
     // Register Phosphor icon font (egui-phosphor regular weight).
