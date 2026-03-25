@@ -91,8 +91,19 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                         .strong()
                         .color(amount_color),
                 );
+                let sats_fmt = {
+                    let s = tx.amount.to_string();
+                    let mut out = String::new();
+                    for (i, ch) in s.chars().rev().enumerate() {
+                        if i > 0 && i % 3 == 0 {
+                            out.push(',');
+                        }
+                        out.push(ch);
+                    }
+                    out.chars().rev().collect::<String>()
+                };
                 ui.label(
-                    egui::RichText::new(format!("{} satoshis", tx.amount))
+                    egui::RichText::new(format!("{} satoshis", sats_fmt))
                         .size(11.0)
                         .color(ui.visuals().weak_text_color()),
                 );
