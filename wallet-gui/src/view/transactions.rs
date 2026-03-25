@@ -26,7 +26,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 }
 
 /// Detail view for a single transaction.
-fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender<UiEvent>) {
+fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
     // Look up by index for correct entry even when txid is shared (e.g. fee vs send).
     let tx = match state.selected_transaction {
         Some(idx) if idx < state.transactions.len() => state.transactions[idx].clone(),
@@ -232,6 +232,103 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
                 ui.end_row();
             }
         });
+
+    // Block reward tier breakdown
+    let is_block_reward = tx.memo.as_deref() == Some("Block Reward") && tx.block_height > 0;
+    if is_block_reward {
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("Block Reward Breakdown")
+                .strong()
+                .size(14.0),
+        );
+        ui.add_space(4.0);
+
+        let breakdown_matches = state
+            .block_reward_breakdown
+            .as_ref()
+            .map(|b| b.block_height == tx.block_height)
+            .unwrap_or(false);
+
+        if !breakdown_matches && !state.block_reward_breakdown_loading {
+            state.block_reward_breakdown_loading = true;
+            state.block_reward_breakdown = None;
+            let _ = ui_tx.send(UiEvent::FetchBlockRewardBreakdown {
+                height: tx.block_height,
+            });
+        }
+
+        if state.block_reward_breakdown_loading && !breakdown_matches {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Loading tier breakdown…");
+            });
+        } else if let Some(ref bd) = state.block_reward_breakdown {
+            egui::Grid::new("tier_breakdown_grid")
+                .num_columns(4)
+                .spacing([16.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Tier").strong().size(12.0));
+                    ui.label(egui::RichText::new("Nodes").strong().size(12.0));
+                    ui.label(egui::RichText::new("Per Node").strong().size(12.0));
+                    ui.label(egui::RichText::new("Total").strong().size(12.0));
+                    ui.end_row();
+
+                    let tier_color = |tier: &str| match tier {
+                        "Gold" => egui::Color32::from_rgb(255, 200, 0),
+                        "Silver" => egui::Color32::from_rgb(180, 180, 180),
+                        "Bronze" => egui::Color32::from_rgb(180, 100, 40),
+                        _ => egui::Color32::from_rgb(100, 180, 255),
+                    };
+
+                    for entry in &bd.entries {
+                        ui.label(
+                            egui::RichText::new(&entry.tier)
+                                .size(12.0)
+                                .strong()
+                                .color(tier_color(&entry.tier)),
+                        );
+                        ui.label(egui::RichText::new(format!("{}", entry.node_count)).size(12.0));
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{:.8} TIME",
+                                entry.per_node_amount as f64 / 100_000_000.0
+                            ))
+                            .size(12.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{:.8} TIME",
+                                entry.total_amount as f64 / 100_000_000.0
+                            ))
+                            .size(12.0),
+                        );
+                        ui.end_row();
+                    }
+
+                    if bd.unmatched_count > 0 {
+                        ui.label(
+                            egui::RichText::new("Unknown")
+                                .size(12.0)
+                                .color(egui::Color32::GRAY),
+                        );
+                        ui.label(egui::RichText::new(format!("{}", bd.unmatched_count)).size(12.0));
+                        ui.label(egui::RichText::new("—").size(12.0));
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{:.8} TIME",
+                                bd.unmatched_amount as f64 / 100_000_000.0
+                            ))
+                            .size(12.0),
+                        );
+                        ui.end_row();
+                    }
+                });
+        }
+        ui.add_space(6.0);
+    }
 
     // Show "Use as Masternode Collateral" for confirmed received transactions
     // whose amount matches a valid collateral tier (1k, 10k, or 100k TIME).
@@ -603,5 +700,7 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
 
     if let Some(idx) = clicked_idx {
         state.selected_transaction = Some(idx);
+        state.block_reward_breakdown = None;
+        state.block_reward_breakdown_loading = false;
     }
 }

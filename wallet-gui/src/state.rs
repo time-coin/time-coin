@@ -155,6 +155,8 @@ pub struct AppState {
     pub qr_scan_error: Option<String>,
     pub pr_qr_scanner: Option<crate::qr_scanner::QrScannerHandle>,
     pub pr_qr_scan_error: Option<String>,
+    pub block_reward_breakdown: Option<crate::masternode_client::BlockRewardBreakdown>,
+    pub block_reward_breakdown_loading: bool,
     pub contacts: Vec<ContactInfo>,
     pub new_contact_name: String,
     pub new_contact_address: String,
@@ -319,6 +321,8 @@ impl Default for AppState {
             qr_scan_error: None,
             pr_qr_scanner: None,
             pr_qr_scan_error: None,
+            block_reward_breakdown: None,
+            block_reward_breakdown_loading: false,
             contacts: Vec::new(),
             new_contact_name: String::new(),
             new_contact_address: String::new(),
@@ -1520,6 +1524,11 @@ impl AppState {
                 self.encrypt_password_confirm.clear();
                 self.show_encrypt_password = false;
                 self.success = Some("Wallet encrypted successfully".to_string());
+            }
+
+            ServiceEvent::BlockRewardBreakdownLoaded(breakdown) => {
+                self.block_reward_breakdown = Some(breakdown);
+                self.block_reward_breakdown_loading = false;
             }
         }
     }

@@ -151,6 +151,11 @@ pub enum UiEvent {
         path: std::path::PathBuf,
     },
 
+    /// Fetch the per-tier reward breakdown for a block reward transaction.
+    FetchBlockRewardBreakdown {
+        height: u64,
+    },
+
     /// Consolidate many small UTXOs into fewer large ones.
     ConsolidateUtxos,
 
@@ -408,6 +413,9 @@ pub enum ServiceEvent {
     ConsolidationComplete {
         message: String,
     },
+
+    /// Block reward tier breakdown loaded for the detail view.
+    BlockRewardBreakdownLoaded(crate::masternode_client::BlockRewardBreakdown),
 
     /// Block height polled from active peer.
     BlockHeightUpdated(u64),

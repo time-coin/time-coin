@@ -1626,6 +1626,28 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::FetchBlockRewardBreakdown { height } => {
+                        if let Some(ref client) = state.client {
+                            let client = client.clone();
+                            let svc_tx = state.svc_tx.clone();
+                            tokio::spawn(async move {
+                                match client.get_block_reward_breakdown(height).await {
+                                    Ok(breakdown) => {
+                                        let _ = svc_tx.send(
+                                            ServiceEvent::BlockRewardBreakdownLoaded(breakdown),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::warn!(
+                                            "Failed to fetch block reward breakdown for height {}: {}",
+                                            height, e
+                                        );
+                                    }
+                                }
+                            });
+                        }
+                    }
+
                     UiEvent::CancelConsolidation => {
                         log::info!("🛑 UTXO consolidation cancel requested");
                         state.consolidation_active.store(false, Ordering::Relaxed);
