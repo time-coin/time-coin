@@ -42,8 +42,77 @@ fn status_label(status: &str) -> &'static str {
     }
 }
 
+fn render_pr_qr_scanner(ui: &mut Ui, state: &mut AppState) {
+    let mut got_result = false;
+    if let Some(ref scanner) = state.pr_qr_scanner {
+        if let Some(address) = scanner.take_result() {
+            state.pr_address = address;
+            crate::qr_scanner::play_scan_sound();
+            got_result = true;
+        }
+        if let Some(err) = scanner.get_error() {
+            state.pr_qr_scan_error = Some(err);
+            got_result = true;
+        }
+    }
+    if got_result {
+        state.pr_qr_scanner = None;
+    }
+
+    if state.pr_qr_scanner.is_none() {
+        return;
+    }
+
+    ui.ctx().request_repaint();
+
+    let mut close = false;
+    egui::Window::new("📷 QR Scanner")
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .collapsible(false)
+        .resizable(false)
+        .show(ui.ctx(), |ui| {
+            ui.label("Point your webcam at a QR code");
+            ui.add_space(4.0);
+
+            let has_frame = if let Some(ref mut scanner) = state.pr_qr_scanner {
+                if let Some(tex) = scanner.update_texture(ui.ctx()) {
+                    let size = tex.size_vec2();
+                    let scale = (400.0 / size.x).min(300.0 / size.y).min(1.0);
+                    ui.image(egui::load::SizedTexture::new(tex.id(), size * scale));
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if !has_frame {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Starting camera...");
+                });
+                ui.allocate_space(egui::vec2(400.0, 300.0));
+            }
+
+            ui.add_space(8.0);
+            if ui
+                .add(egui::Button::new("Cancel").min_size(egui::vec2(100.0, 28.0)))
+                .clicked()
+            {
+                close = true;
+            }
+        });
+
+    if close {
+        state.pr_qr_scanner = None;
+    }
+}
+
 /// Render the Payment Requests screen.
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
+    render_pr_qr_scanner(ui, state);
+
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -167,29 +236,43 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         ui.end_row();
 
                         ui.label(egui::RichText::new("Payer Address:").strong());
-                        let addr_resp = ui.add(
-                            egui::TextEdit::singleline(&mut state.pr_address)
-                                .desired_width(350.0)
-                                .hint_text("TIME address of who should pay..."),
-                        );
-                        addr_resp.context_menu(|ui| {
-                            if ui.button("Paste").clicked() {
-                                if let Ok(mut cb) = arboard::Clipboard::new() {
-                                    if let Ok(text) = cb.get_text() {
-                                        state.pr_address = text;
+                        ui.horizontal(|ui| {
+                            let addr_resp = ui.add(
+                                egui::TextEdit::singleline(&mut state.pr_address)
+                                    .desired_width(290.0)
+                                    .hint_text("TIME address of who should pay..."),
+                            );
+                            addr_resp.context_menu(|ui| {
+                                if ui.button("Paste").clicked() {
+                                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                                        if let Ok(text) = cb.get_text() {
+                                            state.pr_address = text;
+                                        }
                                     }
+                                    ui.close_menu();
                                 }
-                                ui.close_menu();
-                            }
-                            if ui.button("Copy").clicked() {
-                                ui.ctx().copy_text(state.pr_address.clone());
-                                ui.close_menu();
-                            }
-                            if ui.button("Clear").clicked() {
-                                state.pr_address.clear();
-                                ui.close_menu();
+                                if ui.button("Copy").clicked() {
+                                    ui.ctx().copy_text(state.pr_address.clone());
+                                    ui.close_menu();
+                                }
+                                if ui.button("Clear").clicked() {
+                                    state.pr_address.clear();
+                                    ui.close_menu();
+                                }
+                            });
+                            if ui
+                                .add(egui::Button::new("📷 Scan").min_size(egui::vec2(60.0, 20.0)))
+                                .on_hover_text("Scan QR code with webcam")
+                                .clicked()
+                            {
+                                state.pr_qr_scan_error = None;
+                                state.pr_qr_scanner =
+                                    Some(crate::qr_scanner::QrScannerHandle::start());
                             }
                         });
+                        if let Some(ref err) = state.pr_qr_scan_error.clone() {
+                            ui.colored_label(egui::Color32::RED, format!("📷 {}", err));
+                        }
                         ui.end_row();
 
                         ui.label(egui::RichText::new("Amount (TIME):").strong());
@@ -468,6 +551,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         state.pending_payment_request_id = Some(id.clone());
                         state.screen = Screen::Send;
                     }
+                    state.payment_requests.retain(|r| r.id != id);
                     state.pr_memo_overrides.remove(&id);
                 }
                 if let Some(id) = decline_id {

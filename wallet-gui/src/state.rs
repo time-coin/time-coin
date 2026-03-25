@@ -153,6 +153,8 @@ pub struct AppState {
     pub send_from_address: Option<String>,
     pub qr_scanner: Option<crate::qr_scanner::QrScannerHandle>,
     pub qr_scan_error: Option<String>,
+    pub pr_qr_scanner: Option<crate::qr_scanner::QrScannerHandle>,
+    pub pr_qr_scan_error: Option<String>,
     pub contacts: Vec<ContactInfo>,
     pub new_contact_name: String,
     pub new_contact_address: String,
@@ -315,6 +317,8 @@ impl Default for AppState {
             send_from_address: None,
             qr_scanner: None,
             qr_scan_error: None,
+            pr_qr_scanner: None,
+            pr_qr_scan_error: None,
             contacts: Vec::new(),
             new_contact_name: String::new(),
             new_contact_address: String::new(),
@@ -1413,7 +1417,11 @@ impl AppState {
                 self.sent_payment_requests = reqs;
             }
 
-            ServiceEvent::SentPaymentRequestStatusUpdated { id, status, payment_txid } => {
+            ServiceEvent::SentPaymentRequestStatusUpdated {
+                id,
+                status,
+                payment_txid,
+            } => {
                 if let Some(req) = self.sent_payment_requests.iter_mut().find(|r| r.id == id) {
                     req.status = status;
                     if payment_txid.is_some() {
