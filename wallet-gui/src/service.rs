@@ -760,6 +760,16 @@ pub async fn run(
                                                             if let Ok(balance) = client.get_balances(&state.addresses).await {
                                                                 let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(balance));
                                                             }
+                                                            // Refresh UTXOs so per-address balances reflect the spend immediately.
+                                                            let mut refreshed_utxos = Vec::new();
+                                                            for addr in &state.addresses {
+                                                                if let Ok(utxos) = client.get_utxos(addr).await {
+                                                                    refreshed_utxos.extend(utxos);
+                                                                }
+                                                            }
+                                                            if !refreshed_utxos.is_empty() {
+                                                                let _ = state.svc_tx.send(ServiceEvent::UtxosUpdated(refreshed_utxos));
+                                                            }
                                                         }
                                                     }
                                                     Err(e) => {
