@@ -129,7 +129,19 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                 }
 
                 // Status
-                if peer.is_active {
+                if peer.is_active && peer.is_syncing {
+                    ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "Syncing")
+                        .on_hover_text(
+                            "This masternode is still downloading the blockchain. \
+                             Balance and transaction data may be incomplete.",
+                        );
+                } else if peer.is_syncing {
+                    ui.colored_label(egui::Color32::from_rgb(200, 140, 0), "Syncing")
+                        .on_hover_text(
+                            "This masternode is still downloading the blockchain. \
+                             Consider selecting a fully-synced node.",
+                        );
+                } else if peer.is_active {
                     ui.colored_label(egui::Color32::GREEN, "Active");
                 } else {
                     ui.colored_label(egui::Color32::GREEN, "Healthy");
@@ -137,16 +149,15 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
 
                 // WS — show whether we're actively connected, just available, or unsupported
                 let host = peer_ip(&peer.endpoint);
-                let ws_live = state
-                    .ws_active_urls
-                    .iter()
-                    .any(|u| ws_url_host(u) == host);
+                let ws_live = state.ws_active_urls.iter().any(|u| ws_url_host(u) == host);
                 if ws_live {
                     ui.colored_label(egui::Color32::GREEN, "Connected")
                         .on_hover_text("Active WebSocket connection to this peer");
                 } else if peer.ws_available {
                     ui.colored_label(egui::Color32::GRAY, "Available")
-                        .on_hover_text("Peer supports WebSocket but wallet is not currently connected");
+                        .on_hover_text(
+                            "Peer supports WebSocket but wallet is not currently connected",
+                        );
                 } else if peer.is_healthy {
                     ui.colored_label(egui::Color32::GRAY, "No");
                 } else {

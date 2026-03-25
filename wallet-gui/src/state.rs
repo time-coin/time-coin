@@ -51,6 +51,8 @@ pub struct PeerInfo {
     pub version: Option<String>,
     /// Masternode tier (e.g. "Gold", "Silver", "Bronze", "Free"), if known.
     pub tier: Option<String>,
+    /// True when the masternode is still performing initial block download.
+    pub is_syncing: bool,
 }
 
 /// Information about a wallet address with its user-assigned label.
@@ -1367,6 +1369,8 @@ impl AppState {
                         version: String::new(),
                         block_height: height,
                         peer_count: 0,
+                        is_syncing: false,
+                        sync_progress: 1.0,
                     });
                 }
                 // Update the active peer's block height in the connections list

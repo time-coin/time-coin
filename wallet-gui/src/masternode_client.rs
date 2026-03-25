@@ -780,11 +780,26 @@ impl MasternodeClient {
                 (0, String::new())
             };
 
+        let is_syncing = result
+            .get("initialblockdownload")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let sync_progress = result
+            .get("verificationprogress")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+
         let status = HealthStatus {
-            status: "healthy".to_string(),
+            status: if is_syncing {
+                "syncing".to_string()
+            } else {
+                "healthy".to_string()
+            },
             version: format!("{} ({})", network, version),
             block_height: height,
             peer_count,
+            is_syncing,
+            sync_progress,
         };
 
         log::info!(
@@ -1040,6 +1055,10 @@ pub struct HealthStatus {
     pub version: String,
     pub block_height: u64,
     pub peer_count: u32,
+    /// True when the masternode is still performing initial block download.
+    pub is_syncing: bool,
+    /// Sync progress 0.0–1.0 (1.0 when fully synced).
+    pub sync_progress: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

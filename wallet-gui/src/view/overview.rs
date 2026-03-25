@@ -62,6 +62,33 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     ui.separator();
     ui.add_space(10.0);
 
+    // Syncing masternode warning banner
+    if state.health.as_ref().is_some_and(|h| h.is_syncing) {
+        let progress = state.health.as_ref().map_or(0.0, |h| h.sync_progress);
+        egui::Frame::group(ui.style())
+            .fill(egui::Color32::from_rgb(120, 70, 0))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("⚠ Masternode is still syncing")
+                            .color(egui::Color32::from_rgb(255, 200, 60))
+                            .strong(),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "({:.0}%) — balance and transactions may be incomplete. \
+                             Switch to a fully synced node in Connections.",
+                            progress * 100.0
+                        ))
+                        .color(egui::Color32::from_rgb(255, 200, 60))
+                        .small(),
+                    );
+                });
+            });
+        ui.add_space(6.0);
+    }
+
     // Consolidation suggestion banner (shown when many spendable UTXOs exist)
     if state.suggest_consolidation {
         egui::Frame::group(ui.style())

@@ -2507,12 +2507,13 @@ async fn discover_peers(
                 None
             };
 
-            let (is_healthy, block_height, version, working_ep) = if tcp_ok {
+            let (is_healthy, is_syncing, block_height, version, working_ep) = if tcp_ok {
                 // Try HTTPS first
                 let client = MasternodeClient::new(https_ep.clone(), creds.clone());
                 match tokio::time::timeout(probe_timeout, client.health_check()).await {
                     Ok(Ok(health)) => (
                         true,
+                        health.is_syncing,
                         Some(health.block_height),
                         Some(health.version),
                         https_ep.clone(),
@@ -2527,6 +2528,7 @@ async fn discover_peers(
                                 log::info!("✅ Peer {} reachable via HTTP (no TLS)", http_ep);
                                 (
                                     true,
+                                    health.is_syncing,
                                     Some(health.block_height),
                                     Some(health.version),
                                     http_ep.clone(),
@@ -2534,17 +2536,17 @@ async fn discover_peers(
                             }
                             Ok(Err(e)) => {
                                 log::warn!("⚠ Peer {} unhealthy: {}", http_ep, e);
-                                (false, None, None, endpoint.clone())
+                                (false, false, None, None, endpoint.clone())
                             }
                             Err(_) => {
                                 log::warn!("⚠ Peer {} timed out", http_ep);
-                                (false, None, None, endpoint.clone())
+                                (false, false, None, None, endpoint.clone())
                             }
                         }
                     }
                 }
             } else {
-                (false, None, None, endpoint.clone())
+                (false, false, None, None, endpoint.clone())
             };
 
             // Probe WebSocket connectivity (WS port = RPC port + 1)
@@ -2581,6 +2583,7 @@ async fn discover_peers(
                 endpoint: working_ep,
                 is_active: false,
                 is_healthy,
+                is_syncing,
                 ws_available,
                 ping_ms,
                 block_height,
@@ -2597,10 +2600,11 @@ async fn discover_peers(
         }
     }
 
-    // Sort: WS-capable first, then healthy by fastest ping, unhealthy last
+    // Sort: fully-synced first, then WS-capable, then healthy by fastest ping, syncing/unhealthy last
     peer_infos.sort_by(|a, b| {
         b.is_healthy
             .cmp(&a.is_healthy)
+            .then(a.is_syncing.cmp(&b.is_syncing)) // false < true → synced before syncing
             .then(b.ws_available.cmp(&a.ws_available))
             .then(
                 a.ping_ms
@@ -2727,11 +2731,12 @@ async fn discover_peers(
                     None
                 };
 
-                let (is_healthy, block_height, version, working_ep) = if tcp_ok {
+                let (is_healthy, is_syncing, block_height, version, working_ep) = if tcp_ok {
                     let c = MasternodeClient::new(ep.clone(), creds.clone());
                     match tokio::time::timeout(probe_timeout2, c.health_check()).await {
                         Ok(Ok(health)) => (
                             true,
+                            health.is_syncing,
                             Some(health.block_height),
                             Some(health.version),
                             ep.clone(),
@@ -2747,17 +2752,18 @@ async fn discover_peers(
                                     );
                                     (
                                         true,
+                                        health.is_syncing,
                                         Some(health.block_height),
                                         Some(health.version),
                                         http_ep.clone(),
                                     )
                                 }
-                                _ => (false, None, None, ep.clone()),
+                                _ => (false, false, None, None, ep.clone()),
                             }
                         }
                     }
                 } else {
-                    (false, None, None, ep.clone())
+                    (false, false, None, None, ep.clone())
                 };
                 let ws_available = if is_healthy {
                     let ws_url = crate::config_new::Config::derive_ws_url(&working_ep);
@@ -2789,6 +2795,7 @@ async fn discover_peers(
                     endpoint: working_ep,
                     is_active: false,
                     is_healthy,
+                    is_syncing,
                     ws_available,
                     ping_ms,
                     block_height,
