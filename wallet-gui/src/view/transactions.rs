@@ -82,6 +82,23 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, _ui_tx: &mpsc::UnboundedSender
         .num_columns(2)
         .spacing([12.0, 8.0])
         .show(ui, |ui| {
+            // Amount
+            ui.label(egui::RichText::new("Amount:").strong());
+            ui.vertical(|ui| {
+                let is_neg = tx.is_send || tx.is_fee;
+                ui.label(
+                    egui::RichText::new(state.format_time_signed(tx.amount, is_neg))
+                        .strong()
+                        .color(amount_color),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{} satoshis", tx.amount))
+                        .size(11.0)
+                        .color(ui.visuals().weak_text_color()),
+                );
+            });
+            ui.end_row();
+
             // Status
             ui.label(egui::RichText::new("Status:").strong());
             let (status_text, status_color) = match tx.status {
