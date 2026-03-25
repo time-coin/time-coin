@@ -96,6 +96,19 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label(&state.consolidation_status);
+                ui.add_space(12.0);
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("✕ Cancel")
+                                .color(egui::Color32::from_rgb(200, 60, 60)),
+                        )
+                        .min_size(egui::vec2(80.0, 24.0)),
+                    )
+                    .clicked()
+                {
+                    let _ = ui_tx.send(UiEvent::CancelConsolidation);
+                }
             });
         } else if ui
             .add_enabled(

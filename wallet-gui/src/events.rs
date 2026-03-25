@@ -154,6 +154,9 @@ pub enum UiEvent {
     /// Consolidate many small UTXOs into fewer large ones.
     ConsolidateUtxos,
 
+    /// Abort an in-progress UTXO consolidation.
+    CancelConsolidation,
+
     /// Register a masternode on-chain via a special transaction.
     RegisterMasternode {
         alias: String,
@@ -224,6 +227,11 @@ pub enum UiEvent {
     DeleteIncomingPaymentHistory {
         id: String,
     },
+
+    /// Clear all owned addresses from the DB and re-derive from index 0,
+    /// scanning the blockchain for any funded addresses (gap-limit aware).
+    /// Preserves existing labels where the address string matches.
+    RebuildAddresses,
 }
 
 /// Screens the wallet can display.

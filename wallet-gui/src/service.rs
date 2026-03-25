@@ -405,6 +405,9 @@ pub async fn run(
                                     let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
                                 }
                             }
+                            // Backfill any masternode entries that are still missing their
+                            // collateral amount — resolves the UTXO directly from the node.
+                            mn_backfill_via_gettxout(&state.client, &state.wallet_db, &state.svc_tx).await;
                         }
                     }
 
@@ -430,6 +433,11 @@ pub async fn run(
 
                     UiEvent::LoadWallet { password } => {
                         state.load_wallet(password);
+                        // If a client is already connected (preferred endpoint configured),
+                        // backfill missing masternode collateral amounts right away.
+                        if !state.addresses.is_empty() {
+                            mn_backfill_via_gettxout(&state.client, &state.wallet_db, &state.svc_tx).await;
+                        }
                     }
 
                     UiEvent::CreateWallet { mnemonic, password } => {
@@ -943,12 +951,163 @@ pub async fn run(
                                 .filter_map(|c| c.derivation_index)
                                 .collect();
                             db_indices.sort_unstable();
+                            db_indices.dedup();
+
+                            let mut mn_updated = false;
+
+                            if let Some(ref client) = state.client {
+                                // ── Step 1: gettxout backfill ────────────────────────────────
+                                // For each masternode entry missing its collateral amount, call
+                                // gettxout(txid, vout) to resolve the amount and the owning
+                                // address directly from the blockchain — no address needed.
+                                let entries = state
+                                    .wallet_db
+                                    .as_ref()
+                                    .and_then(|db| db.get_masternode_entries().ok())
+                                    .unwrap_or_default();
+                                for mut entry in entries {
+                                    if entry.collateral_amount.is_some()
+                                        || entry.collateral_txid.is_empty()
+                                    {
+                                        continue;
+                                    }
+                                    match client
+                                        .get_tx_out(&entry.collateral_txid, entry.collateral_vout)
+                                        .await
+                                    {
+                                        Ok(Some((sats, utxo_addr))) => {
+                                            entry.collateral_amount = Some(sats);
+                                            if let Some(ref db) = state.wallet_db {
+                                                let _ = db.save_masternode_entry(&entry);
+                                            }
+                                            log::info!(
+                                                "💾 gettxout backfilled {} sats for '{}' (addr: {})",
+                                                sats, entry.alias, utxo_addr
+                                            );
+                                            mn_updated = true;
+
+                                            // If the collateral address is not yet tracked,
+                                            // scan HD indices 0..max+50 to find its index.
+                                            // Scanning from 0 catches deleted/gap addresses.
+                                            let known_indices: std::collections::HashSet<u32> =
+                                                db_indices.iter().copied().collect();
+                                            if !utxo_addr.is_empty() {
+                                                let search_max =
+                                                    db_indices.last().copied().unwrap_or(0) + 50;
+                                                for probe in 0..=search_max {
+                                                    if known_indices.contains(&probe) {
+                                                        continue;
+                                                    }
+                                                    if let Ok(candidate) = wm.derive_address(probe) {
+                                                        if candidate == utxo_addr {
+                                                            if let Some(ref db) = state.wallet_db {
+                                                                let now = chrono::Utc::now().timestamp();
+                                                                let label = format!("Address #{}", probe);
+                                                                let _ = db.save_contact(
+                                                                    &crate::wallet_db::AddressContact {
+                                                                        address: candidate.clone(),
+                                                                        label,
+                                                                        name: None,
+                                                                        email: None,
+                                                                        phone: None,
+                                                                        notes: None,
+                                                                        is_default: false,
+                                                                        is_owned: true,
+                                                                        derivation_index: Some(probe),
+                                                                        created_at: now,
+                                                                        updated_at: now,
+                                                                    },
+                                                                );
+                                                                log::info!(
+                                                                    "🔍 Recovered collateral address at index {} for '{}' via gettxout",
+                                                                    probe, entry.alias
+                                                                );
+                                                            }
+                                                            db_indices.push(probe);
+                                                            db_indices.sort_unstable();
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Ok(None) => {
+                                            log::warn!(
+                                                "gettxout returned null for '{}' ({}:{})",
+                                                entry.alias,
+                                                entry.collateral_txid,
+                                                entry.collateral_vout
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::warn!("gettxout failed for '{}': {}", entry.alias, e);
+                                        }
+                                    }
+                                }
+
+                                // ── Step 2: scan-ahead ───────────────────────────────────────
+                                // Probe the next 20 HD indices beyond the highest now known to
+                                // discover any other funded addresses not tied to masternodes.
+                                let scan_ahead = 20u32;
+                                let max_known = db_indices.last().copied().unwrap_or(0);
+                                let known_set: std::collections::HashSet<u32> =
+                                    db_indices.iter().copied().collect();
+                                for probe_idx in (max_known + 1)..=(max_known + scan_ahead) {
+                                    if known_set.contains(&probe_idx) {
+                                        continue;
+                                    }
+                                    if let Ok(probe_addr) = wm.derive_address(probe_idx) {
+                                        match client.get_utxos(&probe_addr).await {
+                                            Ok(utxos) if !utxos.is_empty() => {
+                                                if let Some(ref db) = state.wallet_db {
+                                                    let now = chrono::Utc::now().timestamp();
+                                                    let label = format!("Address #{}", probe_idx);
+                                                    let _ = db.save_contact(
+                                                        &crate::wallet_db::AddressContact {
+                                                            address: probe_addr.clone(),
+                                                            label,
+                                                            name: None,
+                                                            email: None,
+                                                            phone: None,
+                                                            notes: None,
+                                                            is_default: false,
+                                                            is_owned: true,
+                                                            derivation_index: Some(probe_idx),
+                                                            created_at: now,
+                                                            updated_at: now,
+                                                        },
+                                                    );
+                                                    log::info!(
+                                                        "🔍 scan-ahead discovered address at index {} ({} UTXOs)",
+                                                        probe_idx,
+                                                        utxos.len()
+                                                    );
+                                                }
+                                                db_indices.push(probe_idx);
+                                                db_indices.sort_unstable();
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ── Step 3: build final address list ────────────────────────────
+                            // Re-read DB so labels from both steps are included.
+                            let owned_from_db: Vec<crate::wallet_db::AddressContact> = state
+                                .wallet_db
+                                .as_ref()
+                                .and_then(|db| db.get_owned_addresses().ok())
+                                .unwrap_or_default();
+                            let contact_map: std::collections::HashMap<
+                                String,
+                                &crate::wallet_db::AddressContact,
+                            > = owned_from_db.iter().map(|c| (c.address.clone(), c)).collect();
+
                             let raw_addrs: Vec<String> = db_indices
                                 .iter()
                                 .filter_map(|&i| wm.derive_address(i).ok())
                                 .collect();
-                            let contact_map: std::collections::HashMap<String, &crate::wallet_db::AddressContact> =
-                                owned_from_db.iter().map(|c| (c.address.clone(), c)).collect();
                             let address_infos: Vec<AddressInfo> = raw_addrs
                                 .iter()
                                 .enumerate()
@@ -961,7 +1120,166 @@ pub async fn run(
                                 })
                                 .collect();
                             state.addresses = raw_addrs;
-                            let _ = state.svc_tx.send(ServiceEvent::AddressesRefreshed(address_infos));
+
+                            // Send updated masternode entries if any amounts were backfilled.
+                            if mn_updated {
+                                if let Some(ref db) = state.wallet_db {
+                                    if let Ok(mut updated_entries) = db.get_masternode_entries() {
+                                        updated_entries.sort_by(|a, b| a.alias.cmp(&b.alias));
+                                        let _ = state.svc_tx.send(
+                                            ServiceEvent::MasternodeEntriesLoaded(updated_entries),
+                                        );
+                                    }
+                                }
+                            }
+                            let _ = state
+                                .svc_tx
+                                .send(ServiceEvent::AddressesRefreshed(address_infos));
+                        }
+                    }
+
+                    UiEvent::RebuildAddresses => {
+                        if let Some(ref mut wm) = state.wallet {
+                            // Preserve existing labels so they survive the rebuild.
+                            let existing_labels: std::collections::HashMap<String, String> = state
+                                .wallet_db
+                                .as_ref()
+                                .and_then(|db| db.get_owned_addresses().ok())
+                                .unwrap_or_default()
+                                .into_iter()
+                                .filter_map(|c| {
+                                    c.derivation_index.map(|_| (c.address.clone(), c.label))
+                                })
+                                .collect();
+
+                            // Clear all existing owned address contacts.
+                            if let Some(ref db) = state.wallet_db {
+                                if let Ok(owned) = db.get_owned_addresses() {
+                                    for contact in &owned {
+                                        let _ = db.delete_contact(&contact.address);
+                                    }
+                                }
+                            }
+
+                            // Scan HD indices from 0 upward.  Stop after GAP_LIMIT consecutive
+                            // indices with no on-chain activity (standard BIP44 gap limit).
+                            // Index 0 is always included even if empty (primary address).
+                            const GAP_LIMIT: u32 = 10;
+                            let mut found_indices: Vec<u32> = Vec::new();
+                            let mut consecutive_empty = 0u32;
+                            let mut idx = 0u32;
+
+                            // Also collect collateral addresses from masternode entries (via
+                            // gettxout) so those addresses are always included even if they
+                            // have no remaining spendable UTXOs.
+                            let collateral_addrs: std::collections::HashSet<String> =
+                                if let (Some(client), Some(db)) = (&state.client, &state.wallet_db) {
+                                    let mut set = std::collections::HashSet::new();
+                                    if let Ok(entries) = db.get_masternode_entries() {
+                                        for entry in entries {
+                                            if entry.collateral_txid.is_empty() {
+                                                continue;
+                                            }
+                                            if let Ok(Some((_sats, addr))) = client
+                                                .get_tx_out(
+                                                    &entry.collateral_txid,
+                                                    entry.collateral_vout,
+                                                )
+                                                .await
+                                            {
+                                                if !addr.is_empty() {
+                                                    set.insert(addr);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    set
+                                } else {
+                                    std::collections::HashSet::new()
+                                };
+
+                            while let Ok(addr) = wm.derive_address(idx) {
+                                // Index 0 and collateral addresses are always included.
+                                // For all others, check on-chain activity.
+                                let has_activity = idx == 0
+                                    || collateral_addrs.contains(&addr)
+                                    || if let Some(ref client) = state.client {
+                                        matches!(
+                                            client.get_utxos(&addr).await,
+                                            Ok(ref u) if !u.is_empty()
+                                        )
+                                    } else {
+                                        false
+                                    };
+
+                                if has_activity {
+                                    found_indices.push(idx);
+                                    consecutive_empty = 0;
+                                } else {
+                                    consecutive_empty += 1;
+                                    if consecutive_empty >= GAP_LIMIT {
+                                        break;
+                                    }
+                                }
+                                idx += 1;
+                            }
+
+                            // Advance the wallet counter past the highest found index.
+                            if let Some(&max_idx) = found_indices.last() {
+                                wm.sync_address_index(max_idx);
+                            }
+
+                            // Re-save contacts for all found indices, restoring labels.
+                            let now = chrono::Utc::now().timestamp();
+                            let raw_addrs: Vec<String> = found_indices
+                                .iter()
+                                .filter_map(|&i| wm.derive_address(i).ok())
+                                .collect();
+
+                            let address_infos: Vec<AddressInfo> = raw_addrs
+                                .iter()
+                                .zip(found_indices.iter())
+                                .map(|(addr, &i)| {
+                                    let label = existing_labels
+                                        .get(addr)
+                                        .cloned()
+                                        .unwrap_or_else(|| format!("Address #{}", i));
+                                    if let Some(ref db) = state.wallet_db {
+                                        let _ = db.save_contact(&crate::wallet_db::AddressContact {
+                                            address: addr.clone(),
+                                            label: label.clone(),
+                                            name: None,
+                                            email: None,
+                                            phone: None,
+                                            notes: None,
+                                            is_default: i == 0,
+                                            is_owned: true,
+                                            derivation_index: Some(i),
+                                            created_at: now,
+                                            updated_at: now,
+                                        });
+                                    }
+                                    AddressInfo { address: addr.clone(), label }
+                                })
+                                .collect();
+
+                            state.addresses = raw_addrs;
+                            log::info!(
+                                "🔄 Rebuilt address list: {} addresses found (scanned 0..{})",
+                                state.addresses.len(),
+                                idx
+                            );
+                            let _ = state
+                                .svc_tx
+                                .send(ServiceEvent::AddressesRefreshed(address_infos));
+
+                            // Run masternode backfill now that addresses are rebuilt.
+                            mn_backfill_via_gettxout(
+                                &state.client,
+                                &state.wallet_db,
+                                &state.svc_tx,
+                            )
+                            .await;
                         }
                     }
 
@@ -1306,6 +1624,11 @@ pub async fn run(
                                 "Cannot consolidate: no masternode connection or wallet.".to_string(),
                             ));
                         }
+                    }
+
+                    UiEvent::CancelConsolidation => {
+                        log::info!("🛑 UTXO consolidation cancel requested");
+                        state.consolidation_active.store(false, Ordering::Relaxed);
                     }
 
                     UiEvent::OpenConfigFile { path } => {
@@ -2596,6 +2919,7 @@ impl ServiceState {
                     .filter_map(|c| c.derivation_index)
                     .collect();
                 db_indices.sort_unstable();
+                db_indices.dedup();
 
                 // Advance the counter past the highest known index so the next
                 // generated address does not collide with any existing one.
@@ -2656,7 +2980,8 @@ impl ServiceState {
                     .zip(raw_addrs.iter())
                     .filter_map(|(&i, addr)| {
                         let kp = wm.derive_keypair(i).ok()?;
-                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes());
+                        let signing_key =
+                            ed25519_dalek::SigningKey::from_bytes(&kp.secret_key_bytes());
                         Some((addr.clone(), signing_key.verifying_key().to_bytes()))
                     })
                     .collect();
@@ -2674,7 +2999,10 @@ impl ServiceState {
                 let contact_map: std::collections::HashMap<
                     String,
                     &crate::wallet_db::AddressContact,
-                > = owned_from_db.iter().map(|c| (c.address.clone(), c)).collect();
+                > = owned_from_db
+                    .iter()
+                    .map(|c| (c.address.clone(), c))
+                    .collect();
                 let address_infos: Vec<AddressInfo> = raw_addrs
                     .iter()
                     .enumerate()
@@ -2864,7 +3192,9 @@ impl ServiceState {
                         for (addr, pubkey) in addr_pubkeys {
                             match reg_client.register_address_pubkey(&addr, &pubkey).await {
                                 Ok(()) => log::debug!("📬 Registered pubkey for {}", addr),
-                                Err(e) => log::warn!("Failed to register pubkey for {}: {}", addr, e),
+                                Err(e) => {
+                                    log::warn!("Failed to register pubkey for {}: {}", addr, e)
+                                }
                             }
                         }
                     });
@@ -2881,6 +3211,14 @@ impl ServiceState {
     /// Send UtxosUpdated event and persist UTXOs to sled for instant startup.
     /// Also backfills collateral_amount on masternode entries that are missing it.
     fn send_utxos_updated(&self, utxos: Vec<crate::masternode_client::Utxo>) {
+        // Deduplicate UTXOs by txid:vout. This prevents double-counting when a
+        // duplicate address entry causes the same UTXO to be fetched twice.
+        let mut seen_utxo_keys = std::collections::HashSet::new();
+        let utxos: Vec<crate::masternode_client::Utxo> = utxos
+            .into_iter()
+            .filter(|u| seen_utxo_keys.insert(format!("{}:{}", u.txid, u.vout)))
+            .collect();
+
         if let Some(ref db) = self.wallet_db {
             let _ = db.clear_all_utxos();
             for u in &utxos {
@@ -2897,6 +3235,7 @@ impl ServiceState {
             // entries for any non-spendable UTXOs not yet tracked.
             if let Ok(mut entries) = db.get_masternode_entries() {
                 // Backfill amounts on existing entries
+                let mut backfilled = false;
                 for entry in &mut entries {
                     if entry.collateral_amount.is_none() {
                         if let Some(u) = utxos.iter().find(|u| {
@@ -2904,6 +3243,7 @@ impl ServiceState {
                         }) {
                             entry.collateral_amount = Some(u.amount);
                             let _ = db.save_masternode_entry(entry);
+                            backfilled = true;
                             log::info!(
                                 "💾 Backfilled collateral {} for '{}'",
                                 u.amount,
@@ -2920,12 +3260,13 @@ impl ServiceState {
                     .iter()
                     .map(|e| format!("{}:{}", e.collateral_txid, e.collateral_vout))
                     .collect();
-                let mut existing_names: std::collections::HashSet<String> = entries
-                    .iter()
-                    .map(|e| e.alias.clone())
-                    .collect();
+                let mut existing_names: std::collections::HashSet<String> =
+                    entries.iter().map(|e| e.alias.clone()).collect();
                 let mut added = false;
-                for utxo in utxos.iter().filter(|u| !u.spendable && u.amount >= bronze_min) {
+                for utxo in utxos
+                    .iter()
+                    .filter(|u| !u.spendable && u.amount >= bronze_min)
+                {
                     let key = format!("{}:{}", utxo.txid, utxo.vout);
                     if !existing_keys.contains(&key) {
                         // Find next available alias
@@ -2950,13 +3291,19 @@ impl ServiceState {
                         added = true;
                         log::info!(
                             "🔒 Auto-created masternode entry '{}' for locked UTXO {}:{} ({} sats)",
-                            alias, utxo.txid, utxo.vout, utxo.amount
+                            alias,
+                            utxo.txid,
+                            utxo.vout,
+                            utxo.amount
                         );
                     }
                 }
-                if added {
+                // Send updated entries whenever amounts were backfilled or new entries added.
+                if backfilled || added {
                     entries.sort_by(|a, b| a.alias.cmp(&b.alias));
-                    let _ = self.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
+                    let _ = self
+                        .svc_tx
+                        .send(ServiceEvent::MasternodeEntriesLoaded(entries));
                 }
             }
         }
@@ -3256,7 +3603,6 @@ async fn build_masternode_update_tx(
     Ok((tx_hex, txid))
 }
 
-
 /// Return a default template for a config file based on its filename.
 pub fn config_file_template(path: &std::path::Path) -> &'static str {
     match path.file_name().and_then(|n| n.to_str()) {
@@ -3322,6 +3668,64 @@ fn decrypt_memos(
     }
 }
 
+/// Backfill missing `collateral_amount` on masternode entries by calling `gettxout`
+/// for each entry whose amount is not yet known.  Sends `MasternodeEntriesLoaded`
+/// if any amounts were resolved.
+///
+/// Designed to be called on startup and whenever a new client connection is
+/// established, so users never need to press Refresh just to see their tier badge.
+async fn mn_backfill_via_gettxout(
+    client: &Option<crate::masternode_client::MasternodeClient>,
+    wallet_db: &Option<crate::wallet_db::WalletDb>,
+    svc_tx: &tokio::sync::mpsc::UnboundedSender<ServiceEvent>,
+) {
+    let (Some(client), Some(db)) = (client, wallet_db) else {
+        return;
+    };
+    let entries = match db.get_masternode_entries() {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let missing: Vec<_> = entries
+        .into_iter()
+        .filter(|e| e.collateral_amount.is_none() && !e.collateral_txid.is_empty())
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+    let mut updated = false;
+    for mut entry in missing {
+        match client
+            .get_tx_out(&entry.collateral_txid, entry.collateral_vout)
+            .await
+        {
+            Ok(Some((sats, _addr))) => {
+                entry.collateral_amount = Some(sats);
+                let _ = db.save_masternode_entry(&entry);
+                log::info!("💾 startup: backfilled {} sats for '{}'", sats, entry.alias);
+                updated = true;
+            }
+            Ok(None) => {
+                log::warn!(
+                    "gettxout null for '{}' ({}:{})",
+                    entry.alias,
+                    entry.collateral_txid,
+                    entry.collateral_vout
+                );
+            }
+            Err(e) => {
+                log::warn!("gettxout error for '{}': {}", entry.alias, e);
+            }
+        }
+    }
+    if updated {
+        if let Ok(mut all) = db.get_masternode_entries() {
+            all.sort_by(|a, b| a.alias.cmp(&b.alias));
+            let _ = svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(all));
+        }
+    }
+}
+
 /// Run UTXO consolidation in a background task.
 ///
 /// This function owns all the data it needs (no references to ServiceState),
@@ -3384,6 +3788,13 @@ async fn consolidate_utxos_background(
         };
 
         for chunk in addr_utxos.chunks(batch_size) {
+            if !consolidation_active.load(Ordering::Relaxed) {
+                let msg = format!("Consolidation cancelled after {} batch(es).", consolidated);
+                let _ = svc_tx.send(ServiceEvent::ConsolidationComplete { message: msg });
+                consolidation_txids.lock().unwrap().clear();
+                return;
+            }
+
             batch_idx += 1;
             if chunk.len() <= 1 {
                 continue;
@@ -3615,12 +4026,10 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
         from_address: val.get("from_address")?.as_str()?.to_string(),
         to_address: val.get("to_address")?.as_str()?.to_string(),
         // Masternode returns amount as u64 satoshis; accept float as fallback.
-        amount: val
-            .get("amount")
-            .and_then(|v| {
-                v.as_u64()
-                    .or_else(|| v.as_f64().map(|f| (f * 100_000.0).round() as u64))
-            })?,
+        amount: val.get("amount").and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_f64().map(|f| (f * 100_000.0).round() as u64))
+        })?,
         // masternode returns "requester_name" for what the wallet calls "label"
         label: val
             .get("requester_name")
@@ -3649,4 +4058,3 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
         expires: val.get("expires")?.as_i64()?,
     })
 }
-
