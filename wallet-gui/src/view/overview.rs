@@ -126,8 +126,22 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             } else {
                 state.computed_balance()
             };
-            let locked = state.locked_balance();
-            let available = total.saturating_sub(locked);
+            // Prefer the locked amount reported directly by the masternode — it
+            // is always correct and doesn't require UTXOs or entry configuration.
+            // Fall back to the local UTXO/entry-based calculation when offline.
+            let locked = if mn_bal > 0 && state.masternode_locked > 0 {
+                state.masternode_locked
+            } else if mn_bal > 0 {
+                // masternode_locked not yet populated — derive from total − available
+                mn_bal.saturating_sub(state.masternode_available)
+            } else {
+                state.locked_balance()
+            };
+            let available = if mn_bal > 0 {
+                state.masternode_available
+            } else {
+                total.saturating_sub(locked)
+            };
             let has_pending = state.transactions.iter().any(|t| {
                 matches!(
                     t.status,

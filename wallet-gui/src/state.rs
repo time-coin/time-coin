@@ -105,6 +105,8 @@ pub struct AppState {
     pub masternode_balance: u64,
     /// Spendable balance reported by the masternode (excludes locked collateral).
     pub masternode_available: u64,
+    /// Locked collateral balance reported by the masternode.
+    pub masternode_locked: u64,
     /// Set when computed balance drifts from masternode — triggers auto-resync.
     pub needs_resync: bool,
     /// Consecutive polls where balance drift was detected (resets on match).
@@ -147,6 +149,8 @@ pub struct AppState {
     pub send_fee: String,
     pub send_memo: String,
     pub send_include_fee: bool,
+    /// If set, only UTXOs from this address are used as inputs for the next send.
+    pub send_from_address: Option<String>,
     pub qr_scanner: Option<crate::qr_scanner::QrScannerHandle>,
     pub qr_scan_error: Option<String>,
     pub contacts: Vec<ContactInfo>,
@@ -236,6 +240,8 @@ pub struct AppState {
     // -- Payment Requests --
     /// Incoming payment requests from other wallets.
     pub payment_requests: Vec<crate::events::PaymentRequest>,
+    /// History of completed (paid or declined) incoming payment requests.
+    pub incoming_payment_history: Vec<crate::wallet_db::IncomingPaymentHistory>,
     /// Payment requests sent by this wallet to other wallets.
     pub sent_payment_requests: Vec<crate::wallet_db::SentPaymentRequest>,
     /// "Request Payment" form fields.
@@ -278,9 +284,11 @@ impl Default for AppState {
                 confirmed: 0,
                 pending: 0,
                 total: 0,
+                locked: 0,
             },
             masternode_balance: 0,
             masternode_available: 0,
+            masternode_locked: 0,
             needs_resync: false,
             drift_count: 0,
             last_resync_at: None,
@@ -304,6 +312,7 @@ impl Default for AppState {
             send_fee: String::new(),
             send_memo: String::new(),
             send_include_fee: false,
+            send_from_address: None,
             qr_scanner: None,
             qr_scan_error: None,
             contacts: Vec::new(),
@@ -356,6 +365,7 @@ impl Default for AppState {
             consolidation_dismissed: false,
             dirty_send_records: Vec::new(),
             payment_requests: Vec::new(),
+            incoming_payment_history: Vec::new(),
             sent_payment_requests: Vec::new(),
             pr_address: String::new(),
             pr_amount: String::new(),
@@ -617,6 +627,7 @@ impl AppState {
                 if !self.consolidation_in_progress {
                     self.masternode_balance = balance.total;
                     self.masternode_available = balance.confirmed;
+                    self.masternode_locked = balance.locked;
                 }
                 // Detect drift between computed and masternode balance
                 let computed = self.computed_balance();
@@ -1272,6 +1283,13 @@ impl AppState {
                 }
             }
 
+            ServiceEvent::AddressesRefreshed(addrs) => {
+                self.addresses = addrs;
+                if self.selected_address >= self.addresses.len() {
+                    self.selected_address = 0;
+                }
+            }
+
             ServiceEvent::AddressGenerated(info) => {
                 self.addresses.push(info);
                 self.selected_address = self.addresses.len() - 1;
@@ -1404,6 +1422,10 @@ impl AppState {
                 }
             }
 
+            ServiceEvent::IncomingPaymentHistoryLoaded(entries) => {
+                self.incoming_payment_history = entries;
+            }
+
             ServiceEvent::WalletExists(exists) => {
                 self.wallet_exists = exists;
                 if !exists && self.switching_network {
@@ -1460,6 +1482,7 @@ impl AppState {
                     confirmed: 0,
                     pending: 0,
                     total: 0,
+                    locked: 0,
                 };
                 self.transactions.clear();
                 self.utxos.clear();
@@ -1467,6 +1490,7 @@ impl AppState {
                 self.masternode_entries.clear();
                 self.masternode_balance = 0;
                 self.masternode_available = 0;
+                self.masternode_locked = 0;
                 self.send_records.clear();
                 self.contacts.clear();
                 self.recent_notifications.clear();
@@ -1530,6 +1554,7 @@ mod tests {
             confirmed: 1000,
             pending: 500,
             total: 1500,
+            locked: 500,
         }));
         // Masternode balance stored for drift detection
         assert_eq!(state.masternode_balance, 1500);

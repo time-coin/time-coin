@@ -129,6 +129,22 @@ pub fn render(
                         ui.end_row();
                     });
 
+                // Duplicate collateral warning
+                {
+                    let txid = state.mn_add_txid.trim();
+                    let vout: u32 = state.mn_add_vout.trim().parse().unwrap_or(0);
+                    if !txid.is_empty() && state.masternode_entries.iter().any(|e| e.collateral_txid == txid && e.collateral_vout == vout) {
+                        ui.add_space(4.0);
+                        egui::Frame::new()
+                            .fill(Color32::from_rgba_unmultiplied(200, 60, 60, 40))
+                            .corner_radius(4.0)
+                            .inner_margin(egui::Margin::symmetric(8, 4))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("⚠ Duplicate TXID detected — please fix to avoid being blacklisted").color(Color32::from_rgb(220, 60, 60)).size(12.0));
+                            });
+                    }
+                }
+
                 // Preview tier from collateral UTXO if available
                 if !state.mn_add_txid.trim().is_empty() {
                     let txid = state.mn_add_txid.trim().to_string();
@@ -344,6 +360,26 @@ pub fn render(
                                 ui.text_edit_singleline(&mut state.mn_edit_vout);
                                 ui.end_row();
                             });
+                        // Duplicate collateral warning (exclude the entry being edited)
+                        {
+                            let edit_txid = state.mn_edit_txid.trim();
+                            let edit_vout: u32 = state.mn_edit_vout.trim().parse().unwrap_or(0);
+                            let current_alias = state.mn_edit_alias.as_deref().unwrap_or("");
+                            if !edit_txid.is_empty() && state.masternode_entries.iter().any(|e| {
+                                e.alias != current_alias && e.collateral_txid == edit_txid && e.collateral_vout == edit_vout
+                            }) {
+                                ui.add_space(4.0);
+                                egui::Frame::new()
+                                    .fill(Color32::from_rgba_unmultiplied(200, 60, 60, 40))
+                                    .corner_radius(4.0)
+                                    .inner_margin(egui::Margin::symmetric(8, 4))
+                                    .show(ui, |ui| {
+                                        ui.label(RichText::new("⚠ Duplicate TXID detected — please fix to avoid being blacklisted").color(Color32::from_rgb(220, 60, 60)).size(12.0));
+                                    });
+                                ui.add_space(4.0);
+                            }
+                        }
+
                         ui.horizontal(|ui| {
                             let name_t = state.mn_edit_name.trim().to_string();
                             let valid = !name_t.is_empty()

@@ -59,6 +59,8 @@ pub enum UiEvent {
         amount: u64,
         fee: u64,
         memo: String,
+        /// If set, only UTXOs belonging to this address are used as inputs.
+        from_address: Option<String>,
         /// If this send is fulfilling a payment request, the request id to acknowledge after broadcast.
         payment_request_id: Option<String>,
     },
@@ -87,6 +89,10 @@ pub enum UiEvent {
 
     /// Generate a new receive address from the HD wallet.
     GenerateAddress,
+
+    /// Reload all wallet addresses from DB + HD keys without a full network switch.
+    /// Use this to recover from sled read glitches or missing addresses.
+    RefreshAddresses,
 
     /// Delete an owned receive address (must be unused — zero balance, no transactions).
     DeleteAddress {
@@ -213,6 +219,11 @@ pub enum UiEvent {
     DeleteSentPaymentRequest {
         request_id: String,
     },
+
+    /// Remove an entry from the incoming payment request history.
+    DeleteIncomingPaymentHistory {
+        id: String,
+    },
 }
 
 /// Screens the wallet can display.
@@ -306,6 +317,9 @@ pub enum ServiceEvent {
     ReadyForMnemonic {
         backed_up_path: Option<String>,
     },
+
+    /// Address list reloaded after a manual refresh (replaces current list).
+    AddressesRefreshed(Vec<AddressInfo>),
 
     /// A new address was generated.
     AddressGenerated(AddressInfo),
@@ -421,4 +435,7 @@ pub enum ServiceEvent {
 
     /// A payment request send attempt failed; carry the human-readable reason.
     PaymentRequestFailed(String),
+
+    /// Incoming payment request history loaded from the database on startup.
+    IncomingPaymentHistoryLoaded(Vec<crate::wallet_db::IncomingPaymentHistory>),
 }

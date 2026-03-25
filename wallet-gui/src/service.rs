@@ -510,7 +510,7 @@ pub async fn run(
                         }
                     }
 
-                    UiEvent::SendTransaction { to, amount, fee, memo, payment_request_id } => {
+                    UiEvent::SendTransaction { to, amount, fee, memo, from_address, payment_request_id } => {
                         if let Some(ref client) = state.client {
                             if let Some(ref mut wm) = state.wallet {
                                 // Retry loop: wait for locked UTXOs to finalize
@@ -520,10 +520,17 @@ pub async fn run(
                                 let mut tx_result: Result<wallet::Transaction, String> =
                                     Err(String::new());
 
+                                // Determine which addresses to fetch UTXOs from.
+                                // If send_from is set, restrict to that address only.
+                                let addrs_to_query: Vec<String> = match from_address.as_deref() {
+                                    Some(fa) => vec![fa.to_string()],
+                                    None => state.addresses.clone(),
+                                };
+
                                 for attempt in 0..max_retries {
                                     // Fetch UTXOs from masternode and sync into wallet
                                     all_utxos.clear();
-                                    for addr in &state.addresses {
+                                    for addr in &addrs_to_query {
                                         match client.get_utxos(addr).await {
                                             Ok(utxos) => {
                                                 all_utxos.extend(utxos);
@@ -661,10 +668,31 @@ pub async fn run(
                                                             let payer_addr = state.addresses.first().map(|s| s.as_str()).unwrap_or("");
                                                             let _ = client.respond_payment_request(req_id, payer_addr, true, Some(txid.as_str())).await;
                                                             if let Some(ref db) = state.wallet_db {
+                                                                // Save to history before deleting
+                                                                if let Ok(Some(orig)) = db.get_incoming_payment_request(req_id) {
+                                                                    let completed_at = std::time::SystemTime::now()
+                                                                        .duration_since(std::time::UNIX_EPOCH)
+                                                                        .map(|d| d.as_secs() as i64)
+                                                                        .unwrap_or(0);
+                                                                    let hist = crate::wallet_db::IncomingPaymentHistory {
+                                                                        id: orig.id.clone(),
+                                                                        from_address: orig.from_address.clone(),
+                                                                        amount: orig.amount,
+                                                                        label: orig.label.clone(),
+                                                                        memo: orig.memo.clone(),
+                                                                        status: "paid".to_string(),
+                                                                        payment_txid: Some(txid.clone()),
+                                                                        created_at: orig.timestamp,
+                                                                        completed_at,
+                                                                    };
+                                                                    let _ = db.save_incoming_payment_history(&hist);
+                                                                }
                                                                 let _ = db.delete_incoming_payment_request(req_id);
                                                                 // Notify the UI to remove it from state.payment_requests
                                                                 let remaining = db.get_all_incoming_payment_requests().unwrap_or_default();
                                                                 let _ = state.svc_tx.send(ServiceEvent::IncomingPaymentRequestsLoaded(remaining));
+                                                                let history = db.get_all_incoming_payment_history().unwrap_or_default();
+                                                                let _ = state.svc_tx.send(ServiceEvent::IncomingPaymentHistoryLoaded(history));
                                                             }
                                                         }
                                                         let now = std::time::SystemTime::now()
@@ -903,6 +931,40 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::RefreshAddresses => {
+                        if let Some(ref wm) = state.wallet {
+                            let owned_from_db: Vec<crate::wallet_db::AddressContact> = state
+                                .wallet_db
+                                .as_ref()
+                                .and_then(|db| db.get_owned_addresses().ok())
+                                .unwrap_or_default();
+                            let mut db_indices: Vec<u32> = owned_from_db
+                                .iter()
+                                .filter_map(|c| c.derivation_index)
+                                .collect();
+                            db_indices.sort_unstable();
+                            let raw_addrs: Vec<String> = db_indices
+                                .iter()
+                                .filter_map(|&i| wm.derive_address(i).ok())
+                                .collect();
+                            let contact_map: std::collections::HashMap<String, &crate::wallet_db::AddressContact> =
+                                owned_from_db.iter().map(|c| (c.address.clone(), c)).collect();
+                            let address_infos: Vec<AddressInfo> = raw_addrs
+                                .iter()
+                                .enumerate()
+                                .map(|(i, addr)| {
+                                    let label = contact_map
+                                        .get(addr)
+                                        .map(|c| c.label.clone())
+                                        .unwrap_or_else(|| format!("Address #{}", i));
+                                    AddressInfo { address: addr.clone(), label }
+                                })
+                                .collect();
+                            state.addresses = raw_addrs;
+                            let _ = state.svc_tx.send(ServiceEvent::AddressesRefreshed(address_infos));
+                        }
+                    }
+
                     UiEvent::GenerateAddress => {
                         if let Some(ref mut wm) = state.wallet {
                             match wm.get_next_address() {
@@ -1040,6 +1102,7 @@ pub async fn run(
                                 confirmed: 0,
                                 pending: 0,
                                 total: 0,
+                                locked: 0,
                             });
                         }
 
@@ -1480,7 +1543,28 @@ pub async fn run(
                             let _ = client.respond_payment_request(&request_id, payer_addr, false, None).await;
                         }
                         if let Some(ref db) = state.wallet_db {
+                            // Save to history before deleting
+                            if let Ok(Some(orig)) = db.get_incoming_payment_request(&request_id) {
+                                let completed_at = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs() as i64)
+                                    .unwrap_or(0);
+                                let hist = crate::wallet_db::IncomingPaymentHistory {
+                                    id: orig.id.clone(),
+                                    from_address: orig.from_address.clone(),
+                                    amount: orig.amount,
+                                    label: orig.label.clone(),
+                                    memo: orig.memo.clone(),
+                                    status: "declined".to_string(),
+                                    payment_txid: None,
+                                    created_at: orig.timestamp,
+                                    completed_at,
+                                };
+                                let _ = db.save_incoming_payment_history(&hist);
+                            }
                             let _ = db.delete_incoming_payment_request(&request_id);
+                            let history = db.get_all_incoming_payment_history().unwrap_or_default();
+                            let _ = state.svc_tx.send(ServiceEvent::IncomingPaymentHistoryLoaded(history));
                         }
                     }
 
@@ -1508,6 +1592,12 @@ pub async fn run(
                                 .and_then(|db| db.get_all_sent_payment_requests().ok())
                                 .unwrap_or_default(),
                         ));
+                    }
+
+                    UiEvent::DeleteIncomingPaymentHistory { id } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.delete_incoming_payment_history(&id);
+                        }
                     }
 
                     UiEvent::SaveMasternodeEntry(entry) => {
@@ -2710,6 +2800,15 @@ impl ServiceState {
                                 .send(ServiceEvent::SentPaymentRequestsLoaded(sent_reqs));
                         }
                     }
+                    // Load incoming payment request history
+                    if let Ok(history) = db.get_all_incoming_payment_history() {
+                        if !history.is_empty() {
+                            log::info!("Loaded {} incoming payment history entries", history.len());
+                            let _ = self
+                                .svc_tx
+                                .send(ServiceEvent::IncomingPaymentHistoryLoaded(history));
+                        }
+                    }
 
                     if !cached_txs.is_empty() {
                         log::info!(
@@ -2794,15 +2893,17 @@ impl ServiceState {
                     confirmations: u.confirmations as u64,
                 });
             }
-            // Backfill collateral_amount on masternode entries and persist
-            if let Ok(entries) = db.get_masternode_entries() {
-                for mut entry in entries {
+            // Backfill collateral_amount on masternode entries and auto-create
+            // entries for any non-spendable UTXOs not yet tracked.
+            if let Ok(mut entries) = db.get_masternode_entries() {
+                // Backfill amounts on existing entries
+                for entry in &mut entries {
                     if entry.collateral_amount.is_none() {
                         if let Some(u) = utxos.iter().find(|u| {
                             u.txid == entry.collateral_txid && u.vout == entry.collateral_vout
                         }) {
                             entry.collateral_amount = Some(u.amount);
-                            let _ = db.save_masternode_entry(&entry);
+                            let _ = db.save_masternode_entry(entry);
                             log::info!(
                                 "💾 Backfilled collateral {} for '{}'",
                                 u.amount,
@@ -2810,6 +2911,52 @@ impl ServiceState {
                             );
                         }
                     }
+                }
+
+                // Auto-create entries for non-spendable (locked) UTXOs at or above
+                // the Bronze threshold that don't already have an entry.
+                let bronze_min = crate::wallet_db::BRONZE_COLLATERAL_SATS;
+                let existing_keys: std::collections::HashSet<String> = entries
+                    .iter()
+                    .map(|e| format!("{}:{}", e.collateral_txid, e.collateral_vout))
+                    .collect();
+                let mut existing_names: std::collections::HashSet<String> = entries
+                    .iter()
+                    .map(|e| e.alias.clone())
+                    .collect();
+                let mut added = false;
+                for utxo in utxos.iter().filter(|u| !u.spendable && u.amount >= bronze_min) {
+                    let key = format!("{}:{}", utxo.txid, utxo.vout);
+                    if !existing_keys.contains(&key) {
+                        // Find next available alias
+                        let mut n = 1u32;
+                        let alias = loop {
+                            let candidate = format!("mn{}", n);
+                            if !existing_names.contains(&candidate) {
+                                break candidate;
+                            }
+                            n += 1;
+                        };
+                        existing_names.insert(alias.clone());
+                        let new_entry = crate::wallet_db::MasternodeEntry {
+                            alias: alias.clone(),
+                            collateral_txid: utxo.txid.clone(),
+                            collateral_vout: utxo.vout,
+                            payout_address: None,
+                            collateral_amount: Some(utxo.amount),
+                        };
+                        let _ = db.save_masternode_entry(&new_entry);
+                        entries.push(new_entry);
+                        added = true;
+                        log::info!(
+                            "🔒 Auto-created masternode entry '{}' for locked UTXO {}:{} ({} sats)",
+                            alias, utxo.txid, utxo.vout, utxo.amount
+                        );
+                    }
+                }
+                if added {
+                    entries.sort_by(|a, b| a.alias.cmp(&b.alias));
+                    let _ = self.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
                 }
             }
         }

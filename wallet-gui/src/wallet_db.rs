@@ -75,43 +75,68 @@ impl WalletDb {
 
     // ==================== Address Contacts ====================
 
-    /// Save or update contact information for an address
+    /// Save or update contact information for an address.
+    /// Stored as JSON so future field additions stay backward-compatible.
     pub fn save_contact(&self, contact: &AddressContact) -> Result<(), WalletDbError> {
         let key = format!("contact:{}", contact.address);
-        let value = bincode::serialize(contact)?;
+        let value = serde_json::to_vec(contact)?;
         self.db.insert(key.as_bytes(), value)?;
         self.db.flush()?;
         Ok(())
     }
 
-    /// Get contact information for an address
+    /// Get contact information for an address.
+    /// Tries JSON first; migrates legacy bincode entries on first read.
     pub fn get_contact(&self, address: &str) -> Result<Option<AddressContact>, WalletDbError> {
         let key = format!("contact:{}", address);
         match self.db.get(key.as_bytes())? {
-            Some(data) => Ok(Some(bincode::deserialize(&data)?)),
             None => Ok(None),
+            Some(data) => {
+                // Try JSON (current format)
+                if let Ok(contact) = serde_json::from_slice::<AddressContact>(&data) {
+                    return Ok(Some(contact));
+                }
+                // Fall back to bincode (legacy), migrate immediately
+                if let Ok(contact) = bincode::deserialize::<AddressContact>(&data) {
+                    log::info!("Migrating contact '{}' from bincode to JSON", address);
+                    let _ = self.save_contact(&contact);
+                    return Ok(Some(contact));
+                }
+                log::warn!("Could not deserialize contact for '{}' — entry may be corrupted", address);
+                Ok(None)
+            }
         }
     }
 
-    /// Get all contacts
+    /// Get all contacts.
+    /// Tries JSON first; migrates any legacy bincode entries on the fly.
     pub fn get_all_contacts(&self) -> Result<Vec<AddressContact>, WalletDbError> {
         let mut contacts = Vec::new();
+        let mut to_migrate: Vec<AddressContact> = Vec::new();
         let prefix = b"contact:";
 
         for item in self.db.scan_prefix(prefix) {
-            let (_, value) = item?;
-
-            match bincode::deserialize::<AddressContact>(&value) {
-                Ok(contact) => contacts.push(contact),
-                Err(e) => {
-                    // Skip corrupted entries
-                    log::warn!("Failed to deserialize contact, skipping: {}", e);
-                    continue;
-                }
+            let (_key, value) = item?;
+            // Try JSON (current format)
+            if let Ok(contact) = serde_json::from_slice::<AddressContact>(&value) {
+                contacts.push(contact);
+                continue;
             }
+            // Fall back to bincode (legacy format written before JSON migration)
+            if let Ok(contact) = bincode::deserialize::<AddressContact>(&value) {
+                log::info!("Migrating contact '{}' from bincode to JSON", contact.address);
+                to_migrate.push(contact.clone());
+                contacts.push(contact);
+                continue;
+            }
+            log::warn!("Skipping unreadable contact entry (unknown format)");
         }
 
-        self.db.flush()?;
+        // Re-save migrated entries as JSON so future reads succeed
+        for contact in to_migrate {
+            let _ = self.save_contact(&contact);
+        }
+
         contacts.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(contacts)
     }
@@ -667,7 +692,7 @@ impl MasternodeEntry {
 // Collateral thresholds in satoshis (1 TIME = 100_000_000 sat)
 const GOLD_COLLATERAL_SATS: u64 = 100_000 * 100_000_000;
 const SILVER_COLLATERAL_SATS: u64 = 10_000 * 100_000_000;
-const BRONZE_COLLATERAL_SATS: u64 = 1_000 * 100_000_000;
+pub const BRONZE_COLLATERAL_SATS: u64 = 1_000 * 100_000_000;
 
 /// Compute the masternode tier from a collateral UTXO amount (in satoshis).
 ///
@@ -705,6 +730,29 @@ pub struct SentPaymentRequest {
     /// Transaction ID of the payment, populated when the payer responds with accepted=true.
     #[serde(default)]
     pub payment_txid: Option<String>,
+}
+
+/// A completed (paid or declined) incoming payment request, kept for history display.
+/// Stored as JSON so future field additions stay backward-compatible.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncomingPaymentHistory {
+    pub id: String,
+    /// The address that sent us the payment request (the requester).
+    pub from_address: String,
+    pub amount: u64,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub memo: String,
+    /// "paid" | "declined"
+    pub status: String,
+    /// Transaction ID of the payment (only set when status == "paid").
+    #[serde(default)]
+    pub payment_txid: Option<String>,
+    /// Unix timestamp of the original request.
+    pub created_at: i64,
+    /// Unix timestamp when we paid or declined.
+    pub completed_at: i64,
 }
 
 impl WalletDb {
@@ -801,9 +849,59 @@ impl WalletDb {
         Ok(reqs)
     }
 
+    /// Get a single incoming payment request by id.
+    pub fn get_incoming_payment_request(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::events::PaymentRequest>, WalletDbError> {
+        let key = format!("incoming_pr:{}", id);
+        match self.db.get(key.as_bytes())? {
+            Some(data) => Ok(Some(serde_json::from_slice(&data)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Delete an incoming payment request by id (after paid, declined, or expired).
     pub fn delete_incoming_payment_request(&self, id: &str) -> Result<(), WalletDbError> {
         let key = format!("incoming_pr:{}", id);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    // ==================== Incoming Payment Request History ====================
+
+    /// Persist a completed (paid or declined) incoming payment request for history display.
+    pub fn save_incoming_payment_history(
+        &self,
+        entry: &IncomingPaymentHistory,
+    ) -> Result<(), WalletDbError> {
+        let key = format!("incoming_pr_history:{}", entry.id);
+        let value = serde_json::to_vec(entry)?;
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Load all incoming payment history entries, newest first.
+    pub fn get_all_incoming_payment_history(
+        &self,
+    ) -> Result<Vec<IncomingPaymentHistory>, WalletDbError> {
+        let mut entries = Vec::new();
+        for item in self.db.scan_prefix(b"incoming_pr_history:") {
+            let (_key, value) = item?;
+            match serde_json::from_slice::<IncomingPaymentHistory>(&value) {
+                Ok(e) => entries.push(e),
+                Err(e) => log::warn!("Failed to deserialize incoming payment history entry, skipping: {}", e),
+            }
+        }
+        entries.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
+        Ok(entries)
+    }
+
+    /// Delete a single history entry by id (user dismisses it).
+    pub fn delete_incoming_payment_history(&self, id: &str) -> Result<(), WalletDbError> {
+        let key = format!("incoming_pr_history:{}", id);
         self.db.remove(key.as_bytes())?;
         self.db.flush()?;
         Ok(())

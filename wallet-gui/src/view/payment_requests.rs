@@ -662,6 +662,143 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 }
             }
 
+            // ── Past / Completed Incoming ─────────────────────────────────
+            if !state.incoming_payment_history.is_empty() {
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                ui.label(
+                    egui::RichText::new(format!(
+                        "🗂 Past Incoming  ({})",
+                        state.incoming_payment_history.len()
+                    ))
+                    .size(14.0)
+                    .strong(),
+                );
+                ui.add_space(6.0);
+
+                let mut delete_history_id: Option<String> = None;
+
+                let history_snapshot: Vec<_> = state.incoming_payment_history.clone();
+                for entry in &history_snapshot {
+                    egui::Frame::group(ui.style())
+                        .inner_margin(egui::Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+
+                            ui.horizontal(|ui| {
+                                if !entry.label.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new(&entry.label).strong().size(13.0),
+                                    );
+                                }
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            egui::RichText::new(status_label(&entry.status))
+                                                .size(11.0)
+                                                .strong()
+                                                .color(status_color(&entry.status)),
+                                        );
+                                    },
+                                );
+                            });
+
+                            ui.add_space(4.0);
+
+                            egui::Grid::new(format!("hist_grid_{}", entry.id))
+                                .num_columns(2)
+                                .spacing([8.0, 4.0])
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new("From:").weak().size(12.0));
+                                    ui.label(
+                                        egui::RichText::new(super::truncate_middle(
+                                            &entry.from_address,
+                                            14,
+                                            6,
+                                        ))
+                                        .monospace()
+                                        .size(12.0),
+                                    )
+                                    .on_hover_text(&entry.from_address);
+                                    ui.end_row();
+
+                                    ui.label(egui::RichText::new("Amount:").weak().size(12.0));
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} TIME",
+                                            entry.amount as f64 / 100_000_000.0
+                                        ))
+                                        .strong()
+                                        .size(13.0),
+                                    );
+                                    ui.end_row();
+
+                                    if !entry.memo.is_empty() {
+                                        ui.label(egui::RichText::new("Memo:").weak().size(12.0));
+                                        ui.label(
+                                            egui::RichText::new(&entry.memo)
+                                                .size(12.0)
+                                                .italics()
+                                                .color(egui::Color32::GRAY),
+                                        );
+                                        ui.end_row();
+                                    }
+
+                                    ui.label(egui::RichText::new("Received:").weak().size(12.0));
+                                    ui.label(
+                                        egui::RichText::new(time_ago(entry.created_at))
+                                            .size(11.0)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                    ui.end_row();
+
+                                    if let Some(ref txid) = entry.payment_txid {
+                                        ui.label(
+                                            egui::RichText::new("Txid:").weak().size(12.0),
+                                        );
+                                        let short = format!(
+                                            "{}…{}",
+                                            &txid[..12.min(txid.len())],
+                                            &txid[txid.len().saturating_sub(8)..]
+                                        );
+                                        let resp = ui
+                                            .label(
+                                                egui::RichText::new(short)
+                                                    .monospace()
+                                                    .size(11.0)
+                                                    .color(egui::Color32::from_rgb(
+                                                        100, 180, 255,
+                                                    )),
+                                            )
+                                            .on_hover_text(txid.as_str());
+                                        if resp.clicked() {
+                                            ui.ctx().copy_text(txid.clone());
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+
+                            ui.add_space(6.0);
+                            if ui
+                                .small_button("🗑")
+                                .on_hover_text("Remove from history")
+                                .clicked()
+                            {
+                                delete_history_id = Some(entry.id.clone());
+                            }
+                        });
+                    ui.add_space(4.0);
+                }
+
+                if let Some(id) = delete_history_id {
+                    state.incoming_payment_history.retain(|e| e.id != id);
+                    let _ = ui_tx.send(UiEvent::DeleteIncomingPaymentHistory { id });
+                }
+            }
+
             ui.add_space(10.0);
         });
 }

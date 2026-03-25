@@ -209,13 +209,15 @@ impl MasternodeClient {
         // Masternode returns {balance, locked, available} in TIME
         let confirmed = result.get("available").map(json_to_satoshis).unwrap_or(0);
         let total = result.get("balance").map(json_to_satoshis).unwrap_or(0);
+        let locked = result.get("locked").map(json_to_satoshis).unwrap_or(0);
 
         let balance = Balance {
             confirmed,
             pending: 0,
             total,
+            locked,
         };
-        log::info!("✅ Balance: {} sats (available: {} sats)", total, confirmed);
+        log::info!("✅ Balance: {} sats (available: {} sats, locked: {} sats)", total, confirmed, locked);
         Ok(balance)
     }
 
@@ -227,11 +229,13 @@ impl MasternodeClient {
 
         let confirmed = result.get("available").map(json_to_satoshis).unwrap_or(0);
         let total = result.get("balance").map(json_to_satoshis).unwrap_or(0);
+        let locked = result.get("locked").map(json_to_satoshis).unwrap_or(0);
 
         let balance = Balance {
             confirmed,
             pending: 0,
             total,
+            locked,
         };
 
         let addr_count = result
@@ -858,6 +862,9 @@ pub struct Balance {
     pub confirmed: u64,
     pub pending: u64,
     pub total: u64,
+    /// Locked collateral amount as reported by the masternode.
+    #[serde(default)]
+    pub locked: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1062,6 +1069,7 @@ mod tests {
             confirmed: 1000,
             pending: 500,
             total: 1500,
+            locked: 500,
         };
 
         let json = serde_json::to_string(&balance).unwrap();

@@ -121,11 +121,93 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
         ui.add_space(8.0);
 
+        // From address selector (optional; defaults to automatic UTXO selection)
+        ui.label("Send From (optional)");
+        ui.add_space(2.0);
+        {
+            let selected_text = state
+                .send_from_address
+                .as_ref()
+                .map(|a| {
+                    let label = state
+                        .addresses
+                        .iter()
+                        .find(|ai| &ai.address == a)
+                        .map(|ai| ai.label.as_str())
+                        .unwrap_or("Unknown");
+                    format!(
+                        "{} ({}…{})",
+                        label,
+                        &a[..8.min(a.len())],
+                        &a[a.len().saturating_sub(6)..]
+                    )
+                })
+                .unwrap_or_else(|| "Auto (best UTXO selection)".to_string());
+
+            egui::ComboBox::from_id_salt("send_from_addr")
+                .selected_text(selected_text)
+                .width(380.0)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            state.send_from_address.is_none(),
+                            "Auto (best UTXO selection)",
+                        )
+                        .clicked()
+                    {
+                        state.send_from_address = None;
+                    }
+                    for ai in state.addresses.clone() {
+                        let display = format!(
+                            "{} — {}…{}",
+                            ai.label,
+                            &ai.address[..8.min(ai.address.len())],
+                            &ai.address[ai.address.len().saturating_sub(6)..]
+                        );
+                        let selected = state.send_from_address.as_deref() == Some(&ai.address);
+                        if ui.selectable_label(selected, display).clicked() {
+                            state.send_from_address = Some(ai.address.clone());
+                        }
+                    }
+                });
+
+            // Show balance of the selected from-address
+            if let Some(ref from_addr) = state.send_from_address {
+                let addr_bal: u64 = state
+                    .utxos
+                    .iter()
+                    .filter(|u| u.spendable && &u.address == from_addr)
+                    .map(|u| u.amount)
+                    .sum();
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Balance: {}.{:06} TIME",
+                        addr_bal / 100_000_000,
+                        (addr_bal % 100_000_000) / 100,
+                    ))
+                    .size(12.0)
+                    .color(egui::Color32::GRAY),
+                );
+            }
+        }
+
+        ui.add_space(8.0);
+
         // Auto-calculate tiered fee (matches masternode consensus rule)
         let entered_amount = parse_time_amount(&state.send_amount);
         let available = if state.syncing {
             0
         } else {
+            // When a specific from-address is selected, compute available from its UTXOs only.
+            if let Some(ref from_addr) = state.send_from_address {
+                state
+                    .utxos
+                    .iter()
+                    .filter(|u| u.spendable && &u.address == from_addr)
+                    .map(|u| u.amount)
+                    .sum()
+            } else {
             // Use the larger of UTXO-derived available and masternode-reported available.
             // UTXO list may be truncated by the default limit, so masternode is authoritative.
             let utxo_avail = state.available_balance();
@@ -135,6 +217,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 best
             } else {
                 state.computed_balance()
+            }
             }
         };
 
@@ -221,14 +304,32 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         if below_minimum {
             ui.colored_label(egui::Color32::RED, "Minimum send amount is 1 TIME.");
         } else if insufficient {
-            ui.colored_label(
-                egui::Color32::RED,
-                format!(
-                    "Insufficient funds. Amount + fee = {}.{:06} TIME exceeds balance.",
-                    total_cost / 100_000_000,
-                    (total_cost % 100_000_000) / 100
-                ),
-            );
+            if let Some(ref from_addr) = state.send_from_address {
+                let label = state
+                    .addresses
+                    .iter()
+                    .find(|ai| &ai.address == from_addr)
+                    .map(|ai| ai.label.as_str())
+                    .unwrap_or("this address");
+                ui.colored_label(
+                    egui::Color32::RED,
+                    format!(
+                        "Insufficient funds in \"{}\". Need {}.{:06} TIME — try selecting Auto to use funds across all addresses.",
+                        label,
+                        total_cost / 100_000_000,
+                        (total_cost % 100_000_000) / 100,
+                    ),
+                );
+            } else {
+                ui.colored_label(
+                    egui::Color32::RED,
+                    format!(
+                        "Insufficient funds. Amount + fee = {}.{:06} TIME exceeds balance.",
+                        total_cost / 100_000_000,
+                        (total_cost % 100_000_000) / 100
+                    ),
+                );
+            }
         }
 
         ui.add_space(15.0);
@@ -298,6 +399,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                         amount: send_amount,
                         fee: auto_fee,
                         memo: state.send_memo.clone(),
+                        from_address: state.send_from_address.take(),
                         payment_request_id: state.pending_payment_request_id.take(),
                     });
                     state.loading = true;

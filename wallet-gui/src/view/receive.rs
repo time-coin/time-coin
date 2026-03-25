@@ -71,6 +71,14 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     if ui.button("+ New Address").clicked() {
                         let _ = ui_tx.send(UiEvent::GenerateAddress);
                     }
+                    ui.add_space(6.0);
+                    if ui
+                        .button("⟳ Refresh")
+                        .on_hover_text("Reload addresses from the wallet database. Use this if an address appears missing.")
+                        .clicked()
+                    {
+                        let _ = ui_tx.send(UiEvent::RefreshAddresses);
+                    }
                 });
             });
             ui.add_space(4.0);
