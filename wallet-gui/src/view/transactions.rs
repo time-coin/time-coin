@@ -263,69 +263,84 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<
         if state.block_reward_breakdown_loading && !breakdown_matches {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Loading tier breakdown…");
+                ui.label("Loading reward breakdown…");
             });
         } else if let Some(ref bd) = state.block_reward_breakdown {
-            egui::Grid::new("tier_breakdown_grid")
-                .num_columns(4)
-                .spacing([16.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Tier").strong().size(12.0));
-                    ui.label(egui::RichText::new("Nodes").strong().size(12.0));
-                    ui.label(egui::RichText::new("Per Node").strong().size(12.0));
-                    ui.label(egui::RichText::new("Total").strong().size(12.0));
-                    ui.end_row();
+            // Filter to addresses owned by this wallet.
+            let my_addresses: std::collections::HashSet<&str> =
+                state.addresses.iter().map(|a| a.address.as_str()).collect();
+            let my_rewards: Vec<(&str, u64)> = bd
+                .rewards
+                .iter()
+                .filter(|(addr, _)| my_addresses.contains(addr.as_str()))
+                .map(|(addr, amt)| (addr.as_str(), *amt))
+                .collect();
 
-                    let tier_color = |tier: &str| match tier {
-                        "Gold" => egui::Color32::from_rgb(255, 200, 0),
-                        "Silver" => egui::Color32::from_rgb(180, 180, 180),
-                        "Bronze" => egui::Color32::from_rgb(180, 100, 40),
-                        _ => egui::Color32::from_rgb(100, 180, 255),
-                    };
+            if my_rewards.is_empty() {
+                ui.label(
+                    egui::RichText::new(
+                        "None of your masternodes received a reward in this block.",
+                    )
+                    .color(egui::Color32::GRAY)
+                    .italics()
+                    .size(12.0),
+                );
+            } else {
+                let tier_color = |tier: &str| match tier {
+                    "Gold" => egui::Color32::from_rgb(255, 200, 0),
+                    "Silver" => egui::Color32::from_rgb(180, 180, 180),
+                    "Bronze" => egui::Color32::from_rgb(180, 100, 40),
+                    _ => egui::Color32::from_rgb(100, 180, 255),
+                };
 
-                    for entry in &bd.entries {
-                        ui.label(
-                            egui::RichText::new(&entry.tier)
-                                .size(12.0)
+                egui::Grid::new("my_reward_grid")
+                    .num_columns(3)
+                    .spacing([16.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Masternode").strong().size(12.0));
+                        ui.label(egui::RichText::new("Tier").strong().size(12.0));
+                        ui.label(egui::RichText::new("Reward").strong().size(12.0));
+                        ui.end_row();
+
+                        let mut grand_total: u64 = 0;
+                        for (addr, amount) in &my_rewards {
+                            let entry = state
+                                .masternode_entries
+                                .iter()
+                                .find(|e| e.payout_address.as_deref() == Some(addr));
+                            let alias = entry.map(|e| e.alias.as_str()).unwrap_or(*addr);
+                            let tier = entry
+                                .and_then(|e| e.collateral_amount)
+                                .and_then(crate::wallet_db::masternode_tier_from_satoshis)
+                                .unwrap_or("—");
+                            ui.label(egui::RichText::new(alias).size(12.0).strong());
+                            ui.label(egui::RichText::new(tier).size(12.0).color(tier_color(tier)));
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{:.8} TIME",
+                                    *amount as f64 / 100_000_000.0
+                                ))
+                                .size(12.0),
+                            );
+                            ui.end_row();
+                            grand_total += amount;
+                        }
+
+                        if my_rewards.len() > 1 {
+                            ui.label(egui::RichText::new("Total").strong().size(12.0));
+                            ui.label(egui::RichText::new("").size(12.0));
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{:.8} TIME",
+                                    grand_total as f64 / 100_000_000.0
+                                ))
                                 .strong()
-                                .color(tier_color(&entry.tier)),
-                        );
-                        ui.label(egui::RichText::new(format!("{}", entry.node_count)).size(12.0));
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{:.8} TIME",
-                                entry.per_node_amount as f64 / 100_000_000.0
-                            ))
-                            .size(12.0),
-                        );
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{:.8} TIME",
-                                entry.total_amount as f64 / 100_000_000.0
-                            ))
-                            .size(12.0),
-                        );
-                        ui.end_row();
-                    }
-
-                    if bd.unmatched_count > 0 {
-                        ui.label(
-                            egui::RichText::new("Unknown")
-                                .size(12.0)
-                                .color(egui::Color32::GRAY),
-                        );
-                        ui.label(egui::RichText::new(format!("{}", bd.unmatched_count)).size(12.0));
-                        ui.label(egui::RichText::new("—").size(12.0));
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{:.8} TIME",
-                                bd.unmatched_amount as f64 / 100_000_000.0
-                            ))
-                            .size(12.0),
-                        );
-                        ui.end_row();
-                    }
-                });
+                                .size(12.0),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            }
         }
         ui.add_space(6.0);
     }

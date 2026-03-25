@@ -865,10 +865,10 @@ impl MasternodeClient {
         })
     }
 
-    /// Fetch the per-tier reward breakdown for a block by height.
+    /// Fetch the raw per-address masternode rewards for a block by height.
     ///
-    /// Calls `getblock` for the reward list then `masternodelist(true)` to
-    /// resolve wallet addresses to tiers.
+    /// Returns the address→amount pairs from `getblock`. Filtering to the
+    /// user's own masternodes is done in the UI using wallet state.
     pub async fn get_block_reward_breakdown(
         &self,
         height: u64,
@@ -888,66 +888,9 @@ impl MasternodeClient {
             })
             .collect();
 
-        let total_reward = block_val["block_reward"].as_u64().unwrap_or(0);
-
-        // Build address→tier map from the masternode list.
-        let mn_val = self
-            .rpc_call("masternodelist", serde_json::json!([true]))
-            .await
-            .unwrap_or(serde_json::Value::Null);
-
-        let mut addr_to_tier: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
-        if let Some(list) = mn_val["masternodes"].as_array() {
-            for mn in list {
-                if let (Some(wa), Some(tier)) = (mn["wallet_address"].as_str(), mn["tier"].as_str())
-                {
-                    addr_to_tier.insert(wa.to_string(), tier.to_string());
-                }
-            }
-        }
-
-        // Group by tier.
-        let mut tier_map: std::collections::HashMap<String, (usize, u64)> =
-            std::collections::HashMap::new();
-        let mut unmatched_count = 0usize;
-        let mut unmatched_amount = 0u64;
-        for (addr, amount) in &rewards {
-            match addr_to_tier.get(addr) {
-                Some(tier) => {
-                    let e = tier_map.entry(tier.clone()).or_insert((0, 0));
-                    e.0 += 1;
-                    e.1 += amount;
-                }
-                None => {
-                    unmatched_count += 1;
-                    unmatched_amount += amount;
-                }
-            }
-        }
-
-        let mut entries: Vec<TierBreakdownEntry> = Vec::new();
-        for tier in &["Gold", "Silver", "Bronze", "Free"] {
-            if let Some((count, total)) = tier_map.get(*tier) {
-                entries.push(TierBreakdownEntry {
-                    tier: tier.to_string(),
-                    node_count: *count,
-                    total_amount: *total,
-                    per_node_amount: if *count > 0 {
-                        *total / *count as u64
-                    } else {
-                        0
-                    },
-                });
-            }
-        }
-
         Ok(BlockRewardBreakdown {
             block_height: height,
-            total_reward,
-            entries,
-            unmatched_count,
-            unmatched_amount,
+            rewards,
         })
     }
 
@@ -974,25 +917,14 @@ impl MasternodeClient {
 // Data Structures
 // ============================================================================
 
-/// Per-tier summary within a [`BlockRewardBreakdown`].
-#[derive(Debug, Clone)]
-pub struct TierBreakdownEntry {
-    pub tier: String,
-    pub node_count: usize,
-    pub total_amount: u64,
-    pub per_node_amount: u64,
-}
-
-/// Reward breakdown for a single block, grouped by masternode tier.
+/// Raw per-address masternode rewards for a single block.
+///
+/// Cross-referencing with the user's own masternodes is done in the UI.
 #[derive(Debug, Clone)]
 pub struct BlockRewardBreakdown {
     pub block_height: u64,
-    /// Raw `block_reward` field from the masternode (satoshis).
-    pub total_reward: u64,
-    pub entries: Vec<TierBreakdownEntry>,
-    /// Addresses present in masternode_rewards but not found in masternodelist.
-    pub unmatched_count: usize,
-    pub unmatched_amount: u64,
+    /// All `(wallet_address, amount_satoshis)` pairs from `masternode_rewards`.
+    pub rewards: Vec<(String, u64)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
