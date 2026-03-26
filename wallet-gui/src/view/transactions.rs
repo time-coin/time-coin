@@ -336,7 +336,7 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<
                                     live.or(e.collateral_amount)
                                 })
                                 .and_then(crate::wallet_db::masternode_tier_from_satoshis)
-                                .unwrap_or("—");
+                                .unwrap_or("Free"); // no collateral found → Free node
                             ui.label(egui::RichText::new(alias).size(12.0).strong());
                             ui.label(egui::RichText::new(tier).size(12.0).color(tier_color(tier)));
                             ui.label(
