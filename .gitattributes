@@ -1,0 +1,9 @@
+# Normalize all text files to LF in the repository.
+* text=auto eol=lf
+
+# Explicitly mark binary files.
+*.exe binary
+*.dll binary
+*.so  binary
+*.png binary
+*.ico binary
