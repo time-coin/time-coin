@@ -304,13 +304,37 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<
 
                         let mut grand_total: u64 = 0;
                         for (addr, amount) in &my_rewards {
+                            // Match entry by payout_address first; fall back to
+                            // matching by collateral UTXO address for entries
+                            // imported from masternode.conf (no payout_address set).
                             let entry = state
                                 .masternode_entries
                                 .iter()
-                                .find(|e| e.payout_address.as_deref() == Some(addr));
+                                .find(|e| e.payout_address.as_deref() == Some(addr))
+                                .or_else(|| {
+                                    state.masternode_entries.iter().find(|e| {
+                                        state.utxos.iter().any(|u| {
+                                            u.txid == e.collateral_txid
+                                                && u.vout == e.collateral_vout
+                                                && u.address.as_str() == *addr
+                                        })
+                                    })
+                                });
                             let alias = entry.map(|e| e.alias.as_str()).unwrap_or(*addr);
+                            // Resolve tier: prefer live UTXO lookup (same logic as
+                            // the masternodes screen) then fall back to cached amount.
                             let tier = entry
-                                .and_then(|e| e.collateral_amount)
+                                .and_then(|e| {
+                                    let live = state
+                                        .utxos
+                                        .iter()
+                                        .find(|u| {
+                                            u.txid == e.collateral_txid
+                                                && u.vout == e.collateral_vout
+                                        })
+                                        .map(|u| u.amount);
+                                    live.or(e.collateral_amount)
+                                })
                                 .and_then(crate::wallet_db::masternode_tier_from_satoshis)
                                 .unwrap_or("—");
                             ui.label(egui::RichText::new(alias).size(12.0).strong());
