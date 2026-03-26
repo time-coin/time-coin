@@ -115,6 +115,23 @@ fn render_income_controls(ui: &mut Ui, state: &mut AppState) {
 
 /// Render the income bar chart.
 fn render_income_chart(ui: &mut Ui, state: &AppState) {
+    // Any txid that has a send record belongs to an internal movement (consolidation,
+    // normal send with change, self-transfer).  Receive outputs on those txids must
+    // not be counted as income — they are change or re-consolidation outputs.
+    //
+    // We seed the set from BOTH state.transactions (RPC-returned records) AND
+    // state.send_records (the persisted local DB).  The DB is the authoritative
+    // source for consolidation sends: if the masternode's tx_index lookup misses
+    // (e.g., after a resync) it may return "receive" instead of "consolidate",
+    // so relying only on state.transactions would let those through as income.
+    let internal_txids: std::collections::HashSet<&str> = state
+        .transactions
+        .iter()
+        .filter(|tx| tx.is_send || tx.is_consolidation)
+        .map(|tx| tx.txid.as_str())
+        .chain(state.send_records.keys().map(|s| s.as_str()))
+        .collect();
+
     let approved_txs: Vec<_> = state
         .transactions
         .iter()
@@ -122,6 +139,7 @@ fn render_income_chart(ui: &mut Ui, state: &AppState) {
             !tx.is_send
                 && !tx.is_fee
                 && !tx.is_consolidation
+                && !internal_txids.contains(tx.txid.as_str())
                 && matches!(tx.status, TransactionStatus::Approved)
                 && tx.timestamp > 0
         })
