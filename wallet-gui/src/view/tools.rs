@@ -138,23 +138,53 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
         ui.label("Open configuration files in your system text editor.");
         ui.add_space(6.0);
 
-        if let Ok(data_dir) = Config::data_dir() {
-            let config_path = data_dir.join("time.conf");
+        match (Config::startup_prefs_path(), Config::data_dir()) {
+            (Ok(prefs_path), Ok(data_dir)) => {
+                let net_conf_path = if state.is_testnet {
+                    data_dir.join("testnet").join("time.conf")
+                } else {
+                    data_dir.join("time.conf")
+                };
 
-            ui.horizontal(|ui| {
-                let btn = ui
-                    .add(egui::Button::new("📝 Open time.conf").min_size(egui::vec2(160.0, 28.0)));
-                if btn.clicked() {
-                    open_conf_file(config_path.clone());
-                }
-                ui.label(
-                    egui::RichText::new(config_path.display().to_string())
-                        .weak()
-                        .small(),
-                );
-            });
-        } else {
-            ui.label(egui::RichText::new("Could not determine data directory.").weak());
+                // time.toml — startup preference
+                ui.horizontal(|ui| {
+                    let btn = ui.add(
+                        egui::Button::new("📝 Open time.toml").min_size(egui::vec2(160.0, 28.0)),
+                    );
+                    if btn.clicked() {
+                        open_conf_file(prefs_path.clone());
+                    }
+                    ui.label(
+                        egui::RichText::new(prefs_path.display().to_string())
+                            .weak()
+                            .small(),
+                    );
+                });
+
+                ui.add_space(4.0);
+
+                // network-specific time.conf
+                let label = if state.is_testnet {
+                    "📝 Open time.conf (testnet)"
+                } else {
+                    "📝 Open time.conf (mainnet)"
+                };
+                ui.horizontal(|ui| {
+                    let btn = ui
+                        .add(egui::Button::new(label).min_size(egui::vec2(160.0, 28.0)));
+                    if btn.clicked() {
+                        open_conf_file(net_conf_path.clone());
+                    }
+                    ui.label(
+                        egui::RichText::new(net_conf_path.display().to_string())
+                            .weak()
+                            .small(),
+                    );
+                });
+            }
+            _ => {
+                ui.label(egui::RichText::new("Could not determine data directory.").weak());
+            }
         }
     });
 

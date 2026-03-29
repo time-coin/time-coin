@@ -5,14 +5,23 @@
 //! - Where to find the masternode
 //! - Where to store local data
 //!
-//! Configuration is stored in `~/.time-wallet/time.conf` using Bitcoin-style
-//! key=value syntax. Lines beginning with `#` are comments.
+//! ## File layout
 //!
-//! ## Supported keys
+//! ```text
+//! ~/.time-wallet/
+//!   time.toml          ← startup preference: network = "mainnet" | "testnet"
+//!   time.conf          ← mainnet settings (addnode, rpcuser, …)
+//!   testnet/
+//!     time.conf        ← testnet settings
+//! ```
+//!
+//! `time.toml` is read first to determine the active network, then the
+//! matching `time.conf` is loaded.  On save, both files are written.
+//!
+//! ## Supported keys in `time.conf`
 //!
 //! | Key | Default | Description |
 //! |---|---|---|
-//! | `testnet` | `0` | Set to `1` for testnet |
 //! | `addnode` | — | Masternode peer (IP, IP:port, or URL). Repeatable. |
 //! | `rpcuser` | — | RPC username for masternode auth |
 //! | `rpcpassword` | — | RPC password for masternode auth |
@@ -23,6 +32,64 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+
+// ============================================================================
+// Startup preferences  (~/.time-wallet/time.toml)
+// ============================================================================
+
+/// Persists the default network across restarts.
+///
+/// This is intentionally minimal — it only stores which network to start on.
+/// All other settings live in the network-specific `time.conf`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StartupPrefs {
+    /// "mainnet" or "testnet"
+    #[serde(default = "default_network")]
+    network: String,
+}
+
+impl Default for StartupPrefs {
+    fn default() -> Self {
+        Self {
+            network: default_network(),
+        }
+    }
+}
+
+impl StartupPrefs {
+    /// Path: `~/.time-wallet/time.toml`
+    fn path() -> Result<PathBuf, ConfigError> {
+        Ok(Config::data_dir()?.join("time.toml"))
+    }
+
+    fn load() -> Result<Self, ConfigError> {
+        let path = Self::path()?;
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let contents = fs::read_to_string(&path)?;
+        Ok(toml::from_str(&contents).unwrap_or_default())
+    }
+
+    fn save(&self) -> Result<(), ConfigError> {
+        let path = Self::path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let contents = format!(
+            "# TIME Coin Wallet — startup preference\n\
+             # Set to \"mainnet\" or \"testnet\"\n\
+             network = \"{}\"\n",
+            self.network
+        );
+        fs::write(&path, contents)?;
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Main config
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -107,23 +174,61 @@ impl Default for Config {
 impl Config {
     /// Load configuration from disk.
     ///
-    /// Reads `~/.time-wallet/time.conf`. If that file doesn't exist but the
-    /// legacy `config.toml` does, migrates it automatically.
+    /// 1. Reads `~/.time-wallet/time.toml` to determine the active network.
+    /// 2. Loads the matching `time.conf`:
+    ///    - mainnet → `~/.time-wallet/time.conf`
+    ///    - testnet → `~/.time-wallet/testnet/time.conf`
+    ///
+    /// Migration paths handled automatically:
+    /// - Old single `time.conf` with `testnet=1|0` → split into `time.toml` +
+    ///   network-specific conf files, original backed up as `time.conf.bak`.
+    /// - Legacy `config.toml` → converted to the new layout.
     pub fn load() -> Result<Self, ConfigError> {
-        let conf_path = Self::config_path()?;
         let data_dir = Self::data_dir()?;
 
-        let mut config = if conf_path.exists() {
-            log::info!("📁 Loading config from: {}", conf_path.display());
-            let contents = fs::read_to_string(&conf_path)?;
-            let mut c = Self::parse_time_conf(&contents);
-            c.data_dir = Some(data_dir);
-            c
-        } else {
-            // Migration: convert legacy config.toml → time.conf
+        // --- Step 1: determine network from time.toml (or migrate old layout) ---
+        let prefs_path = StartupPrefs::path()?;
+        let old_root_conf = data_dir.join("time.conf");
+
+        // Migration A: old single time.conf that contains testnet=
+        if !prefs_path.exists() && old_root_conf.exists() {
+            let contents = fs::read_to_string(&old_root_conf)?;
+            // Only migrate if it still contains the old testnet= key
+            if contents.lines().any(|l| l.trim_start().starts_with("testnet=")) {
+                log::info!("🔄 Migrating time.conf (testnet= key) → time.toml + network-specific confs");
+                let old_config = Self::parse_time_conf_legacy(&contents);
+                let is_testnet = old_config.network == "testnet";
+
+                // Write time.toml
+                let prefs = StartupPrefs { network: old_config.network.clone() };
+                prefs.save()?;
+
+                // Write network-specific time.conf (without testnet= key)
+                let net_conf_path = Self::config_path_for(is_testnet)?;
+                if let Some(parent) = net_conf_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&net_conf_path, old_config.to_time_conf())?;
+
+                // Back up old root conf
+                let backup = old_root_conf.with_extension("conf.bak");
+                let _ = fs::rename(&old_root_conf, &backup);
+                log::info!("✅ Migration complete — old time.conf backed up as time.conf.bak");
+
+                let mut c = old_config;
+                c.data_dir = Some(data_dir);
+                if c.editor.is_none() {
+                    c.editor = detect_editor();
+                }
+                return Ok(c);
+            }
+        }
+
+        // Migration B: legacy config.toml
+        if !prefs_path.exists() {
             let toml_path = data_dir.join("config.toml");
             if toml_path.exists() {
-                log::info!("🔄 Migrating config.toml → time.conf");
+                log::info!("🔄 Migrating config.toml → time.toml + network-specific time.conf");
                 let contents = fs::read_to_string(&toml_path)?;
                 let mut c: Config = toml::from_str(&contents)?;
                 c.data_dir = Some(data_dir);
@@ -131,17 +236,42 @@ impl Config {
                 if c.editor.is_none() {
                     c.editor = detect_editor();
                 }
-                // Save in new format and keep old file as backup
                 c.save()?;
                 let backup = toml_path.with_extension("toml.bak");
                 let _ = fs::rename(&toml_path, &backup);
-                log::info!("✅ Migration complete — config.toml renamed to config.toml.bak");
+                log::info!("✅ Migration complete — config.toml backed up as config.toml.bak");
                 return Ok(c);
             }
+        }
+
+        // --- Step 2: load network from time.toml ---
+        let prefs = StartupPrefs::load()?;
+        let is_testnet = prefs.network == "testnet";
+        let conf_path = Self::config_path_for(is_testnet)?;
+
+        // --- Step 3: load network-specific time.conf (or first-run) ---
+        let mut config = if conf_path.exists() {
+            log::info!("📁 Loading config from: {}", conf_path.display());
+            let contents = fs::read_to_string(&conf_path)?;
+            let mut c = Self::parse_time_conf(&contents);
+            c.network = prefs.network;
+            c.data_dir = Some(data_dir);
+            c
+        } else if !prefs_path.exists() {
+            // Neither time.toml nor any time.conf — genuine first run
             log::info!("📝 First run — no config file found, network selection required");
             Config {
-                data_dir: Some(Self::data_dir()?),
+                data_dir: Some(data_dir),
                 is_first_run: true,
+                editor: detect_editor(),
+                ..Config::default()
+            }
+        } else {
+            // time.toml exists but no conf yet for this network — use defaults
+            log::info!("📝 No time.conf for {} yet, using defaults", prefs.network);
+            Config {
+                network: prefs.network,
+                data_dir: Some(data_dir),
                 editor: detect_editor(),
                 ..Config::default()
             }
@@ -158,9 +288,18 @@ impl Config {
         Ok(config)
     }
 
-    /// Save configuration to `~/.time-wallet/time.conf`.
+    /// Save configuration to disk.
+    ///
+    /// Writes two files:
+    /// - `~/.time-wallet/time.toml` — startup preference (network)
+    /// - `~/.time-wallet/time.conf` or `~/.time-wallet/testnet/time.conf` — settings
     pub fn save(&self) -> Result<(), ConfigError> {
-        let conf_path = Self::config_path()?;
+        // Write startup preference
+        let prefs = StartupPrefs { network: self.network.clone() };
+        prefs.save()?;
+
+        // Write network-specific settings
+        let conf_path = Self::config_path_for(self.is_testnet())?;
         if let Some(parent) = conf_path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -183,11 +322,25 @@ impl Config {
         }
     }
 
-    /// Get config file path (`~/.time-wallet/time.conf`)
-    fn config_path() -> Result<PathBuf, ConfigError> {
-        let mut path = Self::data_dir()?;
-        path.push("time.conf");
-        Ok(path)
+    /// Path to the active network's `time.conf`.
+    /// - mainnet → `~/.time-wallet/time.conf`
+    /// - testnet → `~/.time-wallet/testnet/time.conf`
+    pub fn network_conf_path(&self) -> Result<PathBuf, ConfigError> {
+        Self::config_path_for(self.is_testnet())
+    }
+
+    /// Path to `~/.time-wallet/time.toml` (startup preference file).
+    pub fn startup_prefs_path() -> Result<PathBuf, ConfigError> {
+        StartupPrefs::path()
+    }
+
+    fn config_path_for(is_testnet: bool) -> Result<PathBuf, ConfigError> {
+        let base = Self::data_dir()?;
+        if is_testnet {
+            Ok(base.join("testnet").join("time.conf"))
+        } else {
+            Ok(base.join("time.conf"))
+        }
     }
 
     /// Get base data directory
@@ -198,14 +351,47 @@ impl Config {
         Ok(path)
     }
 
-    /// Parse a `time.conf` file (Bitcoin-style `key=value`, `#` comments).
+    /// Parse a current `time.conf` file (Bitcoin-style `key=value`, `#` comments).
     ///
+    /// Does not read the `testnet=` key — network is now determined by `time.toml`.
     /// Unknown keys are silently ignored so future versions stay compatible.
     pub fn parse_time_conf(contents: &str) -> Self {
         let mut config = Config::default();
+        Self::apply_conf_keys(contents, &mut config);
+        config
+    }
+
+    /// Parse a legacy `time.conf` that may contain `testnet=`.
+    /// Used only during migration.
+    fn parse_time_conf_legacy(contents: &str) -> Self {
+        let mut config = Config::default();
 
         for raw in contents.lines() {
-            // Strip inline comments
+            let line = raw.find('#').map_or(raw, |p| &raw[..p]).trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            let value = value.trim();
+            if key == "testnet" {
+                config.network = if value == "1" {
+                    "testnet".to_string()
+                } else {
+                    "mainnet".to_string()
+                };
+            }
+        }
+
+        Self::apply_conf_keys(contents, &mut config);
+        config
+    }
+
+    /// Apply non-network `time.conf` keys onto an existing `Config`.
+    fn apply_conf_keys(contents: &str, config: &mut Config) {
+        for raw in contents.lines() {
             let line = raw.find('#').map_or(raw, |p| &raw[..p]).trim();
             if line.is_empty() {
                 continue;
@@ -217,13 +403,6 @@ impl Config {
             let value = value.trim();
 
             match key {
-                "testnet" => {
-                    config.network = if value == "1" {
-                        "testnet".to_string()
-                    } else {
-                        "mainnet".to_string()
-                    };
-                }
                 "addnode" if !value.is_empty() => {
                     config.peers.push(value.to_string());
                 }
@@ -247,23 +426,17 @@ impl Config {
                 _ => {} // forward-compatible: ignore unknown keys
             }
         }
-
-        config
     }
 
-    /// Serialize config to `time.conf` format (Bitcoin-style key=value).
+    /// Serialize settings to `time.conf` format (Bitcoin-style key=value).
+    ///
+    /// Does not write a `testnet=` key — network is stored in `time.toml`.
     pub fn to_time_conf(&self) -> String {
         let mut out = String::new();
 
         out.push_str("# TIME Coin Wallet Configuration\n");
         out.push_str("# Lines starting with # are comments.\n");
         out.push_str("# See https://github.com/time-coin for documentation.\n\n");
-
-        out.push_str("# Network: 1=testnet, 0=mainnet\n");
-        out.push_str(&format!(
-            "testnet={}\n\n",
-            if self.is_testnet() { 1 } else { 0 }
-        ));
 
         out.push_str("# Masternode peers (IP, IP:port, or http://IP:port). Repeat for multiple.\n");
         if self.peers.is_empty() {
@@ -567,17 +740,20 @@ mod tests {
             ..Config::default()
         };
         let conf = config.to_time_conf();
-        let parsed = Config::parse_time_conf(&conf);
+        // Network is no longer in time.conf — set it after parsing (as load() does)
+        let mut parsed = Config::parse_time_conf(&conf);
+        parsed.network = "testnet".to_string();
         assert_eq!(parsed.network, "testnet");
         assert_eq!(parsed.peers, vec!["64.91.241.10:24101"]);
         assert_eq!(parsed.rpc_user.as_deref(), Some("user"));
         assert_eq!(parsed.rpc_password.as_deref(), Some("pass"));
+        // Confirm testnet= key is no longer written
+        assert!(!conf.contains("testnet="));
     }
 
     #[test]
     fn test_parse_time_conf_basics() {
         let conf = "\
-testnet=1
 addnode=1.2.3.4:24101
 addnode=5.6.7.8:24101
 rpcuser=alice
@@ -587,12 +763,27 @@ maxconnections=20
 editor=nano
 ";
         let c = Config::parse_time_conf(conf);
-        assert_eq!(c.network, "testnet");
+        // Network is not read from time.conf — defaults to mainnet
+        assert_eq!(c.network, "mainnet");
         assert_eq!(c.peers, vec!["1.2.3.4:24101", "5.6.7.8:24101"]);
         assert_eq!(c.rpc_user.as_deref(), Some("alice"));
         assert_eq!(c.rpc_password.as_deref(), Some("secret"));
         assert_eq!(c.max_connections, 20);
         assert_eq!(c.editor.as_deref(), Some("nano"));
+    }
+
+    #[test]
+    fn test_parse_time_conf_legacy_testnet_key() {
+        let conf = "\
+testnet=1
+addnode=1.2.3.4:24101
+rpcuser=alice
+rpcpassword=secret
+";
+        let c = Config::parse_time_conf_legacy(conf);
+        assert_eq!(c.network, "testnet");
+        assert_eq!(c.peers, vec!["1.2.3.4:24101"]);
+        assert_eq!(c.rpc_user.as_deref(), Some("alice"));
     }
 
     #[test]
@@ -604,7 +795,7 @@ editor=nano
     #[test]
     fn test_parse_time_conf_ignores_unknown_keys() {
         // Should not panic on unknown keys
-        let c = Config::parse_time_conf("unknownkey=value\ntestnet=0\n");
+        let c = Config::parse_time_conf("unknownkey=value\n");
         assert_eq!(c.network, "mainnet");
     }
 

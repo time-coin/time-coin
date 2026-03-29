@@ -74,10 +74,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                     ui.add_space(6.0);
                     if ui
                         .button("⟳ Refresh")
-                        .on_hover_text("Reload addresses from the wallet database. Use this if an address appears missing.")
+                        .on_hover_text("Re-derive all addresses from scratch, scanning the blockchain for funded addresses. Fills gaps and recovers missing addresses. Labels are preserved.")
                         .clicked()
                     {
-                        let _ = ui_tx.send(UiEvent::RefreshAddresses);
+                        let _ = ui_tx.send(UiEvent::RebuildAddresses);
                     }
                 });
             });

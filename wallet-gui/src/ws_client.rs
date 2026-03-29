@@ -400,8 +400,19 @@ impl WsClient {
                         }
                     }
                 }
-                "subscribed" => {
-                    log::info!("✅ Subscription confirmed: {:?}", msg.data);
+                "subscribed" | "subscribed_batch" => {
+                    let count = msg
+                        .data
+                        .as_ref()
+                        .and_then(|d| d.get("addresses"))
+                        .and_then(|a| a.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    if count > 0 {
+                        log::info!("✅ Batch subscription confirmed: {} addresses", count);
+                    } else {
+                        log::info!("✅ Subscription confirmed: {:?}", msg.data);
+                    }
                 }
                 "tx_rejected" => {
                     if let Some(data) = msg.data {
@@ -444,7 +455,11 @@ impl WsClient {
                                 log::info!(
                                     "📬 Payment request {} {}",
                                     notif.request_id,
-                                    if notif.accepted { "accepted" } else { "declined" },
+                                    if notif.accepted {
+                                        "accepted"
+                                    } else {
+                                        "declined"
+                                    },
                                 );
                                 let _ = event_tx.send(WsEvent::PaymentRequestResponse(notif));
                             }

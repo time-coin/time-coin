@@ -25,6 +25,10 @@ use wallet::NetworkType;
 
 type DiscoveryHandle = tokio::task::JoinHandle<Result<(String, Vec<PeerInfo>), ()>>;
 
+/// Maximum number of blocks a peer may lag behind the best known height before
+/// it is considered out of consensus and rejected as an active connection.
+const CONSENSUS_LAG: u64 = 3;
+
 /// Run the service loop until the cancellation token fires.
 ///
 /// This is the **only** `tokio::spawn`ed task in the application. It owns the
@@ -1742,6 +1746,53 @@ pub async fn run(
 
                     UiEvent::SwitchPeer { endpoint } => {
                         log::info!("📌 User manually switching to peer: {}", endpoint);
+
+                        // Consensus guard: compare the target peer's height to the best
+                        // known height across all discovered peers. Reject the switch if
+                        // the target lags by more than CONSENSUS_LAG blocks.
+                        let best_known = state
+                            .last_peers
+                            .iter()
+                            .filter_map(|p| p.block_height)
+                            .max()
+                            .unwrap_or(0);
+
+                        if best_known > 0 {
+                            let probe = MasternodeClient::new(endpoint.clone(), rpc_credentials.clone());
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(5),
+                                probe.get_block_height(),
+                            )
+                            .await
+                            {
+                                Ok(Ok(height)) if best_known.saturating_sub(height) > CONSENSUS_LAG => {
+                                    let lag = best_known - height;
+                                    log::warn!(
+                                        "⚠ Refusing switch to {}: height {} is {} blocks behind consensus ({})",
+                                        endpoint, height, lag, best_known
+                                    );
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(format!(
+                                        "Peer {} is out of consensus: {} blocks behind (at {}, network is at {}). Choose a different peer.",
+                                        endpoint, lag, height, best_known
+                                    )));
+                                    // Abort the switch — do not fall through.
+                                    continue;
+                                }
+                                Ok(Err(e)) => {
+                                    log::warn!("⚠ Cannot reach peer {} for consensus check: {}", endpoint, e);
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(format!(
+                                        "Cannot reach peer {}: {}. Choose a different peer.",
+                                        endpoint, e
+                                    )));
+                                    continue;
+                                }
+                                Ok(Ok(_)) | Err(_) => {
+                                    // height is within consensus, or the timeout fired (give
+                                    // the peer the benefit of the doubt and proceed).
+                                }
+                            }
+                        }
+
                         state.manual_peer = true;
                         state.client = Some(MasternodeClient::new(endpoint.clone(), rpc_credentials.clone()));
                         state.config.active_endpoint = Some(endpoint.clone());
@@ -2346,8 +2397,16 @@ pub async fn run(
                         if state.ws_connected_count == 0 {
                             // All connections gone — failover RPC client + restart WS on a different peer
                             let current_endpoint = state.config.active_endpoint.clone();
+                            let failover_best_height = state
+                                .last_peers
+                                .iter()
+                                .filter_map(|p| p.block_height)
+                                .max()
+                                .unwrap_or(0);
                             let next = state.last_peers.iter().find(|p| {
-                                p.is_healthy && Some(&p.endpoint) != current_endpoint.as_ref()
+                                p.is_healthy
+                                    && Some(&p.endpoint) != current_endpoint.as_ref()
+                                    && failover_best_height.saturating_sub(p.block_height.unwrap_or(0)) <= CONSENSUS_LAG
                             }).cloned();
                             if let Some(peer) = next {
                                 log::info!("🔀 Failing over to {}", peer.endpoint);
@@ -2600,6 +2659,27 @@ async fn discover_peers(
         }
     }
 
+    // Deduplicate by host:port — manual (http://) and API (https://) endpoints
+    // for the same IP both survive string-level dedup, so collapse them here,
+    // preferring the entry that succeeded with HTTPS.
+    {
+        let mut seen = std::collections::HashSet::new();
+        peer_infos.sort_by(|a, b| {
+            // Prefer https:// entries so they win the dedup
+            let a_https = a.endpoint.starts_with("https://") as u8;
+            let b_https = b.endpoint.starts_with("https://") as u8;
+            b_https.cmp(&a_https)
+        });
+        peer_infos.retain(|p| {
+            let normalized = p
+                .endpoint
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .to_string();
+            seen.insert(normalized)
+        });
+    }
+
     // Sort: fully-synced first, then WS-capable, then healthy by fastest ping, syncing/unhealthy last
     peer_infos.sort_by(|a, b| {
         b.is_healthy
@@ -2619,7 +2699,6 @@ async fn discover_peers(
     // Consensus filter: discard peers whose block height lags the best known
     // height by more than CONSENSUS_LAG blocks. A lagging node has a stale UTXO
     // set and would return wrong balances / reject valid transactions.
-    const CONSENSUS_LAG: u64 = 3;
     let best_height = peer_infos
         .iter()
         .filter_map(|p| p.block_height)
@@ -3645,13 +3724,18 @@ async fn build_masternode_update_tx(
 /// Return a default template for a config file based on its filename.
 pub fn config_file_template(path: &std::path::Path) -> &'static str {
     match path.file_name().and_then(|n| n.to_str()) {
+        Some("time.toml") => {
+            "\
+# TIME Coin Wallet — startup preference
+# Set to \"mainnet\" or \"testnet\"
+network = \"mainnet\"
+"
+        }
         Some("time.conf") => {
             "\
 # TIME Coin Wallet Configuration
 # Lines starting with # are comments.
-
-# Network: 1=testnet, 0=mainnet
-testnet=0
+# Network is set in time.toml, not here.
 
 # Masternode peers (IP, IP:port, or http://IP:port). Repeat for multiple.
 #addnode=64.91.241.10:24001

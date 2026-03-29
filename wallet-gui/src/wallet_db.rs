@@ -102,7 +102,10 @@ impl WalletDb {
                     let _ = self.save_contact(&contact);
                     return Ok(Some(contact));
                 }
-                log::warn!("Could not deserialize contact for '{}' — entry may be corrupted", address);
+                log::warn!(
+                    "Could not deserialize contact for '{}' — entry may be corrupted",
+                    address
+                );
                 Ok(None)
             }
         }
@@ -124,7 +127,10 @@ impl WalletDb {
             }
             // Fall back to bincode (legacy format written before JSON migration)
             if let Ok(contact) = bincode::deserialize::<AddressContact>(&value) {
-                log::info!("Migrating contact '{}' from bincode to JSON", contact.address);
+                log::info!(
+                    "Migrating contact '{}' from bincode to JSON",
+                    contact.address
+                );
                 to_migrate.push(contact.clone());
                 contacts.push(contact);
                 continue;
@@ -759,10 +765,7 @@ impl WalletDb {
     // ==================== Sent Payment Requests ====================
 
     /// Save or update a sent payment request.
-    pub fn save_sent_payment_request(
-        &self,
-        req: &SentPaymentRequest,
-    ) -> Result<(), WalletDbError> {
+    pub fn save_sent_payment_request(&self, req: &SentPaymentRequest) -> Result<(), WalletDbError> {
         let key = format!("sent_pr:{}", req.id);
         let value = serde_json::to_vec(req)?;
         self.db.insert(key.as_bytes(), value)?;
@@ -771,16 +774,17 @@ impl WalletDb {
     }
 
     /// Get all sent payment requests, newest first.
-    pub fn get_all_sent_payment_requests(
-        &self,
-    ) -> Result<Vec<SentPaymentRequest>, WalletDbError> {
+    pub fn get_all_sent_payment_requests(&self) -> Result<Vec<SentPaymentRequest>, WalletDbError> {
         let mut reqs = Vec::new();
         for item in self.db.scan_prefix(b"sent_pr:") {
             let (_key, value) = item?;
             match serde_json::from_slice::<SentPaymentRequest>(&value) {
                 Ok(req) => reqs.push(req),
                 Err(e) => {
-                    log::warn!("Failed to deserialize sent payment request, skipping: {}", e);
+                    log::warn!(
+                        "Failed to deserialize sent payment request, skipping: {}",
+                        e
+                    );
                 }
             }
         }
@@ -841,7 +845,10 @@ impl WalletDb {
             match serde_json::from_slice::<crate::events::PaymentRequest>(&value) {
                 Ok(req) => reqs.push(req),
                 Err(e) => {
-                    log::warn!("Failed to deserialize incoming payment request, skipping: {}", e);
+                    log::warn!(
+                        "Failed to deserialize incoming payment request, skipping: {}",
+                        e
+                    );
                 }
             }
         }
@@ -892,7 +899,10 @@ impl WalletDb {
             let (_key, value) = item?;
             match serde_json::from_slice::<IncomingPaymentHistory>(&value) {
                 Ok(e) => entries.push(e),
-                Err(e) => log::warn!("Failed to deserialize incoming payment history entry, skipping: {}", e),
+                Err(e) => log::warn!(
+                    "Failed to deserialize incoming payment history entry, skipping: {}",
+                    e
+                ),
             }
         }
         entries.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));

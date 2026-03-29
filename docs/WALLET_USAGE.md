@@ -32,19 +32,41 @@ After selecting a network, you can:
 
 ## Configuration
 
-The wallet configuration is stored in `~/.time-wallet/config.toml`:
+The wallet uses two configuration files in `~/.time-wallet/`:
 
+| File | Purpose |
+|------|---------|
+| `time.toml` | Startup preference — which network to launch on |
+| `time.conf` | Mainnet settings (peers, RPC credentials, etc.) |
+| `testnet/time.conf` | Testnet settings |
+
+**`time.toml`** — edit to change the default startup network:
 ```toml
-network = "testnet"
-
-[peers]
-endpoints = ["69.167.168.176:24101", "50.28.104.50:24101"]
+# "mainnet" or "testnet"
+network = "mainnet"
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `network` | `"testnet"` | `"testnet"` or `"mainnet"` |
-| `peers.endpoints` | `[]` | Masternode RPC endpoints (optional — peer discovery fills these automatically) |
+**`time.conf`** (and `testnet/time.conf`) — Bitcoin-style `key=value` format:
+```
+# Masternode peers (IP, IP:port, or http://IP:port). Repeat for multiple.
+addnode=64.91.241.10:24001
+
+# RPC credentials (from the masternode's time.conf)
+rpcuser=timecoinrpc
+rpcpassword=
+
+# Maximum peer connections (0 = unlimited)
+maxconnections=0
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `addnode` | — | Masternode peer address. Repeatable. |
+| `rpcuser` | — | RPC username for masternode auth |
+| `rpcpassword` | — | RPC password for masternode auth |
+| `maxconnections` | `0` (unlimited) | Cap the peer list size |
+| `wsendpoint` | — | Override the WebSocket URL |
+| `editor` | system default | Editor used to open config files |
 
 ### Network Ports
 
@@ -286,7 +308,8 @@ The **🔧 Tools** tab offers:
 - **Resync Wallet** — Re-fetches all transactions and UTXOs from masternodes
 - **Repair Database** — Backs up a corrupted database and creates a fresh one; re-fetches all data
 - **Consolidate UTXOs** — Merges many small UTXOs into fewer large ones; processes smallest UTXOs first. Runs automatically in the background; a banner prompts when 50+ UTXOs are detected
-- **Open time.conf** — Edit wallet configuration (network, peers, RPC credentials) in your text editor
+- **Open time.toml** — Edit the startup network preference (`mainnet` or `testnet`)
+- **Open time.conf (mainnet/testnet)** — Edit peers, RPC credentials, and other settings for the active network
 
 ---
 
@@ -326,7 +349,7 @@ Private keys and mnemonic phrases are zeroed from memory using the `zeroize` cra
 
 1. Check your internet connection
 2. The wallet discovers peers automatically — wait 10–15 seconds for discovery to complete
-3. Verify `peers.endpoints` in `config.toml` contains reachable addresses if automatic discovery fails
+3. Verify `addnode=` entries in `time.conf` (or `testnet/time.conf`) contain reachable addresses if automatic discovery fails
 4. Ensure firewall allows outbound TCP on port 24101 (testnet) or 24001 (mainnet)
 5. Check the **Connections** tab for peer health status
 
