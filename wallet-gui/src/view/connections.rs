@@ -54,6 +54,10 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
     egui::ScrollArea::both()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
+    // Sort: syncing nodes to the bottom; otherwise preserve service ordering.
+    let mut sorted_peers: Vec<&crate::state::PeerInfo> = state.peers.iter().collect();
+    sorted_peers.sort_by_key(|p| p.is_syncing);
+
     egui::Grid::new("peers_table")
         .num_columns(10)
         .spacing([12.0, 6.0])
@@ -85,7 +89,8 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                 .max()
                 .unwrap_or(0);
 
-            for (i, peer) in state.peers.iter().enumerate() {
+            for (i, peer) in sorted_peers.iter().enumerate() {
+                let peer = *peer;
                 // Row number
                 ui.label(egui::RichText::new(format!("{}", i + 1)).weak().monospace());
 
