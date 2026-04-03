@@ -51,6 +51,9 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
     ui.label(format!("{} healthy peers", state.peers.len()));
     ui.add_space(10.0);
 
+    egui::ScrollArea::both()
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
     egui::Grid::new("peers_table")
         .num_columns(10)
         .spacing([12.0, 6.0])
@@ -232,4 +235,5 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                 ui.end_row();
             }
         });
+    }); // end ScrollArea
 }
