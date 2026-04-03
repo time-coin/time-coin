@@ -20,6 +20,9 @@ pub fn render(
     state: &mut AppState,
     ui_tx: &tokio::sync::mpsc::UnboundedSender<UiEvent>,
 ) {
+    egui::ScrollArea::vertical()
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
     ui.heading("Masternodes");
     ui.add_space(8.0);
 
@@ -453,4 +456,5 @@ pub fn render(
                 .sort_by(|a, b| a.alias.cmp(&b.alias));
         }
     }
+    }); // end ScrollArea
 }
