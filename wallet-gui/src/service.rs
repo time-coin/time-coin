@@ -1166,14 +1166,11 @@ pub async fn run(
                                 })
                                 .collect();
 
-                            // Clear all existing owned address contacts.
-                            if let Some(ref db) = state.wallet_db {
-                                if let Ok(owned) = db.get_owned_addresses() {
-                                    for contact in &owned {
-                                        let _ = db.delete_contact(&contact.address);
-                                    }
-                                }
-                            }
+                            // NOTE: Do NOT delete owned addresses here.
+                            // Deleting before the scan completes causes addresses to
+                            // disappear if the node is slow or the scan is interrupted.
+                            // Instead, we overwrite found addresses below and prune
+                            // stale ones after the scan finishes.
 
                             // Scan HD indices from 0 upward.  Stop after GAP_LIMIT consecutive
                             // indices with no on-chain activity (standard BIP44 gap limit).
@@ -1276,6 +1273,25 @@ pub async fn run(
                                     AddressInfo { address: addr.clone(), label }
                                 })
                                 .collect();
+
+                            // Prune derived addresses that are no longer in the found set.
+                            // Done AFTER the scan so the list is never temporarily empty.
+                            if let Some(ref db) = state.wallet_db {
+                                if let Ok(owned) = db.get_owned_addresses() {
+                                    let found_set: std::collections::HashSet<String> =
+                                        raw_addrs.iter().cloned().collect();
+                                    for contact in owned {
+                                        // Only remove contacts that were HD-derived (have a
+                                        // derivation_index) and are no longer in the found set.
+                                        // Manually-added owned addresses (no index) are kept.
+                                        if contact.derivation_index.is_some()
+                                            && !found_set.contains(&contact.address)
+                                        {
+                                            let _ = db.delete_contact(&contact.address);
+                                        }
+                                    }
+                                }
+                            }
 
                             state.addresses = raw_addrs;
                             log::info!(
