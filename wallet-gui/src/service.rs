@@ -2046,6 +2046,12 @@ pub async fn run(
 
                     UiEvent::DeleteMasternodeEntry { alias } => {
                         if let Some(ref db) = state.wallet_db {
+                            // Unlock the collateral UTXO before removing the entry.
+                            if let Ok(entries) = db.get_masternode_entries() {
+                                if let Some(entry) = entries.iter().find(|e| e.alias == alias) {
+                                    let _ = db.unlock_collateral(&entry.collateral_txid, entry.collateral_vout);
+                                }
+                            }
                             let _ = db.delete_masternode_entry(&alias);
                             if let Ok(entries) = db.get_masternode_entries() {
                                 let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
@@ -3387,53 +3393,8 @@ impl ServiceState {
                     }
                 }
 
-                // Auto-create entries for non-spendable (locked) UTXOs at or above
-                // the Bronze threshold that don't already have an entry.
-                let bronze_min = crate::wallet_db::BRONZE_COLLATERAL_SATS;
-                let existing_keys: std::collections::HashSet<String> = entries
-                    .iter()
-                    .map(|e| format!("{}:{}", e.collateral_txid, e.collateral_vout))
-                    .collect();
-                let mut existing_names: std::collections::HashSet<String> =
-                    entries.iter().map(|e| e.alias.clone()).collect();
-                let mut added = false;
-                for utxo in utxos
-                    .iter()
-                    .filter(|u| !u.spendable && u.amount >= bronze_min)
-                {
-                    let key = format!("{}:{}", utxo.txid, utxo.vout);
-                    if !existing_keys.contains(&key) {
-                        // Find next available alias
-                        let mut n = 1u32;
-                        let alias = loop {
-                            let candidate = format!("mn{}", n);
-                            if !existing_names.contains(&candidate) {
-                                break candidate;
-                            }
-                            n += 1;
-                        };
-                        existing_names.insert(alias.clone());
-                        let new_entry = crate::wallet_db::MasternodeEntry {
-                            alias: alias.clone(),
-                            collateral_txid: utxo.txid.clone(),
-                            collateral_vout: utxo.vout,
-                            payout_address: None,
-                            collateral_amount: Some(utxo.amount),
-                        };
-                        let _ = db.save_masternode_entry(&new_entry);
-                        entries.push(new_entry);
-                        added = true;
-                        log::info!(
-                            "🔒 Auto-created masternode entry '{}' for locked UTXO {}:{} ({} sats)",
-                            alias,
-                            utxo.txid,
-                            utxo.vout,
-                            utxo.amount
-                        );
-                    }
-                }
-                // Send updated entries whenever amounts were backfilled or new entries added.
-                if backfilled || added {
+                // Send updated entries whenever amounts were backfilled.
+                if backfilled {
                     entries.sort_by(|a, b| a.alias.cmp(&b.alias));
                     let _ = self
                         .svc_tx

@@ -452,21 +452,15 @@ impl AppState {
     }
 
     /// Balance locked as masternode collateral (not spendable).
-    /// Uses live UTXO amounts where available, falls back to cached collateral_amount.
+    /// Only counts entries whose collateral UTXO is present in the live UTXO set.
     pub fn locked_balance(&self) -> u64 {
         self.masternode_entries
             .iter()
-            .map(|entry| {
-                // Prefer live UTXO amount
-                if let Some(utxo) = self
-                    .utxos
+            .filter_map(|entry| {
+                self.utxos
                     .iter()
                     .find(|u| u.txid == entry.collateral_txid && u.vout == entry.collateral_vout)
-                {
-                    return utxo.amount;
-                }
-                // Fall back to cached amount (set at save time or on last UTXO sync)
-                entry.collateral_amount.unwrap_or(0)
+                    .map(|u| u.amount)
             })
             .sum()
     }
