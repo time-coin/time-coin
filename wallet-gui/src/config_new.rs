@@ -194,13 +194,20 @@ impl Config {
         if !prefs_path.exists() && old_root_conf.exists() {
             let contents = fs::read_to_string(&old_root_conf)?;
             // Only migrate if it still contains the old testnet= key
-            if contents.lines().any(|l| l.trim_start().starts_with("testnet=")) {
-                log::info!("🔄 Migrating time.conf (testnet= key) → time.toml + network-specific confs");
+            if contents
+                .lines()
+                .any(|l| l.trim_start().starts_with("testnet="))
+            {
+                log::info!(
+                    "🔄 Migrating time.conf (testnet= key) → time.toml + network-specific confs"
+                );
                 let old_config = Self::parse_time_conf_legacy(&contents);
                 let is_testnet = old_config.network == "testnet";
 
                 // Write time.toml
-                let prefs = StartupPrefs { network: old_config.network.clone() };
+                let prefs = StartupPrefs {
+                    network: old_config.network.clone(),
+                };
                 prefs.save()?;
 
                 // Write network-specific time.conf (without testnet= key)
@@ -295,7 +302,9 @@ impl Config {
     /// - `~/.time-wallet/time.conf` or `~/.time-wallet/testnet/time.conf` — settings
     pub fn save(&self) -> Result<(), ConfigError> {
         // Write startup preference
-        let prefs = StartupPrefs { network: self.network.clone() };
+        let prefs = StartupPrefs {
+            network: self.network.clone(),
+        };
         prefs.save()?;
 
         // Write network-specific settings

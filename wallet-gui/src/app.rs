@@ -272,7 +272,7 @@ impl eframe::App for App {
                     };
                     ui.label(
                         egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                            .small()
+                            .size(13.0)
                             .weak(),
                     );
 
@@ -316,7 +316,7 @@ impl eframe::App for App {
                         .show(ui, |ui| {
                             ui.label(
                                 egui::RichText::new(network_label)
-                                    .small()
+                                    .size(13.0)
                                     .strong()
                                     .color(text_color),
                             );

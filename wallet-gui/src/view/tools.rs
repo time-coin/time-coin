@@ -170,8 +170,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
                     "📝 Open time.conf (mainnet)"
                 };
                 ui.horizontal(|ui| {
-                    let btn = ui
-                        .add(egui::Button::new(label).min_size(egui::vec2(160.0, 28.0)));
+                    let btn = ui.add(egui::Button::new(label).min_size(egui::vec2(160.0, 28.0)));
                     if btn.clicked() {
                         open_conf_file(net_conf_path.clone());
                     }

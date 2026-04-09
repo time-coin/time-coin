@@ -79,6 +79,9 @@ printpdf = "0.7"
 # Cross-platform file opener
 open = "5"
 
+# Single-instance enforcement
+fs4 = "0.13"
+
 # Clipboard access (read) for context menu paste
 arboard = { version = "3", default-features = false }
 
@@ -86,6 +89,6 @@ arboard = { version = "3", default-features = false }
 rfd = "0.15"
 
 # Local wallet dependency from parent project
-wallet = { path = "../wallet", version = "0.6.2" }
+wallet = { path = "../wallet", version = "0.6.4" }
 egui-phosphor = "0.9"
 

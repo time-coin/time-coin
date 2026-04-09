@@ -43,7 +43,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             if healthy > 0 {
                 ui.label(
                     egui::RichText::new(format!("{healthy} peers •"))
-                        .small()
+                        .size(13.0)
                         .weak(),
                 );
             }
@@ -51,7 +51,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 if health.block_height > 0 {
                     ui.label(
                         egui::RichText::new(format!("Block {}", health.block_height))
-                            .small()
+                            .size(13.0)
                             .weak(),
                     );
                 }

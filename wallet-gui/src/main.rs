@@ -15,6 +15,7 @@ mod memo;
 mod peer_discovery;
 mod qr_scanner;
 mod service;
+mod single_instance;
 #[allow(dead_code)]
 mod state;
 mod theme;
@@ -38,6 +39,23 @@ fn main() -> Result<(), eframe::Error> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let config = config_new::Config::load().unwrap_or_default();
+
+    // Acquire a per-network advisory lock before opening any databases.
+    // If another instance is already running with the same network, show a
+    // native error dialog and exit cleanly instead of corrupting the database.
+    let wallet_dir = config.wallet_dir();
+    let _lock = match single_instance::acquire(&wallet_dir) {
+        Ok(lock) => lock,
+        Err(msg) => {
+            rfd::MessageDialog::new()
+                .set_title("TIME Coin Wallet — Already Running")
+                .set_description(&msg)
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            return Ok(());
+        }
+    };
+
     let icon = load_icon();
 
     let options = eframe::NativeOptions {

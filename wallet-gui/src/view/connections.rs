@@ -54,191 +54,195 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
     egui::ScrollArea::both()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
-    // Sort: syncing nodes to the bottom; otherwise preserve service ordering.
-    let mut sorted_peers: Vec<&crate::state::PeerInfo> = state.peers.iter().collect();
-    sorted_peers.sort_by_key(|p| p.is_syncing);
+            // Sort: syncing nodes to the bottom; otherwise preserve service ordering.
+            let mut sorted_peers: Vec<&crate::state::PeerInfo> = state.peers.iter().collect();
+            sorted_peers.sort_by_key(|p| p.is_syncing);
 
-    egui::Grid::new("peers_table")
-        .num_columns(10)
-        .spacing([12.0, 6.0])
-        .striped(true)
-        .show(ui, |ui| {
-            // Header
-            ui.label(egui::RichText::new("#").strong());
-            ui.label(egui::RichText::new("").strong());
-            ui.label(egui::RichText::new("IP Address").strong());
-            ui.label(egui::RichText::new("Tier").strong());
-            ui.label(egui::RichText::new("Status").strong());
-            ui.label(egui::RichText::new("WebSocket").strong());
-            ui.label(egui::RichText::new("Ping").strong());
-            ui.label(egui::RichText::new("Block").strong());
-            ui.label(egui::RichText::new("").strong());
-            ui.with_layout(
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| {
-                    ui.label(egui::RichText::new("Consensus").strong());
-                },
-            );
-            ui.end_row();
-
-            // Determine best (highest) block height for consensus check
-            let best_height = state
-                .peers
-                .iter()
-                .filter_map(|p| p.block_height)
-                .max()
-                .unwrap_or(0);
-
-            for (i, peer) in sorted_peers.iter().enumerate() {
-                let peer = *peer;
-                // Row number
-                ui.label(egui::RichText::new(format!("{}", i + 1)).weak().monospace());
-
-                // Health dot
-                let dot_color = if !peer.is_healthy {
-                    egui::Color32::RED
-                } else if let Some(ms) = peer.ping_ms {
-                    if ms < 100 {
-                        egui::Color32::GREEN
-                    } else if ms < 500 {
-                        egui::Color32::YELLOW
-                    } else {
-                        egui::Color32::RED
-                    }
-                } else {
-                    egui::Color32::GRAY
-                };
-                health_dot(ui, dot_color);
-
-                // IP
-                let ip = peer_ip(&peer.endpoint);
-                ui.label(egui::RichText::new(ip).monospace());
-
-                // Tier
-                match peer.tier.as_deref() {
-                    Some("Gold") => {
-                        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "Gold");
-                    }
-                    Some("Silver") => {
-                        ui.colored_label(egui::Color32::from_rgb(200, 210, 220), "Silver");
-                    }
-                    Some("Bronze") => {
-                        ui.colored_label(egui::Color32::from_rgb(205, 127, 50), "Bronze");
-                    }
-                    Some("Free") => {
-                        ui.colored_label(egui::Color32::GRAY, "Free");
-                    }
-                    Some(other) => {
-                        ui.label(other);
-                    }
-                    None => {
-                        ui.colored_label(egui::Color32::GRAY, "--");
-                    }
-                }
-
-                // Status
-                if peer.is_active && peer.is_syncing {
-                    ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "Syncing")
-                        .on_hover_text(
-                            "This masternode is still downloading the blockchain. \
-                             Balance and transaction data may be incomplete.",
-                        );
-                } else if peer.is_syncing {
-                    ui.colored_label(egui::Color32::from_rgb(200, 140, 0), "Syncing")
-                        .on_hover_text(
-                            "This masternode is still downloading the blockchain. \
-                             Consider selecting a fully-synced node.",
-                        );
-                } else if peer.is_active {
-                    ui.colored_label(egui::Color32::GREEN, "Active");
-                } else {
-                    ui.colored_label(egui::Color32::GREEN, "Healthy");
-                }
-
-                // WS — show whether we're actively connected, just available, or unsupported
-                let host = peer_ip(&peer.endpoint);
-                let ws_live = state.ws_active_urls.iter().any(|u| ws_url_host(u) == host);
-                if ws_live {
-                    ui.colored_label(egui::Color32::GREEN, "Connected")
-                        .on_hover_text("Active WebSocket connection to this peer");
-                } else if peer.ws_available {
-                    ui.colored_label(egui::Color32::GRAY, "Available")
-                        .on_hover_text(
-                            "Peer supports WebSocket but wallet is not currently connected",
-                        );
-                } else if peer.is_healthy {
-                    ui.colored_label(egui::Color32::GRAY, "No");
-                } else {
-                    ui.colored_label(egui::Color32::GRAY, "--");
-                }
-
-                // Ping
-                if let Some(ms) = peer.ping_ms {
-                    ui.label(format!("{}ms", ms));
-                } else {
-                    ui.colored_label(egui::Color32::GRAY, "--");
-                }
-
-                // Block height
-                if let Some(height) = peer.block_height {
-                    ui.label(format!("#{}", height));
-                } else {
-                    ui.colored_label(egui::Color32::GRAY, "--");
-                }
-
-                // Select / deselect link
-                if peer.is_active {
-                    let link = ui.add(
-                        egui::Label::new(
-                            egui::RichText::new("selected")
-                                .color(egui::Color32::GREEN)
-                                .strong(),
-                        )
-                        .sense(egui::Sense::click()),
+            egui::Grid::new("peers_table")
+                .num_columns(10)
+                .spacing([12.0, 6.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    // Header
+                    ui.label(egui::RichText::new("#").strong());
+                    ui.label(egui::RichText::new("").strong());
+                    ui.label(egui::RichText::new("IP Address").strong());
+                    ui.label(egui::RichText::new("Tier").strong());
+                    ui.label(egui::RichText::new("Status").strong());
+                    ui.label(egui::RichText::new("WebSocket").strong());
+                    ui.label(egui::RichText::new("Ping").strong());
+                    ui.label(egui::RichText::new("Block").strong());
+                    ui.label(egui::RichText::new("").strong());
+                    ui.with_layout(
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        |ui| {
+                            ui.label(egui::RichText::new("Consensus").strong());
+                        },
                     );
-                    if link.clicked() {
-                        let _ = ui_tx.send(UiEvent::ClearPreferredPeer);
-                    }
-                    link.on_hover_text("Click to deselect and return to automatic peer selection");
-                } else if peer.is_healthy {
-                    let link = ui.link("select");
-                    if link.clicked() {
-                        let _ = ui_tx.send(UiEvent::SwitchPeer {
-                            endpoint: peer.endpoint.clone(),
-                        });
-                    }
-                } else {
-                    ui.label("");
-                }
+                    ui.end_row();
 
-                // Consensus
-                ui.with_layout(
-                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                    |ui| {
-                        if best_height == 0 {
-                            ui.colored_label(egui::Color32::GRAY, "--");
-                        } else {
-                            let height = peer.block_height.unwrap_or(0);
-                            let lag = best_height.saturating_sub(height);
-                            if lag <= 3 {
-                                ui.colored_label(egui::Color32::GREEN, "✔")
-                                    .on_hover_text(format!(
-                                        "Within {} block(s) of best height {}",
-                                        lag, best_height
-                                    ));
+                    // Determine best (highest) block height for consensus check
+                    let best_height = state
+                        .peers
+                        .iter()
+                        .filter_map(|p| p.block_height)
+                        .max()
+                        .unwrap_or(0);
+
+                    for (i, peer) in sorted_peers.iter().enumerate() {
+                        let peer = *peer;
+                        // Row number
+                        ui.label(egui::RichText::new(format!("{}", i + 1)).weak().monospace());
+
+                        // Health dot
+                        let dot_color = if !peer.is_healthy {
+                            egui::Color32::RED
+                        } else if let Some(ms) = peer.ping_ms {
+                            if ms < 100 {
+                                egui::Color32::GREEN
+                            } else if ms < 500 {
+                                egui::Color32::YELLOW
                             } else {
-                                ui.colored_label(egui::Color32::RED, "X")
-                                    .on_hover_text(format!(
-                                        "{} blocks behind consensus height {}",
-                                        lag, best_height
-                                    ));
+                                egui::Color32::RED
+                            }
+                        } else {
+                            egui::Color32::GRAY
+                        };
+                        health_dot(ui, dot_color);
+
+                        // IP
+                        let ip = peer_ip(&peer.endpoint);
+                        ui.label(egui::RichText::new(ip).monospace());
+
+                        // Tier
+                        match peer.tier.as_deref() {
+                            Some("Gold") => {
+                                ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "Gold");
+                            }
+                            Some("Silver") => {
+                                ui.colored_label(egui::Color32::from_rgb(200, 210, 220), "Silver");
+                            }
+                            Some("Bronze") => {
+                                ui.colored_label(egui::Color32::from_rgb(205, 127, 50), "Bronze");
+                            }
+                            Some("Free") => {
+                                ui.colored_label(egui::Color32::GRAY, "Free");
+                            }
+                            Some(other) => {
+                                ui.label(other);
+                            }
+                            None => {
+                                ui.colored_label(egui::Color32::GRAY, "--");
                             }
                         }
-                    },
-                );
 
-                ui.end_row();
-            }
-        });
-    }); // end ScrollArea
+                        // Status
+                        if peer.is_active && peer.is_syncing {
+                            ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "Syncing")
+                                .on_hover_text(
+                                    "This masternode is still downloading the blockchain. \
+                             Balance and transaction data may be incomplete.",
+                                );
+                        } else if peer.is_syncing {
+                            ui.colored_label(egui::Color32::from_rgb(200, 140, 0), "Syncing")
+                                .on_hover_text(
+                                    "This masternode is still downloading the blockchain. \
+                             Consider selecting a fully-synced node.",
+                                );
+                        } else if peer.is_active {
+                            ui.colored_label(egui::Color32::GREEN, "Active");
+                        } else {
+                            ui.colored_label(egui::Color32::GREEN, "Healthy");
+                        }
+
+                        // WS — show whether we're actively connected, just available, or unsupported
+                        let host = peer_ip(&peer.endpoint);
+                        let ws_live = state.ws_active_urls.iter().any(|u| ws_url_host(u) == host);
+                        if ws_live {
+                            ui.colored_label(egui::Color32::GREEN, "Connected")
+                                .on_hover_text("Active WebSocket connection to this peer");
+                        } else if peer.ws_available {
+                            ui.colored_label(egui::Color32::GRAY, "Available")
+                                .on_hover_text(
+                                    "Peer supports WebSocket but wallet is not currently connected",
+                                );
+                        } else if peer.is_healthy {
+                            ui.colored_label(egui::Color32::GRAY, "No");
+                        } else {
+                            ui.colored_label(egui::Color32::GRAY, "--");
+                        }
+
+                        // Ping
+                        if let Some(ms) = peer.ping_ms {
+                            ui.label(format!("{}ms", ms));
+                        } else {
+                            ui.colored_label(egui::Color32::GRAY, "--");
+                        }
+
+                        // Block height
+                        if let Some(height) = peer.block_height {
+                            ui.label(format!("#{}", height));
+                        } else {
+                            ui.colored_label(egui::Color32::GRAY, "--");
+                        }
+
+                        // Select / deselect link
+                        if peer.is_active {
+                            let link = ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new("selected")
+                                        .color(egui::Color32::GREEN)
+                                        .strong(),
+                                )
+                                .sense(egui::Sense::click()),
+                            );
+                            if link.clicked() {
+                                let _ = ui_tx.send(UiEvent::ClearPreferredPeer);
+                            }
+                            link.on_hover_text(
+                                "Click to deselect and return to automatic peer selection",
+                            );
+                        } else if peer.is_healthy {
+                            let link = ui.link("select");
+                            if link.clicked() {
+                                let _ = ui_tx.send(UiEvent::SwitchPeer {
+                                    endpoint: peer.endpoint.clone(),
+                                });
+                            }
+                        } else {
+                            ui.label("");
+                        }
+
+                        // Consensus
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                if best_height == 0 {
+                                    ui.colored_label(egui::Color32::GRAY, "--");
+                                } else {
+                                    let height = peer.block_height.unwrap_or(0);
+                                    let lag = best_height.saturating_sub(height);
+                                    if lag <= 3 {
+                                        ui.colored_label(egui::Color32::GREEN, "✔").on_hover_text(
+                                            format!(
+                                                "Within {} block(s) of best height {}",
+                                                lag, best_height
+                                            ),
+                                        );
+                                    } else {
+                                        ui.colored_label(egui::Color32::RED, "X").on_hover_text(
+                                            format!(
+                                                "{} blocks behind consensus height {}",
+                                                lag, best_height
+                                            ),
+                                        );
+                                    }
+                                }
+                            },
+                        );
+
+                        ui.end_row();
+                    }
+                });
+        }); // end ScrollArea
 }

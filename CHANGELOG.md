@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-04-09
+
+### Added
+- **Single-instance lock** — A second wallet instance targeting the same network now shows a native error dialog ("Already Running") and exits cleanly instead of corrupting the sled database. Uses an OS advisory file lock (auto-released on crash) per network directory
+
+### Changed
+- **Overview status bar** — Block height, peer count, Mainnet/Testnet badge, and version label are now rendered at 13 px instead of the previous small (~10 px) size for improved readability
+
 ### Added
 - **Payment Requests screen** — Send payment requests to other wallets via the masternode P2P network. Incoming requests show amount, sender, and expiry timer; approve to pre-fill the Send form or decline to reject
 - **Incoming payment request persistence** — Received payment requests are saved to the local sled database and restored on startup so they survive restarts
