@@ -36,8 +36,12 @@ impl Drop for InstanceLock {
 ///   human-readable and suitable for display in an error dialog.
 pub fn acquire(wallet_dir: &PathBuf) -> Result<InstanceLock, String> {
     // Ensure the directory exists before we try to create a file in it.
-    fs::create_dir_all(wallet_dir)
-        .map_err(|e| format!("Cannot create wallet directory '{}': {e}", wallet_dir.display()))?;
+    fs::create_dir_all(wallet_dir).map_err(|e| {
+        format!(
+            "Cannot create wallet directory '{}': {e}",
+            wallet_dir.display()
+        )
+    })?;
 
     let lock_path = wallet_dir.join(".lock");
 
