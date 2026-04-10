@@ -568,6 +568,8 @@ impl WalletDb {
                     collateral_vout: legacy.collateral_vout,
                     payout_address: legacy.payout_address,
                     collateral_amount: legacy.collateral_amount,
+                    reg_txid: None,
+                    registered_ip: None,
                 };
                 log::info!(
                     "Migrating masternode entry '{}' from bincode to JSON",
@@ -657,6 +659,12 @@ pub struct MasternodeEntry {
     /// UTXO is not yet in the wallet's fetched UTXO set.
     #[serde(default)]
     pub collateral_amount: Option<u64>,
+    /// Txid of the on-chain MasternodeReg transaction, set after successful registration.
+    #[serde(default)]
+    pub reg_txid: Option<String>,
+    /// IP address used during on-chain registration (needed to build CollateralUnlock).
+    #[serde(default)]
+    pub registered_ip: Option<String>,
 }
 
 impl MasternodeEntry {
@@ -682,6 +690,8 @@ impl MasternodeEntry {
             collateral_vout: parts[vout_idx].parse().ok()?,
             payout_address: None,
             collateral_amount: None,
+            reg_txid: None,
+            registered_ip: None,
         })
     }
 

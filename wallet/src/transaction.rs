@@ -93,6 +93,13 @@ pub enum SpecialTransactionData {
         owner_pubkey: String,
         signature: String,
     },
+    /// Release a masternode's collateral lock (deregistration).
+    CollateralUnlock {
+        collateral_outpoint: String,
+        masternode_address: String,
+        owner_pubkey: String,
+        signature: String,
+    },
 }
 
 /// Transaction (matches masternode Transaction)

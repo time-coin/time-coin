@@ -2061,10 +2061,20 @@ pub async fn run(
 
                     UiEvent::UpdateMasternodeEntry { old_alias, new_entry } => {
                         if let Some(ref db) = state.wallet_db {
+                            // Preserve registration state when editing
+                            let (old_reg_txid, old_registered_ip) = db
+                                .get_masternode_entries()
+                                .ok()
+                                .and_then(|es| es.into_iter().find(|e| e.alias == old_alias))
+                                .map(|e| (e.reg_txid, e.registered_ip))
+                                .unwrap_or((None, None));
+                            let mut entry = new_entry.clone();
+                            entry.reg_txid = old_reg_txid;
+                            entry.registered_ip = old_registered_ip;
                             let _ = db.delete_masternode_entry(&old_alias);
-                            match db.save_masternode_entry(&new_entry) {
+                            match db.save_masternode_entry(&entry) {
                                 Ok(()) => {
-                                    log::info!("Updated masternode '{}' -> '{}'", old_alias, new_entry.alias);
+                                    log::info!("Updated masternode '{}' -> '{}'", old_alias, entry.alias);
                                     if let Ok(entries) = db.get_masternode_entries() {
                                         let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(entries));
                                     }
@@ -2134,13 +2144,24 @@ pub async fn run(
                                             } else {
                                                 broadcast_txid
                                             };
-                                            // Lock the collateral UTXO
+                                            // Lock the collateral UTXO and persist reg_txid/registered_ip
                                             if let Some(ref db) = state.wallet_db {
                                                 let _ = db.lock_collateral(
                                                     &collateral_txid,
                                                     collateral_vout,
                                                     &alias,
                                                 );
+                                                // Update the entry with registration info
+                                                if let Ok(mut entries) = db.get_masternode_entries() {
+                                                    if let Some(entry) = entries.iter_mut().find(|e| e.alias == alias) {
+                                                        entry.reg_txid = Some(final_txid.clone());
+                                                        entry.registered_ip = Some(ip.clone());
+                                                        let _ = db.save_masternode_entry(entry);
+                                                    }
+                                                    if let Ok(updated) = db.get_masternode_entries() {
+                                                        let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(updated));
+                                                    }
+                                                }
                                             }
                                             let _ = state.svc_tx.send(
                                                 ServiceEvent::MasternodeRegistered {
@@ -2159,6 +2180,60 @@ pub async fn run(
                                 Err(e) => {
                                     let _ = state.svc_tx.send(ServiceEvent::Error(
                                         format!("Failed to build MN registration tx: {}", e),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    UiEvent::DeregisterMasternode {
+                        alias,
+                        collateral_txid,
+                        collateral_vout,
+                        masternode_ip,
+                    } => {
+                        if let (Some(ref client), Some(ref mut wm)) =
+                            (&state.client, &mut state.wallet)
+                        {
+                            match build_collateral_unlock_tx(
+                                wm,
+                                &state.addresses,
+                                &collateral_txid,
+                                collateral_vout,
+                                &masternode_ip,
+                            )
+                            .await
+                            {
+                                Ok(tx_hex) => {
+                                    match client.broadcast_transaction(&tx_hex).await {
+                                        Ok(_) => {
+                                            // Clear reg_txid and registered_ip from DB entry
+                                            if let Some(ref db) = state.wallet_db {
+                                                if let Ok(mut entries) = db.get_masternode_entries() {
+                                                    if let Some(entry) = entries.iter_mut().find(|e| e.alias == alias) {
+                                                        entry.reg_txid = None;
+                                                        entry.registered_ip = None;
+                                                        let _ = db.save_masternode_entry(entry);
+                                                    }
+                                                    if let Ok(updated) = db.get_masternode_entries() {
+                                                        let _ = state.svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(updated));
+                                                    }
+                                                }
+                                            }
+                                            let _ = state.svc_tx.send(
+                                                ServiceEvent::MasternodeDeregistered { alias },
+                                            );
+                                        }
+                                        Err(e) => {
+                                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                                format!("Failed to broadcast deregistration: {}", e),
+                                            ));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(
+                                        format!("Failed to build CollateralUnlock tx: {}", e),
                                     ));
                                 }
                             }
@@ -3609,6 +3684,62 @@ async fn build_masternode_reg_tx(
     );
 
     Ok((tx_hex, txid))
+}
+
+/// Build a CollateralUnlock special transaction to deregister a masternode.
+/// No fee is required — the transaction has no inputs or outputs, only the signed payload.
+async fn build_collateral_unlock_tx(
+    wm: &mut WalletManager,
+    addresses: &[String],
+    collateral_txid: &str,
+    collateral_vout: u32,
+    masternode_ip: &str,
+) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use wallet::Transaction;
+
+    // Build address→HD-index map for all known wallet addresses
+    let addr_to_index: std::collections::HashMap<String, u32> = (0..wm.get_address_count())
+        .filter_map(|i| wm.derive_address(i).ok().map(|a| (a, i)))
+        .collect();
+
+    // Find the first wallet-owned address from the provided list
+    let collateral_hd_index = addresses
+        .iter()
+        .find_map(|addr| addr_to_index.get(addr).copied())
+        .ok_or("No wallet address found to sign deregistration".to_string())?;
+
+    let collateral_kp = wm
+        .derive_keypair(collateral_hd_index)
+        .map_err(|e| format!("Failed to derive keypair: {}", e))?;
+
+    // Sign the unlock payload
+    let collateral_outpoint = format!("{}:{}", collateral_txid, collateral_vout);
+    let signing_message = format!("MN_UNLOCK:{}:{}", collateral_outpoint, masternode_ip);
+    let msg_hash: [u8; 32] = Sha256::digest(signing_message.as_bytes()).into();
+    let signature_bytes = collateral_kp.sign(&msg_hash);
+    let signature_hex = hex::encode(&signature_bytes);
+    let owner_pubkey_hex = hex::encode(collateral_kp.public_key_bytes());
+
+    let mut tx = Transaction::new();
+    tx.special_data = Some(wallet::SpecialTransactionData::CollateralUnlock {
+        collateral_outpoint,
+        masternode_address: masternode_ip.to_string(),
+        owner_pubkey: owner_pubkey_hex,
+        signature: signature_hex,
+    });
+
+    log::info!(
+        "Built CollateralUnlock tx for collateral={}:{} ip={}",
+        collateral_txid,
+        collateral_vout,
+        masternode_ip,
+    );
+
+    let bytes = tx
+        .to_bytes()
+        .map_err(|e| format!("Failed to serialize CollateralUnlock tx: {}", e))?;
+    Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
 /// Build a masternode payout update transaction.

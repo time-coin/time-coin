@@ -206,6 +206,8 @@ pub fn render(
                             collateral_vout: vout,
                             payout_address: None,
                             collateral_amount,
+                            reg_txid: None,
+                            registered_ip: None,
                         };
                         let _ = ui_tx.send(UiEvent::SaveMasternodeEntry(entry.clone()));
                         // Optimistic update — show immediately without waiting for async confirmation
@@ -238,6 +240,7 @@ pub fn render(
         let mut update_event: Option<UiEvent> = None;
         let mut optimistic_update: Option<(String, MasternodeEntry)> = None; // (old_alias, new_entry)
         let mut register_event: Option<UiEvent> = None;
+        let mut deregister_event: Option<UiEvent> = None;
 
         for entry in &state.masternode_entries {
             // Resolve collateral amount: live UTXO first, cached amount as fallback.
@@ -335,23 +338,39 @@ pub fn render(
                         }
 
                         let reg_open = state.mn_reg_alias.as_deref() == Some(&entry.alias);
-                        let reg_label = if reg_open { "▲ Register" } else { "🔗 Register On-Chain" };
-                        if ui
-                            .button(reg_label)
-                            .on_hover_text("Prove collateral ownership on-chain to evict squatters.\nSigns with your wallet key and submits a MasternodeReg transaction.")
-                            .clicked()
-                        {
-                            if reg_open {
-                                state.mn_reg_alias = None;
-                            } else {
-                                state.mn_reg_alias = Some(entry.alias.clone());
-                                // Pre-fill payout address from entry if available
-                                if let Some(ref pa) = entry.payout_address {
-                                    state.mn_reg_payout = pa.clone();
-                                } else if state.mn_reg_payout.is_empty() {
-                                    // Fall back to first wallet address
-                                    if let Some(first_addr) = state.addresses.first() {
-                                        state.mn_reg_payout = first_addr.address.clone();
+                        if entry.reg_txid.is_some() {
+                            // Already registered — show Deregister button
+                            if ui
+                                .button(RichText::new("🔓 Deregister").color(Color32::from_rgb(220, 80, 80)))
+                                .on_hover_text("Broadcast a CollateralUnlock transaction to remove this masternode from the chain.")
+                                .clicked()
+                            {
+                                deregister_event = Some(UiEvent::DeregisterMasternode {
+                                    alias: entry.alias.clone(),
+                                    collateral_txid: entry.collateral_txid.clone(),
+                                    collateral_vout: entry.collateral_vout,
+                                    masternode_ip: entry.registered_ip.clone().unwrap_or_default(),
+                                });
+                            }
+                        } else {
+                            let reg_label = if reg_open { "▲ Register" } else { "🔗 Register On-Chain" };
+                            if ui
+                                .button(reg_label)
+                                .on_hover_text("Prove collateral ownership on-chain to evict squatters.\nSigns with your wallet key and submits a MasternodeReg transaction.")
+                                .clicked()
+                            {
+                                if reg_open {
+                                    state.mn_reg_alias = None;
+                                } else {
+                                    state.mn_reg_alias = Some(entry.alias.clone());
+                                    // Pre-fill payout address from entry if available
+                                    if let Some(ref pa) = entry.payout_address {
+                                        state.mn_reg_payout = pa.clone();
+                                    } else if state.mn_reg_payout.is_empty() {
+                                        // Fall back to first wallet address
+                                        if let Some(first_addr) = state.addresses.first() {
+                                            state.mn_reg_payout = first_addr.address.clone();
+                                        }
                                     }
                                 }
                             }
@@ -428,6 +447,8 @@ pub fn render(
                                         collateral_vout: vout,
                                         payout_address: old_payout,
                                         collateral_amount,
+                                        reg_txid: None, // preserved by service handler
+                                        registered_ip: None,
                                     },
                                 });
                                 optimistic_update = Some((old_alias, MasternodeEntry {
@@ -436,6 +457,8 @@ pub fn render(
                                     collateral_vout: vout,
                                     payout_address: None,
                                     collateral_amount,
+                                    reg_txid: None,
+                                    registered_ip: None,
                                 }));
                                 state.mn_edit_alias = None;
                             }
@@ -526,6 +549,9 @@ pub fn render(
             let _ = ui_tx.send(event);
         }
         if let Some(event) = register_event {
+            let _ = ui_tx.send(event);
+        }
+        if let Some(event) = deregister_event {
             let _ = ui_tx.send(event);
         }
         if let Some((old_alias, new_entry)) = optimistic_update {

@@ -178,6 +178,14 @@ pub enum UiEvent {
         new_payout_address: String,
     },
 
+    /// Deregister a masternode on-chain via a CollateralUnlock special transaction.
+    DeregisterMasternode {
+        alias: String,
+        collateral_txid: String,
+        collateral_vout: u32,
+        masternode_ip: String,
+    },
+
     /// Update a masternode entry in the DB, replacing the old alias key.
     UpdateMasternodeEntry {
         old_alias: String,
@@ -394,6 +402,11 @@ pub enum ServiceEvent {
     MasternodeRegistered {
         alias: String,
         txid: String,
+    },
+
+    /// Masternode deregistration transaction broadcast successfully.
+    MasternodeDeregistered {
+        alias: String,
     },
 
     /// Masternode payout update transaction broadcast successfully.
