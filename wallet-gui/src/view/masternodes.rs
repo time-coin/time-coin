@@ -459,6 +459,10 @@ pub fn render(
                                     "Signs with your wallet key to prove collateral ownership. \
                                      Broadcasts a MasternodeReg transaction that evicts any squatter."
                                 ).size(11.0).color(ui.visuals().weak_text_color()));
+                                ui.label(RichText::new(
+                                    "⚠ Costs 0.01 TIME fee from a separate wallet UTXO. \
+                                     Your collateral is not spent or moved."
+                                ).size(11.0).color(Color32::YELLOW));
                                 ui.add_space(6.0);
                                 egui::Grid::new(format!("mn_reg_{}", entry.alias))
                                     .num_columns(2)
