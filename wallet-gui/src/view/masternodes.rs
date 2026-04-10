@@ -237,6 +237,7 @@ pub fn render(
         let mut to_delete: Option<String> = None;
         let mut update_event: Option<UiEvent> = None;
         let mut optimistic_update: Option<(String, MasternodeEntry)> = None; // (old_alias, new_entry)
+        let mut register_event: Option<UiEvent> = None;
 
         for entry in &state.masternode_entries {
             // Resolve collateral amount: live UTXO first, cached amount as fallback.
@@ -332,6 +333,29 @@ pub fn render(
                             state.mn_edit_txid = entry.collateral_txid.clone();
                             state.mn_edit_vout = entry.collateral_vout.to_string();
                         }
+
+                        let reg_open = state.mn_reg_alias.as_deref() == Some(&entry.alias);
+                        let reg_label = if reg_open { "▲ Register" } else { "🔗 Register On-Chain" };
+                        if ui
+                            .button(reg_label)
+                            .on_hover_text("Prove collateral ownership on-chain to evict squatters.\nSigns with your wallet key and submits a MasternodeReg transaction.")
+                            .clicked()
+                        {
+                            if reg_open {
+                                state.mn_reg_alias = None;
+                            } else {
+                                state.mn_reg_alias = Some(entry.alias.clone());
+                                // Pre-fill payout address from entry if available
+                                if let Some(ref pa) = entry.payout_address {
+                                    state.mn_reg_payout = pa.clone();
+                                } else if state.mn_reg_payout.is_empty() {
+                                    // Fall back to first wallet address
+                                    if let Some(first_addr) = state.addresses.first() {
+                                        state.mn_reg_payout = first_addr.address.clone();
+                                    }
+                                }
+                            }
+                        }
                     });
 
                     // Inline edit form
@@ -420,6 +444,66 @@ pub fn render(
                             }
                         });
                     }
+
+                    // --- On-chain registration form ---
+                    if state.mn_reg_alias.as_deref() == Some(&entry.alias) {
+                        ui.add_space(6.0);
+                        egui::Frame::new()
+                            .fill(ui.visuals().faint_bg_color)
+                            .corner_radius(4.0)
+                            .inner_margin(egui::Margin::symmetric(8, 6))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("Register On-Chain").strong());
+                                ui.add_space(2.0);
+                                ui.label(RichText::new(
+                                    "Signs with your wallet key to prove collateral ownership. \
+                                     Broadcasts a MasternodeReg transaction that evicts any squatter."
+                                ).size(11.0).color(ui.visuals().weak_text_color()));
+                                ui.add_space(6.0);
+                                egui::Grid::new(format!("mn_reg_{}", entry.alias))
+                                    .num_columns(2)
+                                    .spacing([8.0, 4.0])
+                                    .show(ui, |ui| {
+                                        ui.label("Server IP:");
+                                        ui.text_edit_singleline(&mut state.mn_reg_ip)
+                                            .on_hover_text("Public IP of the server running timed, e.g. 1.2.3.4");
+                                        ui.end_row();
+                                        ui.label("Port:");
+                                        ui.text_edit_singleline(&mut state.mn_reg_port)
+                                            .on_hover_text("P2P port (default 24000 mainnet, 24100 testnet)");
+                                        ui.end_row();
+                                        ui.label("Payout address:");
+                                        let r = ui.text_edit_singleline(&mut state.mn_reg_payout);
+                                        r.on_hover_text("TIME address to receive block rewards");
+                                        ui.end_row();
+                                    });
+                                ui.add_space(6.0);
+                                let ip_ok = !state.mn_reg_ip.trim().is_empty();
+                                let port_ok = state.mn_reg_port.trim().parse::<u16>().is_ok();
+                                let payout_ok = !state.mn_reg_payout.trim().is_empty();
+                                let can_register = ip_ok && port_ok && payout_ok;
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .add_enabled(can_register, egui::Button::new("✅ Submit Registration"))
+                                        .on_disabled_hover_text("Fill in IP, port, and payout address")
+                                        .clicked()
+                                    {
+                                        register_event = Some(UiEvent::RegisterMasternode {
+                                            alias: entry.alias.clone(),
+                                            ip: state.mn_reg_ip.trim().to_string(),
+                                            port: state.mn_reg_port.trim().parse().unwrap_or(24000),
+                                            collateral_txid: entry.collateral_txid.clone(),
+                                            collateral_vout: entry.collateral_vout,
+                                            payout_address: state.mn_reg_payout.trim().to_string(),
+                                        });
+                                        state.mn_reg_alias = None;
+                                    }
+                                    if ui.button("Cancel").clicked() {
+                                        state.mn_reg_alias = None;
+                                    }
+                                });
+                            });
+                    }
                 });
             ui.add_space(4.0);
         }
@@ -436,6 +520,9 @@ pub fn render(
                 .collect();
         }
         if let Some(event) = update_event {
+            let _ = ui_tx.send(event);
+        }
+        if let Some(event) = register_event {
             let _ = ui_tx.send(event);
         }
         if let Some((old_alias, new_entry)) = optimistic_update {

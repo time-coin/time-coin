@@ -214,6 +214,12 @@ pub struct AppState {
     pub mn_edit_name: String,
     pub mn_edit_txid: String,
     pub mn_edit_vout: String,
+    /// Alias of the masternode currently showing the on-chain register form.
+    pub mn_reg_alias: Option<String>,
+    /// On-chain registration form fields (IP, port, payout address).
+    pub mn_reg_ip: String,
+    pub mn_reg_port: String,
+    pub mn_reg_payout: String,
 
     // -- Sync status --
     /// True while waiting for the first network poll after wallet load.
@@ -366,6 +372,10 @@ impl Default for AppState {
             mn_edit_name: String::new(),
             mn_edit_txid: String::new(),
             mn_edit_vout: "0".to_string(),
+            mn_reg_alias: None,
+            mn_reg_ip: String::new(),
+            mn_reg_port: "24000".to_string(),
+            mn_reg_payout: String::new(),
             syncing: false,
             repair_in_progress: false,
             consolidation_in_progress: false,
