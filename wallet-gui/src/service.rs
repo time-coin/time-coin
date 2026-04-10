@@ -3582,7 +3582,18 @@ async fn build_masternode_reg_tx(
     tx.sign(&fee_kp, 0)
         .map_err(|e| format!("Failed to sign fee input: {}", e))?;
 
-    // 6. Serialize and return
+    // 6. Attach a self-memo so the tx shows "Masternode Registration Fee" in history
+    {
+        use ed25519_dalek::SigningKey;
+        let sender_key = SigningKey::from_bytes(&fee_kp.secret_key_bytes());
+        let own_pub = sender_key.verifying_key().to_bytes();
+        match crate::memo::encrypt_memo(&sender_key, &own_pub, "Masternode Registration Fee") {
+            Ok(blob) => tx.encrypted_memo = Some(blob),
+            Err(e) => log::warn!("Registration memo encryption failed: {}", e),
+        }
+    }
+
+    // 7. Serialize and return
     let txid = tx.txid();
     let bytes = tx
         .to_bytes()
