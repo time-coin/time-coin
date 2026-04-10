@@ -67,9 +67,9 @@ On first run, the wallet creates a configuration file at:
 
 | Platform | Path |
 |----------|------|
-| Linux | `~/.timecoin/config.json` |
-| macOS | `~/.timecoin/config.json` |
-| Windows | `%USERPROFILE%\.timecoin\config.json` |
+| Linux | `~/.time-wallet/config.json` |
+| macOS | `~/.time-wallet/config.json` |
+| Windows | `%USERPROFILE%\.time-wallet\config.json` |
 
 See [WALLET_USAGE.md](WALLET_USAGE.md) for configuration options.
 

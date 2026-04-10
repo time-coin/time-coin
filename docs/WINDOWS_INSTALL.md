@@ -130,7 +130,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 On first launch, the wallet creates its data directory at:
 
 ```
-%USERPROFILE%\.timecoin\
+%USERPROFILE%\.time-wallet\
 ```
 
 This directory contains your configuration, encrypted wallet files, and local database. **Back up this directory** to preserve your wallet.
@@ -181,5 +181,5 @@ cargo build --release
 ## Uninstalling
 
 1. Delete the cloned repository folder
-2. Remove wallet data: `Remove-Item -Recurse ~\.timecoin` (⚠️ this deletes your wallet — back up first)
+2. Remove wallet data: `Remove-Item -Recurse ~\.time-wallet` (⚠️ this deletes your wallet — back up first)
 3. Optionally uninstall Rust: `rustup self uninstall`
