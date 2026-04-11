@@ -3783,11 +3783,19 @@ async fn build_masternode_reg_tx(
         .derive_keypair(collateral_hd_index)
         .map_err(|e| format!("Failed to derive collateral keypair: {}", e))?;
 
-    // 2. Sign the registration payload
+    // 2. Sign the registration payload.
+    //
+    // The daemon enforces payout_address == collateral owner address
+    // (masternode_registry::validate_masternode_reg checks this).  Using any
+    // other address causes the transaction to be silently rejected during block
+    // processing.  We always use `collateral_addr` here regardless of what the
+    // caller passed — the collateral owner is the only valid reward recipient.
+    let _ = payout_address; // caller-supplied value is not used; see above
+    let effective_payout = collateral_addr.clone();
     let collateral_outpoint = format!("{}:{}", collateral_txid, collateral_vout);
     let signing_message = format!(
         "MN_REG:{}:{}:{}:{}",
-        collateral_outpoint, masternode_ip, masternode_port, payout_address
+        collateral_outpoint, masternode_ip, masternode_port, effective_payout
     );
     let msg_hash: [u8; 32] = Sha256::digest(signing_message.as_bytes()).into();
     let signature_bytes = collateral_kp.sign(&msg_hash);
@@ -3841,7 +3849,7 @@ async fn build_masternode_reg_tx(
         collateral_outpoint,
         masternode_ip: masternode_ip.to_string(),
         masternode_port,
-        payout_address: payout_address.to_string(),
+        payout_address: effective_payout,
         owner_pubkey: owner_pubkey_hex,
         signature: signature_hex,
     });

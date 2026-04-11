@@ -499,19 +499,27 @@ pub fn render(
                                             .on_hover_text("P2P port (default 24000 mainnet, 24100 testnet)");
                                         ui.end_row();
                                         ui.label("Payout address:");
-                                        let r = ui.text_edit_singleline(&mut state.mn_reg_payout);
-                                        r.on_hover_text("TIME address to receive block rewards");
+                                        ui.label(
+                                            egui::RichText::new(
+                                                "Automatically set to the collateral owner address",
+                                            )
+                                            .italics()
+                                            .weak(),
+                                        )
+                                        .on_hover_text(
+                                            "The protocol requires rewards to be paid to the \
+                                             collateral owner's address. This cannot be changed.",
+                                        );
                                         ui.end_row();
                                     });
                                 ui.add_space(6.0);
                                 let ip_ok = !state.mn_reg_ip.trim().is_empty();
                                 let port_ok = state.mn_reg_port.trim().parse::<u16>().is_ok();
-                                let payout_ok = !state.mn_reg_payout.trim().is_empty();
-                                let can_register = ip_ok && port_ok && payout_ok;
+                                let can_register = ip_ok && port_ok;
                                 ui.horizontal(|ui| {
                                     if ui
                                         .add_enabled(can_register, egui::Button::new("✅ Submit Registration"))
-                                        .on_disabled_hover_text("Fill in IP, port, and payout address")
+                                        .on_disabled_hover_text("Fill in server IP and port")
                                         .clicked()
                                     {
                                         register_event = Some(UiEvent::RegisterMasternode {
