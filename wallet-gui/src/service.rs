@@ -2170,6 +2170,28 @@ pub async fn run(
                                                     txid: final_txid,
                                                 },
                                             );
+                                            // Immediately refresh UTXOs and balance so the
+                                            // locked/available amounts reflect the new state
+                                            // without waiting for the next poll cycle.
+                                            let refresh_addresses = state.addresses.clone();
+                                            if !refresh_addresses.is_empty() {
+                                                let mut fresh_utxos = Vec::new();
+                                                for addr in &refresh_addresses {
+                                                    if let Ok(utxos) =
+                                                        client.get_utxos(addr).await
+                                                    {
+                                                        fresh_utxos.extend(utxos);
+                                                    }
+                                                }
+                                                state.send_utxos_updated(fresh_utxos);
+                                                if let Ok(bal) =
+                                                    client.get_balances(&refresh_addresses).await
+                                                {
+                                                    let _ = state
+                                                        .svc_tx
+                                                        .send(ServiceEvent::BalanceUpdated(bal));
+                                                }
+                                            }
                                         }
                                         Err(e) => {
                                             let _ = state.svc_tx.send(ServiceEvent::Error(
@@ -2224,6 +2246,27 @@ pub async fn run(
                                             let _ = state.svc_tx.send(
                                                 ServiceEvent::MasternodeDeregistered { alias },
                                             );
+                                            // Immediately refresh UTXOs and balance so the
+                                            // collateral shows as spendable again right away.
+                                            let refresh_addresses = state.addresses.clone();
+                                            if !refresh_addresses.is_empty() {
+                                                let mut fresh_utxos = Vec::new();
+                                                for addr in &refresh_addresses {
+                                                    if let Ok(utxos) =
+                                                        client.get_utxos(addr).await
+                                                    {
+                                                        fresh_utxos.extend(utxos);
+                                                    }
+                                                }
+                                                state.send_utxos_updated(fresh_utxos);
+                                                if let Ok(bal) =
+                                                    client.get_balances(&refresh_addresses).await
+                                                {
+                                                    let _ = state
+                                                        .svc_tx
+                                                        .send(ServiceEvent::BalanceUpdated(bal));
+                                                }
+                                            }
                                         }
                                         Err(e) => {
                                             let _ = state.svc_tx.send(ServiceEvent::Error(
