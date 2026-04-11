@@ -1316,6 +1316,16 @@ impl AppState {
                 }
             }
 
+            ServiceEvent::AddressesDiscovered { count } => {
+                // Keep selection at primary address after bulk recovery.
+                self.selected_address = 0;
+                self.success = Some(format!(
+                    "Recovered {} address{} from chain history",
+                    count,
+                    if count == 1 { "" } else { "es" }
+                ));
+            }
+
             ServiceEvent::Error(msg) => {
                 self.error = Some(msg);
                 self.loading = false;

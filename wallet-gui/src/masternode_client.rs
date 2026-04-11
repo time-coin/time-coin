@@ -547,6 +547,30 @@ impl MasternodeClient {
         Ok(utxos)
     }
 
+    /// Fetch UTXOs for a batch of addresses in a single `listunspentmulti` call.
+    ///
+    /// Returns a set of addresses that have at least one unspent output, keyed
+    /// by address string.  This is used by the address-recovery scanner to
+    /// identify which derived addresses have on-chain activity.
+    pub async fn get_active_addresses_by_utxo(
+        &self,
+        addresses: &[String],
+    ) -> Result<std::collections::HashSet<String>, ClientError> {
+        if addresses.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+        let result = self
+            .rpc_call("listunspentmulti", serde_json::json!([addresses]))
+            .await?;
+        let utxo_values: Vec<serde_json::Value> =
+            serde_json::from_value(result).unwrap_or_default();
+        let active = utxo_values
+            .iter()
+            .filter_map(|u| u.get("address")?.as_str().map(String::from))
+            .collect();
+        Ok(active)
+    }
+
     /// Look up an unspent transaction output by txid and vout index.
     ///
     /// Returns `(amount_sats, address)` if the output is unspent, or `None` if

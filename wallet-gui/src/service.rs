@@ -90,6 +90,7 @@ pub async fn run(
         consolidation_active: Arc::new(AtomicBool::new(false)),
         signing_keys: Arc::new(Vec::new()),
         last_synced_height: Arc::new(AtomicU64::new(0)),
+        pending_address_scan: false,
     };
 
     // Restore manually-selected peer so discovery doesn't override it on first result.
@@ -2473,6 +2474,155 @@ pub async fn run(
                                     }
                                 }
                             }
+
+                            // On fresh DB start, scan for previously-used derived addresses
+                            // so the balance is correct after the first sync.
+                            if state.pending_address_scan {
+                                state.pending_address_scan = false;
+                                if let Some(ref client) = state.client {
+                                    const GAP_LIMIT: usize = 20;
+                                    const MAX_SCAN: u32 = 200;
+
+                                    // Pre-derive candidates (sync, CPU-only, fast).
+                                    let start_idx = state.addresses.len() as u32; // typically 1
+                                    let candidates: Vec<(u32, String)> = state
+                                        .wallet
+                                        .as_ref()
+                                        .map(|wm| {
+                                            (start_idx..start_idx + MAX_SCAN)
+                                                .filter_map(|i| {
+                                                    wm.derive_address(i).ok().map(|a| (i, a))
+                                                })
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+
+                                    log::info!(
+                                        "🔍 Scanning {} candidate addresses for recovery (gap limit {})",
+                                        candidates.len(),
+                                        GAP_LIMIT
+                                    );
+
+                                    let mut recovered: Vec<(u32, String)> = Vec::new();
+                                    let mut consecutive_empty: usize = 0;
+
+                                    'scan: for chunk in candidates.chunks(GAP_LIMIT) {
+                                        let chunk_addrs: Vec<String> =
+                                            chunk.iter().map(|(_, a)| a.clone()).collect();
+
+                                        // Primary check: addresses with current UTXOs.
+                                        let active_by_utxo = match client
+                                            .get_active_addresses_by_utxo(&chunk_addrs)
+                                            .await
+                                        {
+                                            Ok(set) => set,
+                                            Err(e) => {
+                                                log::warn!("Address scan UTXO check failed: {}", e);
+                                                break 'scan;
+                                            }
+                                        };
+
+                                        // Secondary check: addresses that spent all coins
+                                        // (history exists but no UTXOs remaining).
+                                        let need_tx_check: Vec<String> = chunk_addrs
+                                            .iter()
+                                            .filter(|a| !active_by_utxo.contains(*a))
+                                            .cloned()
+                                            .collect();
+                                        let active_by_tx: std::collections::HashSet<String> =
+                                            if !need_tx_check.is_empty() {
+                                                match client
+                                                    .get_transactions_multi(&need_tx_check, 1, 0)
+                                                    .await
+                                                {
+                                                    Ok(batch) => batch
+                                                        .transactions
+                                                        .iter()
+                                                        .filter(|tx| !tx.is_send)
+                                                        .map(|tx| tx.address.clone())
+                                                        .collect(),
+                                                    Err(_) => {
+                                                        std::collections::HashSet::new()
+                                                    }
+                                                }
+                                            } else {
+                                                std::collections::HashSet::new()
+                                            };
+
+                                        for (idx, addr) in chunk {
+                                            if active_by_utxo.contains(addr)
+                                                || active_by_tx.contains(addr)
+                                            {
+                                                recovered.push((*idx, addr.clone()));
+                                                consecutive_empty = 0;
+                                            } else {
+                                                consecutive_empty += 1;
+                                                if consecutive_empty >= GAP_LIMIT {
+                                                    break 'scan;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if !recovered.is_empty() {
+                                        log::info!(
+                                            "✅ Address recovery: found {} addresses",
+                                            recovered.len()
+                                        );
+                                        let max_idx = recovered
+                                            .iter()
+                                            .map(|(i, _)| *i)
+                                            .max()
+                                            .unwrap_or(0);
+
+                                        for (idx, addr) in &recovered {
+                                            // Persist to DB.
+                                            if let Some(ref db) = state.wallet_db {
+                                                let now = chrono::Utc::now().timestamp();
+                                                let _ = db.save_contact(&crate::wallet_db::AddressContact {
+                                                    address: addr.clone(),
+                                                    label: format!("Address #{}", idx),
+                                                    name: None,
+                                                    email: None,
+                                                    phone: None,
+                                                    notes: None,
+                                                    is_default: false,
+                                                    is_owned: true,
+                                                    derivation_index: Some(*idx),
+                                                    created_at: now,
+                                                    updated_at: now,
+                                                });
+                                            }
+                                            // Update service address list.
+                                            state.addresses.push(addr.clone());
+                                            // Notify UI.
+                                            let _ = state.svc_tx.send(
+                                                ServiceEvent::AddressGenerated(AddressInfo {
+                                                    address: addr.clone(),
+                                                    label: format!("Address #{}", idx),
+                                                }),
+                                            );
+                                        }
+
+                                        // Advance wallet counter past the highest recovered index.
+                                        if let Some(ref mut wm) = state.wallet {
+                                            wm.sync_address_index(max_idx);
+                                        }
+
+                                        // Re-subscribe WS with the expanded address list.
+                                        if state.config.active_endpoint.is_some() {
+                                            state.start_ws();
+                                        }
+
+                                        let count = recovered.len();
+                                        let _ = state.svc_tx.send(
+                                            ServiceEvent::AddressesDiscovered { count },
+                                        );
+                                    } else {
+                                        log::info!("ℹ️ Address recovery: no additional addresses found");
+                                    }
+                                }
+                            }
                         }
                     }
                     WsEvent::Disconnected(url) => {
@@ -3087,6 +3237,11 @@ struct ServiceState {
     /// Shared with spawned poll tasks so they can pass it as `from_height`
     /// to the masternode and update it from the response.
     last_synced_height: Arc<AtomicU64>,
+    /// Set to `true` when the wallet DB was empty at load time (fresh start or
+    /// DB deletion).  Triggers an on-chain address-recovery scan the first time
+    /// the node RPC becomes available so all previously-used addresses are
+    /// re-discovered and added back to the wallet.
+    pending_address_scan: bool,
 }
 
 impl ServiceState {
@@ -3145,6 +3300,8 @@ impl ServiceState {
                 // Build the active address set.
                 // First run: no DB entries yet — create the primary address and persist it.
                 let raw_addrs: Vec<String> = if db_indices.is_empty() {
+                    // Flag that we should scan for more addresses once connected.
+                    self.pending_address_scan = true;
                     match wm.get_next_address() {
                         Ok(addr) => {
                             if let Some(ref db) = self.wallet_db {

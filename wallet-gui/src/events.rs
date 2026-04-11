@@ -467,4 +467,10 @@ pub enum ServiceEvent {
 
     /// Incoming payment request history loaded from the database on startup.
     IncomingPaymentHistoryLoaded(Vec<crate::wallet_db::IncomingPaymentHistory>),
+
+    /// Address-recovery scan found previously-used addresses after DB reset.
+    AddressesDiscovered {
+        /// Number of addresses recovered.
+        count: usize,
+    },
 }
