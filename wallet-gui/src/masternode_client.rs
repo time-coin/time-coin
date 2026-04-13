@@ -768,11 +768,39 @@ impl MasternodeClient {
         .await
     }
 
-    /// Check if masternode is reachable via getblockchaininfo
+    /// The storage schema version this wallet requires.
+    /// Nodes reporting a different value are rejected — they are running
+    /// incompatible chain data and would produce divergent state.
+    pub const REQUIRED_STORAGE_VERSION: u64 = 2;
+
+    /// Check if masternode is reachable via getblockchaininfo.
+    ///
+    /// Returns `Err(ClientError::IncompatibleNode)` if the node's
+    /// `storage_version` does not match [`Self::REQUIRED_STORAGE_VERSION`].
     pub async fn health_check(&self) -> Result<HealthStatus, ClientError> {
         let result = self
             .rpc_call("getblockchaininfo", serde_json::json!([]))
             .await?;
+
+        // Reject nodes running an incompatible schema version.
+        // Version 1 nodes lack the clean-genesis reward architecture and will
+        // produce divergent state; connecting to them is always wrong.
+        let node_version = result
+            .get("storage_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1); // absent means old v1 node
+        if node_version != Self::REQUIRED_STORAGE_VERSION {
+            log::warn!(
+                "❌ Node at {} has storage_version={} (requires {}), rejecting",
+                self.endpoint(),
+                node_version,
+                Self::REQUIRED_STORAGE_VERSION,
+            );
+            return Err(ClientError::IncompatibleNode {
+                found: node_version,
+                required: Self::REQUIRED_STORAGE_VERSION,
+            });
+        }
 
         // Masternode returns "blocks", fall back to "height" for compat
         let height = result
@@ -1143,6 +1171,11 @@ pub enum ClientError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// The node is running an incompatible storage/protocol schema version.
+    /// `found` is what the node reported; `required` is what this wallet needs.
+    #[error("Incompatible node: storage_version {found} (requires {required})")]
+    IncompatibleNode { found: u64, required: u64 },
 }
 
 impl ClientError {
