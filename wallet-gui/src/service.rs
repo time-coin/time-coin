@@ -3209,10 +3209,12 @@ async fn discover_peers(
                 }
             }
         }
-        // Re-sort after integrating gossip peers
+        // Re-sort after integrating gossip peers — same priority as the initial sort:
+        // healthy first, synced before syncing, WS-capable, then fastest ping.
         peer_infos.sort_by(|a, b| {
             b.is_healthy
                 .cmp(&a.is_healthy)
+                .then(a.is_syncing.cmp(&b.is_syncing)) // false < true → synced before syncing
                 .then(b.ws_available.cmp(&a.ws_available))
                 .then(
                     a.ping_ms
