@@ -80,6 +80,34 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSend
 
     ui.add_space(16.0);
 
+    // -- Recover Addresses --
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("Recover Addresses").strong().size(16.0));
+        ui.add_space(4.0);
+        ui.label("Scans the blockchain for receive addresses derived from your seed that may be missing from the wallet. Use this if you are receiving funds to an address that does not appear in your address list.");
+        ui.add_space(6.0);
+
+        if state.recover_in_progress {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Scanning for addresses…");
+            });
+        } else if ui
+            .add_enabled(
+                state.wallet_loaded,
+                egui::Button::new("🔍 Recover Addresses").min_size(egui::vec2(160.0, 28.0)),
+            )
+            .clicked()
+        {
+            state.recover_in_progress = true;
+            state.error = None;
+            state.success = None;
+            let _ = ui_tx.send(UiEvent::RebuildAddresses);
+        }
+    });
+
+    ui.add_space(16.0);
+
     // -- Consolidate UTXOs --
     ui.group(|ui| {
         ui.label(egui::RichText::new("Consolidate UTXOs").strong().size(16.0));

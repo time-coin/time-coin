@@ -228,6 +228,9 @@ pub struct AppState {
     /// True while a database repair is in progress.
     pub repair_in_progress: bool,
 
+    /// True while an address recovery (RebuildAddresses) scan is in progress.
+    pub recover_in_progress: bool,
+
     /// True while UTXO consolidation is in progress.
     pub consolidation_in_progress: bool,
     /// Status message from the last consolidation operation.
@@ -378,6 +381,7 @@ impl Default for AppState {
             mn_reg_payout: String::new(),
             syncing: false,
             repair_in_progress: false,
+            recover_in_progress: false,
             consolidation_in_progress: false,
             consolidation_status: String::new(),
             send_too_large: false,
@@ -1319,17 +1323,23 @@ impl AppState {
             ServiceEvent::AddressesDiscovered { count } => {
                 // Keep selection at primary address after bulk recovery.
                 self.selected_address = 0;
-                self.success = Some(format!(
-                    "Recovered {} address{} from chain history",
-                    count,
-                    if count == 1 { "" } else { "es" }
-                ));
+                self.recover_in_progress = false;
+                self.success = Some(if count == 0 {
+                    "Address recovery complete — no new addresses found".to_string()
+                } else {
+                    format!(
+                        "Recovered {} address{} from chain history",
+                        count,
+                        if count == 1 { "" } else { "es" }
+                    )
+                });
             }
 
             ServiceEvent::Error(msg) => {
                 self.error = Some(msg);
                 self.loading = false;
                 self.resync_in_progress = false;
+                self.recover_in_progress = false;
             }
 
             ServiceEvent::SendTooLarge => {

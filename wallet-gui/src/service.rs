@@ -1294,15 +1294,23 @@ pub async fn run(
                                 }
                             }
 
+                            let newly_found = raw_addrs
+                                .iter()
+                                .filter(|a| !existing_labels.contains_key(*a))
+                                .count();
                             state.addresses = raw_addrs;
                             log::info!(
-                                "🔄 Rebuilt address list: {} addresses found (scanned 0..{})",
+                                "🔄 Rebuilt address list: {} addresses found ({} new, scanned 0..{})",
                                 state.addresses.len(),
+                                newly_found,
                                 idx
                             );
                             let _ = state
                                 .svc_tx
                                 .send(ServiceEvent::AddressesRefreshed(address_infos));
+                            let _ = state
+                                .svc_tx
+                                .send(ServiceEvent::AddressesDiscovered { count: newly_found });
 
                             // Run masternode backfill now that addresses are rebuilt.
                             mn_backfill_via_gettxout(
