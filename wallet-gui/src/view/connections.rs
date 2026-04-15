@@ -54,9 +54,33 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
     egui::ScrollArea::both()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
-            // Sort: syncing nodes to the bottom; otherwise preserve service ordering.
+            // Determine best (highest) block height for consensus check and sort.
+            let best_height = state
+                .peers
+                .iter()
+                .filter_map(|p| p.block_height)
+                .max()
+                .unwrap_or(0);
+
+            // Sort: fully-synced and in-consensus nodes first, out-of-sync/lagging nodes last.
+            // Within each group, order by ping ascending.
             let mut sorted_peers: Vec<&crate::state::PeerInfo> = state.peers.iter().collect();
-            sorted_peers.sort_by_key(|p| p.is_syncing);
+            sorted_peers.sort_by(|a, b| {
+                let out_of_sync = |p: &&crate::state::PeerInfo| -> bool {
+                    p.is_syncing
+                        || best_height.saturating_sub(p.block_height.unwrap_or(0)) > 3
+                };
+                let a_bad = out_of_sync(a);
+                let b_bad = out_of_sync(b);
+                match a_bad.cmp(&b_bad) {
+                    std::cmp::Ordering::Equal => {
+                        let a_ping = a.ping_ms.unwrap_or(u64::MAX);
+                        let b_ping = b.ping_ms.unwrap_or(u64::MAX);
+                        a_ping.cmp(&b_ping)
+                    }
+                    other => other,
+                }
+            });
 
             egui::Grid::new("peers_table")
                 .num_columns(10)
@@ -80,14 +104,6 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                         },
                     );
                     ui.end_row();
-
-                    // Determine best (highest) block height for consensus check
-                    let best_height = state
-                        .peers
-                        .iter()
-                        .filter_map(|p| p.block_height)
-                        .max()
-                        .unwrap_or(0);
 
                     for (i, peer) in sorted_peers.iter().enumerate() {
                         let peer = *peer;
