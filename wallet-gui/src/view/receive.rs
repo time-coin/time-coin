@@ -178,7 +178,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                                     .desired_width(180.0)
                                     .hint_text("Unlabeled"),
                             );
-                            if label_resp.changed() {
+                            if label_resp.lost_focus()
+                                && ui.input(|inp| inp.key_pressed(egui::Key::Enter))
+                            {
                                 label_updates.push((i, state.addresses[i].label.clone()));
                             }
                             let short = super::truncate_middle(&addr, 14, 6);

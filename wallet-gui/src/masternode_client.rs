@@ -336,7 +336,7 @@ impl MasternodeClient {
         }
 
         // Sort newest-first (mirrors single-call ordering).
-        all.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        all.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
         Ok(TransactionBatch {
             transactions: all,
             chain_height: max_chain_height,
