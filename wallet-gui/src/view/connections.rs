@@ -56,6 +56,21 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
         .max()
         .unwrap_or(0);
 
+    // Canonical anchor hash: the most common anchor_hash among peers that have
+    // one — this is the block hash all honest nodes must agree on.
+    let canonical_anchor: Option<String> = {
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for p in &state.peers {
+            if let Some(ref h) = p.anchor_hash {
+                *counts.entry(h.as_str()).or_insert(0) += 1;
+            }
+        }
+        counts
+            .into_iter()
+            .max_by_key(|&(_, c)| c)
+            .map(|(h, _)| h.to_string())
+    };
+
     // Only show nodes that are on the correct chain: not syncing and within
     // CONSENSUS_LAG (3) blocks of the best-known height.
     let in_consensus = |p: &&crate::state::PeerInfo| -> bool {
@@ -109,7 +124,7 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                             if ms < 100 {
                                 egui::Color32::GREEN
                             } else if ms < 500 {
-                                egui::Color32::YELLOW
+                                egui::Color32::from_rgb(255, 160, 50)
                             } else {
                                 egui::Color32::RED
                             }
@@ -230,7 +245,20 @@ pub fn show(ui: &mut Ui, state: &AppState, ui_tx: &mpsc::UnboundedSender<UiEvent
                                 } else {
                                     let height = peer.block_height.unwrap_or(0);
                                     let lag = best_height.saturating_sub(height);
-                                    if lag <= 3 {
+
+                                    // Check if this peer's anchor hash disagrees with the majority.
+                                    let on_fork = match (&peer.anchor_hash, &canonical_anchor) {
+                                        (Some(ph), Some(ch)) => ph != ch,
+                                        _ => false,
+                                    };
+
+                                    if on_fork {
+                                        ui.colored_label(egui::Color32::RED, "Fork")
+                                            .on_hover_text(
+                                                "This node is on a different chain than the majority of peers. \
+                                                 It will not be used for transactions.",
+                                            );
+                                    } else if lag <= 3 {
                                         ui.colored_label(egui::Color32::GREEN, "✔").on_hover_text(
                                             format!(
                                                 "Within {} block(s) of best height {}",

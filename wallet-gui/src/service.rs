@@ -1155,16 +1155,19 @@ pub async fn run(
 
                     UiEvent::RebuildAddresses => {
                         if let Some(ref mut wm) = state.wallet {
-                            // Preserve existing labels so they survive the rebuild.
-                            let existing_labels: std::collections::HashMap<String, String> = state
+                            // Snapshot existing contacts before scanning so labels, metadata,
+                            // and created_at timestamps survive the rebuild.  Also used to
+                            // guard pre-existing addresses from the post-scan prune step.
+                            let existing_contacts: std::collections::HashMap<
+                                String,
+                                crate::wallet_db::AddressContact,
+                            > = state
                                 .wallet_db
                                 .as_ref()
                                 .and_then(|db| db.get_owned_addresses().ok())
                                 .unwrap_or_default()
                                 .into_iter()
-                                .filter_map(|c| {
-                                    c.derivation_index.map(|_| (c.address.clone(), c.label))
-                                })
+                                .map(|c| (c.address.clone(), c))
                                 .collect();
 
                             // NOTE: Do NOT delete owned addresses here.
@@ -1216,9 +1219,15 @@ pub async fn run(
                                 let has_activity = idx == 0
                                     || collateral_addrs.contains(&addr)
                                     || if let Some(ref client) = state.client {
-                                        matches!(
+                                        let has_utxos = matches!(
                                             client.get_utxos(&addr).await,
                                             Ok(ref u) if !u.is_empty()
+                                        );
+                                        // Also check tx history: an address that received coins
+                                        // but spent them all has no UTXOs but should still appear.
+                                        has_utxos || matches!(
+                                            client.get_transactions(&addr, 1).await,
+                                            Ok(ref txs) if txs.iter().any(|tx| !tx.is_send)
                                         )
                                     } else {
                                         false
@@ -1252,14 +1261,20 @@ pub async fn run(
                                 .iter()
                                 .zip(found_indices.iter())
                                 .map(|(addr, &i)| {
-                                    let label = existing_labels
-                                        .get(addr)
-                                        .cloned()
-                                        .unwrap_or_else(|| format!("Address #{}", i));
-                                    if let Some(ref db) = state.wallet_db {
-                                        let _ = db.save_contact(&crate::wallet_db::AddressContact {
+                                    // Build the contact to persist, preserving all existing
+                                    // fields (label, name, email, phone, notes, created_at)
+                                    // so a scan never silently resets user-edited data.
+                                    let contact = match existing_contacts.get(addr) {
+                                        Some(existing) => {
+                                            let mut c = existing.clone();
+                                            c.is_default = i == 0;
+                                            c.derivation_index = Some(i);
+                                            c.updated_at = now;
+                                            c
+                                        }
+                                        None => crate::wallet_db::AddressContact {
                                             address: addr.clone(),
-                                            label: label.clone(),
+                                            label: format!("Address #{}", i),
                                             name: None,
                                             email: None,
                                             phone: None,
@@ -1269,24 +1284,30 @@ pub async fn run(
                                             derivation_index: Some(i),
                                             created_at: now,
                                             updated_at: now,
-                                        });
+                                        },
+                                    };
+                                    let label = contact.label.clone();
+                                    if let Some(ref db) = state.wallet_db {
+                                        let _ = db.save_contact(&contact);
                                     }
                                     AddressInfo { address: addr.clone(), label }
                                 })
                                 .collect();
 
-                            // Prune derived addresses that are no longer in the found set.
-                            // Done AFTER the scan so the list is never temporarily empty.
+                            // Prune derived addresses that are no longer in the found set,
+                            // but ONLY if they were not already in the DB before this scan.
+                            // Pre-existing addresses (in existing_contacts) are kept even
+                            // when the UTXO scan finds no activity: the user may have spent
+                            // all coins, or the node may be lagging.  Deleting them here
+                            // would lose their labels permanently.
                             if let Some(ref db) = state.wallet_db {
                                 if let Ok(owned) = db.get_owned_addresses() {
                                     let found_set: std::collections::HashSet<String> =
                                         raw_addrs.iter().cloned().collect();
                                     for contact in owned {
-                                        // Only remove contacts that were HD-derived (have a
-                                        // derivation_index) and are no longer in the found set.
-                                        // Manually-added owned addresses (no index) are kept.
                                         if contact.derivation_index.is_some()
                                             && !found_set.contains(&contact.address)
+                                            && !existing_contacts.contains_key(&contact.address)
                                         {
                                             let _ = db.delete_contact(&contact.address);
                                         }
@@ -1296,7 +1317,7 @@ pub async fn run(
 
                             let newly_found = raw_addrs
                                 .iter()
-                                .filter(|a| !existing_labels.contains_key(*a))
+                                .filter(|a| !existing_contacts.contains_key(*a))
                                 .count();
                             state.addresses = raw_addrs;
                             log::info!(
@@ -1324,11 +1345,10 @@ pub async fn run(
 
                     UiEvent::GenerateAddress => {
                         if let Some(ref mut wm) = state.wallet {
-                            match wm.get_next_address() {
-                                Ok(addr) => {
-                                    let index = state.addresses.len();
+                            match wm.generate_new_address_with_index() {
+                                Ok((addr, idx)) => {
                                     state.addresses.push(addr.clone());
-                                    let label = format!("Address #{}", index);
+                                    let label = format!("Address #{}", idx);
                                     if let Some(ref db) = state.wallet_db {
                                         let now = chrono::Utc::now().timestamp();
                                         let contact = AddressContact {
@@ -1340,7 +1360,7 @@ pub async fn run(
                                             notes: None,
                                             is_default: false,
                                             is_owned: true,
-                                            derivation_index: Some(index as u32),
+                                            derivation_index: Some(idx),
                                             created_at: now,
                                             updated_at: now,
                                         };
@@ -1800,7 +1820,6 @@ pub async fn run(
                                         "Peer {} is out of consensus: {} blocks behind (at {}, network is at {}). Choose a different peer.",
                                         endpoint, lag, height, best_known
                                     )));
-                                    // Abort the switch — do not fall through.
                                     continue;
                                 }
                                 Ok(Err(e)) => {
@@ -1811,10 +1830,36 @@ pub async fn run(
                                     )));
                                     continue;
                                 }
-                                Ok(Ok(_)) | Err(_) => {
-                                    // height is within consensus, or the timeout fired (give
-                                    // the peer the benefit of the doubt and proceed).
-                                }
+                                Ok(Ok(_)) | Err(_) => {}
+                            }
+
+                            // Canonical-chain check: the probe already verified that every
+                            // peer in last_peers agrees on the reference block hash.  If the
+                            // target was on a fork it would have been removed from that list
+                            // and would not appear in the connections UI.  Re-running
+                            // getblockhash here would use a different ref_height (best_known
+                            // may have advanced) and produce a false mismatch, so we rely on
+                            // the probe's result instead.
+                            let target_on_fork = state
+                                .last_peers
+                                .iter()
+                                .find(|p| p.endpoint == endpoint)
+                                .and_then(|p| p.anchor_hash.as_ref())
+                                .zip(
+                                    state.last_peers.iter()
+                                        .find_map(|p| p.anchor_hash.as_deref().map(|h| h.to_string()))
+                                        .as_deref()
+                                )
+                                .map(|(target, canonical)| target.as_str() != canonical)
+                                .unwrap_or(false);
+
+                            if target_on_fork {
+                                log::warn!("⚠ Refusing switch to {}: fork detected via probe", endpoint);
+                                let _ = state.svc_tx.send(ServiceEvent::Error(format!(
+                                    "Peer {} is on a different chain (fork detected). Choose a different peer.",
+                                    endpoint,
+                                )));
+                                continue;
                             }
                         }
 
@@ -2292,6 +2337,74 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::ClaimCollateral {
+                        alias,
+                        collateral_txid,
+                        collateral_vout,
+                    } => {
+                        if let (Some(ref client), Some(ref mut wm)) =
+                            (&state.client, &mut state.wallet)
+                        {
+                            // Find the HD keypair that owns the collateral UTXO
+                            let addr_to_index: std::collections::HashMap<String, u32> =
+                                (0..wm.get_address_count())
+                                    .filter_map(|i| wm.derive_address(i).ok().map(|a| (a, i)))
+                                    .collect();
+
+                            // Locate the collateral UTXO owner by scanning wallet addresses
+                            let mut collateral_kp = None;
+                            'outer: for addr in &state.addresses {
+                                if let Ok(utxos) = client.get_utxos(addr).await {
+                                    for u in &utxos {
+                                        if u.txid == collateral_txid && u.vout == collateral_vout {
+                                            if let Some(&idx) = addr_to_index.get(addr) {
+                                                collateral_kp = wm.derive_keypair(idx).ok();
+                                            }
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+                            }
+
+                            match collateral_kp {
+                                Some(kp) => {
+                                    // Build the proof message and sign it
+                                    let proof_msg = format!(
+                                        "TIME_COLLATERAL_CLAIM:{}:{}",
+                                        collateral_txid, collateral_vout
+                                    );
+                                    let sig_bytes = kp.sign(proof_msg.as_bytes());
+                                    let proof_hex = hex::encode(&sig_bytes);
+
+                                    match client
+                                        .submit_collateral_proof(
+                                            &collateral_txid,
+                                            collateral_vout,
+                                            &proof_hex,
+                                        )
+                                        .await
+                                    {
+                                        Ok(()) => {
+                                            let _ = state.svc_tx.send(
+                                                ServiceEvent::CollateralClaimed { alias },
+                                            );
+                                        }
+                                        Err(e) => {
+                                            let _ = state.svc_tx.send(ServiceEvent::Error(
+                                                format!("Failed to submit collateral proof: {}", e),
+                                            ));
+                                        }
+                                    }
+                                }
+                                None => {
+                                    let _ = state.svc_tx.send(ServiceEvent::Error(
+                                        "Collateral UTXO not found in this wallet".into(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
                     UiEvent::UpdateMasternodePayout {
                         masternode_id,
                         new_payout_address,
@@ -2535,7 +2648,14 @@ pub async fn run(
                                     const MAX_SCAN: u32 = 200;
 
                                     // Pre-derive candidates (sync, CPU-only, fast).
-                                    let start_idx = state.addresses.len() as u32; // typically 1
+                                    // Start scan from the next underived index so gaps
+                                    // (deleted addresses) don't cause addresses beyond
+                                    // the gap to be re-scanned unnecessarily.
+                                    let start_idx = state
+                                        .wallet
+                                        .as_ref()
+                                        .map(|wm| wm.get_address_count())
+                                        .unwrap_or_else(|| state.addresses.len() as u32);
                                     let candidates: Vec<(u32, String)> = state
                                         .wallet
                                         .as_ref()
@@ -2946,6 +3066,7 @@ async fn discover_peers(
                 block_height,
                 version,
                 tier,
+                anchor_hash: None,
             }
         }));
     }
@@ -3017,6 +3138,84 @@ async fn discover_peers(
             }
             ok
         });
+    }
+
+    // ── Canonical-chain (fork) filter ────────────────────────────────────────
+    // Height alone cannot detect a peer on a hard fork that happens to be at
+    // the same height as the canonical chain.  Ask every height-passing peer
+    // for the hash of a well-settled reference block (`best_height -
+    // CONSENSUS_LAG`).  All honest nodes on the same chain must agree on this
+    // hash; nodes that return a different value are on a fork and are dropped.
+    if best_height > CONSENSUS_LAG && peer_infos.len() > 1 {
+        let ref_height = best_height - CONSENSUS_LAG;
+        let creds_clone = rpc_credentials.clone();
+
+        // Fetch getblockhash(ref_height) from every surviving peer in parallel.
+        let hash_handles: Vec<(String, tokio::task::JoinHandle<Option<String>>)> = peer_infos
+            .iter()
+            .map(|p| {
+                let ep = p.endpoint.clone();
+                let c = MasternodeClient::new(ep.clone(), creds_clone.clone());
+                let h = tokio::spawn(async move {
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(4),
+                        c.get_block_hash_at(ref_height),
+                    )
+                    .await
+                    .ok()
+                    .and_then(|r| r.ok())
+                });
+                (ep, h)
+            })
+            .collect();
+
+        // Collect results: endpoint → reported hash at ref_height.
+        let mut ep_to_hash: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for (ep, handle) in hash_handles {
+            if let Ok(Some(hash)) = handle.await {
+                ep_to_hash.insert(ep, hash);
+            }
+        }
+
+        // Majority vote: the most common hash among responding peers is canonical.
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for hash in ep_to_hash.values() {
+            *counts.entry(hash.as_str()).or_insert(0) += 1;
+        }
+        let canonical_hash = counts
+            .into_iter()
+            .max_by_key(|&(_, c)| c)
+            .map(|(h, _)| h.to_string());
+
+        if let Some(ref canonical) = canonical_hash {
+            // Stamp each peer with the hash it returned, then drop those on a fork.
+            for peer in &mut peer_infos {
+                peer.anchor_hash = ep_to_hash.get(&peer.endpoint).cloned();
+            }
+            peer_infos.retain(|p| {
+                match p.anchor_hash.as_deref() {
+                    Some(h) if h != canonical => {
+                        log::warn!(
+                            "⚠ Dropping fork peer {}: block {} hash {} != canonical {}",
+                            p.endpoint,
+                            ref_height,
+                            h,
+                            canonical,
+                        );
+                        false
+                    }
+                    // Peer returned the canonical hash, or timed out (give benefit of doubt).
+                    _ => true,
+                }
+            });
+            log::info!(
+                "🔗 Fork check at height {}: canonical hash {}…, {} peers on canonical chain",
+                ref_height,
+                &canonical[..canonical.len().min(12)],
+                peer_infos.len(),
+            );
+        }
     }
 
     if peer_infos.len() > max_connections {
@@ -3178,6 +3377,7 @@ async fn discover_peers(
                     block_height,
                     version,
                     tier,
+                    anchor_hash: None,
                 }
             }));
         }
@@ -3344,17 +3544,67 @@ impl ServiceState {
                 db_indices.sort_unstable();
                 db_indices.dedup();
 
+                // Recover contacts whose derivation_index is absent or incorrect.
+                // An incorrect index arises when the old GenerateAddress code stored
+                // addresses.len() instead of the actual HD index; derive_address(wrong)
+                // then returns a different address so the real address is never loaded.
+                // This scan is CPU-only (no network) and runs synchronously at startup.
+                {
+                    let needs_recovery: Vec<&crate::wallet_db::AddressContact> = owned_from_db
+                        .iter()
+                        .filter(|c| match c.derivation_index {
+                            None => true,
+                            Some(i) => {
+                                wm.derive_address(i).ok().as_deref() != Some(c.address.as_str())
+                            }
+                        })
+                        .collect();
+                    if !needs_recovery.is_empty() {
+                        let max_scan = db_indices.last().copied().unwrap_or(0).saturating_add(50);
+                        let unresolved: std::collections::HashSet<&str> =
+                            needs_recovery.iter().map(|c| c.address.as_str()).collect();
+                        // Do NOT skip indices already in db_indices: the correct index for
+                        // a needs_recovery contact may coincide with a wrongly-assigned entry.
+                        for probe in 0..=max_scan {
+                            if let Ok(candidate) = wm.derive_address(probe) {
+                                if unresolved.contains(candidate.as_str()) {
+                                    if let Some(contact) =
+                                        needs_recovery.iter().find(|c| c.address == candidate)
+                                    {
+                                        let mut updated = (*contact).clone();
+                                        updated.derivation_index = Some(probe);
+                                        updated.updated_at = chrono::Utc::now().timestamp();
+                                        if let Some(ref db) = self.wallet_db {
+                                            let _ = db.save_contact(&updated);
+                                        }
+                                        db_indices.push(probe);
+                                        log::info!(
+                                            "Recovered derivation index {} for address …{}",
+                                            probe,
+                                            &candidate[candidate.len().saturating_sub(8)..]
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        db_indices.sort_unstable();
+                        db_indices.dedup();
+                    }
+                }
+
                 // Advance the counter past the highest known index so the next
                 // generated address does not collide with any existing one.
                 if let Some(&max_idx) = db_indices.last() {
                     wm.sync_address_index(max_idx);
                 }
 
+                // Always scan beyond the highest known index after connecting so that
+                // addresses with on-chain activity not yet in the DB are discovered.
+                self.pending_address_scan = true;
+
                 // Build the active address set.
                 // First run: no DB entries yet — create the primary address and persist it.
                 let raw_addrs: Vec<String> = if db_indices.is_empty() {
-                    // Flag that we should scan for more addresses once connected.
-                    self.pending_address_scan = true;
                     match wm.get_next_address() {
                         Ok(addr) => {
                             if let Some(ref db) = self.wallet_db {
@@ -4146,32 +4396,44 @@ async fn mn_backfill_via_gettxout(
         Ok(e) => e,
         Err(_) => return,
     };
-    let missing: Vec<_> = entries
+    let to_check: Vec<_> = entries
         .into_iter()
-        .filter(|e| e.collateral_amount.is_none() && !e.collateral_txid.is_empty())
+        .filter(|e| !e.collateral_txid.is_empty())
         .collect();
-    if missing.is_empty() {
+    if to_check.is_empty() {
         return;
     }
     let mut updated = false;
-    for mut entry in missing {
+    let mut spent_keys: Vec<String> = Vec::new();
+    for mut entry in to_check {
         match client
             .get_tx_out(&entry.collateral_txid, entry.collateral_vout)
             .await
         {
             Ok(Some((sats, _addr))) => {
-                entry.collateral_amount = Some(sats);
-                let _ = db.save_masternode_entry(&entry);
-                log::info!("💾 startup: backfilled {} sats for '{}'", sats, entry.alias);
-                updated = true;
+                if entry.collateral_amount.is_none() {
+                    entry.collateral_amount = Some(sats);
+                    let _ = db.save_masternode_entry(&entry);
+                    log::info!("💾 startup: backfilled {} sats for '{}'", sats, entry.alias);
+                    updated = true;
+                }
             }
             Ok(None) => {
-                log::warn!(
-                    "gettxout null for '{}' ({}:{})",
-                    entry.alias,
-                    entry.collateral_txid,
-                    entry.collateral_vout
-                );
+                // gettxout returned null — the UTXO no longer exists on-chain.
+                // Only flag as spent if we previously knew the collateral amount;
+                // a null on a brand-new entry just means the amount isn't synced yet.
+                if entry.collateral_amount.is_some() {
+                    let key = format!("{}:{}", entry.collateral_txid, entry.collateral_vout);
+                    log::warn!("⚠ Collateral UTXO spent for '{}' ({})", entry.alias, key,);
+                    spent_keys.push(key);
+                } else {
+                    log::warn!(
+                        "gettxout null for '{}' ({}:{})",
+                        entry.alias,
+                        entry.collateral_txid,
+                        entry.collateral_vout
+                    );
+                }
             }
             Err(e) => {
                 log::warn!("gettxout error for '{}': {}", entry.alias, e);
@@ -4183,6 +4445,9 @@ async fn mn_backfill_via_gettxout(
             all.sort_by(|a, b| a.alias.cmp(&b.alias));
             let _ = svc_tx.send(ServiceEvent::MasternodeEntriesLoaded(all));
         }
+    }
+    if !spent_keys.is_empty() {
+        let _ = svc_tx.send(ServiceEvent::MasternodeCollateralSpent(spent_keys));
     }
 }
 

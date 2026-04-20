@@ -612,6 +612,26 @@ impl MasternodeClient {
         Ok(txid)
     }
 
+    /// Submit a V4 collateral-claim proof to the daemon.
+    ///
+    /// `proof_hex` is the hex-encoded 64-byte Ed25519 signature over
+    /// `"TIME_COLLATERAL_CLAIM:{txid_hex}:{vout}"` produced by the collateral key.
+    /// The daemon stores the proof and includes it in subsequent
+    /// `MasternodeAnnouncementV4` messages, allowing it to evict any squatter.
+    pub async fn submit_collateral_proof(
+        &self,
+        txid_hex: &str,
+        vout: u32,
+        proof_hex: &str,
+    ) -> Result<(), ClientError> {
+        self.rpc_call(
+            "submitcollateralproof",
+            serde_json::json!([txid_hex, vout, proof_hex]),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Validate an address
     pub async fn validate_address(&self, address: &str) -> Result<bool, ClientError> {
         let result = self
@@ -841,6 +861,11 @@ impl MasternodeClient {
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
 
+        let best_block_hash = result
+            .get("bestblockhash")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         let status = HealthStatus {
             status: if is_syncing {
                 "syncing".to_string()
@@ -852,6 +877,7 @@ impl MasternodeClient {
             peer_count,
             is_syncing,
             sync_progress,
+            best_block_hash,
         };
 
         log::info!(
@@ -905,6 +931,20 @@ impl MasternodeClient {
 
         let height = result.as_u64().unwrap_or(0);
         Ok(height)
+    }
+
+    /// Get the block hash at a specific height.  Used to verify that two nodes
+    /// are on the same chain — nodes on different forks disagree on this hash.
+    pub async fn get_block_hash_at(&self, height: u64) -> Result<String, ClientError> {
+        let result = self
+            .rpc_call("getblockhash", serde_json::json!([height]))
+            .await?;
+        result
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or(ClientError::InvalidResponse(
+                "getblockhash returned non-string".to_string(),
+            ))
     }
 
     /// Query instant finality status for a transaction
@@ -1111,6 +1151,8 @@ pub struct HealthStatus {
     pub is_syncing: bool,
     /// Sync progress 0.0–1.0 (1.0 when fully synced).
     pub sync_progress: f64,
+    /// Hash of the tip block (`bestblockhash` from getblockchaininfo).
+    pub best_block_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

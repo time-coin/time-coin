@@ -170,7 +170,7 @@ pub fn render(
                             }
                             None => {
                                 ui.colored_label(
-                                    Color32::YELLOW,
+                                    Color32::from_rgb(255, 160, 50),
                                     format!(
                                         "⚠ Collateral {:.0} TIME is below Bronze minimum (1,000 TIME)",
                                         amount_time
@@ -241,6 +241,7 @@ pub fn render(
         let mut optimistic_update: Option<(String, MasternodeEntry)> = None; // (old_alias, new_entry)
         let mut register_event: Option<UiEvent> = None;
         let mut deregister_event: Option<UiEvent> = None;
+        let mut claim_event: Option<UiEvent> = None;
 
         for entry in &state.masternode_entries {
             // Resolve collateral amount: live UTXO first, cached amount as fallback.
@@ -251,6 +252,8 @@ pub fn render(
                 .map(|u| u.amount);
             let effective_amount = live_amount.or(entry.collateral_amount);
             let tier = effective_amount.and_then(masternode_tier_from_satoshis);
+            let collateral_key = format!("{}:{}", entry.collateral_txid, entry.collateral_vout);
+            let collateral_spent = state.mn_collateral_spent.contains(&collateral_key);
 
             egui::Frame::group(ui.style())
                 .inner_margin(10.0)
@@ -258,19 +261,32 @@ pub fn render(
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&entry.alias).strong().size(16.0));
                         // Tier badge
-                        match tier {
-                            Some(t) => {
-                                let (label, color) = tier_label(t);
-                                ui.label(RichText::new(label).color(color).strong());
-                            }
-                            None => {
-                                match effective_amount {
-                                    Some(_) => {
-                                        ui.label(RichText::new("⚠ Below threshold").color(Color32::YELLOW));
-                                    }
-                                    None => {
-                                        ui.label(RichText::new("? Tier pending").color(Color32::GRAY))
-                                            .on_hover_text("Collateral UTXO not yet fetched — tier will appear after the next sync");
+                        if collateral_spent {
+                            ui.label(
+                                RichText::new("⚠ COLLATERAL SPENT")
+                                    .color(Color32::from_rgb(220, 60, 60))
+                                    .strong(),
+                            )
+                            .on_hover_text(
+                                "The collateral UTXO for this masternode is no longer on-chain. \
+                                 The masternode will be deactivated by the network. \
+                                 Send a new collateral transaction and update this entry.",
+                            );
+                        } else {
+                            match tier {
+                                Some(t) => {
+                                    let (label, color) = tier_label(t);
+                                    ui.label(RichText::new(label).color(color).strong());
+                                }
+                                None => {
+                                    match effective_amount {
+                                        Some(_) => {
+                                            ui.label(RichText::new("⚠ Below threshold").color(Color32::from_rgb(255, 160, 50)));
+                                        }
+                                        None => {
+                                            ui.label(RichText::new("? Tier pending").color(Color32::GRAY))
+                                                .on_hover_text("Collateral UTXO not yet fetched — tier will appear after the next sync");
+                                        }
                                     }
                                 }
                             }
@@ -339,7 +355,7 @@ pub fn render(
 
                         let reg_open = state.mn_reg_alias.as_deref() == Some(&entry.alias);
                         if entry.reg_txid.is_some() {
-                            // Already registered — show Deregister button
+                            // Already registered — show Deregister + Claim Collateral buttons
                             if ui
                                 .button(RichText::new("🔓 Deregister").color(Color32::from_rgb(220, 80, 80)))
                                 .on_hover_text("Broadcast a CollateralUnlock transaction to remove this masternode from the chain.")
@@ -350,6 +366,21 @@ pub fn render(
                                     collateral_txid: entry.collateral_txid.clone(),
                                     collateral_vout: entry.collateral_vout,
                                     masternode_ip: entry.registered_ip.clone().unwrap_or_default(),
+                                });
+                            }
+                            if ui
+                                .button(RichText::new("🔑 Claim Collateral").color(Color32::from_rgb(255, 160, 50)))
+                                .on_hover_text(
+                                    "Signs a V4 collateral-claim proof with your wallet key and submits it \
+                                     to the daemon. The daemon will then broadcast a MasternodeAnnouncementV4 \
+                                     that evicts any squatter holding the sled anchor for this collateral.",
+                                )
+                                .clicked()
+                            {
+                                claim_event = Some(UiEvent::ClaimCollateral {
+                                    alias: entry.alias.clone(),
+                                    collateral_txid: entry.collateral_txid.clone(),
+                                    collateral_vout: entry.collateral_vout,
                                 });
                             }
                         } else {
@@ -484,7 +515,7 @@ pub fn render(
                                 ).size(11.0).color(ui.visuals().weak_text_color()));
                                 ui.label(RichText::new(
                                     "⚠ 0.01 TIME registration fee. Your collateral is not spent or moved."
-                                ).size(11.0).color(Color32::YELLOW));
+                                ).size(11.0).color(Color32::from_rgb(255, 160, 50)));
                                 ui.add_space(6.0);
                                 egui::Grid::new(format!("mn_reg_{}", entry.alias))
                                     .num_columns(2)
@@ -560,6 +591,9 @@ pub fn render(
             let _ = ui_tx.send(event);
         }
         if let Some(event) = deregister_event {
+            let _ = ui_tx.send(event);
+        }
+        if let Some(event) = claim_event {
             let _ = ui_tx.send(event);
         }
         if let Some((old_alias, new_entry)) = optimistic_update {

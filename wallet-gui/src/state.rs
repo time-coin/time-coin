@@ -53,6 +53,9 @@ pub struct PeerInfo {
     pub tier: Option<String>,
     /// True when the masternode is still performing initial block download.
     pub is_syncing: bool,
+    /// Hash of a well-settled reference block used for fork detection.
+    /// `None` until the canonical-chain check has run.
+    pub anchor_hash: Option<String>,
 }
 
 /// Information about a wallet address with its user-assigned label.
@@ -204,6 +207,8 @@ pub struct AppState {
 
     // -- Masternodes --
     pub masternode_entries: Vec<crate::wallet_db::MasternodeEntry>,
+    /// Keys ("txid:vout") of masternode collateral UTXOs that are confirmed spent.
+    pub mn_collateral_spent: std::collections::HashSet<String>,
     pub mn_add_name: String,
     pub mn_add_txid: String,
     pub mn_add_vout: String,
@@ -367,6 +372,7 @@ impl Default for AppState {
             show_encrypt_dialog: false,
             resync_in_progress: false,
             masternode_entries: Vec::new(),
+            mn_collateral_spent: std::collections::HashSet::new(),
             mn_add_name: String::new(),
             mn_add_txid: String::new(),
             mn_add_vout: "0".to_string(),
@@ -1395,6 +1401,7 @@ impl AppState {
                         peer_count: 0,
                         is_syncing: false,
                         sync_progress: 1.0,
+                        best_block_hash: None,
                     });
                 }
                 // Update the active peer's block height in the connections list
@@ -1493,6 +1500,12 @@ impl AppState {
                 self.masternode_entries = entries;
             }
 
+            ServiceEvent::MasternodeCollateralSpent(keys) => {
+                for key in keys {
+                    self.mn_collateral_spent.insert(key);
+                }
+            }
+
             ServiceEvent::MasternodeRegistered { alias, txid } => {
                 self.success = Some(format!(
                     "Masternode '{}' registration broadcast (txid: {})",
@@ -1502,8 +1515,12 @@ impl AppState {
             }
 
             ServiceEvent::MasternodeDeregistered { alias } => {
+                self.success = Some(format!("Masternode '{}' deregistration broadcast.", alias));
+            }
+
+            ServiceEvent::CollateralClaimed { alias } => {
                 self.success = Some(format!(
-                    "Masternode '{}' deregistration broadcast.",
+                    "Collateral proof submitted for '{}'. Daemon will use V4 announcement to evict squatter.",
                     alias
                 ));
             }

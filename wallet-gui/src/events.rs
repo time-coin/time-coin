@@ -245,6 +245,16 @@ pub enum UiEvent {
     /// scanning the blockchain for any funded addresses (gap-limit aware).
     /// Preserves existing labels where the address string matches.
     RebuildAddresses,
+
+    /// Sign a V4 collateral-claim proof with the collateral key and submit it
+    /// to the daemon via `submitcollateralproof` RPC.  The daemon will then
+    /// include the proof in future `MasternodeAnnouncementV4` broadcasts,
+    /// evicting any squatter that holds the sled anchor for this outpoint.
+    ClaimCollateral {
+        alias: String,
+        collateral_txid: String,
+        collateral_vout: u32,
+    },
 }
 
 /// Screens the wallet can display.
@@ -398,6 +408,9 @@ pub enum ServiceEvent {
     /// Masternode entries loaded from database.
     MasternodeEntriesLoaded(Vec<crate::wallet_db::MasternodeEntry>),
 
+    /// Collateral UTXOs confirmed spent on-chain. Each entry is "txid:vout".
+    MasternodeCollateralSpent(Vec<String>),
+
     /// Masternode registration transaction broadcast successfully.
     MasternodeRegistered {
         alias: String,
@@ -472,5 +485,10 @@ pub enum ServiceEvent {
     AddressesDiscovered {
         /// Number of addresses recovered.
         count: usize,
+    },
+
+    /// V4 collateral-claim proof submitted to the daemon successfully.
+    CollateralClaimed {
+        alias: String,
     },
 }
