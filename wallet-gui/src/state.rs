@@ -952,7 +952,12 @@ impl AppState {
                 // If the destination is one of our own addresses and the RPC
                 // doesn't already include a receive entry, add one so the
                 // transaction history shows the full picture.
+                // Consolidations are excluded: all inputs AND outputs are ours,
+                // so synthesizing a receive would double-count income.
                 for (txid, send_tx) in &local_sends {
+                    if send_tx.is_consolidation {
+                        continue; // consolidations don't produce a separate receive entry
+                    }
                     if !own_addrs.contains(send_tx.address.as_str()) {
                         continue; // not a self-send
                     }

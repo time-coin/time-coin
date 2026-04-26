@@ -409,7 +409,11 @@ impl MasternodeClient {
                 };
 
                 let vout = tx.get("vout").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                let is_send = category == "send";
+                // "consolidate" is a self-send — treat it as a send so that the
+                // (txid, is_send, vout) key matches the locally-inserted send record,
+                // preventing a duplicate entry and the stale RPC entry from being
+                // misclassified as income by the self-send receive synthesis logic.
+                let is_send = category == "send" || category == "consolidate";
                 let address = tx
                     .get("address")
                     .and_then(|v| v.as_str())
