@@ -986,12 +986,29 @@ impl AppState {
                     }
                 }
 
+                // Build the set of txids that have a send entry in the processed list,
+                // so stale ws_only receive entries for those txids can be dropped below.
+                let processed_send_txids: std::collections::HashSet<String> = self
+                    .transactions
+                    .iter()
+                    .filter(|t| t.is_send && !t.is_fee)
+                    .map(|t| t.txid.clone())
+                    .collect();
+
                 // Append WS-only txs (dedup against existing entries).
                 // During resync, drop WS-only receives — the RPC is authoritative
                 // and keeping stale WS entries can introduce phantom balances.
+                // Also drop stale receive entries for txids we now know as sends
+                // (e.g. old synthesized consolidation receives from pre-fix state).
                 for tx in ws_only.into_iter().rev() {
                     if self.resync_in_progress && !tx.is_send && !tx.is_fee {
                         continue;
+                    }
+                    if !tx.is_send
+                        && !tx.is_fee
+                        && processed_send_txids.contains(&tx.txid)
+                    {
+                        continue; // stale receive for a known send — drop it
                     }
                     let dup = self.transactions.iter().any(|t| {
                         t.txid == tx.txid
