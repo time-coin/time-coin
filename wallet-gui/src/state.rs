@@ -948,18 +948,16 @@ impl AppState {
                 // Remove change outputs — they're internal and shouldn't be shown
                 self.transactions.retain(|t| !t.is_change);
 
-                // Synthesize missing receive entries for send-to-self transactions.
-                // If the destination is one of our own addresses and the RPC
-                // doesn't already include a receive entry, add one so the
-                // transaction history shows the full picture.
-                // Consolidations are excluded: all inputs AND outputs are ours,
-                // so synthesizing a receive would double-count income.
+                // Synthesize missing receive entries for self-sends and consolidation
+                // transactions. For regular self-sends the destination address must be
+                // one of our own. For consolidations we always synthesize a receive and
+                // mark it is_consolidation=true — so it appears in the transaction list
+                // (showing funds returning to the wallet) but is skipped by balance
+                // computation, meaning only the fee deducts from the balance.
                 for (txid, send_tx) in &local_sends {
-                    if send_tx.is_consolidation {
-                        continue; // consolidations don't produce a separate receive entry
-                    }
-                    if !own_addrs.contains(send_tx.address.as_str()) {
-                        continue; // not a self-send
+                    let is_self_send = own_addrs.contains(send_tx.address.as_str());
+                    if !send_tx.is_consolidation && !is_self_send {
+                        continue; // not a self-send and not a consolidation
                     }
                     let has_receive = self
                         .transactions
@@ -981,7 +979,55 @@ impl AppState {
                             block_height: 0,
                             confirmations: 0,
                             memo: send_tx.memo.clone(),
-                            is_consolidation: false,
+                            is_consolidation: send_tx.is_consolidation,
+                        });
+                    }
+                }
+
+                // Synthesize receive entries for consolidation transactions loaded purely
+                // from RPC (no matching local send record — e.g. after resync or on a
+                // different device). Tagged is_consolidation=true so balance is unaffected.
+                let rpc_consolidations: Vec<(String, String, u64, i64, TransactionStatus)> = self
+                    .transactions
+                    .iter()
+                    .filter(|t| {
+                        t.is_send
+                            && !t.is_fee
+                            && t.is_consolidation
+                            && !local_sends.contains_key(&t.txid)
+                    })
+                    .map(|t| {
+                        (
+                            t.txid.clone(),
+                            t.address.clone(),
+                            t.amount,
+                            t.timestamp,
+                            t.status.clone(),
+                        )
+                    })
+                    .collect();
+                for (txid, address, amount, timestamp, status) in rpc_consolidations {
+                    let has_receive = self
+                        .transactions
+                        .iter()
+                        .any(|t| t.txid == txid && !t.is_send && !t.is_fee);
+                    if !has_receive {
+                        self.transactions.push(TransactionRecord {
+                            txid,
+                            vout: 0,
+                            is_send: false,
+                            address,
+                            amount,
+                            fee: 0,
+                            timestamp,
+                            status,
+                            is_fee: false,
+                            is_change: false,
+                            block_hash: String::new(),
+                            block_height: 0,
+                            confirmations: 0,
+                            memo: None,
+                            is_consolidation: true,
                         });
                     }
                 }
