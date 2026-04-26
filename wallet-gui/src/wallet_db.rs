@@ -714,11 +714,11 @@ pub const BRONZE_COLLATERAL_SATS: u64 = 1_000 * 100_000_000;
 ///
 /// Returns `Some("Gold")`, `Some("Silver")`, `Some("Bronze")`, or `None` if below threshold.
 pub fn masternode_tier_from_satoshis(amount: u64) -> Option<&'static str> {
-    if amount >= GOLD_COLLATERAL_SATS {
+    if amount == GOLD_COLLATERAL_SATS {
         Some("Gold")
-    } else if amount >= SILVER_COLLATERAL_SATS {
+    } else if amount == SILVER_COLLATERAL_SATS {
         Some("Silver")
-    } else if amount >= BRONZE_COLLATERAL_SATS {
+    } else if amount == BRONZE_COLLATERAL_SATS {
         Some("Bronze")
     } else {
         None

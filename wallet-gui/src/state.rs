@@ -125,7 +125,7 @@ pub struct AppState {
     /// only scans newly-added blocks.  0 = not yet synced (full scan needed).
     pub last_synced_height: u64,
     pub transactions: Vec<TransactionRecord>,
-    pub selected_transaction: Option<usize>,
+    pub selected_transaction: Option<(String, bool, bool, u32)>, // (txid, is_send, is_fee, vout)
     pub tx_search: String,
     pub tx_page: usize,
     /// Tracks which field was last copied and when, for "Copied!" feedback.

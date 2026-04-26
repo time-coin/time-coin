@@ -12,9 +12,13 @@ use crate::wallet_db::masternode_tier_from_satoshis;
 
 /// Render the transactions screen.
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
-    // If a transaction is selected and still exists, show its detail view.
-    if let Some(idx) = state.selected_transaction {
-        if idx < state.transactions.len() {
+    // If a transaction is selected and still exists in the list, show its detail view.
+    if let Some(ref key) = state.selected_transaction.clone() {
+        let exists = state
+            .transactions
+            .iter()
+            .any(|t| t.txid == key.0 && t.is_send == key.1 && t.is_fee == key.2 && t.vout == key.3);
+        if exists {
             show_detail(ui, state, ui_tx);
             return;
         } else {
@@ -27,10 +31,19 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
 /// Detail view for a single transaction.
 fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
-    // Look up by index for correct entry even when txid is shared (e.g. fee vs send).
-    let tx = match state.selected_transaction {
-        Some(idx) if idx < state.transactions.len() => state.transactions[idx].clone(),
-        _ => {
+    // Look up by stable key (txid, is_send, is_fee, vout) so the view doesn't shift
+    // when new transactions are inserted at the front of the list.
+    let key = state.selected_transaction.clone();
+    let tx = key.as_ref().and_then(|(txid, is_send, is_fee, vout)| {
+        state
+            .transactions
+            .iter()
+            .find(|t| t.txid == *txid && t.is_send == *is_send && t.is_fee == *is_fee && t.vout == *vout)
+            .cloned()
+    });
+    let tx = match tx {
+        Some(t) => t,
+        None => {
             state.selected_transaction = None;
             return;
         }
@@ -738,7 +751,8 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         });
 
     if let Some(idx) = clicked_idx {
-        state.selected_transaction = Some(idx);
+        let tx = &state.transactions[idx];
+        state.selected_transaction = Some((tx.txid.clone(), tx.is_send, tx.is_fee, tx.vout));
         state.block_reward_breakdown = None;
         state.block_reward_breakdown_loading = false;
     }

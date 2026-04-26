@@ -576,7 +576,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
 
         // Navigate to transaction detail
         if let Some(idx) = clicked_idx {
-            state.selected_transaction = Some(idx);
+            let tx = &state.transactions[idx];
+            state.selected_transaction = Some((tx.txid.clone(), tx.is_send, tx.is_fee, tx.vout));
             state.screen = Screen::Transactions;
             let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::Transactions));
         }
