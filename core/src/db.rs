@@ -498,6 +498,23 @@ impl BlockchainDB {
         Ok(())
     }
 
+    /// Return all addresses that have a stored wallet balance entry.
+    /// Used by rollback to find stale fork balances that must be zeroed out.
+    pub fn get_all_wallet_balance_addresses(&self) -> Result<Vec<String>, StateError> {
+        let prefix = b"wallet_balance:";
+        let mut addresses = Vec::new();
+        for item in self.db.scan_prefix(prefix) {
+            let (key, _) = item
+                .map_err(|e| StateError::IoError(format!("Failed to scan wallet balances: {}", e)))?;
+            if let Ok(key_str) = std::str::from_utf8(&key) {
+                if let Some(addr) = key_str.strip_prefix("wallet_balance:") {
+                    addresses.push(addr.to_string());
+                }
+            }
+        }
+        Ok(addresses)
+    }
+
     /// Load wallet balance from database
     pub fn load_wallet_balance(&self, address: &str) -> Result<Option<u64>, StateError> {
         let key = format!("wallet_balance:{}", address);

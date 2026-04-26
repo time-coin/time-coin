@@ -1328,13 +1328,15 @@ impl BlockchainState {
         }
     }
 
-    /// Recalculate ALL wallet balances from the current UTXO set
-    /// This should be called on node startup after loading the blockchain
+    /// Recalculate ALL wallet balances from the current UTXO set.
+    /// Also zeroes out any stored balance for addresses no longer present in the
+    /// UTXO set, which is the key step needed after a chain rollback to prevent
+    /// stale fork-block rewards from remaining visible in the wallet.
     fn recalculate_all_wallet_balances(&mut self) -> Result<(), StateError> {
         eprintln!("🔄 Recalculating wallet balances from UTXO set...");
 
-        // Get all unique addresses from the UTXO set
-        let addresses: std::collections::HashSet<String> = self
+        // Addresses that currently have at least one UTXO
+        let addresses_with_utxos: std::collections::HashSet<String> = self
             .utxo_set
             .utxos()
             .values()
@@ -1342,16 +1344,33 @@ impl BlockchainState {
             .collect();
 
         let mut updated_count = 0;
-        for address in addresses {
+        for address in &addresses_with_utxos {
             if address == "TREASURY" || address == "BURNED" {
                 continue;
             }
-
-            let balance = self.utxo_set.get_balance(&address);
+            let balance = self.utxo_set.get_balance(address);
             if balance > 0 {
-                self.db.save_wallet_balance(&address, balance)?;
+                self.db.save_wallet_balance(address, balance)?;
                 updated_count += 1;
             }
+        }
+
+        // Zero out any address that had a persisted balance but no longer has
+        // UTXOs (e.g. the fork-block reward address after a rollback).
+        let stored_addresses = self.db.get_all_wallet_balance_addresses()?;
+        let mut zeroed_count = 0usize;
+        for address in stored_addresses {
+            if !addresses_with_utxos.contains(&address) {
+                self.db.save_wallet_balance(&address, 0)?;
+                zeroed_count += 1;
+            }
+        }
+
+        if zeroed_count > 0 {
+            eprintln!(
+                "   🧹 Zeroed {} stale wallet balance(s) (fork/rollback cleanup)",
+                zeroed_count
+            );
         }
 
         eprintln!("✅ Recalculated {} wallet balances", updated_count);
@@ -1664,6 +1683,10 @@ impl BlockchainState {
             // CRITICAL FIX: Save UTXO snapshot after rollback
             println!("      💾 Saving UTXO snapshot...");
             self.save_utxo_snapshot()?;
+
+            // CRITICAL FIX: Flush correct wallet balances to DB so fork-block
+            // rewards (e.g. from a rolled-back block) are no longer visible.
+            self.recalculate_all_wallet_balances()?;
 
             // CRITICAL FIX: Verify target block exists in database
             match self.db.load_block(target_height) {
