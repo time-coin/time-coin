@@ -2470,10 +2470,21 @@ pub async fn run(
                             .and_then(|db| db.get_send_records().ok())
                             .and_then(|recs| recs.get(&notification.txid).cloned());
                         let is_own_addr = state.addresses.contains(&notification.address);
-                        let is_consolidation = state.consolidation_txids
-                            .lock()
-                            .unwrap()
-                            .contains(&notification.txid);
+                        // Race condition guard: WS events arrive before broadcast_transaction RPC
+                        // returns, so the txid may not be in consolidation_txids yet. If
+                        // consolidation is active and the output lands on our own address, treat it
+                        // as consolidation change and register the txid now so later events match.
+                        let is_consolidation = {
+                            let mut ids = state.consolidation_txids.lock().unwrap();
+                            let known = ids.contains(&notification.txid);
+                            let active = state.consolidation_active.load(Ordering::Relaxed);
+                            if !known && active && is_own_addr {
+                                ids.insert(notification.txid.clone());
+                                true
+                            } else {
+                                known
+                            }
+                        };
                         let is_change = if is_consolidation {
                             true // consolidation output — always change
                         } else if let Some(ref sr) = send_record {
@@ -2538,10 +2549,18 @@ pub async fn run(
                             .and_then(|db| db.get_send_records().ok())
                             .and_then(|recs| recs.get(&notif.txid).cloned());
                         let is_own_addr = state.addresses.contains(&notif.address);
-                        let is_consolidation = state.consolidation_txids
-                            .lock()
-                            .unwrap()
-                            .contains(&notif.txid);
+                        // Same race condition guard as TransactionReceived: register txid early.
+                        let is_consolidation = {
+                            let mut ids = state.consolidation_txids.lock().unwrap();
+                            let known = ids.contains(&notif.txid);
+                            let active = state.consolidation_active.load(Ordering::Relaxed);
+                            if !known && active && is_own_addr {
+                                ids.insert(notif.txid.clone());
+                                true
+                            } else {
+                                known
+                            }
+                        };
                         let is_change = if is_consolidation {
                             true // consolidation output — always change
                         } else if let Some(ref sr) = send_record {
