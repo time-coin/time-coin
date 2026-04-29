@@ -2481,8 +2481,14 @@ pub async fn run(
                             if !known && active && is_own_addr {
                                 ids.insert(notification.txid.clone());
                                 true
+                            } else if known {
+                                true
                             } else {
-                                known
+                                // consolidation_txids may have been cleared already; fall back to
+                                // the persisted send record — consolidation batches are saved with
+                                // is_consolidation=true so late-arriving WS events don't become
+                                // phantom receive entries.
+                                send_record.as_ref().map(|sr| sr.is_consolidation).unwrap_or(false)
                             }
                         };
                         let is_change = if is_consolidation {
@@ -2557,8 +2563,14 @@ pub async fn run(
                             if !known && active && is_own_addr {
                                 ids.insert(notif.txid.clone());
                                 true
+                            } else if known {
+                                true
                             } else {
-                                known
+                                // consolidation_txids may have been cleared already; fall back to
+                                // the persisted send record — consolidation batches are saved with
+                                // is_consolidation=true so late-arriving WS events don't become
+                                // phantom receive entries.
+                                send_record.as_ref().map(|sr| sr.is_consolidation).unwrap_or(false)
                             }
                         };
                         let is_change = if is_consolidation {
@@ -4742,6 +4754,11 @@ async fn consolidate_utxos_background(
         if let Ok(utxos) = client.get_utxos(addr).await {
             refreshed.extend(utxos);
         }
+    }
+    // Deduplicate by outpoint (txid:vout) in case multiple address fetches return overlaps.
+    {
+        let mut seen = std::collections::HashSet::new();
+        refreshed.retain(|u| seen.insert(format!("{}:{}", u.txid, u.vout)));
     }
     let _ = svc_tx.send(ServiceEvent::UtxosUpdated(refreshed));
     if let Ok(bal) = client.get_balances(&addresses).await {
