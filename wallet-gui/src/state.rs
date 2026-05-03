@@ -162,6 +162,7 @@ pub struct AppState {
     pub pr_qr_scan_error: Option<String>,
     pub block_reward_breakdown: Option<crate::masternode_client::BlockRewardBreakdown>,
     pub block_reward_breakdown_loading: bool,
+    pub block_reward_breakdown_error: Option<String>,
     pub contacts: Vec<ContactInfo>,
     pub new_contact_name: String,
     pub new_contact_address: String,
@@ -339,6 +340,7 @@ impl Default for AppState {
             pr_qr_scan_error: None,
             block_reward_breakdown: None,
             block_reward_breakdown_loading: false,
+            block_reward_breakdown_error: None,
             contacts: Vec::new(),
             new_contact_name: String::new(),
             new_contact_address: String::new(),
@@ -1646,6 +1648,13 @@ impl AppState {
             ServiceEvent::BlockRewardBreakdownLoaded(breakdown) => {
                 self.block_reward_breakdown = Some(breakdown);
                 self.block_reward_breakdown_loading = false;
+                self.block_reward_breakdown_error = None;
+            }
+
+            ServiceEvent::BlockRewardBreakdownFailed(msg) => {
+                self.block_reward_breakdown = None;
+                self.block_reward_breakdown_loading = false;
+                self.block_reward_breakdown_error = Some(msg);
             }
         }
     }
@@ -1720,6 +1729,27 @@ mod tests {
         state.apply(ServiceEvent::Error("connection failed".to_string()));
         assert!(!state.loading);
         assert_eq!(state.error.as_deref(), Some("connection failed"));
+    }
+
+    #[test]
+    fn test_block_reward_breakdown_failure_clears_loading() {
+        let mut state = AppState {
+            block_reward_breakdown_loading: true,
+            block_reward_breakdown: Some(crate::masternode_client::BlockRewardBreakdown {
+                block_height: 42,
+                rewards: vec![("TIME0abc".to_string(), 1)],
+            }),
+            ..Default::default()
+        };
+        state.apply(ServiceEvent::BlockRewardBreakdownFailed(
+            "breakdown unavailable".to_string(),
+        ));
+        assert!(!state.block_reward_breakdown_loading);
+        assert!(state.block_reward_breakdown.is_none());
+        assert_eq!(
+            state.block_reward_breakdown_error.as_deref(),
+            Some("breakdown unavailable")
+        );
     }
 
     #[test]

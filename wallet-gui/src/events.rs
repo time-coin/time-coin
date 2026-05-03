@@ -443,6 +443,9 @@ pub enum ServiceEvent {
     /// Block reward tier breakdown loaded for the detail view.
     BlockRewardBreakdownLoaded(crate::masternode_client::BlockRewardBreakdown),
 
+    /// Block reward tier breakdown failed to load for the detail view.
+    BlockRewardBreakdownFailed(String),
+
     /// Block height polled from active peer.
     BlockHeightUpdated(u64),
 

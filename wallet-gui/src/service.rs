@@ -1741,9 +1741,22 @@ pub async fn run(
                                             "Failed to fetch block reward breakdown for height {}: {}",
                                             height, e
                                         );
+                                        let _ = svc_tx.send(
+                                            ServiceEvent::BlockRewardBreakdownFailed(format!(
+                                                "Failed to load reward breakdown for block {}: {}",
+                                                height, e
+                                            )),
+                                        );
                                     }
                                 }
                             });
+                        } else {
+                            let _ = state.svc_tx.send(ServiceEvent::BlockRewardBreakdownFailed(
+                                format!(
+                                    "Failed to load reward breakdown for block {}: no masternode connection",
+                                    height
+                                ),
+                            ));
                         }
                     }
 

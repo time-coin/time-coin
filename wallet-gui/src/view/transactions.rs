@@ -270,6 +270,7 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<
         if !breakdown_matches && !state.block_reward_breakdown_loading {
             state.block_reward_breakdown_loading = true;
             state.block_reward_breakdown = None;
+            state.block_reward_breakdown_error = None;
             let _ = ui_tx.send(UiEvent::FetchBlockRewardBreakdown {
                 height: tx.block_height,
             });
@@ -280,6 +281,8 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<
                 ui.spinner();
                 ui.label("Loading reward breakdown…");
             });
+        } else if let Some(ref err) = state.block_reward_breakdown_error {
+            ui.colored_label(egui::Color32::RED, err);
         } else if let Some(ref bd) = state.block_reward_breakdown {
             // Filter to addresses owned by this wallet.
             let my_addresses: std::collections::HashSet<&str> =
@@ -757,5 +760,6 @@ fn show_list(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<Ui
         state.selected_transaction = Some((tx.txid.clone(), tx.is_send, tx.is_fee, tx.vout));
         state.block_reward_breakdown = None;
         state.block_reward_breakdown_loading = false;
+        state.block_reward_breakdown_error = None;
     }
 }
