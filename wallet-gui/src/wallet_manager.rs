@@ -297,10 +297,21 @@ impl WalletManager {
         amount: u64,
         fee: u64,
     ) -> Result<Transaction, String> {
+        self.create_transaction_with_change_address(to_address, amount, fee, None)
+    }
+
+    /// Create and validate a transaction with an optional change address override.
+    pub fn create_transaction_with_change_address(
+        &mut self,
+        to_address: &str,
+        amount: u64,
+        fee: u64,
+        change_address: Option<&str>,
+    ) -> Result<Transaction, String> {
         // Create the transaction
         let tx = self
             .active_wallet
-            .create_transaction(to_address, amount, fee)
+            .create_transaction_with_change_address(to_address, amount, fee, change_address)
             .map_err(|e| e.to_string())?;
 
         // Transaction will be validated by masternodes

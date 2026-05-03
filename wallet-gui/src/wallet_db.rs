@@ -79,7 +79,11 @@ impl WalletDb {
     /// Stored as JSON so future field additions stay backward-compatible.
     pub fn save_contact(&self, contact: &AddressContact) -> Result<(), WalletDbError> {
         let key = format!("contact:{}", contact.address);
-        let value = serde_json::to_vec(contact)?;
+        let contact_to_save = match self.get_contact(&contact.address)? {
+            Some(existing) => merge_contact(existing, contact.clone()),
+            None => contact.clone(),
+        };
+        let value = serde_json::to_vec(&contact_to_save)?;
         self.db.insert(key.as_bytes(), value)?;
         self.db.flush()?;
         Ok(())
@@ -646,6 +650,52 @@ impl WalletDb {
     }
 }
 
+fn merge_contact(existing: AddressContact, incoming: AddressContact) -> AddressContact {
+    match (existing.is_owned, incoming.is_owned) {
+        // Owned wallet addresses must stay authoritative. Saving an external
+        // contact for one of our own addresses would otherwise hide it from
+        // receive/reconcile flows because owned/external entries share the
+        // same sled key.
+        (true, false) => {
+            let mut preserved = existing;
+            preserved.updated_at = incoming.updated_at;
+            preserved
+        }
+        // If a previously-clobbered address is rediscovered as owned, keep any
+        // user-entered metadata from the existing record instead of resetting it
+        // to a generated "Address #n" label.
+        (false, true) => {
+            let mut promoted = incoming;
+            if is_generated_address_label(&promoted.label, promoted.derivation_index)
+                && !existing.label.trim().is_empty()
+            {
+                promoted.label = existing.label;
+            }
+            if promoted.name.is_none() {
+                promoted.name = existing.name;
+            }
+            if promoted.email.is_none() {
+                promoted.email = existing.email;
+            }
+            if promoted.phone.is_none() {
+                promoted.phone = existing.phone;
+            }
+            if promoted.notes.is_none() {
+                promoted.notes = existing.notes;
+            }
+            promoted.created_at = existing.created_at.min(promoted.created_at);
+            promoted
+        }
+        _ => incoming,
+    }
+}
+
+fn is_generated_address_label(label: &str, derivation_index: Option<u32>) -> bool {
+    derivation_index
+        .map(|idx| label == format!("Address #{}", idx))
+        .unwrap_or(false)
+}
+
 /// Masternode configuration entry.
 /// Stored as JSON in sled so future field additions remain backward-compatible.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -925,6 +975,105 @@ impl WalletDb {
         self.db.remove(key.as_bytes())?;
         self.db.flush()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddressContact, WalletDb};
+
+    fn test_db() -> WalletDb {
+        WalletDb {
+            db: sled::Config::new().temporary(true).open().unwrap(),
+        }
+    }
+
+    #[test]
+    fn external_save_does_not_overwrite_owned_address() {
+        let db = test_db();
+        let now = chrono::Utc::now().timestamp();
+        let address = "TIME1owned-address";
+
+        db.save_contact(&AddressContact {
+            address: address.to_string(),
+            label: "Collateral".to_string(),
+            name: None,
+            email: None,
+            phone: None,
+            notes: None,
+            is_default: false,
+            is_owned: true,
+            derivation_index: Some(7),
+            created_at: now,
+            updated_at: now,
+        })
+        .unwrap();
+
+        db.save_contact(&AddressContact {
+            address: address.to_string(),
+            label: "My Masternode".to_string(),
+            name: Some("My Masternode".to_string()),
+            email: None,
+            phone: None,
+            notes: None,
+            is_default: false,
+            is_owned: false,
+            derivation_index: None,
+            created_at: now + 1,
+            updated_at: now + 1,
+        })
+        .unwrap();
+
+        let contact = db.get_contact(address).unwrap().unwrap();
+        assert!(contact.is_owned);
+        assert_eq!(contact.derivation_index, Some(7));
+        assert_eq!(contact.label, "Collateral");
+        assert_eq!(db.get_owned_addresses().unwrap().len(), 1);
+        assert!(db.get_external_contacts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn rediscovered_owned_address_preserves_existing_label() {
+        let db = test_db();
+        let now = chrono::Utc::now().timestamp();
+        let address = "TIME1rediscovered-address";
+
+        db.save_contact(&AddressContact {
+            address: address.to_string(),
+            label: "Treasury".to_string(),
+            name: Some("Treasury".to_string()),
+            email: None,
+            phone: None,
+            notes: Some("important".to_string()),
+            is_default: false,
+            is_owned: false,
+            derivation_index: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .unwrap();
+
+        db.save_contact(&AddressContact {
+            address: address.to_string(),
+            label: "Address #12".to_string(),
+            name: None,
+            email: None,
+            phone: None,
+            notes: None,
+            is_default: false,
+            is_owned: true,
+            derivation_index: Some(12),
+            created_at: now + 1,
+            updated_at: now + 1,
+        })
+        .unwrap();
+
+        let contact = db.get_contact(address).unwrap().unwrap();
+        assert!(contact.is_owned);
+        assert_eq!(contact.derivation_index, Some(12));
+        assert_eq!(contact.label, "Treasury");
+        assert_eq!(contact.name.as_deref(), Some("Treasury"));
+        assert_eq!(contact.notes.as_deref(), Some("important"));
     }
 }
 

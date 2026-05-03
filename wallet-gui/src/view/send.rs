@@ -221,41 +221,72 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             }
         };
 
+        let recipient_is_owned = state.addresses.iter().any(|ai| ai.address == state.send_address);
+        let same_address_available: u64 = if recipient_is_owned {
+            state
+                .utxos
+                .iter()
+                .filter(|u| u.spendable && u.address == state.send_address)
+                .map(|u| u.amount)
+                .sum()
+        } else {
+            0
+        };
+        let same_address_self_send = if recipient_is_owned && entered_amount > 0 {
+            match state.send_from_address.as_deref() {
+                Some(from_addr) => from_addr == state.send_address,
+                None if state.send_include_fee => entered_amount <= same_address_available,
+                None => entered_amount.saturating_add(wallet::minimum_fee()) <= same_address_available,
+            }
+        } else {
+            false
+        };
+
         // When "include fee" is checked, the entered amount is the total to deduct.
         // The actual send amount is entered minus fee, and fee is calculated on the send amount.
         // Solve: send + fee(send) = entered  →  iterate to find send.
         let (send_amount, auto_fee) = if state.send_include_fee && entered_amount > 0 {
-            let mut send = entered_amount;
-            for _ in 0..10 {
-                let fee = wallet::calculate_fee(send);
-                if send + fee <= entered_amount {
-                    break;
+            if same_address_self_send {
+                let fee = wallet::minimum_fee();
+                (entered_amount.saturating_sub(fee), fee)
+            } else {
+                let mut send = entered_amount;
+                for _ in 0..10 {
+                    let fee = wallet::calculate_fee(send);
+                    if send + fee <= entered_amount {
+                        break;
+                    }
+                    send = entered_amount.saturating_sub(fee);
                 }
-                send = entered_amount.saturating_sub(fee);
+                let fee = wallet::calculate_fee(send);
+                (send, fee)
             }
-            let fee = wallet::calculate_fee(send);
-            (send, fee)
         } else if entered_amount > 0 {
-            (entered_amount, wallet::calculate_fee(entered_amount))
+            (
+                entered_amount,
+                wallet::calculate_send_fee(entered_amount, same_address_self_send),
+            )
         } else {
             (0, 0)
         };
         if send_amount > 0 {
-            let fee_pct = if send_amount < 100 * 100_000_000 {
-                "1%"
+            let fee_label = if same_address_self_send {
+                "minimum self-send fee".to_string()
+            } else if send_amount < 100 * 100_000_000 {
+                "1%".to_string()
             } else if send_amount < 1_000 * 100_000_000 {
-                "0.5%"
+                "0.5%".to_string()
             } else if send_amount < 10_000 * 100_000_000 {
-                "0.25%"
+                "0.25%".to_string()
             } else {
-                "0.1%"
+                "0.1%".to_string()
             };
             ui.label(
                 egui::RichText::new(format!(
                     "Network fee: {}.{:06} TIME ({})",
                     auto_fee / 100_000_000,
                     (auto_fee % 100_000_000) / 100,
-                    fee_pct,
+                    fee_label,
                 ))
                 .color(egui::Color32::GRAY),
             );

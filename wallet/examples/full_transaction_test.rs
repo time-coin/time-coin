@@ -149,7 +149,7 @@ fn wallet_tx_to_core_tx_relaxed(wallet_tx: &wallet::Transaction) -> time_core::T
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     println!("╔════════════════════════════════════════════════════╗");
     println!("║   TIME Coin Full Transaction Testing (REAL MEMPOOL)║");

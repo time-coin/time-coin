@@ -116,6 +116,23 @@ pub fn calculate_fee(send_amount: u64) -> u64 {
     FeeSchedule::default().calculate_fee(send_amount)
 }
 
+/// Return the network minimum transaction fee in satoshis.
+pub fn minimum_fee() -> u64 {
+    MIN_TX_FEE
+}
+
+/// Calculate the effective fee for a send.
+///
+/// Same-address self-sends are treated like consolidations by the daemon and
+/// only require the minimum fee.
+pub fn calculate_send_fee(send_amount: u64, same_address_self_send: bool) -> u64 {
+    if same_address_self_send {
+        minimum_fee()
+    } else {
+        calculate_fee(send_amount)
+    }
+}
+
 /// UTXO (Unspent Transaction Output)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UTXO {
@@ -497,7 +514,18 @@ impl Wallet {
         &mut self,
         to_address: &str,
         amount: u64,
+        fee: u64,
+    ) -> Result<Transaction, WalletError> {
+        self.create_transaction_with_change_address(to_address, amount, fee, None)
+    }
+
+    /// Create a transaction and optionally route change to a specific address.
+    pub fn create_transaction_with_change_address(
+        &mut self,
+        to_address: &str,
+        amount: u64,
         _fee: u64,
+        change_address: Option<&str>,
     ) -> Result<Transaction, WalletError> {
         if amount == 0 {
             return Err(WalletError::TransactionError(
@@ -507,21 +535,42 @@ impl Wallet {
 
         // Validate recipient address
         let recipient = Address::from_string(to_address)?;
+        let change_address = match change_address {
+            Some(address) => Address::from_string(address)?,
+            None => self.address.clone(),
+        };
+        let recipient_str = recipient.to_string();
+        let change_address_str = change_address.to_string();
 
-        // Tiered fee: 1% under 100 TIME, 0.5% under 1k, 0.25% under 10k, 0.1% above
-        // Minimum fee: 0.01 TIME (1_000_000 sats)
-        let actual_fee = calculate_fee(amount);
+        let mut spendable_utxos = self.utxos.clone();
+        let mut actual_fee = calculate_fee(amount);
+        if recipient_str == change_address_str {
+            let same_address_utxos: Vec<UTXO> = self
+                .utxos
+                .iter()
+                .filter(|u| u.address == recipient_str)
+                .cloned()
+                .collect();
+            let same_address_balance: u64 = same_address_utxos.iter().map(|u| u.amount).sum();
+            let same_address_total_needed = amount.saturating_add(minimum_fee());
+            if same_address_balance >= same_address_total_needed {
+                spendable_utxos = same_address_utxos;
+                actual_fee = minimum_fee();
+            }
+        }
+
         let total_needed = amount + actual_fee;
+        let available_balance: u64 = spendable_utxos.iter().map(|u| u.amount).sum();
 
-        if total_needed > self.balance {
+        if total_needed > available_balance {
             return Err(WalletError::InsufficientFunds {
-                have: self.balance,
+                have: available_balance,
                 need: total_needed,
             });
         }
 
         // Select UTXOs greedily, largest-first to minimise input count and tx size.
-        let mut sorted_utxos = self.utxos.clone();
+        let mut sorted_utxos = spendable_utxos;
         sorted_utxos.sort_unstable_by_key(|u| std::cmp::Reverse(u.amount));
 
         let mut input_amount = 0u64;
@@ -572,7 +621,7 @@ impl Wallet {
         // Add change output if necessary
         let change = input_amount - total_needed;
         if change > 0 {
-            let change_output = TxOutput::new(change, self.address.clone());
+            let change_output = TxOutput::new(change, change_address.clone());
             tx.add_output(change_output)?;
         }
 
@@ -880,6 +929,69 @@ mod tests {
         assert_eq!(tx.outputs[0].value, send_amount);
         assert_eq!(tx.outputs[1].value, 10 * 100_000_000 - send_amount - fee);
         assert_eq!(sender.nonce(), 1); // Auto-incremented
+    }
+
+    #[test]
+    fn test_same_address_self_send_uses_minimum_fee() {
+        let mut wallet = Wallet::new(NetworkType::Mainnet).unwrap();
+        let own_address = wallet.address_string();
+
+        wallet.add_utxo(UTXO {
+            tx_hash: [1u8; 32],
+            output_index: 0,
+            amount: 2_000 * 100_000_000,
+            address: own_address.clone(),
+        });
+
+        let send_amount = 1_000 * 100_000_000;
+        let tx = wallet
+            .create_transaction_with_change_address(
+                &own_address,
+                send_amount,
+                0,
+                Some(&own_address),
+            )
+            .unwrap();
+
+        assert_eq!(tx.outputs.len(), 2);
+        assert_eq!(tx.outputs[0].value, send_amount);
+        assert_eq!(
+            tx.outputs[1].value,
+            2_000 * 100_000_000 - send_amount - minimum_fee()
+        );
+        assert_eq!(tx.outputs[0].address_string(), own_address);
+        assert_eq!(tx.outputs[1].address_string(), own_address);
+    }
+
+    #[test]
+    fn test_derived_same_address_self_send_uses_minimum_fee() {
+        let mnemonic = crate::mnemonic::generate_mnemonic(12).unwrap();
+        let mut wallet = Wallet::from_mnemonic(&mnemonic, "", NetworkType::Mainnet).unwrap();
+        let derived_address = wallet.derive_address(1).unwrap();
+
+        wallet.add_utxo(UTXO {
+            tx_hash: [2u8; 32],
+            output_index: 0,
+            amount: 1_500 * 100_000_000,
+            address: derived_address.clone(),
+        });
+
+        let send_amount = 1_000 * 100_000_000;
+        let tx = wallet
+            .create_transaction_with_change_address(
+                &derived_address,
+                send_amount,
+                0,
+                Some(&derived_address),
+            )
+            .unwrap();
+
+        let paid_fee = 1_500 * 100_000_000 - tx.total_output();
+        assert_eq!(paid_fee, minimum_fee());
+        assert!(tx
+            .outputs
+            .iter()
+            .all(|output| output.address_string() == derived_address));
     }
 
     #[test]

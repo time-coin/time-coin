@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use wallet::{AutoLockConfig, AutoLockManager, NetworkType, SecurePassword, Wallet};
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 

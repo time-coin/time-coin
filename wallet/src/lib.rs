@@ -41,4 +41,6 @@ pub use pin::{PinAuth, PinConfig, PinError, SecurePin, StoredPin};
 pub use transaction::{
     OutPoint, SpecialTransactionData, Transaction, TransactionError, TxInput, TxOutput,
 };
-pub use wallet::{calculate_fee, FeeSchedule, FeeTier, Wallet, WalletError, UTXO};
+pub use wallet::{
+    calculate_fee, calculate_send_fee, minimum_fee, FeeSchedule, FeeTier, Wallet, WalletError, UTXO,
+};

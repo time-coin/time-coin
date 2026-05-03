@@ -420,9 +420,9 @@ impl MasternodeClient {
                     .unwrap_or("")
                     .to_string();
 
-                // RPC includes fee in the send amount — subtract it so we
-                // display only the actual transferred value.
-                let display_amount = if is_send && fee > 0 {
+                // RPC "send" entries include the fee in the amount, but
+                // "consolidate" entries already report the post-fee output value.
+                let display_amount = if category == "send" && fee > 0 {
                     amount.saturating_sub(fee)
                 } else {
                     amount
@@ -1275,5 +1275,55 @@ mod tests {
         let status = TransactionStatus::Approved;
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, r#""approved""#);
+    }
+
+    #[test]
+    fn test_parse_transaction_list_keeps_consolidation_amount_intact() {
+        let result = serde_json::json!([
+            {
+                "txid": "abc",
+                "category": "consolidate",
+                "amount": 99.99,
+                "fee": -0.01,
+                "blockhash": "",
+                "blockheight": 0,
+                "confirmations": 0,
+                "time": 123,
+                "vout": 0,
+                "address": "TIME1example"
+            }
+        ]);
+
+        let records = MasternodeClient::parse_transaction_list(result).unwrap();
+        assert_eq!(records.len(), 1);
+        assert!(records[0].is_send);
+        assert!(records[0].is_consolidation);
+        assert_eq!(records[0].amount, 9_999_000_000);
+        assert_eq!(records[0].fee, 1_000_000);
+    }
+
+    #[test]
+    fn test_parse_transaction_list_strips_fee_from_send_amount() {
+        let result = serde_json::json!([
+            {
+                "txid": "def",
+                "category": "send",
+                "amount": 100.0,
+                "fee": -0.01,
+                "blockhash": "",
+                "blockheight": 0,
+                "confirmations": 0,
+                "time": 123,
+                "vout": 0,
+                "address": "TIME1example"
+            }
+        ]);
+
+        let records = MasternodeClient::parse_transaction_list(result).unwrap();
+        assert_eq!(records.len(), 1);
+        assert!(records[0].is_send);
+        assert!(!records[0].is_consolidation);
+        assert_eq!(records[0].amount, 9_999_000_000);
+        assert_eq!(records[0].fee, 1_000_000);
     }
 }
