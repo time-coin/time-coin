@@ -1075,6 +1075,37 @@ mod tests {
         assert_eq!(contact.name.as_deref(), Some("Treasury"));
         assert_eq!(contact.notes.as_deref(), Some("important"));
     }
+
+    #[test]
+    fn external_contact_round_trips_through_db() {
+        let db = test_db();
+        let now = chrono::Utc::now().timestamp();
+        let address = "TIME1external-contact";
+
+        db.save_contact(&AddressContact {
+            address: address.to_string(),
+            label: "Alice".to_string(),
+            name: Some("Alice".to_string()),
+            email: Some("alice@example.com".to_string()),
+            phone: None,
+            notes: Some("vendor".to_string()),
+            is_default: false,
+            is_owned: false,
+            derivation_index: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .unwrap();
+
+        let contacts = db.get_external_contacts().unwrap();
+        assert_eq!(contacts.len(), 1);
+        let contact = &contacts[0];
+        assert_eq!(contact.address, address);
+        assert_eq!(contact.label, "Alice");
+        assert_eq!(contact.name.as_deref(), Some("Alice"));
+        assert_eq!(contact.email.as_deref(), Some("alice@example.com"));
+        assert_eq!(contact.notes.as_deref(), Some("vendor"));
+    }
 }
 
 /// UTXO record for wallet

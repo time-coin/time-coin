@@ -93,6 +93,8 @@ pub async fn run(
         pending_address_scan: false,
     };
 
+    state.send_contacts_updated_from_db();
+
     // Restore manually-selected peer so discovery doesn't override it on first result.
     if let Some(ref ep) = config.preferred_endpoint.clone() {
         state.client = Some(MasternodeClient::new(ep.clone(), config.rpc_credentials()));
@@ -913,6 +915,7 @@ pub async fn run(
                         state.wallet_db = WalletDb::open(&db_path).ok();
                         if state.wallet_db.is_some() {
                             log::info!("📂 Wallet database reopened at: {}", db_path.display());
+                            state.send_contacts_updated_from_db();
                         }
                         // Always update UI network state first (clears stale data, sets badge)
                         let _ = state.svc_tx.send(ServiceEvent::NetworkConfigured { is_testnet: selected_testnet });
@@ -1618,6 +1621,7 @@ pub async fn run(
                         }
 
                         log::info!("✅ Fresh database created");
+                        state.send_contacts_updated_from_db();
 
                         // Re-persist owned addresses
                         if let Some(ref db) = state.wallet_db {
@@ -3582,6 +3586,26 @@ struct ServiceState {
 }
 
 impl ServiceState {
+    fn send_contacts_updated_from_db(&self) {
+        if let Some(ref db) = self.wallet_db {
+            match db.get_external_contacts() {
+                Ok(contacts) => {
+                    let infos: Vec<crate::state::ContactInfo> = contacts
+                        .into_iter()
+                        .map(|c| crate::state::ContactInfo {
+                            name: c.name.unwrap_or(c.label),
+                            address: c.address,
+                        })
+                        .collect();
+                    let _ = self.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
+                }
+                Err(e) => {
+                    log::warn!("Failed to load external contacts from DB: {}", e);
+                }
+            }
+        }
+    }
+
     /// Load a wallet and start the WebSocket connection.
     fn load_wallet(&mut self, password: Option<String>) {
         let result = match password {
@@ -3925,16 +3949,7 @@ impl ServiceState {
                         }
                     }
                     // Load external contacts for send address book
-                    if let Ok(contacts) = db.get_external_contacts() {
-                        let infos: Vec<crate::state::ContactInfo> = contacts
-                            .into_iter()
-                            .map(|c| crate::state::ContactInfo {
-                                name: c.name.unwrap_or(c.label),
-                                address: c.address,
-                            })
-                            .collect();
-                        let _ = self.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
-                    }
+                    self.send_contacts_updated_from_db();
                 }
 
                 self.wallet = Some(wm);
