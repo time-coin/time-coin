@@ -504,8 +504,9 @@ impl BlockchainDB {
         let prefix = b"wallet_balance:";
         let mut addresses = Vec::new();
         for item in self.db.scan_prefix(prefix) {
-            let (key, _) = item
-                .map_err(|e| StateError::IoError(format!("Failed to scan wallet balances: {}", e)))?;
+            let (key, _) = item.map_err(|e| {
+                StateError::IoError(format!("Failed to scan wallet balances: {}", e))
+            })?;
             if let Ok(key_str) = std::str::from_utf8(&key) {
                 if let Some(addr) = key_str.strip_prefix("wallet_balance:") {
                     addresses.push(addr.to_string());

@@ -1050,10 +1050,7 @@ impl AppState {
                     if self.resync_in_progress && !tx.is_send && !tx.is_fee {
                         continue;
                     }
-                    if !tx.is_send
-                        && !tx.is_fee
-                        && processed_send_txids.contains(&tx.txid)
-                    {
+                    if !tx.is_send && !tx.is_fee && processed_send_txids.contains(&tx.txid) {
                         continue; // stale receive for a known send — drop it
                     }
                     let dup = self.transactions.iter().any(|t| {

@@ -38,7 +38,9 @@ fn show_detail(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<
         state
             .transactions
             .iter()
-            .find(|t| t.txid == *txid && t.is_send == *is_send && t.is_fee == *is_fee && t.vout == *vout)
+            .find(|t| {
+                t.txid == *txid && t.is_send == *is_send && t.is_fee == *is_fee && t.vout == *vout
+            })
             .cloned()
     });
     let tx = match tx {
