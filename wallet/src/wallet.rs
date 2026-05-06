@@ -123,14 +123,11 @@ pub fn minimum_fee() -> u64 {
 
 /// Calculate the effective fee for a send.
 ///
-/// Same-address self-sends are treated like consolidations by the daemon and
-/// only require the minimum fee.
-pub fn calculate_send_fee(send_amount: u64, same_address_self_send: bool) -> u64 {
-    if same_address_self_send {
-        minimum_fee()
-    } else {
-        calculate_fee(send_amount)
-    }
+/// All transactions (including self-sends and consolidations) pay the full
+/// tiered fee — the `same_address_self_send` flag is preserved for callers
+/// but no longer changes the fee calculation.
+pub fn calculate_send_fee(send_amount: u64, _same_address_self_send: bool) -> u64 {
+    calculate_fee(send_amount)
 }
 
 /// UTXO (Unspent Transaction Output)

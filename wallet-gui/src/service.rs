@@ -542,7 +542,7 @@ pub async fn run(
                                                 .filter(|u| u.spendable)
                                                 .map(|u| u.amount)
                                                 .sum();
-                                            let required = amount.saturating_add(wallet::minimum_fee());
+                                             let required = amount.saturating_add(wallet::calculate_fee(amount));
                                             if same_address_balance >= required {
                                                 effective_from_address = Some(to.clone());
                                                 same_address_self_send = true;
@@ -4730,7 +4730,7 @@ async fn consolidate_utxos_background(
                 }
 
                 let batch_total: u64 = valid_utxos.iter().map(|u| u.amount).sum();
-                let fee = wallet::minimum_fee();
+                let fee = wallet::calculate_fee(batch_total);
                 let send_amount = batch_total.saturating_sub(fee);
 
                 if send_amount == 0 {
