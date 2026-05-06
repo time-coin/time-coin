@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-05-05
+
+### Fixed
+- **Address book persistence** — Contacts saved for wallet-owned (self-send) addresses now persist across restarts. Previously, a guard in the service layer silently discarded any contact save for an owned address.
+- **Owned addresses in send tab** — Wallet-owned addresses with user-supplied names now appear in the send tab address book with a green "Local" badge.
+
 ## [0.6.5] - 2026-05-05
 
 ### Fixed
