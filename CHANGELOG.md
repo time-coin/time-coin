@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-05-05
+
+### Fixed
+- **Transactions not entering blocks** — Wallet now creates version 2 transactions. Version 1 transactions were accepted and finalized by the masternode via TimeVote but silently evicted during block production at height ≥ 1000 (replay protection activation). This caused self-send and consolidation transactions to permanently debit the wallet with no corresponding credit.
+- **Version 2 signing** — Signature message now correctly prepends `CHAIN_ID` (4-byte LE, value 1) for version 2 transactions, matching the masternode's signing scheme.
+
 ## [0.6.4] - 2026-04-09
 
 ### Added
