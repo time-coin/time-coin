@@ -77,6 +77,8 @@ pub struct MasternodeClient {
     rpc_credentials: Option<(String, String)>,
 }
 
+const LIST_UNSPENT_MULTI_MAX_ADDRESSES: usize = 1000;
+
 /// JSON-RPC 2.0 request
 #[derive(Debug, Serialize)]
 struct JsonRpcRequest {
@@ -104,6 +106,34 @@ struct JsonRpcError {
 }
 
 impl MasternodeClient {
+    fn parse_utxos(utxo_values: Vec<serde_json::Value>) -> Vec<Utxo> {
+        utxo_values
+            .into_iter()
+            .filter_map(|u| {
+                let txid = u.get("txid")?.as_str()?.to_string();
+                let vout = u.get("vout")?.as_u64()? as u32;
+                let amount = u.get("amount").map(json_to_satoshis).unwrap_or(0);
+                let addr = u
+                    .get("address")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let confirmations =
+                    u.get("confirmations").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let spendable = u.get("spendable").and_then(|v| v.as_bool()).unwrap_or(true);
+
+                Some(Utxo {
+                    txid,
+                    vout,
+                    amount,
+                    address: addr,
+                    confirmations,
+                    spendable,
+                })
+            })
+            .collect()
+    }
+
     pub fn new(endpoint: String, credentials: Option<(String, String)>) -> Self {
         // Preserve http:// if explicitly provided (for nodes without TLS configured).
         // Add https:// prefix only for bare hostnames with no scheme.
@@ -210,18 +240,20 @@ impl MasternodeClient {
         let confirmed = result.get("available").map(json_to_satoshis).unwrap_or(0);
         let total = result.get("balance").map(json_to_satoshis).unwrap_or(0);
         let locked = result.get("locked").map(json_to_satoshis).unwrap_or(0);
+        let pending = total.saturating_sub(confirmed.saturating_add(locked));
 
         let balance = Balance {
             confirmed,
-            pending: 0,
+            pending,
             total,
             locked,
         };
         log::info!(
-            "✅ Balance: {} sats (available: {} sats, locked: {} sats)",
+            "✅ Balance: {} sats (available: {} sats, locked: {} sats, pending: {} sats)",
             total,
             confirmed,
-            locked
+            locked,
+            pending
         );
         Ok(balance)
     }
@@ -235,10 +267,11 @@ impl MasternodeClient {
         let confirmed = result.get("available").map(json_to_satoshis).unwrap_or(0);
         let total = result.get("balance").map(json_to_satoshis).unwrap_or(0);
         let locked = result.get("locked").map(json_to_satoshis).unwrap_or(0);
+        let pending = total.saturating_sub(confirmed.saturating_add(locked));
 
         let balance = Balance {
             confirmed,
-            pending: 0,
+            pending,
             total,
             locked,
         };
@@ -248,10 +281,11 @@ impl MasternodeClient {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
         log::info!(
-            "✅ Batch balance ({} addresses): {} sats (available: {} sats)",
+            "✅ Batch balance ({} addresses): {} sats (available: {} sats, pending: {} sats)",
             addr_count,
             total,
-            confirmed
+            confirmed,
+            pending
         );
         Ok(balance)
     }
@@ -507,40 +541,7 @@ impl MasternodeClient {
 
     /// Get UTXOs for an address
     pub async fn get_utxos(&self, address: &str) -> Result<Vec<Utxo>, ClientError> {
-        // listunspentmulti returns all UTXOs by default (no limit)
-        let result = self
-            .rpc_call("listunspentmulti", serde_json::json!([[address]]))
-            .await?;
-
-        let utxo_values: Vec<serde_json::Value> =
-            serde_json::from_value(result).unwrap_or_default();
-
-        let utxos: Vec<Utxo> = utxo_values
-            .into_iter()
-            .filter_map(|u| {
-                let txid = u.get("txid")?.as_str()?.to_string();
-                let vout = u.get("vout")?.as_u64()? as u32;
-                let amount = u.get("amount").map(json_to_satoshis).unwrap_or(0);
-                let addr = u
-                    .get("address")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let confirmations =
-                    u.get("confirmations").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                let spendable = u.get("spendable").and_then(|v| v.as_bool()).unwrap_or(true);
-
-                Some(Utxo {
-                    txid,
-                    vout,
-                    amount,
-                    address: addr,
-                    confirmations,
-                    spendable,
-                })
-            })
-            .collect();
-
+        let utxos = self.get_utxos_multi(&[address.to_string()]).await?;
         let spendable_count = utxos.iter().filter(|u| u.spendable).count();
         log::info!(
             "✅ Retrieved {} UTXOs ({} spendable, {} locked)",
@@ -549,6 +550,47 @@ impl MasternodeClient {
             utxos.len() - spendable_count
         );
         Ok(utxos)
+    }
+
+    /// Fetch UTXOs for multiple addresses using chunked `listunspentmulti` RPCs.
+    pub async fn get_utxos_multi(&self, addresses: &[String]) -> Result<Vec<Utxo>, ClientError> {
+        if addresses.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut all = Vec::new();
+        let mut last_err = None;
+
+        for chunk in addresses.chunks(LIST_UNSPENT_MULTI_MAX_ADDRESSES) {
+            match self
+                .rpc_call("listunspentmulti", serde_json::json!([chunk]))
+                .await
+            {
+                Ok(result) => {
+                    let utxo_values: Vec<serde_json::Value> =
+                        serde_json::from_value(result).unwrap_or_default();
+                    all.extend(Self::parse_utxos(utxo_values));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "listunspentmulti chunk ({} addrs) failed: {}",
+                        chunk.len(),
+                        e
+                    );
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        if all.is_empty() {
+            if let Some(err) = last_err {
+                return Err(err);
+            }
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        all.retain(|u| seen.insert((u.txid.clone(), u.vout)));
+        Ok(all)
     }
 
     /// Fetch UTXOs for a batch of addresses in a single `listunspentmulti` call.
@@ -563,15 +605,41 @@ impl MasternodeClient {
         if addresses.is_empty() {
             return Ok(std::collections::HashSet::new());
         }
-        let result = self
-            .rpc_call("listunspentmulti", serde_json::json!([addresses]))
-            .await?;
-        let utxo_values: Vec<serde_json::Value> =
-            serde_json::from_value(result).unwrap_or_default();
-        let active = utxo_values
-            .iter()
-            .filter_map(|u| u.get("address")?.as_str().map(String::from))
-            .collect();
+
+        let mut active = std::collections::HashSet::new();
+        let mut last_err = None;
+
+        for chunk in addresses.chunks(LIST_UNSPENT_MULTI_MAX_ADDRESSES) {
+            match self
+                .rpc_call("listunspentmulti", serde_json::json!([chunk]))
+                .await
+            {
+                Ok(result) => {
+                    let utxo_values: Vec<serde_json::Value> =
+                        serde_json::from_value(result).unwrap_or_default();
+                    active.extend(
+                        utxo_values
+                            .iter()
+                            .filter_map(|u| u.get("address")?.as_str().map(String::from)),
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "listunspentmulti active-address chunk ({} addrs) failed: {}",
+                        chunk.len(),
+                        e
+                    );
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        if active.is_empty() {
+            if let Some(err) = last_err {
+                return Err(err);
+            }
+        }
+
         Ok(active)
     }
 
@@ -1325,5 +1393,34 @@ mod tests {
         assert!(!records[0].is_consolidation);
         assert_eq!(records[0].amount, 9_999_000_000);
         assert_eq!(records[0].fee, 1_000_000);
+    }
+
+    #[test]
+    fn test_parse_utxos_preserves_spendable_and_address() {
+        let utxos = MasternodeClient::parse_utxos(vec![
+            serde_json::json!({
+                "txid": "abc",
+                "vout": 1,
+                "address": "TIME1alpha",
+                "amount": 12.5,
+                "confirmations": 4,
+                "spendable": true
+            }),
+            serde_json::json!({
+                "txid": "def",
+                "vout": 0,
+                "address": "TIME1beta",
+                "amount": 3.0,
+                "confirmations": 0,
+                "spendable": false
+            }),
+        ]);
+
+        assert_eq!(utxos.len(), 2);
+        assert_eq!(utxos[0].address, "TIME1alpha");
+        assert_eq!(utxos[0].amount, 1_250_000_000);
+        assert!(utxos[0].spendable);
+        assert_eq!(utxos[1].address, "TIME1beta");
+        assert!(!utxos[1].spendable);
     }
 }

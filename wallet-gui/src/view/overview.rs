@@ -153,6 +153,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             } else {
                 state.computed_balance()
             };
+            let pending = if mn_bal > 0 { state.balance.pending } else { 0 };
             // Prefer the locked amount reported directly by the masternode — it
             // is always correct and doesn't require UTXOs or entry configuration.
             // Fall back to the local UTXO/entry-based calculation when offline.
@@ -221,20 +222,35 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
             });
 
             // Secondary rows: Locked + Total
-            if locked > 0 {
+            if locked > 0 || pending > 0 || total != available {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("Locked:")
-                            .size(13.0)
-                            .color(theme::TEXT_SECONDARY),
-                    );
-                    ui.label(
-                        egui::RichText::new(state.format_time(locked))
-                            .size(13.0)
-                            .color(egui::Color32::BLACK),
-                    );
-                    ui.add_space(20.0);
+                    if locked > 0 {
+                        ui.label(
+                            egui::RichText::new("Locked:")
+                                .size(13.0)
+                                .color(theme::TEXT_SECONDARY),
+                        );
+                        ui.label(
+                            egui::RichText::new(state.format_time(locked))
+                                .size(13.0)
+                                .color(egui::Color32::BLACK),
+                        );
+                        ui.add_space(20.0);
+                    }
+                    if pending > 0 {
+                        ui.label(
+                            egui::RichText::new("Pending:")
+                                .size(13.0)
+                                .color(theme::TEXT_SECONDARY),
+                        );
+                        ui.label(
+                            egui::RichText::new(state.format_time(pending))
+                                .size(13.0)
+                                .color(egui::Color32::BLACK),
+                        );
+                        ui.add_space(20.0);
+                    }
                     ui.label(
                         egui::RichText::new("Total:")
                             .size(13.0)
