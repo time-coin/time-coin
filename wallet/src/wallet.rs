@@ -536,25 +536,8 @@ impl Wallet {
             Some(address) => Address::from_string(address)?,
             None => self.address.clone(),
         };
-        let recipient_str = recipient.to_string();
-        let change_address_str = change_address.to_string();
-
-        let mut spendable_utxos = self.utxos.clone();
-        let mut actual_fee = calculate_fee(amount);
-        if recipient_str == change_address_str {
-            let same_address_utxos: Vec<UTXO> = self
-                .utxos
-                .iter()
-                .filter(|u| u.address == recipient_str)
-                .cloned()
-                .collect();
-            let same_address_balance: u64 = same_address_utxos.iter().map(|u| u.amount).sum();
-            let same_address_total_needed = amount.saturating_add(minimum_fee());
-            if same_address_balance >= same_address_total_needed {
-                spendable_utxos = same_address_utxos;
-                actual_fee = minimum_fee();
-            }
-        }
+        let spendable_utxos = self.utxos.clone();
+        let actual_fee = calculate_fee(amount);
 
         let total_needed = amount + actual_fee;
         let available_balance: u64 = spendable_utxos.iter().map(|u| u.amount).sum();
@@ -929,7 +912,7 @@ mod tests {
     }
 
     #[test]
-    fn test_same_address_self_send_uses_minimum_fee() {
+    fn test_same_address_self_send_uses_full_tiered_fee() {
         let mut wallet = Wallet::new(NetworkType::Mainnet).unwrap();
         let own_address = wallet.address_string();
 
@@ -941,6 +924,7 @@ mod tests {
         });
 
         let send_amount = 1_000 * 100_000_000;
+        let expected_fee = calculate_fee(send_amount); // 0.25% tier = 250_000_000 satoshis
         let tx = wallet
             .create_transaction_with_change_address(
                 &own_address,
@@ -954,14 +938,14 @@ mod tests {
         assert_eq!(tx.outputs[0].value, send_amount);
         assert_eq!(
             tx.outputs[1].value,
-            2_000 * 100_000_000 - send_amount - minimum_fee()
+            2_000 * 100_000_000 - send_amount - expected_fee
         );
         assert_eq!(tx.outputs[0].address_string(), own_address);
         assert_eq!(tx.outputs[1].address_string(), own_address);
     }
 
     #[test]
-    fn test_derived_same_address_self_send_uses_minimum_fee() {
+    fn test_derived_same_address_self_send_uses_full_tiered_fee() {
         let mnemonic = crate::mnemonic::generate_mnemonic(12).unwrap();
         let mut wallet = Wallet::from_mnemonic(&mnemonic, "", NetworkType::Mainnet).unwrap();
         let derived_address = wallet.derive_address(1).unwrap();
@@ -974,6 +958,7 @@ mod tests {
         });
 
         let send_amount = 1_000 * 100_000_000;
+        let expected_fee = calculate_fee(send_amount);
         let tx = wallet
             .create_transaction_with_change_address(
                 &derived_address,
@@ -984,7 +969,7 @@ mod tests {
             .unwrap();
 
         let paid_fee = 1_500 * 100_000_000 - tx.total_output();
-        assert_eq!(paid_fee, minimum_fee());
+        assert_eq!(paid_fee, expected_fee);
         assert!(tx
             .outputs
             .iter()
