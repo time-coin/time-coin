@@ -157,10 +157,18 @@ impl WalletDb {
         Ok(all.into_iter().filter(|c| c.is_owned).collect())
     }
 
-    /// Get only external contacts (send addresses)
+    /// Get only external contacts (send addresses), including any owned addresses
+    /// that have been explicitly added to the address book with a user-supplied name.
     pub fn get_external_contacts(&self) -> Result<Vec<AddressContact>, WalletDbError> {
         let all = self.get_all_contacts()?;
-        Ok(all.into_iter().filter(|c| !c.is_owned).collect())
+        Ok(all
+            .into_iter()
+            .filter(|c| {
+                !c.is_owned
+                    || (c.name.is_some()
+                        && !is_generated_address_label(&c.label, c.derivation_index))
+            })
+            .collect())
     }
 
     /// Delete contact
@@ -652,15 +660,9 @@ impl WalletDb {
 
 fn merge_contact(existing: AddressContact, incoming: AddressContact) -> AddressContact {
     match (existing.is_owned, incoming.is_owned) {
-        // Owned wallet addresses must stay authoritative. Saving an external
-        // contact for one of our own addresses would otherwise hide it from
-        // receive/reconcile flows because owned/external entries share the
-        // same sled key.
-        (true, false) => {
-            let mut preserved = existing;
-            preserved.updated_at = incoming.updated_at;
-            preserved
-        }
+        // Owned wallet addresses must stay authoritative for reconcile flows.
+        // An incidental external save must never rename or demote an owned address.
+        (true, false) => existing,
         // If a previously-clobbered address is rediscovered as owned, keep any
         // user-entered metadata from the existing record instead of resetting it
         // to a generated "Address #n" label.

@@ -1447,13 +1447,7 @@ pub async fn run(
 
                     UiEvent::SaveContact { name, address } => {
                         if let Some(ref db) = state.wallet_db {
-                            if state.addresses.iter().any(|owned| owned == &address) {
-                                log::info!(
-                                    "Skipping external contact save for owned address …{}",
-                                    &address[address.len().saturating_sub(8)..]
-                                );
-                                continue;
-                            }
+                            let is_owned = state.addresses.iter().any(|owned| owned == &address);
                             let contact = crate::wallet_db::AddressContact {
                                 address: address.clone(),
                                 label: name.clone(),
@@ -1462,7 +1456,7 @@ pub async fn run(
                                 phone: None,
                                 notes: None,
                                 is_default: false,
-                                is_owned: false,
+                                is_owned,
                                 derivation_index: None,
                                 created_at: chrono::Utc::now().timestamp(),
                                 updated_at: chrono::Utc::now().timestamp(),
@@ -1477,6 +1471,7 @@ pub async fn run(
                                     .map(|c| crate::state::ContactInfo {
                                         name: c.name.unwrap_or(c.label),
                                         address: c.address,
+                                        is_owned: c.is_owned,
                                     })
                                     .collect();
                                 let _ = state.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -1495,6 +1490,7 @@ pub async fn run(
                                     .map(|c| crate::state::ContactInfo {
                                         name: c.name.unwrap_or(c.label),
                                         address: c.address,
+                                        is_owned: c.is_owned,
                                     })
                                     .collect();
                                 let _ = state.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -3595,6 +3591,7 @@ impl ServiceState {
                         .map(|c| crate::state::ContactInfo {
                             name: c.name.unwrap_or(c.label),
                             address: c.address,
+                            is_owned: c.is_owned,
                         })
                         .collect();
                     let _ = self.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -4555,55 +4552,67 @@ async fn fetch_spendable_utxos_by_addr(
     addresses: &[String],
 ) -> std::collections::BTreeMap<String, Vec<crate::masternode_client::Utxo>> {
     let mut utxos_by_addr = std::collections::BTreeMap::new();
-    for addr in addresses {
-        if let Ok(mut utxos) = client.get_utxos(addr).await {
+    match client.get_utxos_multi(addresses).await {
+        Ok(mut utxos) => {
             utxos.retain(|u| u.spendable);
-            utxos.sort_by_key(|u| u.amount);
-            if utxos.len() > 1 {
-                utxos_by_addr.insert(addr.clone(), utxos);
+            utxos.sort_by(|a, b| {
+                a.address
+                    .cmp(&b.address)
+                    .then_with(|| a.amount.cmp(&b.amount))
+                    .then_with(|| a.txid.cmp(&b.txid))
+                    .then_with(|| a.vout.cmp(&b.vout))
+            });
+
+            for utxo in utxos {
+                utxos_by_addr
+                    .entry(utxo.address.clone())
+                    .or_insert_with(Vec::new)
+                    .push(utxo);
             }
+
+            utxos_by_addr.retain(|_, utxos| utxos.len() > 1);
+        }
+        Err(e) => {
+            log::warn!("Failed to fetch consolidation UTXOs: {}", e);
         }
     }
     utxos_by_addr
 }
 
-async fn wait_for_transactions_finality(
+async fn wait_for_consolidation_outputs_spendable(
     client: &MasternodeClient,
+    addresses: &[String],
     txids: &[String],
     consolidation_active: &Arc<AtomicBool>,
     timeout: std::time::Duration,
-) -> Vec<String> {
+) -> (
+    std::collections::BTreeMap<String, Vec<crate::masternode_client::Utxo>>,
+    Vec<String>,
+) {
     let mut pending: std::collections::BTreeSet<String> = txids.iter().cloned().collect();
     let deadline = tokio::time::Instant::now() + timeout;
+    let mut latest = fetch_spendable_utxos_by_addr(client, addresses).await;
 
     while !pending.is_empty() && tokio::time::Instant::now() < deadline {
         if !consolidation_active.load(Ordering::Relaxed) {
             break;
         }
 
-        let txids_to_check: Vec<String> = pending.iter().cloned().collect();
-        for txid in txids_to_check {
-            match client.get_transaction_finality(&txid).await {
-                Ok(status) if status.finalized => {
-                    pending.remove(&txid);
-                }
-                Ok(_) => {}
-                Err(crate::masternode_client::ClientError::RpcError(-5, _)) => {
-                    // The daemon may briefly return "not found" before the tx is
-                    // fully indexed in its pending/finalized pool. Keep waiting.
-                }
-                Err(e) => {
-                    log::debug!("Consolidation finality check for {} not ready: {}", txid, e);
-                }
-            }
+        let spendable_txids: std::collections::HashSet<&str> = latest
+            .values()
+            .flat_map(|utxos| utxos.iter().map(|u| u.txid.as_str()))
+            .collect();
+        pending.retain(|txid| !spendable_txids.contains(txid.as_str()));
+
+        if pending.is_empty() {
+            break;
         }
 
-        if !pending.is_empty() {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        latest = fetch_spendable_utxos_by_addr(client, addresses).await;
     }
 
-    pending.into_iter().collect()
+    (latest, pending.into_iter().collect())
 }
 
 /// Run UTXO consolidation in a background task.
@@ -4856,17 +4865,18 @@ async fn consolidate_utxos_background(
                 batch: batch_idx,
                 total_batches: batch_idx,
                 message: format!(
-                    "Round {} sent {} consolidation transaction(s) — waiting for finality…",
+                    "Round {} sent {} consolidation transaction(s) — waiting for spendable outputs…",
                     round,
                     round_txids.len()
                 ),
             });
 
-            let still_pending = wait_for_transactions_finality(
+            let (refreshed_by_addr, still_pending) = wait_for_consolidation_outputs_spendable(
                 &client,
+                &addresses,
                 &round_txids,
                 &consolidation_active,
-                std::time::Duration::from_secs(30),
+                std::time::Duration::from_secs(120),
             )
             .await;
 
@@ -4880,15 +4890,17 @@ async fn consolidate_utxos_background(
             if !still_pending.is_empty() {
                 stalled = true;
                 log::warn!(
-                    "Consolidation round {} timed out waiting for finality: {:?}",
+                    "Consolidation round {} timed out waiting for spendable outputs: {:?}",
                     round,
                     still_pending
                 );
                 break;
             }
-        }
 
-        utxos_by_addr = fetch_spendable_utxos_by_addr(&client, &addresses).await;
+            utxos_by_addr = refreshed_by_addr;
+        } else {
+            utxos_by_addr = fetch_spendable_utxos_by_addr(&client, &addresses).await;
+        }
         remaining_groups = utxos_by_addr.len();
         remaining_utxos = utxos_by_addr.values().map(|v| v.len()).sum();
 
@@ -4952,12 +4964,13 @@ async fn consolidate_utxos_background(
     let _ = svc_tx.send(ServiceEvent::ConsolidationComplete { message: msg });
 
     // Refresh UTXOs and balance after consolidation.
-    let mut refreshed = Vec::new();
-    for addr in &addresses {
-        if let Ok(utxos) = client.get_utxos(addr).await {
-            refreshed.extend(utxos);
-        }
-    }
+    let mut refreshed = client
+        .get_utxos_multi(&addresses)
+        .await
+        .unwrap_or_else(|e| {
+            log::warn!("Failed to refresh wallet UTXOs after consolidation: {}", e);
+            Vec::new()
+        });
     // Deduplicate by outpoint (txid:vout) in case multiple address fetches return overlaps.
     {
         let mut seen = std::collections::HashSet::new();

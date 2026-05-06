@@ -707,9 +707,18 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                             );
                             child_ui.horizontal(|ui| {
                                 ui.vertical(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(&contact.name).size(13.0).strong(),
-                                    );
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(&contact.name).size(13.0).strong(),
+                                        );
+                                        if contact.is_owned {
+                                            ui.label(
+                                                egui::RichText::new("Local")
+                                                    .size(10.0)
+                                                    .color(egui::Color32::from_rgb(100, 160, 100)),
+                                            );
+                                        }
+                                    });
                                     let short = super::truncate_middle(&contact.address, 14, 6);
                                     ui.label(
                                         egui::RichText::new(short)

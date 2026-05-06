@@ -70,6 +70,7 @@ pub struct AddressInfo {
 pub struct ContactInfo {
     pub name: String,
     pub address: String,
+    pub is_owned: bool,
 }
 
 /// Income chart display mode.
@@ -645,6 +646,7 @@ impl AppState {
             ServiceEvent::BalanceUpdated(balance) => {
                 self.loading = false;
                 self.error = None;
+                self.balance = balance.clone();
                 // During consolidation, freeze the displayed balance at its
                 // pre-consolidation value. Intermediate RPC results are
                 // unreliable (may temporarily double-count UTXOs). The
@@ -1700,6 +1702,8 @@ mod tests {
             locked: 500,
         }));
         // Masternode balance stored for drift detection
+        assert_eq!(state.balance.total, 1500);
+        assert_eq!(state.balance.pending, 500);
         assert_eq!(state.masternode_balance, 1500);
     }
 
