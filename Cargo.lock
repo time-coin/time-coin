@@ -5663,6 +5663,7 @@ dependencies = [
  "tokio-util",
  "toml",
  "wallet",
+ "winresource",
  "x25519-dalek",
  "zeroize",
 ]
@@ -6618,6 +6619,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21a0236b59786fed61e2a80582dd500fe61f18b5dca67a4a067d0bc9039339cf"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winresource"
+version = "0.1.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e287ced0f21cd11f4035fe946fd3af145f068d1acb708afd248100f89ec7432d"
+dependencies = [
+ "toml",
+ "version_check",
 ]
 
 [[package]]

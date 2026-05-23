@@ -4555,16 +4555,21 @@ async fn consolidate_utxos_background(
             let batch_total: u64 = valid_utxos.iter().map(|u| u.amount).sum();
             // Use the live fee schedule fetched from the masternode so that
             // governance-voted fee changes are honoured.
+            //
+            // Converge fee on the OUTPUT amount (not the input total), which is
+            // what the masternode validates against. Start from the input-based
+            // estimate, then iterate: each round reduces send_amount by the new
+            // fee until stable (handles tier-boundary crossings gracefully).
             let mut fee = fee_schedule.calculate_fee(batch_total);
-            let mut send_amount = batch_total.saturating_sub(fee);
             for _ in 0..5 {
+                let send_amount = batch_total.saturating_sub(fee);
                 let required = fee_schedule.calculate_fee(send_amount);
-                if required <= fee {
+                if required == fee {
                     break;
                 }
                 fee = required;
-                send_amount = batch_total.saturating_sub(fee);
             }
+            let send_amount = batch_total.saturating_sub(fee);
 
             // Masternode enforces a 1 TIME (100_000_000 satoshis) minimum output value.
             const MIN_SEND: u64 = 100_000_000;
