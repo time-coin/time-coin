@@ -80,15 +80,138 @@ jobs:
           Copy-Item "target\${{ matrix.target }}\release\${{ matrix.binary }}" dist\
           Compress-Archive -Path "dist\${{ matrix.binary }}" -DestinationPath "${{ matrix.artifact }}.zip"
 
+      - name: Compile Inno Setup installer (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts\installer.iss
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}.${{ matrix.archive }}
 
+      - name: Upload installer artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: time-wallet-windows-installer
+          path: installer\TIMECoinWallet-Setup-*.exe
+
+  macos-dmg:
+    name: macOS DMG (Universal)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-universal-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-universal-cargo-release-
+
+      - name: Build x86_64
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Build arm64
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Create universal binary
+        run: |
+          lipo -create \
+            target/x86_64-apple-darwin/release/time-wallet \
+            target/aarch64-apple-darwin/release/time-wallet \
+            -output time-wallet-universal
+
+      - name: Create AppIcon.icns
+        run: |
+          mkdir -p AppIcon.iconset
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size wallet-gui/assets/logo.png \
+              --out AppIcon.iconset/icon_${size}x${size}.png
+          done
+          sips -z 32 32   wallet-gui/assets/logo.png --out AppIcon.iconset/icon_16x16@2x.png
+          sips -z 64 64   wallet-gui/assets/logo.png --out AppIcon.iconset/icon_32x32@2x.png
+          sips -z 256 256 wallet-gui/assets/logo.png --out AppIcon.iconset/icon_128x128@2x.png
+          sips -z 512 512 wallet-gui/assets/logo.png --out AppIcon.iconset/icon_256x256@2x.png
+          sips -z 1024 1024 wallet-gui/assets/logo.png --out AppIcon.iconset/icon_512x512@2x.png
+          iconutil -c icns AppIcon.iconset
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble .app bundle
+        run: |
+          APP="TimeWallet.app"
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+          cp time-wallet-universal "$APP/Contents/MacOS/time-wallet"
+          chmod +x "$APP/Contents/MacOS/time-wallet"
+          cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          cat > "$APP/Contents/Info.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>TIME Wallet</string>
+            <key>CFBundleDisplayName</key>
+            <string>TIME Wallet</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.timecoin.wallet</string>
+            <key>CFBundleVersion</key>
+            <string>VERSION_PLACEHOLDER</string>
+            <key>CFBundleShortVersionString</key>
+            <string>VERSION_PLACEHOLDER</string>
+            <key>CFBundleExecutable</key>
+            <string>time-wallet</string>
+            <key>CFBundleIconFile</key>
+            <string>AppIcon</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+          </dict>
+          </plist>
+          PLIST
+          sed -i '' "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.VERSION }}/g" \
+            "$APP/Contents/Info.plist"
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg-staging
+          cp -r TimeWallet.app dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create \
+            -volname "TIME Wallet ${{ steps.version.outputs.VERSION }}" \
+            -srcfolder dmg-staging \
+            -ov -format UDZO \
+            time-wallet-macos-universal.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: time-wallet-macos-universal
+          path: time-wallet-macos-universal.dmg
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, macos-dmg]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -124,3 +247,5 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            artifacts/**/*.dmg
+            artifacts/**/*.exe

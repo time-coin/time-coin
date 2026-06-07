@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-06-07
+
+### Added
+- **macOS universal DMG** — GitHub Releases now ships a drag-to-install `.dmg` containing a universal binary (Intel x86_64 + Apple Silicon arm64); minimum supported macOS is 11.0
+- **Windows installer in CI** — GitHub Releases now ships an Inno Setup `.exe` installer alongside the existing zip archive; includes Start Menu shortcut and optional desktop icon
+
+### Fixed
+- **Fee convergence** — Fee calculation now uses output-based iteration, preventing over/under-fee on sends that produce multiple change outputs
+- **Windows taskbar icon** — Logo is now correctly embedded in the `.exe` resource table via winresource, so the correct icon appears in the taskbar and Alt+Tab switcher
+
 ## [0.6.7] - 2026-05-15
 
 ### Added
