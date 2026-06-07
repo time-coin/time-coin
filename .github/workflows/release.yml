@@ -84,6 +84,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path target\release | Out-Null
+          Copy-Item "target\${{ matrix.target }}\release\time-wallet.exe" target\release\time-wallet.exe
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts\installer.iss
 
       - name: Upload artifact
