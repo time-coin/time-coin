@@ -192,6 +192,9 @@ jobs:
           sed -i '' "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.VERSION }}/g" \
             "$APP/Contents/Info.plist"
 
+      - name: Ad-hoc code sign .app
+        run: codesign --deep --force --sign - TimeWallet.app
+
       - name: Create DMG
         run: |
           mkdir -p dmg-staging
@@ -202,6 +205,7 @@ jobs:
             -srcfolder dmg-staging \
             -ov -format UDZO \
             time-wallet-macos-universal.dmg
+          codesign --force --sign - time-wallet-macos-universal.dmg
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v7
