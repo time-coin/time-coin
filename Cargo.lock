@@ -914,6 +914,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "chacha20"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3613f74bd2eac03dad61bd53dbe620703d4371614fe0bc3b9f04dd36fe4e818"
+dependencies = [
+ "cfg-if 1.0.4",
+ "cipher",
+ "cpufeatures",
+]
+
+[[package]]
+name = "chacha20poly1305"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35"
+dependencies = [
+ "aead",
+ "chacha20",
+ "cipher",
+ "poly1305",
+ "zeroize",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -935,6 +959,7 @@ checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common",
  "inout",
+ "zeroize",
 ]
 
 [[package]]
@@ -2223,6 +2248,12 @@ dependencies = [
 
 [[package]]
 name = "half"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
+
+[[package]]
+name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
@@ -2278,6 +2309,15 @@ name = "hexf-parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
+
+[[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
+]
 
 [[package]]
 name = "hmac"
@@ -3952,6 +3992,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
+name = "poly1305"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8159bd90725d2df49889a078b54f4f79e87f1f8a8444194cdca81d38f5393abf"
+dependencies = [
+ "cpufeatures",
+ "opaque-debug",
+ "universal-hash",
+]
+
+[[package]]
 name = "polyval"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4562,6 +4613,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_cbor"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bef2ebfde456fb76bbcf9f59315333decc4fda0b2b44b420243c11e0f5ec1f5"
+dependencies = [
+ "half 1.8.3",
+ "serde",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5034,7 +5095,7 @@ checksum = "af9605de7fee8d9551863fd692cce7637f548dbd9db9180fcc07ccc6d26c336f"
 dependencies = [
  "fax",
  "flate2",
- "half",
+ "half 2.7.1",
  "quick-error",
  "weezl",
  "zune-jpeg",
@@ -5063,7 +5124,7 @@ checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "time-core"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "bincode",
  "chrono",
@@ -5094,7 +5155,7 @@ dependencies = [
 
 [[package]]
 name = "time-mempool"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "chrono",
  "ed25519-dalek",
@@ -5102,13 +5163,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "sysinfo",
- "time-core 0.6.8",
+ "time-core 0.6.9",
  "tokio",
 ]
 
 [[package]]
 name = "time-network"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "bincode",
  "chrono",
@@ -5123,7 +5184,7 @@ dependencies = [
  "sha2",
  "socket2",
  "thiserror 2.0.17",
- "time-core 0.6.8",
+ "time-core 0.6.9",
  "time-mempool",
  "tokio",
  "tracing",
@@ -5592,7 +5653,7 @@ dependencies = [
 
 [[package]]
 name = "wallet"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -5613,7 +5674,7 @@ dependencies = [
  "sha2",
  "sled",
  "thiserror 2.0.17",
- "time-core 0.6.8",
+ "time-core 0.6.9",
  "time-mempool",
  "tokio",
  "zeroize",
@@ -5621,13 +5682,14 @@ dependencies = [
 
 [[package]]
 name = "wallet-gui"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "aes-gcm",
  "arboard",
  "argon2",
  "base64",
  "bincode",
+ "chacha20poly1305",
  "chrono",
  "curve25519-dalek",
  "dirs",
@@ -5641,6 +5703,7 @@ dependencies = [
  "fs4",
  "futures-util",
  "hex",
+ "hkdf",
  "image",
  "log",
  "nokhwa",
@@ -5648,12 +5711,14 @@ dependencies = [
  "printpdf",
  "qrcode",
  "rand 0.9.4",
+ "rand_core 0.6.4",
  "reqwest",
  "rfd",
  "rqrr",
  "rustls",
  "serde",
  "serde_bytes",
+ "serde_cbor",
  "serde_json",
  "sha2",
  "sled",

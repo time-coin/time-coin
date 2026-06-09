@@ -34,6 +34,7 @@ zeroize = { workspace = true }
 # ECDH key exchange for encrypted memos (Ed25519 → X25519)
 ed25519-dalek = { workspace = true }
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+rand_core = "0.6"
 curve25519-dalek = "4.1"
 
 # Networking
@@ -65,6 +66,9 @@ dirs = "6.0"
 base64 = "0.22"
 hex = { workspace = true }
 sha2 = { workspace = true }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+serde_cbor = "0.11"
 
 # QR code generation
 qrcode = { version = "0.14", default-features = false }

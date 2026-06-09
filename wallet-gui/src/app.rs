@@ -217,6 +217,29 @@ impl eframe::App for App {
                         Screen::Masternodes,
                         &self.ui_tx,
                     );
+                    {
+                        let unread_total: usize = self
+                            .state
+                            .messages
+                            .iter()
+                            .filter(|m| {
+                                m.direction == crate::wallet_db::MessageDirection::Incoming
+                                    && m.status == crate::wallet_db::StoredMessageStatus::Unread
+                            })
+                            .count();
+                        let msg_label = if unread_total > 0 {
+                            format!("💬 Messages ({})", unread_total)
+                        } else {
+                            "💬 Messages".to_string()
+                        };
+                        nav_button(
+                            ui,
+                            &mut self.state,
+                            &msg_label,
+                            Screen::Messages,
+                            &self.ui_tx,
+                        );
+                    }
                     ui.separator();
                     let healthy_count = self.state.peers.iter().filter(|p| p.is_healthy).count();
                     let conn_label = if healthy_count > 0 {
@@ -376,6 +399,9 @@ impl eframe::App for App {
             }
             Screen::Utxos => {
                 view::overview::show(ui, &mut self.state, &self.ui_tx);
+            }
+            Screen::Messages => {
+                view::messages::show(ui, &mut self.state, &self.ui_tx);
             }
         });
     }

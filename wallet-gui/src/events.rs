@@ -245,6 +245,36 @@ pub enum UiEvent {
     /// scanning the blockchain for any funded addresses (gap-limit aware).
     /// Preserves existing labels where the address string matches.
     RebuildAddresses,
+
+    // ---- TIME-MSG Secure Messaging ----
+
+    /// Encrypt and send a message to another wallet.
+    SendMessage {
+        to: String,
+        subject: String,
+        body: String,
+    },
+
+    /// Fetch and decrypt pending messages from relay nodes.
+    FetchMessages,
+
+    /// Mark a received message as read (sends a ReadAck if the sender requested one).
+    MarkMessageRead {
+        msg_id: String,
+    },
+
+    /// Persist the Ed25519 pubkey for a contact (auto-populated after send/receive).
+    UpdateContactPubkey {
+        address: String,
+        pubkey_hex: String,
+    },
+
+    /// Send an unencrypted pubkey-request envelope to a contact whose key is unknown.
+    /// The recipient's wallet will see the request, register its own key, and the
+    /// sender can then look it up via `lookuppubkey`.
+    RequestPubkey {
+        address: String,
+    },
 }
 
 /// Screens the wallet can display.
@@ -261,6 +291,7 @@ pub enum Screen {
     Transactions,
     Utxos,
     Masternodes,
+    Messages,
     Connections,
     Settings,
     Tools,
@@ -480,5 +511,31 @@ pub enum ServiceEvent {
         version: String,
         /// GitHub release page URL.
         url: String,
+    },
+
+    // ---- TIME-MSG Secure Messaging ----
+
+    /// Stored messages loaded from the local DB on wallet load.
+    MessagesLoaded(Vec<crate::wallet_db::StoredMessage>),
+
+    /// A new message was received (fetched from relay and decrypted).
+    MessageReceived(crate::wallet_db::StoredMessage),
+
+    /// A message was sent successfully; provides the stored outgoing record.
+    MessageSent(crate::wallet_db::StoredMessage),
+
+    /// A message send attempt failed; carries the human-readable reason.
+    MessageFailed(String),
+
+    /// Status of an outgoing message was updated (delivered / read / expired).
+    MessageStatusUpdated {
+        msg_id: String,
+        status: crate::wallet_db::StoredMessageStatus,
+    },
+
+    /// A contact's pubkey was resolved or updated.
+    ContactPubkeyUpdated {
+        address: String,
+        pubkey_hex: String,
     },
 }

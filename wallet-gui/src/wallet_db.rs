@@ -36,6 +36,53 @@ pub struct AddressContact {
     pub derivation_index: Option<u32>, // For owned addresses derived from xpub
     pub created_at: i64,
     pub updated_at: i64,
+    /// Hex-encoded Ed25519 public key, used for TIME-MSG encryption.
+    #[serde(default)]
+    pub pubkey_hex: Option<String>,
+}
+
+/// Direction of a stored message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageDirection {
+    Incoming,
+    Outgoing,
+}
+
+/// Delivery status of a stored message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StoredMessageStatus {
+    /// Outgoing: submitted to relay, waiting for delivery confirmation.
+    Pending,
+    /// Outgoing: relay confirmed the recipient fetched the envelope.
+    Delivered,
+    /// Outgoing: recipient sent a signed ReadAck.
+    Read,
+    /// Outgoing: TTL elapsed before delivery.
+    Expired,
+    /// Outgoing: relay submission failed.
+    Failed,
+    /// Incoming: message received but not yet opened by user.
+    Unread,
+    /// Incoming: user has opened the message.
+    ReadByUs,
+}
+
+/// A message stored in the local sled database (decrypted).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredMessage {
+    /// Hex-encoded SHA-256 of the ciphertext payload.
+    pub msg_id: String,
+    pub direction: MessageDirection,
+    /// For outgoing: recipient address. For incoming: sender address.
+    pub peer_address: String,
+    pub subject: String,
+    pub body: String,
+    /// Unix timestamp from the TimeMessage (when the message was composed).
+    pub timestamp: i64,
+    /// Unix timestamp when we stored the message locally.
+    pub stored_at: i64,
+    pub thread_id: Option<String>,
+    pub status: StoredMessageStatus,
 }
 
 /// Transaction record for history
@@ -925,6 +972,77 @@ impl WalletDb {
         self.db.remove(key.as_bytes())?;
         self.db.flush()?;
         Ok(())
+    }
+
+    // ==================== Secure Messages (TIME-MSG) ====================
+
+    /// Persist a decrypted message (incoming or outgoing).
+    pub fn save_message(&self, msg: &StoredMessage) -> Result<(), WalletDbError> {
+        let key = format!("msg:{}", msg.msg_id);
+        let value = serde_json::to_vec(msg)?;
+        self.db.insert(key.as_bytes(), value)?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Update only the status of a stored message.
+    pub fn update_message_status(
+        &self,
+        msg_id: &str,
+        status: StoredMessageStatus,
+    ) -> Result<(), WalletDbError> {
+        let key = format!("msg:{}", msg_id);
+        if let Some(data) = self.db.get(key.as_bytes())? {
+            let mut msg: StoredMessage = serde_json::from_slice(&data)?;
+            msg.status = status;
+            let value = serde_json::to_vec(&msg)?;
+            self.db.insert(key.as_bytes(), value)?;
+            self.db.flush()?;
+        }
+        Ok(())
+    }
+
+    /// Load all stored messages, newest first.
+    pub fn get_all_messages(&self) -> Result<Vec<StoredMessage>, WalletDbError> {
+        let mut messages = Vec::new();
+        for item in self.db.scan_prefix(b"msg:") {
+            let (_key, value) = item?;
+            match serde_json::from_slice::<StoredMessage>(&value) {
+                Ok(m) => messages.push(m),
+                Err(e) => log::warn!("Skipping unreadable message entry: {}", e),
+            }
+        }
+        messages.sort_by_key(|m| std::cmp::Reverse(m.timestamp));
+        Ok(messages)
+    }
+
+    /// Check whether a message with this msg_id is already stored.
+    pub fn has_message(&self, msg_id: &str) -> bool {
+        let key = format!("msg:{}", msg_id);
+        self.db.contains_key(key.as_bytes()).unwrap_or(false)
+    }
+
+    /// Persist the Ed25519 pubkey for a contact address.
+    /// Creates the contact if it doesn't exist (as an external contact).
+    pub fn save_contact_pubkey(&self, address: &str, pubkey_hex: &str) -> Result<(), WalletDbError> {
+        let now = chrono::Utc::now().timestamp();
+        let mut contact = self.get_contact(address)?.unwrap_or_else(|| AddressContact {
+            address: address.to_string(),
+            label: address[..8.min(address.len())].to_string(),
+            name: None,
+            email: None,
+            phone: None,
+            notes: None,
+            is_default: false,
+            is_owned: false,
+            derivation_index: None,
+            created_at: now,
+            updated_at: now,
+            pubkey_hex: None,
+        });
+        contact.pubkey_hex = Some(pubkey_hex.to_string());
+        contact.updated_at = now;
+        self.save_contact(&contact)
     }
 }
 

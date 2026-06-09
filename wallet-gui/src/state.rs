@@ -70,6 +70,8 @@ pub struct AddressInfo {
 pub struct ContactInfo {
     pub name: String,
     pub address: String,
+    /// Hex-encoded Ed25519 public key (32 bytes = 64 hex chars), if known.
+    pub pubkey_hex: Option<String>,
 }
 
 /// Income chart display mode.
@@ -276,6 +278,20 @@ pub struct AppState {
     /// The incoming payment request id being fulfilled by the current Send, if any.
     pub pending_payment_request_id: Option<String>,
 
+    // -- Messaging (TIME-MSG) --
+    /// All stored messages (decrypted, from local DB).
+    pub messages: Vec<crate::wallet_db::StoredMessage>,
+    /// Address of the conversation currently open in the chat view.
+    pub selected_msg_contact: Option<String>,
+    /// Compose area text for the current conversation.
+    pub msg_compose_text: String,
+    /// Search filter for the conversations list.
+    pub msg_search: String,
+    /// True while a message fetch is in progress.
+    pub msg_fetching: bool,
+    /// Error from the last message send attempt.
+    pub msg_send_error: Option<String>,
+
     // -- Charts --
     /// Which chart tab is active on the Charts page.
     pub chart_tab: ChartTab,
@@ -405,6 +421,12 @@ impl Default for AppState {
             show_payment_request_form: true,
             pr_memo_overrides: std::collections::HashMap::new(),
             pending_payment_request_id: None,
+            messages: Vec::new(),
+            selected_msg_contact: None,
+            msg_compose_text: String::new(),
+            msg_search: String::new(),
+            msg_fetching: false,
+            msg_send_error: None,
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,
@@ -1576,6 +1598,46 @@ impl AppState {
             ServiceEvent::LatestVersionAvailable { version, url } => {
                 self.latest_version = Some(version);
                 self.latest_version_url = Some(url);
+            }
+
+            // ---- TIME-MSG Messaging ----
+            ServiceEvent::MessagesLoaded(msgs) => {
+                self.messages = msgs;
+            }
+
+            ServiceEvent::MessageReceived(msg) => {
+                if !self.messages.iter().any(|m| m.msg_id == msg.msg_id) {
+                    self.messages.insert(0, msg);
+                }
+            }
+
+            ServiceEvent::MessageSent(msg) => {
+                if !self.messages.iter().any(|m| m.msg_id == msg.msg_id) {
+                    self.messages.insert(0, msg);
+                }
+                self.msg_compose_text.clear();
+                self.msg_send_error = None;
+                self.msg_fetching = false;
+            }
+
+            ServiceEvent::MessageFailed(err) => {
+                self.msg_send_error = Some(err);
+                self.msg_fetching = false;
+            }
+
+            ServiceEvent::MessageStatusUpdated { msg_id, status } => {
+                if let Some(msg) = self.messages.iter_mut().find(|m| m.msg_id == msg_id) {
+                    msg.status = status;
+                }
+            }
+
+            ServiceEvent::ContactPubkeyUpdated {
+                address,
+                pubkey_hex,
+            } => {
+                if let Some(c) = self.contacts.iter_mut().find(|c| c.address == address) {
+                    c.pubkey_hex = Some(pubkey_hex);
+                }
             }
         }
     }

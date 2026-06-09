@@ -1189,6 +1189,171 @@ impl ClientError {
     }
 }
 
+// ============================================================================
+// TIME-MSG Messaging RPC Methods
+// ============================================================================
+
+/// Result of a `submitenvelope` RPC call.
+#[derive(Debug, Clone)]
+pub struct SubmitEnvelopeResult {
+    pub msg_id: String,
+    pub stored: bool,
+    pub relay_targets: usize,
+}
+
+/// A raw (encrypted) envelope returned by `getrawenvelopes`.
+#[derive(Debug, Clone)]
+pub struct RawEnvelope {
+    pub msg_id: String,
+    /// Hex-encoded CBOR bytes of the TimeEnvelope.
+    pub envelope_hex: String,
+    pub created_at: i64,
+    pub expires_at: i64,
+}
+
+impl MasternodeClient {
+    /// Submit a pre-encrypted CBOR envelope (hex-encoded) to the relay network.
+    /// The wallet performs encryption locally; the masternode relays without decrypting.
+    pub async fn submit_envelope(
+        &self,
+        envelope_hex: &str,
+    ) -> Result<SubmitEnvelopeResult, ClientError> {
+        let params = serde_json::json!([{"envelope": envelope_hex}]);
+        let result = self.rpc_call("submitenvelope", params).await?;
+        Ok(SubmitEnvelopeResult {
+            msg_id: result
+                .get("msg_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            stored: result
+                .get("stored")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            relay_targets: result
+                .get("relay_targets")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+        })
+    }
+
+    /// Fetch raw (encrypted) envelopes addressed to `address` from the relay network.
+    /// Returns CBOR bytes (hex-encoded) so the wallet can decrypt locally.
+    pub async fn get_raw_envelopes(
+        &self,
+        address: &str,
+        since: i64,
+    ) -> Result<Vec<RawEnvelope>, ClientError> {
+        let params = serde_json::json!([{"address": address, "since": since}]);
+        let result = self.rpc_call("getrawenvelopes", params).await?;
+        let arr = result.as_array().cloned().unwrap_or_default();
+        Ok(arr
+            .into_iter()
+            .filter_map(|v| {
+                Some(RawEnvelope {
+                    msg_id: v.get("msg_id")?.as_str()?.to_string(),
+                    envelope_hex: v.get("envelope")?.as_str()?.to_string(),
+                    created_at: v.get("created_at")?.as_i64().unwrap_or(0),
+                    expires_at: v.get("expires_at")?.as_i64().unwrap_or(0),
+                })
+            })
+            .collect())
+    }
+
+    /// Resolve the Ed25519 public key for a TIME address via the masternode's
+    /// 3-source lookup chain (local contacts → UTXO cache → P2P query).
+    /// Returns the pubkey as a hex string (64 chars = 32 bytes).
+    pub async fn lookup_pubkey(&self, address: &str) -> Result<String, ClientError> {
+        let params = serde_json::json!([{"address": address}]);
+        let result = self.rpc_call("lookuppubkey", params).await?;
+        result
+            .get("pubkey")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| ClientError::InvalidResponse("no pubkey in response".to_string()))
+    }
+
+    /// Register this wallet's own Ed25519 pubkey with the masternode so that
+    /// other wallets can look it up via `lookuppubkey`.  The masternode verifies
+    /// that the pubkey derives to the claimed address before storing it.
+    pub async fn register_pubkey(&self, address: &str, pubkey_hex: &str) -> Result<(), ClientError> {
+        self.rpc_call(
+            "registerpubkey",
+            serde_json::json!([{"address": address, "pubkey": pubkey_hex}]),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Extract an Ed25519 public key from blockchain transaction data.
+    ///
+    /// When an address *sends* coins its Ed25519 pubkey appears as the first
+    /// 32 bytes of every input's `scriptSig` (`[pubkey || sig]`).  This method
+    /// scans the address's recent send transactions and extracts that pubkey —
+    /// no masternode auth required, works with the current public RPC set.
+    pub async fn lookup_pubkey_from_chain(&self, address: &str) -> Result<String, ClientError> {
+        // 1. Find recent transactions involving this address.
+        let tx_result = self
+            .rpc_call(
+                "listtransactionsmulti",
+                serde_json::json!([[address], 50]),
+            )
+            .await?;
+
+        let txns = tx_result
+            .get("transactions")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| ClientError::InvalidResponse("no transactions field".to_string()))?;
+
+        // 2. Pick the first transaction where this address was the SENDER.
+        let send_txid = txns
+            .iter()
+            .find_map(|tx| {
+                let category = tx.get("category").and_then(|v| v.as_str()).unwrap_or("");
+                if category == "send" || category == "fee" {
+                    tx.get("txid").and_then(|v| v.as_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                ClientError::InvalidResponse(
+                    "address has no outgoing transactions on chain yet".to_string(),
+                )
+            })?;
+
+        // 3. Fetch verbose transaction to read the scriptSig.
+        let tx_json = self
+            .rpc_call("getrawtransaction", serde_json::json!([send_txid, true]))
+            .await?;
+
+        // 4. scriptSig format: [32-byte pubkey || 64-byte signature] (both Ed25519).
+        //    First 64 hex chars = 32 bytes = the Ed25519 public key.
+        let script_sig_hex = tx_json
+            .get("vin")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|inp| inp.get("scriptSig"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ClientError::InvalidResponse("no scriptSig in tx input".to_string()))?;
+
+        if script_sig_hex.len() < 64 {
+            return Err(ClientError::InvalidResponse(
+                "scriptSig too short to contain a pubkey".to_string(),
+            ));
+        }
+
+        Ok(script_sig_hex[..64].to_string())
+    }
+
+    /// Broadcast this wallet's Ed25519 pubkey to the P2P network so other wallets
+    /// can send encrypted messages without requiring an on-chain spend first.
+    pub async fn publish_pubkey(&self) -> Result<(), ClientError> {
+        self.rpc_call("publishpubkey", serde_json::json!([])).await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
