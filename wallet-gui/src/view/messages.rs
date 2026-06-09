@@ -600,9 +600,6 @@ fn show_chat_panel(
                             let _ = ui_tx.send(UiEvent::RequestPubkey {
                                 address: peer_addr.to_string(),
                             });
-                            state.msg_info = Some(
-                                "📨 Key request sent — your contact will register their public key when their wallet comes online.".to_string()
-                            );
                         }
                     }
                 });

@@ -538,4 +538,7 @@ pub enum ServiceEvent {
         address: String,
         pubkey_hex: String,
     },
+
+    /// Non-error informational status to show in the messages view.
+    MessagesInfo(String),
 }

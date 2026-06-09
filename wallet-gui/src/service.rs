@@ -5173,7 +5173,12 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
     let envelope_hex = hex::encode(&envelope_bytes);
 
     match client.submit_envelope(&envelope_hex).await {
-        Ok(_) => log::info!("Pubkey request sent to {}", &address[..address.len().min(16)]),
+        Ok(_) => {
+            log::info!("Pubkey request sent to {}", &address[..address.len().min(16)]);
+            let _ = state.svc_tx.send(ServiceEvent::MessagesInfo(
+                "📨 Key request sent — your contact will register their public key when their wallet comes online.".to_string(),
+            ));
+        }
         Err(e) => {
             let _ = state.svc_tx.send(ServiceEvent::MessageFailed(format!(
                 "Key request failed: {e}"

@@ -1642,6 +1642,10 @@ impl AppState {
                     c.pubkey_hex = Some(pubkey_hex);
                 }
             }
+
+            ServiceEvent::MessagesInfo(info) => {
+                self.msg_info = Some(info);
+            }
         }
     }
 }
