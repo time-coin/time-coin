@@ -5135,24 +5135,38 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
 
     let (client, key) = match (&state.client, state.signing_keys.first()) {
         (Some(c), Some(k)) => (c, k),
-        _ => return,
+        _ => {
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(
+                "Not connected to masternode — cannot send key request".to_string(),
+            ));
+            return;
+        }
     };
     let own_address = match state.addresses.first() {
         Some(a) => a.clone(),
-        None => return,
+        None => {
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(
+                "No wallet address available".to_string(),
+            ));
+            return;
+        }
     };
 
     let envelope = match create_pubkey_request(key, &own_address, &address) {
         Ok(e) => e,
         Err(e) => {
-            log::warn!("create_pubkey_request: {}", e);
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(format!(
+                "Failed to build key request: {e}"
+            )));
             return;
         }
     };
     let envelope_bytes = match envelope.serialise() {
         Ok(b) => b,
         Err(e) => {
-            log::warn!("serialise pubkey request: {}", e);
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(format!(
+                "Failed to serialise key request: {e}"
+            )));
             return;
         }
     };
@@ -5160,7 +5174,11 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
 
     match client.submit_envelope(&envelope_hex).await {
         Ok(_) => log::info!("Pubkey request sent to {}", &address[..address.len().min(16)]),
-        Err(e) => log::warn!("submit pubkey request: {}", e),
+        Err(e) => {
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(format!(
+                "Key request failed: {e}"
+            )));
+        }
     }
 }
 

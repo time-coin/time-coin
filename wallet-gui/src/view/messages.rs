@@ -154,6 +154,23 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 });
             });
     }
+    if let Some(ref info) = state.msg_info.clone() {
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(Color32::from_rgb(18, 50, 35))
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(info.as_str()).color(Color32::from_rgb(100, 220, 140)).size(12.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("✕").clicked() {
+                            state.msg_info = None;
+                        }
+                    });
+                });
+            });
+    }
 
     ui.add_space(4.0);
     ui.separator();
@@ -325,10 +342,15 @@ fn conv_row(
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
 
+    // Use raw pointer position — response.hovered() can be blocked by child widgets.
+    let is_hovered = ui.ctx().input(|i| {
+        i.pointer.hover_pos().map_or(false, |p| rect.contains(p))
+    });
+
     // Paint background before content — correct draw order.
     let bg = if is_selected {
         ROW_SELECTED
-    } else if response.hovered() {
+    } else if is_hovered {
         ROW_HOVER
     } else {
         Color32::TRANSPARENT
@@ -415,9 +437,13 @@ fn contact_row(ui: &mut Ui, name: &str, addr: &str, is_selected: bool) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
 
+    let is_hovered = ui.ctx().input(|i| {
+        i.pointer.hover_pos().map_or(false, |p| rect.contains(p))
+    });
+
     let bg = if is_selected {
         ROW_SELECTED
-    } else if response.hovered() {
+    } else if is_hovered {
         ROW_HOVER
     } else {
         Color32::TRANSPARENT
@@ -548,9 +574,11 @@ fn show_chat_panel(
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new("📋  Copy Address").size(12.0),
+                                RichText::new("📋  Copy Address")
+                                    .size(12.0)
+                                    .color(Color32::WHITE),
                             )
-                            .fill(Color32::from_rgb(30, 40, 55)),
+                            .fill(Color32::from_rgb(50, 75, 115)),
                         )
                         .clicked()
                     {
@@ -560,16 +588,21 @@ fn show_chat_panel(
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("🔑  Request Key").size(12.0).color(Color32::from_rgb(255, 200, 80)),
+                                    RichText::new("🔑  Request Key")
+                                        .size(12.0)
+                                        .color(Color32::from_rgb(255, 210, 90)),
                                 )
-                                .fill(Color32::from_rgb(50, 40, 20)),
+                                .fill(Color32::from_rgb(60, 48, 18)),
                             )
-                            .on_hover_text("Contact's pubkey unknown — send a key-request envelope so they can register their public key")
+                            .on_hover_text("Contact's pubkey unknown — click to send them a key-request so they can register their public key")
                             .clicked()
                         {
                             let _ = ui_tx.send(UiEvent::RequestPubkey {
                                 address: peer_addr.to_string(),
                             });
+                            state.msg_info = Some(
+                                "📨 Key request sent — your contact will register their public key when their wallet comes online.".to_string()
+                            );
                         }
                     }
                 });

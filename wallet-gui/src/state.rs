@@ -291,6 +291,8 @@ pub struct AppState {
     pub msg_fetching: bool,
     /// Error from the last message send attempt.
     pub msg_send_error: Option<String>,
+    /// Non-error informational status for the messages view (e.g. "Key request sent").
+    pub msg_info: Option<String>,
 
     // -- Charts --
     /// Which chart tab is active on the Charts page.
@@ -427,6 +429,7 @@ impl Default for AppState {
             msg_search: String::new(),
             msg_fetching: false,
             msg_send_error: None,
+            msg_info: None,
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,
