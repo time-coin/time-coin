@@ -1382,6 +1382,21 @@ pub async fn run(
                                         };
                                         let _ = db.save_contact(&contact);
                                     }
+                                    // Register new address pubkey with the masternode.
+                                    if let (Some(ref client), Some(ref wm)) =
+                                        (&state.client, &state.wallet)
+                                    {
+                                        if let Ok(kp) = wm.derive_keypair(hd_index) {
+                                            let signing_key = ed25519_dalek::SigningKey::from_bytes(
+                                                &kp.secret_key_bytes(),
+                                            );
+                                            let pubkey = signing_key.verifying_key().to_bytes();
+                                            spawn_pubkey_registration(
+                                                client.clone(),
+                                                vec![(addr.clone(), pubkey)],
+                                            );
+                                        }
+                                    }
                                     let _ = state.svc_tx.send(ServiceEvent::AddressGenerated(
                                         AddressInfo { address: addr, label },
                                     ));
@@ -1945,12 +1960,29 @@ pub async fn run(
                         }
                         let _ = state.svc_tx.send(ServiceEvent::PeersDiscovered(state.last_peers.clone()));
 
-                        // Restart WS and refresh data if wallet is loaded
+                        // Restart WS and refresh data if wallet is loaded.
                         if !state.addresses.is_empty() {
                             state.start_ws();
                             if let Some(ref client) = state.client {
                                 if let Ok(bal) = client.get_balances(&state.addresses).await {
                                     let _ = state.svc_tx.send(ServiceEvent::BalanceUpdated(bal));
+                                }
+                                // Re-register pubkeys with the new peer so it can answer
+                                // lookuppubkey without needing on-chain history.
+                                let addr_pubkeys: Vec<(String, [u8; 32])> = state
+                                    .address_indices
+                                    .iter()
+                                    .zip(state.addresses.iter())
+                                    .filter_map(|(&idx, addr)| {
+                                        let kp = state.wallet.as_ref()?.derive_keypair(idx).ok()?;
+                                        let signing_key = ed25519_dalek::SigningKey::from_bytes(
+                                            &kp.secret_key_bytes(),
+                                        );
+                                        Some((addr.clone(), signing_key.verifying_key().to_bytes()))
+                                    })
+                                    .collect();
+                                if !addr_pubkeys.is_empty() {
+                                    spawn_pubkey_registration(client.clone(), addr_pubkeys);
                                 }
                             }
                         }
@@ -3895,20 +3927,10 @@ impl ServiceState {
                     }
                 }
 
-                // Pre-register address pubkeys with the node so it can encrypt memos
-                // to us before we have any on-chain history as a sender.
+                // Pre-register address pubkeys with the node so it can resolve them for
+                // encrypted messaging without requiring on-chain history.
                 if let Some(ref client) = self.client {
-                    let reg_client = client.clone();
-                    tokio::spawn(async move {
-                        for (addr, pubkey) in addr_pubkeys {
-                            match reg_client.register_address_pubkey(&addr, &pubkey).await {
-                                Ok(()) => log::debug!("📬 Registered pubkey for {}", addr),
-                                Err(e) => {
-                                    log::warn!("Failed to register pubkey for {}: {}", addr, e)
-                                }
-                            }
-                        }
-                    });
+                    spawn_pubkey_registration(client.clone(), addr_pubkeys);
                 }
             }
             Err(e) => {
@@ -5200,6 +5222,27 @@ fn derive_address_from_pubkey(
     None // Sender address comes from the decrypted TimeMessage.recipient_addr (sender's perspective)
          // In practice the masternode resolves this; for the wallet we use the peer address
          // embedded in the contact book lookup.
+}
+
+/// Spawn a background task that registers `(address, pubkey_bytes)` pairs with
+/// the connected masternode using the `registerpubkey` RPC.
+///
+/// `registerpubkey` stores to the masternode's sled contacts_book (survives
+/// restarts) and broadcasts to peer masternodes via P2P, so every node in the
+/// network can answer `lookuppubkey` queries for our addresses.
+fn spawn_pubkey_registration(
+    client: crate::masternode_client::MasternodeClient,
+    addr_pubkeys: Vec<(String, [u8; 32])>,
+) {
+    tokio::spawn(async move {
+        for (addr, pubkey) in addr_pubkeys {
+            let pubkey_hex = hex::encode(pubkey);
+            match client.register_pubkey(&addr, &pubkey_hex).await {
+                Ok(()) => log::debug!("📬 Registered pubkey for {}", addr),
+                Err(e) => log::warn!("Failed to register pubkey for {}: {}", addr, e),
+            }
+        }
+    });
 }
 
 #[cfg(test)]
