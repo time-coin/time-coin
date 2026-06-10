@@ -5150,16 +5150,67 @@ async fn handle_fetch_messages(state: &ServiceState) {
     }
 }
 
-/// Send an unencrypted pubkey-request envelope to a contact whose key is not yet known.
-/// The recipient's wallet will see the request, register its own key, and reply.
+/// Resolve the pubkey for `address` using a three-step chain, then update the
+/// contact.  Falls back to a flag-0x04 envelope only when all direct lookups fail.
+///
+/// 1. `lookuppubkey` RPC  — masternode checks its sled contacts_book + UTXO cache + P2P
+/// 2. Blockchain extraction — scan recent tx scriptSigs for the address
+/// 3. Wallet-to-wallet envelope — flag 0x04, asks the other wallet to re-register
 async fn handle_request_pubkey(state: &ServiceState, address: String) {
     use crate::messaging_crypto::create_pubkey_request;
 
-    let (client, key) = match (&state.client, state.signing_keys.first()) {
-        (Some(c), Some(k)) => (c, k),
-        _ => {
+    let client = match &state.client {
+        Some(c) => c,
+        None => {
             let _ = state.svc_tx.send(ServiceEvent::MessageFailed(
-                "Not connected to masternode — cannot send key request".to_string(),
+                "Not connected to masternode — cannot look up pubkey".to_string(),
+            ));
+            return;
+        }
+    };
+
+    // Helper: persist pubkey to sled + notify UI.
+    let save_pubkey = |pubkey_hex: String| {
+        if let Some(ref db) = state.wallet_db {
+            let _ = db.save_contact_pubkey(&address, &pubkey_hex);
+        }
+        let _ = state.svc_tx.send(ServiceEvent::ContactPubkeyUpdated {
+            address: address.clone(),
+            pubkey_hex,
+        });
+    };
+
+    // ── Step 1: masternode RPC lookup ─────────────────────────────────────────
+    match client.lookup_pubkey(&address).await {
+        Ok(pubkey_hex) => {
+            log::info!("🔑 Pubkey resolved via masternode for {}", &address[..address.len().min(16)]);
+            save_pubkey(pubkey_hex);
+            return;
+        }
+        Err(e) => log::debug!("lookuppubkey miss for {}: {}", &address[..address.len().min(16)], e),
+    }
+
+    // ── Step 2: blockchain scriptSig extraction ───────────────────────────────
+    match client.lookup_pubkey_from_chain(&address).await {
+        Ok(pubkey_hex) => {
+            log::info!("🔑 Pubkey extracted from chain for {}", &address[..address.len().min(16)]);
+            // Push it to the masternode contacts_book so future lookups are instant.
+            let _ = client.register_pubkey(&address, &pubkey_hex).await;
+            save_pubkey(pubkey_hex);
+            return;
+        }
+        Err(e) => log::debug!("chain pubkey miss for {}: {}", &address[..address.len().min(16)], e),
+    }
+
+    // ── Step 3: wallet-to-wallet key-request envelope ─────────────────────────
+    // Neither the masternode nor the blockchain has the key.  Send a flag-0x04
+    // envelope: the recipient's wallet will see it, re-register its key, and we
+    // can look it up on the next send attempt.
+    let key = match state.signing_keys.first() {
+        Some(k) => k,
+        None => {
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(
+                "No signing key available".to_string(),
             ));
             return;
         }
@@ -5196,14 +5247,14 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
 
     match client.submit_envelope(&envelope_hex).await {
         Ok(_) => {
-            log::info!("Pubkey request sent to {}", &address[..address.len().min(16)]);
+            log::info!("📨 Key-request envelope sent to {}", &address[..address.len().min(16)]);
             let _ = state.svc_tx.send(ServiceEvent::MessagesInfo(
-                "📨 Key request sent — your contact will register their public key when their wallet comes online.".to_string(),
+                "📨 Key request sent — your contact's key will appear once their wallet comes online.".to_string(),
             ));
         }
         Err(e) => {
             let _ = state.svc_tx.send(ServiceEvent::MessageFailed(format!(
-                "Key request failed: {e}"
+                "Could not find pubkey and key-request envelope failed: {e}"
             )));
         }
     }
