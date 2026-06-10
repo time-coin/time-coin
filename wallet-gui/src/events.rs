@@ -249,7 +249,6 @@ pub enum UiEvent {
     RebuildAddresses,
 
     // ---- TIME-MSG Secure Messaging ----
-
     /// Encrypt and send a message to another wallet.
     SendMessage {
         to: String,
@@ -532,7 +531,6 @@ pub enum ServiceEvent {
     },
 
     // ---- TIME-MSG Secure Messaging ----
-
     /// Stored messages loaded from the local DB on wallet load.
     MessagesLoaded(Vec<crate::wallet_db::StoredMessage>),
 

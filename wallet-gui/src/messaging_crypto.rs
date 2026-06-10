@@ -127,9 +127,7 @@ pub fn ed25519_pubkey_to_x25519(ed_pubkey: &[u8; 32]) -> [u8; 32] {
         .unwrap_or_else(|| {
             let hash: [u8; 32] = Sha256::digest(ed_pubkey.as_slice()).into();
             let fallback = curve25519_dalek::edwards::CompressedEdwardsY(hash);
-            fallback
-                .decompress()
-                .unwrap_or_default()
+            fallback.decompress().unwrap_or_default()
         });
     point.to_montgomery().to_bytes()
 }

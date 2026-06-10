@@ -1088,22 +1088,28 @@ impl WalletDb {
 
     /// Persist the Ed25519 pubkey for a contact address.
     /// Creates the contact if it doesn't exist (as an external contact).
-    pub fn save_contact_pubkey(&self, address: &str, pubkey_hex: &str) -> Result<(), WalletDbError> {
+    pub fn save_contact_pubkey(
+        &self,
+        address: &str,
+        pubkey_hex: &str,
+    ) -> Result<(), WalletDbError> {
         let now = chrono::Utc::now().timestamp();
-        let mut contact = self.get_contact(address)?.unwrap_or_else(|| AddressContact {
-            address: address.to_string(),
-            label: address[..8.min(address.len())].to_string(),
-            name: None,
-            email: None,
-            phone: None,
-            notes: None,
-            is_default: false,
-            is_owned: false,
-            derivation_index: None,
-            created_at: now,
-            updated_at: now,
-            pubkey_hex: None,
-        });
+        let mut contact = self
+            .get_contact(address)?
+            .unwrap_or_else(|| AddressContact {
+                address: address.to_string(),
+                label: address[..8.min(address.len())].to_string(),
+                name: None,
+                email: None,
+                phone: None,
+                notes: None,
+                is_default: false,
+                is_owned: false,
+                derivation_index: None,
+                created_at: now,
+                updated_at: now,
+                pubkey_hex: None,
+            });
         contact.pubkey_hex = Some(pubkey_hex.to_string());
         contact.updated_at = now;
         self.save_contact(&contact)

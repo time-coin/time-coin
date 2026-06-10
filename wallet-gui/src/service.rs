@@ -3953,10 +3953,14 @@ impl ServiceState {
                         let _ = self.svc_tx.send(ServiceEvent::MessagesLoaded(msgs));
                     }
                     if let Ok(blocked) = db.get_blocked_addresses() {
-                        let _ = self.svc_tx.send(ServiceEvent::BlockedAddressesLoaded(blocked));
+                        let _ = self
+                            .svc_tx
+                            .send(ServiceEvent::BlockedAddressesLoaded(blocked));
                     }
                     if let Ok(accepted) = db.get_accepted_request_addresses() {
-                        let _ = self.svc_tx.send(ServiceEvent::AcceptedRequestsLoaded(accepted));
+                        let _ = self
+                            .svc_tx
+                            .send(ServiceEvent::AcceptedRequestsLoaded(accepted));
                     }
                 }
 
@@ -4892,8 +4896,7 @@ fn parse_payment_request_json(val: &serde_json::Value) -> Option<PaymentRequest>
 /// Failures are silently ignored — version checking is best-effort.
 async fn check_latest_version(svc_tx: mpsc::UnboundedSender<ServiceEvent>) {
     const CURRENT: &str = env!("CARGO_PKG_VERSION");
-    const API_URL: &str =
-        "https://api.github.com/repos/time-coin/time-wallet/releases/latest";
+    const API_URL: &str = "https://api.github.com/repos/time-coin/time-wallet/releases/latest";
 
     let client = match reqwest::Client::builder()
         .user_agent(concat!("time-wallet/", env!("CARGO_PKG_VERSION")))
@@ -4926,10 +4929,7 @@ async fn check_latest_version(svc_tx: mpsc::UnboundedSender<ServiceEvent>) {
         .to_string();
 
     if semver_is_newer(&tag, CURRENT) {
-        let _ = svc_tx.send(ServiceEvent::LatestVersionAvailable {
-            version: tag,
-            url,
-        });
+        let _ = svc_tx.send(ServiceEvent::LatestVersionAvailable { version: tag, url });
     }
 }
 
@@ -5013,31 +5013,39 @@ async fn handle_send_message(state: &ServiceState, to: String, subject: String, 
             arr
         }
         _ => {
-            let _ = state
-                .svc_tx
-                .send(ServiceEvent::MessageFailed("Invalid pubkey format".to_string()));
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(
+                "Invalid pubkey format".to_string(),
+            ));
             return;
         }
     };
 
-    let envelope =
-        match encrypt_envelope(key, &pubkey_bytes, &to, &body, &subject, DEFAULT_TTL_SECONDS, 0x02)
-        {
-            Ok(e) => e,
-            Err(e) => {
-                let _ = state
-                    .svc_tx
-                    .send(ServiceEvent::MessageFailed(format!("Encryption failed: {}", e)));
-                return;
-            }
-        };
+    let envelope = match encrypt_envelope(
+        key,
+        &pubkey_bytes,
+        &to,
+        &body,
+        &subject,
+        DEFAULT_TTL_SECONDS,
+        0x02,
+    ) {
+        Ok(e) => e,
+        Err(e) => {
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(format!(
+                "Encryption failed: {}",
+                e
+            )));
+            return;
+        }
+    };
 
     let envelope_bytes = match envelope.serialise() {
         Ok(b) => b,
         Err(e) => {
-            let _ = state
-                .svc_tx
-                .send(ServiceEvent::MessageFailed(format!("Serialise failed: {}", e)));
+            let _ = state.svc_tx.send(ServiceEvent::MessageFailed(format!(
+                "Serialise failed: {}",
+                e
+            )));
             return;
         }
     };
@@ -5106,11 +5114,10 @@ async fn handle_fetch_messages(state: &ServiceState) {
             Ok(b) => b,
             Err(_) => continue,
         };
-        let envelope =
-            match crate::messaging_crypto::TimeEnvelope::deserialise(&envelope_bytes) {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
+        let envelope = match crate::messaging_crypto::TimeEnvelope::deserialise(&envelope_bytes) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
 
         // Handle pubkey-request envelopes (flag 0x04) — no decryption, just key exchange.
         if envelope.flags & crate::messaging_crypto::FLAG_PUBKEY_REQUEST != 0 {
@@ -5145,8 +5152,8 @@ async fn handle_fetch_messages(state: &ServiceState) {
 
         // Auto-cache sender pubkey from every envelope we successfully decrypt.
         let sender_pubkey_hex = hex::encode(envelope.sender_pubkey);
-        let sender_addr_str = derive_address_from_pubkey(&envelope.sender_pubkey, state)
-            .or_else(|| {
+        let sender_addr_str =
+            derive_address_from_pubkey(&envelope.sender_pubkey, state).or_else(|| {
                 // Fall back to the address embedded in the decrypted message.
                 if !msg.sender_pubkey.iter().all(|&b| b == 0) {
                     Some(msg.recipient_addr.clone())
@@ -5225,23 +5232,37 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
     // ── Step 1: masternode RPC lookup ─────────────────────────────────────────
     match client.lookup_pubkey(&address).await {
         Ok(pubkey_hex) => {
-            log::info!("🔑 Pubkey resolved via masternode for {}", &address[..address.len().min(16)]);
+            log::info!(
+                "🔑 Pubkey resolved via masternode for {}",
+                &address[..address.len().min(16)]
+            );
             save_pubkey(pubkey_hex);
             return;
         }
-        Err(e) => log::debug!("lookuppubkey miss for {}: {}", &address[..address.len().min(16)], e),
+        Err(e) => log::debug!(
+            "lookuppubkey miss for {}: {}",
+            &address[..address.len().min(16)],
+            e
+        ),
     }
 
     // ── Step 2: blockchain scriptSig extraction ───────────────────────────────
     match client.lookup_pubkey_from_chain(&address).await {
         Ok(pubkey_hex) => {
-            log::info!("🔑 Pubkey extracted from chain for {}", &address[..address.len().min(16)]);
+            log::info!(
+                "🔑 Pubkey extracted from chain for {}",
+                &address[..address.len().min(16)]
+            );
             // Push it to the masternode contacts_book so future lookups are instant.
             let _ = client.register_pubkey(&address, &pubkey_hex).await;
             save_pubkey(pubkey_hex);
             return;
         }
-        Err(e) => log::debug!("chain pubkey miss for {}: {}", &address[..address.len().min(16)], e),
+        Err(e) => log::debug!(
+            "chain pubkey miss for {}: {}",
+            &address[..address.len().min(16)],
+            e
+        ),
     }
 
     // ── Step 3: wallet-to-wallet key-request envelope ─────────────────────────
@@ -5289,7 +5310,10 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
 
     match client.submit_envelope(&envelope_hex).await {
         Ok(_) => {
-            log::info!("📨 Key-request envelope sent to {}", &address[..address.len().min(16)]);
+            log::info!(
+                "📨 Key-request envelope sent to {}",
+                &address[..address.len().min(16)]
+            );
             let _ = state.svc_tx.send(ServiceEvent::MessagesInfo(
                 "📨 Key request sent — your contact's key will appear once their wallet comes online.".to_string(),
             ));
@@ -5303,10 +5327,7 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
 }
 
 /// Derive a TIME address string from an Ed25519 pubkey using the first signing key's network.
-fn derive_address_from_pubkey(
-    pubkey: &[u8; 32],
-    state: &ServiceState,
-) -> Option<String> {
+fn derive_address_from_pubkey(pubkey: &[u8; 32], state: &ServiceState) -> Option<String> {
     // We use wallet::address_from_pubkey if available.
     // For now, fall back to hex encoding as a best-effort identifier.
     // The masternode RPC returns decoded sender addresses already, so this

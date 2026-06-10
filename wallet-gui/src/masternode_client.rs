@@ -1276,7 +1276,11 @@ impl MasternodeClient {
     /// Register this wallet's own Ed25519 pubkey with the masternode so that
     /// other wallets can look it up via `lookuppubkey`.  The masternode verifies
     /// that the pubkey derives to the claimed address before storing it.
-    pub async fn register_pubkey(&self, address: &str, pubkey_hex: &str) -> Result<(), ClientError> {
+    pub async fn register_pubkey(
+        &self,
+        address: &str,
+        pubkey_hex: &str,
+    ) -> Result<(), ClientError> {
         self.rpc_call(
             "registerpubkey",
             serde_json::json!([{"address": address, "pubkey": pubkey_hex}]),
@@ -1294,10 +1298,7 @@ impl MasternodeClient {
     pub async fn lookup_pubkey_from_chain(&self, address: &str) -> Result<String, ClientError> {
         // 1. Find recent transactions involving this address.
         let tx_result = self
-            .rpc_call(
-                "listtransactionsmulti",
-                serde_json::json!([[address], 50]),
-            )
+            .rpc_call("listtransactionsmulti", serde_json::json!([[address], 50]))
             .await?;
 
         let txns = tx_result
@@ -1311,7 +1312,9 @@ impl MasternodeClient {
             .find_map(|tx| {
                 let category = tx.get("category").and_then(|v| v.as_str()).unwrap_or("");
                 if category == "send" || category == "fee" {
-                    tx.get("txid").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    tx.get("txid")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
                 } else {
                     None
                 }
@@ -1349,7 +1352,8 @@ impl MasternodeClient {
     /// Broadcast this wallet's Ed25519 pubkey to the P2P network so other wallets
     /// can send encrypted messages without requiring an on-chain spend first.
     pub async fn publish_pubkey(&self) -> Result<(), ClientError> {
-        self.rpc_call("publishpubkey", serde_json::json!([])).await?;
+        self.rpc_call("publishpubkey", serde_json::json!([]))
+            .await?;
         Ok(())
     }
 }
