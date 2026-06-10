@@ -103,6 +103,8 @@ pub enum UiEvent {
     SaveContact {
         name: String,
         address: String,
+        email: Option<String>,
+        phone: Option<String>,
     },
 
     /// Delete an external contact.
@@ -273,6 +275,22 @@ pub enum UiEvent {
     /// The recipient's wallet will see the request, register its own key, and the
     /// sender can then look it up via `lookuppubkey`.
     RequestPubkey {
+        address: String,
+    },
+
+    /// Accept a message request from an unknown sender — move them from the Requests
+    /// inbox to the main conversation list and persist the decision.
+    AcceptMessageRequest {
+        address: String,
+    },
+
+    /// Block an address — future messages from this sender will be silently discarded.
+    BlockAddress {
+        address: String,
+    },
+
+    /// Remove a previously set block on an address.
+    UnblockAddress {
         address: String,
     },
 }
@@ -541,4 +559,19 @@ pub enum ServiceEvent {
 
     /// Non-error informational status to show in the messages view.
     MessagesInfo(String),
+
+    /// Blocked address list loaded from the database on wallet load.
+    BlockedAddressesLoaded(Vec<String>),
+
+    /// Accepted message-request addresses loaded from the database on wallet load.
+    AcceptedRequestsLoaded(Vec<String>),
+
+    /// An address was blocked (persisted).
+    AddressBlocked(String),
+
+    /// An address was unblocked.
+    AddressUnblocked(String),
+
+    /// A message request was accepted (conversation moved to main inbox).
+    MessageRequestAccepted(String),
 }

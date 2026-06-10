@@ -72,6 +72,8 @@ pub struct ContactInfo {
     pub address: String,
     /// Hex-encoded Ed25519 public key (32 bytes = 64 hex chars), if known.
     pub pubkey_hex: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
 }
 
 /// Income chart display mode.
@@ -83,6 +85,14 @@ pub enum ChartMode {
     ByAddress,
     /// Only show income for one specific address.
     SingleAddress,
+}
+
+/// Which tab is shown in the messages left panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MsgLeftTab {
+    #[default]
+    Chats,
+    Requests,
 }
 
 /// Which chart tab is active on the overview.
@@ -167,11 +177,15 @@ pub struct AppState {
     pub contacts: Vec<ContactInfo>,
     pub new_contact_name: String,
     pub new_contact_address: String,
+    pub new_contact_email: String,
+    pub new_contact_phone: String,
     pub show_add_contact: bool,
     pub contact_search: String,
     pub receive_search: String,
     pub editing_contact_address: Option<String>,
     pub editing_contact_name: String,
+    pub editing_contact_email: String,
+    pub editing_contact_phone: String,
     pub password_required: bool,
     pub password_input: String,
     pub show_password: bool,
@@ -293,6 +307,12 @@ pub struct AppState {
     pub msg_send_error: Option<String>,
     /// Non-error informational status for the messages view (e.g. "Key request sent").
     pub msg_info: Option<String>,
+    /// Addresses the user has blocked — their messages are silently discarded.
+    pub blocked_addresses: std::collections::HashSet<String>,
+    /// Addresses whose message requests have been explicitly accepted by the user.
+    pub accepted_requests: std::collections::HashSet<String>,
+    /// Which tab is active in the left panel: "chats" or "requests".
+    pub msg_left_tab: MsgLeftTab,
 
     // -- Charts --
     /// Which chart tab is active on the Charts page.
@@ -361,11 +381,15 @@ impl Default for AppState {
             contacts: Vec::new(),
             new_contact_name: String::new(),
             new_contact_address: String::new(),
+            new_contact_email: String::new(),
+            new_contact_phone: String::new(),
             show_add_contact: false,
             contact_search: String::new(),
             receive_search: String::new(),
             editing_contact_address: None,
             editing_contact_name: String::new(),
+            editing_contact_email: String::new(),
+            editing_contact_phone: String::new(),
             password_required: false,
             password_input: String::new(),
             show_password: false,
@@ -430,6 +454,9 @@ impl Default for AppState {
             msg_fetching: false,
             msg_send_error: None,
             msg_info: None,
+            blocked_addresses: std::collections::HashSet::new(),
+            accepted_requests: std::collections::HashSet::new(),
+            msg_left_tab: MsgLeftTab::Chats,
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,
@@ -1645,6 +1672,26 @@ impl AppState {
 
             ServiceEvent::MessagesInfo(info) => {
                 self.msg_info = Some(info);
+            }
+
+            ServiceEvent::BlockedAddressesLoaded(addrs) => {
+                self.blocked_addresses = addrs.into_iter().collect();
+            }
+
+            ServiceEvent::AcceptedRequestsLoaded(addrs) => {
+                self.accepted_requests = addrs.into_iter().collect();
+            }
+
+            ServiceEvent::AddressBlocked(addr) => {
+                self.blocked_addresses.insert(addr);
+            }
+
+            ServiceEvent::AddressUnblocked(addr) => {
+                self.blocked_addresses.remove(&addr);
+            }
+
+            ServiceEvent::MessageRequestAccepted(addr) => {
+                self.accepted_requests.insert(addr);
             }
         }
     }

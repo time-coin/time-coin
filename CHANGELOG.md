@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-09
+
+### Added
+- **Secure messaging (TIME-MSG)** — End-to-end encrypted wallet-to-wallet chat using XChaCha20-Poly1305 + X25519 ECDH. Messages are relayed through masternodes and decrypted locally; private keys never leave the device
+- **Message Requests inbox** — Messages from unknown senders land in a quarantine "Requests" tab instead of the main inbox. Users can Accept (move to Chats) or Block; blocked senders' messages are silently discarded at fetch time and the decision persists across restarts
+- **Block list** — Addresses can be blocked from the message request banner; blocks are stored in sled and loaded on wallet startup
+- **Pubkey registration and lookup** — Wallet registers its Ed25519 public key with masternodes on startup, peer switch, and new address generation so other wallets can encrypt messages to it. Three-source lookup chain: masternode contacts book → blockchain scriptSig extraction → wallet-to-wallet flag-0x04 key-request envelope
+- **"Request Key" button** — Shown in the chat header when the contact's pubkey is unknown; triggers the three-source lookup and falls back to a wallet-to-wallet key request
+- **Chat header action buttons** — "💸 Send", "💰 Request", "➕ Add Contact" (when not yet a contact), and "📋 Copy Address" buttons in the chat header for quick actions without leaving the conversation
+- **Add contact button in messages panel** — Phosphor USER_PLUS icon button in the left panel search bar navigates to the Send screen with the add-contact form pre-filled
+- **Email and phone fields on contacts** — Contacts now store optional email address and phone number; fields appear in the Add Contact and Edit Contact forms
+- **Message timestamps in local time** — Message bubbles and date separators now show times in the device's local timezone instead of UTC
+- **Pubkey persistence across masternode restarts** — Masternodes now write registered pubkeys to a sled contacts book so they survive restarts and are propagated via P2P to other nodes
+- **Relay store on all masternode tiers** — Bronze-tier masternodes now store message envelopes locally (previously only Silver/Gold did), fixing message delivery on networks without Silver/Gold nodes
+- **Send page scrollable** — The Send screen now wraps its full content in a scroll area
+
+### Fixed
+- **Chat row click detection** — Clicking anywhere in a conversation row now selects it; previously only clicking the avatar circle registered due to child widgets consuming the click sense in egui
+- **Send / Request / Add Contact navigation** — Header buttons now correctly switch the active screen (`state.screen` was missing alongside `NavigatedTo` event)
+- **Contact inline edit missing email/phone** — Editing an existing contact now shows and saves email/phone fields; entering edit mode pre-populates them from the stored contact
+
 ## [0.6.9] - 2026-06-07
 
 ### Added

@@ -1022,6 +1022,70 @@ impl WalletDb {
         self.db.contains_key(key.as_bytes()).unwrap_or(false)
     }
 
+    // ==================== Message Security (Blocks + Accepted Requests) ====================
+
+    /// Mark an address as blocked. Messages from blocked addresses are discarded.
+    pub fn block_address(&self, address: &str) -> Result<(), WalletDbError> {
+        let key = format!("msg_blocked:{}", address);
+        self.db.insert(key.as_bytes(), b"1")?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Remove a block on an address.
+    pub fn unblock_address(&self, address: &str) -> Result<(), WalletDbError> {
+        let key = format!("msg_blocked:{}", address);
+        self.db.remove(key.as_bytes())?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Check whether an address is blocked.
+    pub fn is_blocked(&self, address: &str) -> bool {
+        let key = format!("msg_blocked:{}", address);
+        self.db.contains_key(key.as_bytes()).unwrap_or(false)
+    }
+
+    /// Load all blocked addresses.
+    pub fn get_blocked_addresses(&self) -> Result<Vec<String>, WalletDbError> {
+        let mut out = Vec::new();
+        for item in self.db.scan_prefix(b"msg_blocked:") {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+            if let Some(addr) = key_str.strip_prefix("msg_blocked:") {
+                out.push(addr.to_string());
+            }
+        }
+        Ok(out)
+    }
+
+    /// Mark a message-request conversation as accepted (user explicitly opened it).
+    pub fn accept_message_request(&self, address: &str) -> Result<(), WalletDbError> {
+        let key = format!("msg_accepted:{}", address);
+        self.db.insert(key.as_bytes(), b"1")?;
+        self.db.flush()?;
+        Ok(())
+    }
+
+    /// Check whether a message-request conversation has been accepted.
+    pub fn is_message_request_accepted(&self, address: &str) -> bool {
+        let key = format!("msg_accepted:{}", address);
+        self.db.contains_key(key.as_bytes()).unwrap_or(false)
+    }
+
+    /// Load all accepted request addresses.
+    pub fn get_accepted_request_addresses(&self) -> Result<Vec<String>, WalletDbError> {
+        let mut out = Vec::new();
+        for item in self.db.scan_prefix(b"msg_accepted:") {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+            if let Some(addr) = key_str.strip_prefix("msg_accepted:") {
+                out.push(addr.to_string());
+            }
+        }
+        Ok(out)
+    }
+
     /// Persist the Ed25519 pubkey for a contact address.
     /// Creates the contact if it doesn't exist (as an external contact).
     pub fn save_contact_pubkey(&self, address: &str, pubkey_hex: &str) -> Result<(), WalletDbError> {

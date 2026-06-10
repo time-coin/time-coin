@@ -1,6 +1,7 @@
 //! Secure messaging view — Signal/Telegram-style chat interface.
 
 use egui::{Color32, RichText, Ui};
+use egui_phosphor::regular as ph;
 use tokio::sync::mpsc;
 
 use crate::events::{Screen, UiEvent};
@@ -74,7 +75,7 @@ fn trunc_addr(addr: &str, prefix: usize, suffix: usize) -> String {
 
 pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>) {
     // Unique conversation partners, ordered by most-recent message.
-    let conversations: Vec<String> = {
+    let all_conversations: Vec<String> = {
         let mut seen = std::collections::HashSet::new();
         let mut list = Vec::new();
         for msg in &state.messages {
@@ -85,8 +86,20 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         list
     };
 
+    // Split into accepted (contacts + explicitly accepted) vs pending requests.
+    let contact_addrs: std::collections::HashSet<&str> =
+        state.contacts.iter().map(|c| c.address.as_str()).collect();
+
+    let (conversations, request_conversations): (Vec<String>, Vec<String>) = all_conversations
+        .into_iter()
+        .partition(|addr| {
+            contact_addrs.contains(addr.as_str())
+                || state.accepted_requests.contains(addr.as_str())
+        });
+
     let unread_counts: std::collections::HashMap<String, usize> = conversations
         .iter()
+        .chain(request_conversations.iter())
         .map(|addr| {
             let n = state
                 .messages
@@ -102,6 +115,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         .collect();
 
     let total_unread: usize = unread_counts.values().sum();
+    let request_unread: usize = request_conversations
+        .iter()
+        .map(|a| unread_counts.get(a).copied().unwrap_or(0))
+        .sum();
 
     // ── Top bar ──────────────────────────────────────────────────────────────
     ui.horizontal(|ui| {
@@ -186,7 +203,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
                 .inner_margin(egui::Margin::same(0)),
         )
         .show_inside(ui, |ui| {
-            show_left_panel(ui, state, ui_tx, &conversations, &unread_counts);
+            show_left_panel(ui, state, ui_tx, &conversations, &request_conversations, &unread_counts, request_unread);
         });
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -205,106 +222,195 @@ fn show_left_panel(
     state: &mut AppState,
     ui_tx: &mpsc::UnboundedSender<UiEvent>,
     conversations: &[String],
+    request_conversations: &[String],
     unread_counts: &std::collections::HashMap<String, usize>,
+    request_unread: usize,
 ) {
-    // Search bar
+    use crate::state::MsgLeftTab;
+
+    // Search bar + Add Contact button
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.add_space(8.0);
         ui.add(
             egui::TextEdit::singleline(&mut state.msg_search)
-                .hint_text("🔍  Search contacts…")
-                .desired_width(ui.available_width() - 16.0),
+                .hint_text("🔍  Search…")
+                .desired_width(ui.available_width() - 52.0),
         );
+        ui.add_space(4.0);
+        if ui
+            .add(
+                egui::Button::new(
+                    RichText::new(ph::USER_PLUS)
+                        .size(16.0)
+                        .color(Color32::from_rgb(140, 220, 140)),
+                )
+                .fill(Color32::from_rgb(20, 50, 25))
+                .min_size(egui::vec2(32.0, 28.0)),
+            )
+            .on_hover_text("Add a new contact")
+            .clicked()
+        {
+            state.show_add_contact = true;
+            state.screen = crate::events::Screen::Send;
+            let _ = ui_tx.send(UiEvent::NavigatedTo(crate::events::Screen::Send));
+        }
     });
-    ui.add_space(6.0);
+    ui.add_space(4.0);
+
+    // ── Chats / Requests tabs ─────────────────────────────────────────────────
+    ui.horizontal(|ui| {
+        ui.add_space(8.0);
+        let chats_active = state.msg_left_tab == MsgLeftTab::Chats;
+        if ui.add(tab_button("Chats", chats_active)).clicked() {
+            state.msg_left_tab = MsgLeftTab::Chats;
+        }
+        ui.add_space(4.0);
+        let req_label = if request_unread > 0 {
+            format!("Requests  {}", request_unread)
+        } else {
+            "Requests".to_string()
+        };
+        let req_active = state.msg_left_tab == MsgLeftTab::Requests;
+        if ui.add(tab_button(&req_label, req_active)).clicked() {
+            state.msg_left_tab = MsgLeftTab::Requests;
+        }
+    });
+    ui.add_space(4.0);
+    ui.separator();
 
     let search = state.msg_search.to_lowercase();
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        // ── Recent conversations ──────────────────────────────────────────────
-        let has_convs = conversations.iter().any(|addr| {
-            if search.is_empty() {
-                return true;
-            }
-            let name = contact_name(addr, state);
-            name.to_lowercase().contains(&search) || addr.to_lowercase().contains(&search)
-        });
+    match state.msg_left_tab {
+        MsgLeftTab::Chats => {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let has_convs = conversations.iter().any(|addr| {
+                    search.is_empty() || {
+                        let name = contact_name(addr, state);
+                        name.to_lowercase().contains(&search) || addr.to_lowercase().contains(&search)
+                    }
+                });
 
-        if has_convs {
-            section_header(ui, "RECENT");
-
-            for addr in conversations {
-                let name = contact_name(addr, state);
-
-                if !search.is_empty()
-                    && !name.to_lowercase().contains(&search)
-                    && !addr.to_lowercase().contains(&search)
-                {
-                    continue;
+                if has_convs {
+                    section_header(ui, "RECENT");
+                    for addr in conversations {
+                        let name = contact_name(addr, state);
+                        if !search.is_empty()
+                            && !name.to_lowercase().contains(&search)
+                            && !addr.to_lowercase().contains(&search)
+                        {
+                            continue;
+                        }
+                        let last_msg = state.messages.iter().find(|m| m.peer_address == *addr);
+                        let is_selected = state.selected_msg_contact.as_deref() == Some(addr.as_str());
+                        let unread = *unread_counts.get(addr).unwrap_or(&0);
+                        let clicked = conv_row(ui, state, &name, addr, last_msg, is_selected, unread);
+                        if clicked {
+                            state.selected_msg_contact = Some(addr.clone());
+                            state.msg_compose_text.clear();
+                            let _ = ui_tx.send(UiEvent::MarkMessageRead { msg_id: addr.clone() });
+                        }
+                    }
+                    ui.add_space(8.0);
                 }
 
-                let last_msg = state.messages.iter().find(|m| m.peer_address == *addr);
-                let is_selected = state.selected_msg_contact.as_deref() == Some(addr.as_str());
-                let unread = *unread_counts.get(addr).unwrap_or(&0);
+                // Contacts not yet in a conversation
+                let conv_set: std::collections::HashSet<&str> =
+                    conversations.iter().map(|s| s.as_str()).collect();
+                let new_contacts: Vec<_> = state
+                    .contacts
+                    .iter()
+                    .filter(|c| {
+                        !conv_set.contains(c.address.as_str())
+                            && (search.is_empty()
+                                || c.name.to_lowercase().contains(&search)
+                                || c.address.to_lowercase().contains(&search))
+                    })
+                    .cloned()
+                    .collect();
 
-                let clicked = conv_row(ui, state, &name, addr, last_msg, is_selected, unread);
-                if clicked {
-                    state.selected_msg_contact = Some(addr.clone());
-                    state.msg_compose_text.clear();
-                    let _ = ui_tx.send(UiEvent::MarkMessageRead { msg_id: addr.clone() });
-                }
-            }
-
-            ui.add_space(8.0);
-        }
-
-        // ── Contacts not yet in a conversation ────────────────────────────────
-        let conv_set: std::collections::HashSet<&str> =
-            conversations.iter().map(|s| s.as_str()).collect();
-        let new_contacts: Vec<_> = state
-            .contacts
-            .iter()
-            .filter(|c| {
-                !conv_set.contains(c.address.as_str())
-                    && (search.is_empty()
-                        || c.name.to_lowercase().contains(&search)
-                        || c.address.to_lowercase().contains(&search))
-            })
-            .cloned()
-            .collect();
-
-        if !new_contacts.is_empty() {
-            section_header(ui, "CONTACTS");
-
-            for contact in new_contacts {
-                let is_selected =
-                    state.selected_msg_contact.as_deref() == Some(contact.address.as_str());
-
-                let clicked = contact_row(ui, &contact.name, &contact.address, is_selected);
-                if clicked {
-                    state.selected_msg_contact = Some(contact.address.clone());
-                    state.msg_compose_text.clear();
-                    if contact.pubkey_hex.is_none() {
-                        let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::Messages));
+                if !new_contacts.is_empty() {
+                    section_header(ui, "CONTACTS");
+                    for contact in new_contacts {
+                        let is_selected = state.selected_msg_contact.as_deref()
+                            == Some(contact.address.as_str());
+                        let clicked = contact_row(ui, &contact.name, &contact.address, is_selected);
+                        if clicked {
+                            state.selected_msg_contact = Some(contact.address.clone());
+                            state.msg_compose_text.clear();
+                        }
                     }
                 }
-            }
-        }
 
-        if state.contacts.is_empty() && conversations.is_empty() {
-            ui.add_space(16.0);
-            ui.vertical_centered(|ui| {
-                ui.label(RichText::new("No contacts yet.").size(13.0).weak());
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new("Add contacts in the Send screen\nto start messaging.")
-                        .size(12.0)
-                        .weak(),
-                );
+                if state.contacts.is_empty() && conversations.is_empty() {
+                    ui.add_space(16.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("No contacts yet.").size(13.0).weak());
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("Add contacts in the Send screen\nto start messaging.")
+                                .size(12.0)
+                                .weak(),
+                        );
+                    });
+                }
             });
         }
+        MsgLeftTab::Requests => {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                if request_conversations.is_empty() {
+                    ui.add_space(16.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            RichText::new("No message requests.")
+                                .size(13.0)
+                                .weak(),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("Messages from unknown senders\nappear here for review.")
+                                .size(12.0)
+                                .weak(),
+                        );
+                    });
+                } else {
+                    section_header(ui, "UNKNOWN SENDERS");
+                    for addr in request_conversations {
+                        if !search.is_empty() {
+                            let name = contact_name(addr, state);
+                            if !name.to_lowercase().contains(&search)
+                                && !addr.to_lowercase().contains(&search)
+                            {
+                                continue;
+                            }
+                        }
+                        let name = contact_name(addr, state);
+                        let last_msg = state.messages.iter().find(|m| m.peer_address == *addr);
+                        let is_selected = state.selected_msg_contact.as_deref() == Some(addr.as_str());
+                        let unread = *unread_counts.get(addr).unwrap_or(&0);
+                        let clicked = conv_row(ui, state, &name, addr, last_msg, is_selected, unread);
+                        if clicked {
+                            state.selected_msg_contact = Some(addr.clone());
+                            state.msg_compose_text.clear();
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+
+fn tab_button(label: &str, active: bool) -> egui::Button<'_> {
+    let text = RichText::new(label).size(12.0).color(if active {
+        Color32::WHITE
+    } else {
+        Color32::from_gray(160)
     });
+    egui::Button::new(text).fill(if active {
+        Color32::from_rgb(0, 100, 180)
+    } else {
+        Color32::from_rgb(28, 35, 48)
+    })
 }
 
 fn section_header(ui: &mut Ui, text: &str) {
@@ -339,8 +445,8 @@ fn conv_row(
     let row_h = 54.0;
 
     // Allocate the full row rect first so we know the rect before drawing anything.
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
+    let (rect, _response) =
+        ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::hover());
 
     // Use raw pointer position — response.hovered() can be blocked by child widgets.
     let is_hovered = ui.ctx().input(|i| {
@@ -426,7 +532,10 @@ fn conv_row(
         });
     });
 
-    response.clicked()
+    // Use raw pointer check — child widgets can block response.clicked() in egui.
+    ui.ctx().input(|i| {
+        i.pointer.any_click() && i.pointer.hover_pos().map_or(false, |p| rect.contains(p))
+    })
 }
 
 /// Render a contact-only row (no message history). Returns true if clicked.
@@ -434,8 +543,8 @@ fn contact_row(ui: &mut Ui, name: &str, addr: &str, is_selected: bool) -> bool {
     let avail_w = ui.available_width();
     let row_h = 44.0;
 
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
+    let (rect, _response) =
+        ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::hover());
 
     let is_hovered = ui.ctx().input(|i| {
         i.pointer.hover_pos().map_or(false, |p| rect.contains(p))
@@ -471,7 +580,9 @@ fn contact_row(ui: &mut Ui, name: &str, addr: &str, is_selected: bool) -> bool {
         ui.label(RichText::new(trunc_addr(addr, 8, 5)).size(10.0).color(addr_col));
     });
 
-    response.clicked()
+    ui.ctx().input(|i| {
+        i.pointer.any_click() && i.pointer.hover_pos().map_or(false, |p| rect.contains(p))
+    })
 }
 
 fn draw_avatar(ui: &mut Ui, name: &str, size: f32) {
@@ -584,6 +695,62 @@ fn show_chat_panel(
                     {
                         ui.ctx().copy_text(peer_addr.to_string());
                     }
+                    // Add Contact — only shown when peer isn't in contacts yet
+                    if contact.is_none() {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("➕  Add Contact")
+                                        .size(12.0)
+                                        .color(Color32::from_rgb(140, 220, 140)),
+                                )
+                                .fill(Color32::from_rgb(20, 50, 25)),
+                            )
+                            .on_hover_text("Add this address to your contacts")
+                            .clicked()
+                        {
+                            state.new_contact_address = peer_addr.to_string();
+                            state.show_add_contact = true;
+                            state.screen = Screen::Send;
+                            let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::Send));
+                        }
+                    }
+                    // Send funds to this contact
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new("💸  Send")
+                                    .size(12.0)
+                                    .color(Color32::WHITE),
+                            )
+                            .fill(Color32::from_rgb(0, 100, 170)),
+                        )
+                        .on_hover_text("Send funds to this contact")
+                        .clicked()
+                    {
+                        state.send_address = peer_addr.to_string();
+                        state.send_recipient_name = display.clone();
+                        state.screen = Screen::Send;
+                        let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::Send));
+                    }
+                    // Request payment from this contact
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new("💰  Request")
+                                    .size(12.0)
+                                    .color(Color32::from_rgb(255, 200, 60)),
+                            )
+                            .fill(Color32::from_rgb(55, 40, 5)),
+                        )
+                        .on_hover_text("Request a payment from this contact")
+                        .clicked()
+                    {
+                        state.pr_address = peer_addr.to_string();
+                        state.show_payment_request_form = true;
+                        state.screen = Screen::PaymentRequests;
+                        let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::PaymentRequests));
+                    }
                     if !pubkey_known {
                         if ui
                             .add(
@@ -605,6 +772,62 @@ fn show_chat_panel(
                 });
             });
         });
+
+    // ── Message-request acceptance banner ────────────────────────────────────
+    let is_request = contact.is_none()
+        && !state.accepted_requests.contains(peer_addr)
+        && !state.blocked_addresses.contains(peer_addr);
+
+    if is_request {
+        egui::TopBottomPanel::top("chat_request_banner")
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(40, 30, 10))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(80, 60, 10))),
+            )
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("⚠  Message from unknown sender")
+                            .size(12.0)
+                            .color(Color32::from_rgb(255, 200, 60)),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("🚫  Block").size(12.0).color(Color32::from_rgb(255, 100, 100)),
+                                )
+                                .fill(Color32::from_rgb(55, 15, 15)),
+                            )
+                            .on_hover_text("Block this sender — future messages will be silently discarded")
+                            .clicked()
+                        {
+                            let _ = ui_tx.send(UiEvent::BlockAddress {
+                                address: peer_addr.to_string(),
+                            });
+                            state.selected_msg_contact = None;
+                        }
+                        ui.add_space(4.0);
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("✓  Accept").size(12.0).color(Color32::from_rgb(120, 220, 120)),
+                                )
+                                .fill(Color32::from_rgb(18, 48, 18)),
+                            )
+                            .on_hover_text("Accept this conversation — move to main inbox")
+                            .clicked()
+                        {
+                            let _ = ui_tx.send(UiEvent::AcceptMessageRequest {
+                                address: peer_addr.to_string(),
+                            });
+                        }
+                    });
+                });
+            });
+    }
 
     // Compose — declared BEFORE messages so egui allocates bottom space first.
     egui::TopBottomPanel::bottom("chat_compose")
@@ -639,7 +862,7 @@ fn show_chat_panel(
                     if msg.timestamp - prev_ts > 7200 || prev_ts == 0 {
                         let dt = chrono::DateTime::from_timestamp(msg.timestamp, 0)
                             .map(|dt: chrono::DateTime<chrono::Utc>| {
-                                dt.format("%B %d, %Y").to_string()
+                                dt.with_timezone(&chrono::Local).format("%B %d, %Y").to_string()
                             })
                             .unwrap_or_default();
                         ui.vertical_centered(|ui| {
@@ -701,7 +924,7 @@ fn show_message_bubble(ui: &mut Ui, msg: &crate::wallet_db::StoredMessage) {
                         ui.horizontal(|ui| {
                             let time_str = chrono::DateTime::from_timestamp(msg.timestamp, 0)
                                 .map(|dt: chrono::DateTime<chrono::Utc>| {
-                                    dt.format("%H:%M").to_string()
+                                    dt.with_timezone(&chrono::Local).format("%H:%M").to_string()
                                 })
                                 .unwrap_or_default();
                             ui.label(

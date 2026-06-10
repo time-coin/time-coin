@@ -1443,14 +1443,14 @@ pub async fn run(
                         }
                     }
 
-                    UiEvent::SaveContact { name, address } => {
+                    UiEvent::SaveContact { name, address, email, phone } => {
                         if let Some(ref db) = state.wallet_db {
                             let contact = crate::wallet_db::AddressContact {
                                 address: address.clone(),
                                 label: name.clone(),
                                 name: Some(name),
-                                email: None,
-                                phone: None,
+                                email: email.filter(|s| !s.is_empty()),
+                                phone: phone.filter(|s| !s.is_empty()),
                                 notes: None,
                                 is_default: false,
                                 is_owned: false,
@@ -1470,6 +1470,8 @@ pub async fn run(
                                         name: c.name.unwrap_or(c.label),
                                         address: c.address,
                                         pubkey_hex: c.pubkey_hex,
+                                        email: c.email,
+                                        phone: c.phone,
                                     })
                                     .collect();
                                 let _ = state.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -1489,6 +1491,8 @@ pub async fn run(
                                         name: c.name.unwrap_or(c.label),
                                         address: c.address,
                                         pubkey_hex: c.pubkey_hex,
+                                        email: c.email,
+                                        phone: c.phone,
                                     })
                                     .collect();
                                 let _ = state.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -2479,6 +2483,27 @@ pub async fn run(
 
                     UiEvent::RequestPubkey { address } => {
                         handle_request_pubkey(&state, address).await;
+                    }
+
+                    UiEvent::AcceptMessageRequest { address } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.accept_message_request(&address);
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::MessageRequestAccepted(address));
+                    }
+
+                    UiEvent::BlockAddress { address } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.block_address(&address);
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::AddressBlocked(address));
+                    }
+
+                    UiEvent::UnblockAddress { address } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.unblock_address(&address);
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::AddressUnblocked(address));
                     }
 
                     UiEvent::UpdateMasternodePayout {
@@ -3908,6 +3933,8 @@ impl ServiceState {
                                 name: c.name.unwrap_or(c.label),
                                 address: c.address,
                                 pubkey_hex: c.pubkey_hex,
+                                email: c.email,
+                                phone: c.phone,
                             })
                             .collect();
                         let _ = self.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -3924,6 +3951,12 @@ impl ServiceState {
                 if let Some(ref db) = self.wallet_db {
                     if let Ok(msgs) = db.get_all_messages() {
                         let _ = self.svc_tx.send(ServiceEvent::MessagesLoaded(msgs));
+                    }
+                    if let Ok(blocked) = db.get_blocked_addresses() {
+                        let _ = self.svc_tx.send(ServiceEvent::BlockedAddressesLoaded(blocked));
+                    }
+                    if let Ok(accepted) = db.get_accepted_request_addresses() {
+                        let _ = self.svc_tx.send(ServiceEvent::AcceptedRequestsLoaded(accepted));
                     }
                 }
 
@@ -5131,10 +5164,19 @@ async fn handle_fetch_messages(state: &ServiceState) {
             });
         }
 
+        let sender_addr = sender_addr_str.unwrap_or_else(|| "Unknown".to_string());
+
+        // Discard messages from blocked senders.
+        if let Some(ref db) = state.wallet_db {
+            if db.is_blocked(&sender_addr) {
+                continue;
+            }
+        }
+
         let stored = StoredMessage {
             msg_id: raw.msg_id,
             direction: MessageDirection::Incoming,
-            peer_address: sender_addr_str.unwrap_or_else(|| "Unknown".to_string()),
+            peer_address: sender_addr,
             subject: String::from_utf8_lossy(&msg.subject).into_owned(),
             body: String::from_utf8_lossy(&msg.body).into_owned(),
             timestamp: msg.timestamp,
