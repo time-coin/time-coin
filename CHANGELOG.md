@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-10
+
+### Fixed
+- **Incoming message sender address** — Messages no longer show the wallet's own address as the sender. The sender address is now correctly derived from the `sender_pubkey` embedded in every envelope; the broken fallback that returned `msg.recipient_addr` (the local receiving address) has been removed
+- **Delete message** — Right-click any message bubble to delete it from local storage. Deleted messages can be re-fetched from the relay with the correct sender attribution
+- **Delete conversation** — Right-click any conversation row to delete all locally stored messages for that peer at once, clearing the entry from the Recent list
+- **Delete contact from Messages** — Right-click any conversation or contact row in the Messages sidebar to delete the contact (previously only available in the Send tab)
+
+### Added
+- **From-address selector in message compose** — Wallets with multiple addresses now show a "From:" dropdown when composing a message, so the sender address can be chosen explicitly
+- **Pubkey-based contact identity** — When a message or payment request arrives from an address not yet in the address book, the wallet checks whether any existing contact owns that pubkey and links the address as a secondary address, keeping conversations grouped correctly across per-transaction address changes
+
 ## [0.7.0] - 2026-06-09
 
 ### Added
