@@ -466,7 +466,7 @@ fn conv_row(
     // Use raw pointer position — response.hovered() can be blocked by child widgets.
     let is_hovered = ui
         .ctx()
-        .input(|i| i.pointer.hover_pos().map_or(false, |p| rect.contains(p)));
+        .input(|i| i.pointer.hover_pos().is_some_and(|p| rect.contains(p)));
 
     // Paint background before content — correct draw order.
     let bg = if is_selected {
@@ -557,9 +557,8 @@ fn conv_row(
     });
 
     // Use raw pointer check — child widgets can block response.clicked() in egui.
-    ui.ctx().input(|i| {
-        i.pointer.any_click() && i.pointer.hover_pos().map_or(false, |p| rect.contains(p))
-    })
+    ui.ctx()
+        .input(|i| i.pointer.any_click() && i.pointer.hover_pos().is_some_and(|p| rect.contains(p)))
 }
 
 /// Render a contact-only row (no message history). Returns true if clicked.
@@ -572,7 +571,7 @@ fn contact_row(ui: &mut Ui, name: &str, addr: &str, is_selected: bool) -> bool {
 
     let is_hovered = ui
         .ctx()
-        .input(|i| i.pointer.hover_pos().map_or(false, |p| rect.contains(p)));
+        .input(|i| i.pointer.hover_pos().is_some_and(|p| rect.contains(p)));
 
     let bg = if is_selected {
         ROW_SELECTED
@@ -613,9 +612,8 @@ fn contact_row(ui: &mut Ui, name: &str, addr: &str, is_selected: bool) -> bool {
         );
     });
 
-    ui.ctx().input(|i| {
-        i.pointer.any_click() && i.pointer.hover_pos().map_or(false, |p| rect.contains(p))
-    })
+    ui.ctx()
+        .input(|i| i.pointer.any_click() && i.pointer.hover_pos().is_some_and(|p| rect.contains(p)))
 }
 
 fn draw_avatar(ui: &mut Ui, name: &str, size: f32) {
@@ -733,8 +731,8 @@ fn show_chat_panel(
                         ui.ctx().copy_text(peer_addr.to_string());
                     }
                     // Add Contact — only shown when peer isn't in contacts yet
-                    if contact.is_none() {
-                        if ui
+                    if contact.is_none()
+                        && ui
                             .add(
                                 egui::Button::new(
                                     RichText::new("➕  Add Contact")
@@ -745,12 +743,11 @@ fn show_chat_panel(
                             )
                             .on_hover_text("Add this address to your contacts")
                             .clicked()
-                        {
-                            state.new_contact_address = peer_addr.to_string();
-                            state.show_add_contact = true;
-                            state.screen = Screen::Send;
-                            let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::Send));
-                        }
+                    {
+                        state.new_contact_address = peer_addr.to_string();
+                        state.show_add_contact = true;
+                        state.screen = Screen::Send;
+                        let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::Send));
                     }
                     // Send funds to this contact
                     if ui
@@ -788,8 +785,8 @@ fn show_chat_panel(
                         state.screen = Screen::PaymentRequests;
                         let _ = ui_tx.send(UiEvent::NavigatedTo(Screen::PaymentRequests));
                     }
-                    if !pubkey_known {
-                        if ui
+                    if !pubkey_known
+                        && ui
                             .add(
                                 egui::Button::new(
                                     RichText::new("🔑  Request Key")
@@ -800,11 +797,10 @@ fn show_chat_panel(
                             )
                             .on_hover_text("Contact's pubkey unknown — click to send them a key-request so they can register their public key")
                             .clicked()
-                        {
-                            let _ = ui_tx.send(UiEvent::RequestPubkey {
-                                address: peer_addr.to_string(),
-                            });
-                        }
+                    {
+                        let _ = ui_tx.send(UiEvent::RequestPubkey {
+                            address: peer_addr.to_string(),
+                        });
                     }
                 });
             });

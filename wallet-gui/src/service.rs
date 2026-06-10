@@ -5133,7 +5133,7 @@ async fn handle_fetch_messages(state: &ServiceState) {
                     pubkey_hex: requester_pubkey_hex,
                 });
                 // Re-register our own key so the requester can look it up.
-                if let Some(ref own_addr) = state.addresses.first() {
+                if let Some(own_addr) = state.addresses.first() {
                     if let Some(own_key) = state.signing_keys.first() {
                         let pubkey_hex = hex::encode(own_key.verifying_key().to_bytes());
                         if let Err(e) = client.register_pubkey(own_addr, &pubkey_hex).await {
