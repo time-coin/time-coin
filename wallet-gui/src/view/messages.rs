@@ -318,7 +318,7 @@ fn show_left_panel(
                         let is_selected =
                             state.selected_msg_contact.as_deref() == Some(addr.as_str());
                         let unread = *unread_counts.get(addr).unwrap_or(&0);
-                        let clicked =
+                        let (clicked, del_conv, del_contact) =
                             conv_row(ui, state, &name, addr, last_msg, is_selected, unread);
                         if clicked {
                             state.selected_msg_contact = Some(addr.clone());
@@ -326,6 +326,17 @@ fn show_left_panel(
                             let _ = ui_tx.send(UiEvent::MarkMessageRead {
                                 msg_id: addr.clone(),
                             });
+                        }
+                        if del_conv {
+                            let _ = ui_tx.send(UiEvent::DeleteConversation {
+                                peer_address: addr.clone(),
+                            });
+                        }
+                        if del_contact {
+                            let _ = ui_tx.send(UiEvent::DeleteContact { address: addr.clone() });
+                            if state.selected_msg_contact.as_deref() == Some(addr.as_str()) {
+                                state.selected_msg_contact = None;
+                            }
                         }
                     }
                     ui.add_space(8.0);
@@ -402,11 +413,22 @@ fn show_left_panel(
                         let is_selected =
                             state.selected_msg_contact.as_deref() == Some(addr.as_str());
                         let unread = *unread_counts.get(addr).unwrap_or(&0);
-                        let clicked =
+                        let (clicked, del_conv, del_contact) =
                             conv_row(ui, state, &name, addr, last_msg, is_selected, unread);
                         if clicked {
                             state.selected_msg_contact = Some(addr.clone());
                             state.msg_compose_text.clear();
+                        }
+                        if del_conv {
+                            let _ = ui_tx.send(UiEvent::DeleteConversation {
+                                peer_address: addr.clone(),
+                            });
+                        }
+                        if del_contact {
+                            let _ = ui_tx.send(UiEvent::DeleteContact { address: addr.clone() });
+                            if state.selected_msg_contact.as_deref() == Some(addr.as_str()) {
+                                state.selected_msg_contact = None;
+                            }
                         }
                     }
                 }
@@ -441,7 +463,7 @@ fn contact_name(addr: &str, state: &AppState) -> String {
     state
         .contacts
         .iter()
-        .find(|c| c.address == addr)
+        .find(|c| c.address == addr || c.secondary_addresses.iter().any(|s| s == addr))
         .map(|c| c.name.clone())
         .unwrap_or_else(|| trunc_addr(addr, 6, 4))
 }
@@ -455,13 +477,14 @@ fn conv_row(
     last_msg: Option<&crate::wallet_db::StoredMessage>,
     is_selected: bool,
     unread: usize,
-) -> bool {
+) -> (bool, bool, bool) {
+    // Returns (selected, delete_conversation_requested, delete_contact_requested)
     let avail_w = ui.available_width();
     let row_h = 54.0;
 
     // Allocate the full row rect first so we know the rect before drawing anything.
-    let (rect, _response) =
-        ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::hover());
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
 
     // Use raw pointer position — response.hovered() can be blocked by child widgets.
     let is_hovered = ui
@@ -556,9 +579,25 @@ fn conv_row(
         });
     });
 
+    // Right-click context menu
+    let mut delete_conv = false;
+    let mut delete_contact = false;
+    response.context_menu(|ui| {
+        if ui.button("Delete conversation").clicked() {
+            delete_conv = true;
+            ui.close_menu();
+        }
+        if ui.button("Delete contact").clicked() {
+            delete_contact = true;
+            ui.close_menu();
+        }
+    });
+
     // Use raw pointer check — child widgets can block response.clicked() in egui.
-    ui.ctx()
-        .input(|i| i.pointer.any_click() && i.pointer.hover_pos().is_some_and(|p| rect.contains(p)))
+    let clicked = ui
+        .ctx()
+        .input(|i| i.pointer.any_click() && i.pointer.hover_pos().is_some_and(|p| rect.contains(p)));
+    (clicked, delete_conv, delete_contact)
 }
 
 /// Render a contact-only row (no message history). Returns true if clicked.
@@ -919,20 +958,23 @@ fn show_chat_panel(
                         });
                     }
                     prev_ts = msg.timestamp;
-                    show_message_bubble(ui, msg);
+                    show_message_bubble(ui, msg, ui_tx);
                 }
                 ui.add_space(8.0);
             });
     });
 }
 
-fn show_message_bubble(ui: &mut Ui, msg: &crate::wallet_db::StoredMessage) {
+fn show_message_bubble(
+    ui: &mut Ui,
+    msg: &crate::wallet_db::StoredMessage,
+    ui_tx: &mpsc::UnboundedSender<UiEvent>,
+) {
     let is_out = msg.direction == MessageDirection::Outgoing;
-
     let max_w = ui.available_width() * 0.72;
     let bubble_color = if is_out { BUBBLE_OUT } else { BUBBLE_IN };
 
-    ui.with_layout(
+    let layout_resp = ui.with_layout(
         if is_out {
             egui::Layout::right_to_left(egui::Align::Min)
         } else {
@@ -982,9 +1024,21 @@ fn show_message_bubble(ui: &mut Ui, msg: &crate::wallet_db::StoredMessage) {
                             }
                         });
                     });
-                });
+                })
+                .response
         },
     );
+
+    // Right-click to delete the message from local storage.
+    // Deleting an incorrectly-attributed message lets it be re-fetched with the correct sender.
+    let msg_id = msg.msg_id.clone();
+    layout_resp.inner.context_menu(|ui| {
+        if ui.button("Delete message").clicked() {
+            let _ = ui_tx.send(UiEvent::DeleteMessage { msg_id: msg_id.clone() });
+            ui.close_menu();
+        }
+    });
+
     ui.add_space(3.0);
 }
 
@@ -996,6 +1050,49 @@ fn show_compose(
     ui_tx: &mpsc::UnboundedSender<UiEvent>,
     peer_addr: &str,
 ) {
+    // From-address selector (only shown when wallet has multiple addresses)
+    if state.addresses.len() > 1 {
+        if state.msg_from_address_idx >= state.addresses.len() {
+            state.msg_from_address_idx = 0;
+        }
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("From:")
+                    .size(11.0)
+                    .color(Color32::from_rgb(100, 120, 145)),
+            );
+            let selected_label = state
+                .addresses
+                .get(state.msg_from_address_idx)
+                .map(|a| {
+                    let label = if a.label.is_empty() { "Unlabeled" } else { &a.label };
+                    format!(
+                        "{} ({}…{})",
+                        label,
+                        &a.address[..8.min(a.address.len())],
+                        &a.address[a.address.len().saturating_sub(6)..]
+                    )
+                })
+                .unwrap_or_else(|| "No addresses".to_string());
+            egui::ComboBox::from_id_salt("msg_from_addr")
+                .selected_text(selected_label)
+                .width(280.0)
+                .show_ui(ui, |ui| {
+                    for (i, addr_info) in state.addresses.iter().enumerate() {
+                        let label = if addr_info.label.is_empty() { "Unlabeled" } else { &addr_info.label };
+                        let display = format!(
+                            "{} — {}…{}",
+                            label,
+                            &addr_info.address[..8.min(addr_info.address.len())],
+                            &addr_info.address[addr_info.address.len().saturating_sub(6)..]
+                        );
+                        ui.selectable_value(&mut state.msg_from_address_idx, i, display);
+                    }
+                });
+        });
+        ui.add_space(4.0);
+    }
+
     let btn_w = 68.0;
     let btn_h = 54.0;
     let gap = ui.spacing().item_spacing.x;
@@ -1051,5 +1148,6 @@ fn send_message(state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiEvent>, pe
         to: peer_addr.to_string(),
         subject: String::new(),
         body,
+        from_address_idx: state.msg_from_address_idx,
     });
 }

@@ -74,6 +74,8 @@ pub struct ContactInfo {
     pub pubkey_hex: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
+    /// Additional addresses linked to this same contact identity.
+    pub secondary_addresses: Vec<String>,
 }
 
 /// Income chart display mode.
@@ -313,6 +315,8 @@ pub struct AppState {
     pub accepted_requests: std::collections::HashSet<String>,
     /// Which tab is active in the left panel: "chats" or "requests".
     pub msg_left_tab: MsgLeftTab,
+    /// Index into `addresses` used as the "from" address when sending messages.
+    pub msg_from_address_idx: usize,
 
     // -- Charts --
     /// Which chart tab is active on the Charts page.
@@ -457,6 +461,7 @@ impl Default for AppState {
             blocked_addresses: std::collections::HashSet::new(),
             accepted_requests: std::collections::HashSet::new(),
             msg_left_tab: MsgLeftTab::Chats,
+            msg_from_address_idx: 0,
             chart_tab: ChartTab::Income,
             chart_months: 12,
             chart_mode: ChartMode::Total,
@@ -656,16 +661,16 @@ impl AppState {
     }
 
     /// Look up a display name for an address. Checks own wallet address labels
-    /// first, then contacts. Returns None if not found.
+    /// first, then contacts (primary and secondary addresses). Returns None if not found.
     pub fn contact_name(&self, address: &str) -> Option<&str> {
         // Check own wallet addresses (e.g. "First Address")
         if let Some(info) = self.addresses.iter().find(|a| a.address == address) {
             return Some(&info.label);
         }
-        // Check contacts
+        // Check contacts — primary address first, then secondary addresses
         self.contacts
             .iter()
-            .find(|c| c.address == address)
+            .find(|c| c.address == address || c.secondary_addresses.iter().any(|s| s == address))
             .map(|c| c.name.as_str())
     }
 
@@ -1650,6 +1655,17 @@ impl AppState {
                 self.msg_fetching = false;
             }
 
+            ServiceEvent::MessageDeleted(msg_id) => {
+                self.messages.retain(|m| m.msg_id != msg_id);
+            }
+
+            ServiceEvent::ConversationDeleted(peer_address) => {
+                self.messages.retain(|m| m.peer_address != peer_address);
+                if self.selected_msg_contact.as_deref() == Some(peer_address.as_str()) {
+                    self.selected_msg_contact = None;
+                }
+            }
+
             ServiceEvent::MessageFailed(err) => {
                 self.msg_send_error = Some(err);
                 self.msg_fetching = false;
@@ -1665,7 +1681,10 @@ impl AppState {
                 address,
                 pubkey_hex,
             } => {
-                if let Some(c) = self.contacts.iter_mut().find(|c| c.address == address) {
+                if let Some(c) = self.contacts.iter_mut().find(|c| {
+                    c.address == address
+                        || c.secondary_addresses.iter().any(|s| s == &address)
+                }) {
                     c.pubkey_hex = Some(pubkey_hex);
                 }
             }

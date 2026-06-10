@@ -243,6 +243,16 @@ pub enum UiEvent {
         id: String,
     },
 
+    /// Delete a stored message by ID (allows it to be re-fetched and re-attributed).
+    DeleteMessage {
+        msg_id: String,
+    },
+
+    /// Delete all locally stored messages with a peer (allows re-fetch with correct attribution).
+    DeleteConversation {
+        peer_address: String,
+    },
+
     /// Clear all owned addresses from the DB and re-derive from index 0,
     /// scanning the blockchain for any funded addresses (gap-limit aware).
     /// Preserves existing labels where the address string matches.
@@ -254,6 +264,7 @@ pub enum UiEvent {
         to: String,
         subject: String,
         body: String,
+        from_address_idx: usize,
     },
 
     /// Fetch and decrypt pending messages from relay nodes.
@@ -554,6 +565,12 @@ pub enum ServiceEvent {
         address: String,
         pubkey_hex: String,
     },
+
+    /// A message was deleted from local storage.
+    MessageDeleted(String),
+
+    /// All messages with a peer were deleted from local storage.
+    ConversationDeleted(String),
 
     /// Non-error informational status to show in the messages view.
     MessagesInfo(String),

@@ -39,6 +39,9 @@ pub struct AddressContact {
     /// Hex-encoded Ed25519 public key, used for TIME-MSG encryption.
     #[serde(default)]
     pub pubkey_hex: Option<String>,
+    /// Additional addresses known to belong to this same contact (e.g. per-tx addresses).
+    #[serde(default)]
+    pub secondary_addresses: Vec<String>,
 }
 
 /// Direction of a stored message.
@@ -1022,6 +1025,38 @@ impl WalletDb {
         self.db.contains_key(key.as_bytes()).unwrap_or(false)
     }
 
+    /// Delete a stored message by ID. Returns true if the message existed and was removed.
+    pub fn delete_message(&self, msg_id: &str) -> Result<bool, WalletDbError> {
+        let key = format!("msg:{}", msg_id);
+        let removed = self.db.remove(key.as_bytes())?.is_some();
+        if removed {
+            self.db.flush()?;
+        }
+        Ok(removed)
+    }
+
+    /// Delete all stored messages where `peer_address` matches. Returns the number deleted.
+    pub fn delete_messages_for_peer(&self, peer_address: &str) -> Result<usize, WalletDbError> {
+        let prefix = b"msg:";
+        let mut to_delete: Vec<sled::IVec> = Vec::new();
+        for item in self.db.scan_prefix(prefix) {
+            let (key, value) = item?;
+            if let Ok(msg) = serde_json::from_slice::<StoredMessage>(&value) {
+                if msg.peer_address == peer_address {
+                    to_delete.push(key);
+                }
+            }
+        }
+        let count = to_delete.len();
+        for key in to_delete {
+            self.db.remove(&key)?;
+        }
+        if count > 0 {
+            self.db.flush()?;
+        }
+        Ok(count)
+    }
+
     // ==================== Message Security (Blocks + Accepted Requests) ====================
 
     /// Mark an address as blocked. Messages from blocked addresses are discarded.
@@ -1109,10 +1144,54 @@ impl WalletDb {
                 created_at: now,
                 updated_at: now,
                 pubkey_hex: None,
+                secondary_addresses: vec![],
             });
         contact.pubkey_hex = Some(pubkey_hex.to_string());
         contact.updated_at = now;
         self.save_contact(&contact)
+    }
+
+    /// Find the first external contact whose pubkey matches `pubkey_hex`.
+    pub fn find_contact_by_pubkey(&self, pubkey_hex: &str) -> Result<Option<AddressContact>, WalletDbError> {
+        for contact in self.get_all_contacts()? {
+            if !contact.is_owned && contact.pubkey_hex.as_deref() == Some(pubkey_hex) {
+                return Ok(Some(contact));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Add `address` to the secondary_addresses of the contact identified by `primary_address`.
+    /// No-op if the address is already present. Returns true if the contact was updated.
+    pub fn link_address_to_contact(
+        &self,
+        primary_address: &str,
+        address: &str,
+    ) -> Result<bool, WalletDbError> {
+        let mut contact = match self.get_contact(primary_address)? {
+            Some(c) => c,
+            None => return Ok(false),
+        };
+        if contact.secondary_addresses.iter().any(|a| a == address) {
+            return Ok(false);
+        }
+        contact.secondary_addresses.push(address.to_string());
+        contact.updated_at = chrono::Utc::now().timestamp();
+        self.save_contact(&contact)?;
+        Ok(true)
+    }
+
+    /// Check whether `address` is the primary or any secondary address of any contact.
+    pub fn is_known_address(&self, address: &str) -> Result<bool, WalletDbError> {
+        if self.get_contact(address)?.is_some() {
+            return Ok(true);
+        }
+        for contact in self.get_all_contacts()? {
+            if contact.secondary_addresses.iter().any(|a| a == address) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }
 

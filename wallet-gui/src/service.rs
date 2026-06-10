@@ -982,6 +982,7 @@ pub async fn run(
                                         created_at: now,
                                         updated_at: now,
                                         pubkey_hex: None,
+                                        secondary_addresses: vec![],
                                     });
                                 contact.label = label;
                                 contact.updated_at = now;
@@ -1070,6 +1071,7 @@ pub async fn run(
                                                                         created_at: now,
                                                                         updated_at: now,
                                                                         pubkey_hex: None,
+                                                                        secondary_addresses: vec![],
                                                                     },
                                                                 );
                                                                 log::info!(
@@ -1130,6 +1132,7 @@ pub async fn run(
                                                             created_at: now,
                                                             updated_at: now,
                                                             pubkey_hex: None,
+                                                            secondary_addresses: vec![],
                                                         },
                                                     );
                                                     log::info!(
@@ -1311,6 +1314,7 @@ pub async fn run(
                                             created_at: now,
                                             updated_at: now,
                                             pubkey_hex: None,
+                                            secondary_addresses: vec![],
                                         });
                                     }
                                     AddressInfo { address: addr.clone(), label }
@@ -1379,6 +1383,7 @@ pub async fn run(
                                             created_at: now,
                                             updated_at: now,
                                             pubkey_hex: None,
+                                            secondary_addresses: vec![],
                                         };
                                         let _ = db.save_contact(&contact);
                                     }
@@ -1458,6 +1463,7 @@ pub async fn run(
                                 created_at: chrono::Utc::now().timestamp(),
                                 updated_at: chrono::Utc::now().timestamp(),
                                 pubkey_hex: None,
+                                secondary_addresses: vec![],
                             };
                             if let Err(e) = db.save_contact(&contact) {
                                 log::warn!("Failed to save contact: {}", e);
@@ -1472,6 +1478,7 @@ pub async fn run(
                                         pubkey_hex: c.pubkey_hex,
                                         email: c.email,
                                         phone: c.phone,
+                                        secondary_addresses: c.secondary_addresses,
                                     })
                                     .collect();
                                 let _ = state.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -1493,6 +1500,7 @@ pub async fn run(
                                         pubkey_hex: c.pubkey_hex,
                                         email: c.email,
                                         phone: c.phone,
+                                        secondary_addresses: c.secondary_addresses,
                                     })
                                     .collect();
                                 let _ = state.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -1641,6 +1649,7 @@ pub async fn run(
                                         created_at: chrono::Utc::now().timestamp(),
                                         updated_at: chrono::Utc::now().timestamp(),
                                         pubkey_hex: None,
+                                        secondary_addresses: vec![],
                                     };
                                     let _ = db.save_contact(&contact);
                                 }
@@ -2177,6 +2186,22 @@ pub async fn run(
                         }
                     }
 
+                    UiEvent::DeleteMessage { msg_id } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.delete_message(&msg_id);
+                        }
+                        let _ = state.svc_tx.send(ServiceEvent::MessageDeleted(msg_id));
+                    }
+
+                    UiEvent::DeleteConversation { peer_address } => {
+                        if let Some(ref db) = state.wallet_db {
+                            let _ = db.delete_messages_for_peer(&peer_address);
+                        }
+                        let _ = state
+                            .svc_tx
+                            .send(ServiceEvent::ConversationDeleted(peer_address));
+                    }
+
                     UiEvent::SaveMasternodeEntry(entry) => {
                         if let Some(ref db) = state.wallet_db {
                             match db.save_masternode_entry(&entry) {
@@ -2456,8 +2481,8 @@ pub async fn run(
 
                     // ---- TIME-MSG Secure Messaging ----
 
-                    UiEvent::SendMessage { to, subject, body } => {
-                        handle_send_message(&state, to, subject, body).await;
+                    UiEvent::SendMessage { to, subject, body, from_address_idx } => {
+                        handle_send_message(&state, to, subject, body, from_address_idx).await;
                     }
 
                     UiEvent::FetchMessages => {
@@ -2857,6 +2882,7 @@ pub async fn run(
                                                     created_at: now,
                                                     updated_at: now,
                                                     pubkey_hex: None,
+                                                    secondary_addresses: vec![],
                                                 });
                                             }
                                             // Update service address list.
@@ -2977,18 +3003,30 @@ pub async fn run(
                             log::info!("💰 Payment request received from {}", notif.from_address);
                             let pr = PaymentRequest {
                                 id: notif.id,
-                                from_address: notif.from_address,
+                                from_address: notif.from_address.clone(),
                                 to_address: notif.to_address,
                                 amount: (notif.amount * 100_000.0) as u64,
                                 label: notif.label,
                                 memo: notif.memo,
-                                pubkey_hex: notif.pubkey,
+                                pubkey_hex: notif.pubkey.clone(),
                                 signature_hex: String::new(),
                                 timestamp: notif.timestamp,
                                 expires: notif.expires,
                             };
                             if let Some(ref db) = state.wallet_db {
                                 let _ = db.save_incoming_payment_request(&pr);
+                                // If the requester already exists under a different address,
+                                // link this address as secondary so the UI can identify them.
+                                if !notif.pubkey.is_empty()
+                                    && try_link_address_by_pubkey(
+                                        db,
+                                        &notif.pubkey,
+                                        &notif.from_address,
+                                    )
+                                    .is_some()
+                                {
+                                    refresh_contacts(db, &state.svc_tx);
+                                }
                             }
                             let _ = state.svc_tx.send(ServiceEvent::PaymentRequestReceived(pr));
                         } else {
@@ -3695,6 +3733,7 @@ impl ServiceState {
                                     created_at: now,
                                     updated_at: now,
                                     pubkey_hex: None,
+                                    secondary_addresses: vec![],
                                 });
                             }
                             (vec![addr], vec![0])
@@ -3935,6 +3974,7 @@ impl ServiceState {
                                 pubkey_hex: c.pubkey_hex,
                                 email: c.email,
                                 phone: c.phone,
+                                secondary_addresses: c.secondary_addresses,
                             })
                             .collect();
                         let _ = self.svc_tx.send(ServiceEvent::ContactsUpdated(infos));
@@ -4953,11 +4993,18 @@ fn semver_is_newer(candidate: &str, current: &str) -> bool {
 // ============================================================================
 
 /// Encrypt and submit a message envelope, storing it locally on success.
-async fn handle_send_message(state: &ServiceState, to: String, subject: String, body: String) {
+async fn handle_send_message(
+    state: &ServiceState,
+    to: String,
+    subject: String,
+    body: String,
+    from_address_idx: usize,
+) {
     use crate::messaging_crypto::{encrypt_envelope, DEFAULT_TTL_SECONDS};
     use crate::wallet_db::{MessageDirection, StoredMessage, StoredMessageStatus};
 
-    let (client, key) = match (&state.client, state.signing_keys.first()) {
+    let key = state.signing_keys.get(from_address_idx).or_else(|| state.signing_keys.first());
+    let (client, key) = match (&state.client, key) {
         (Some(c), Some(k)) => (c, k),
         _ => {
             let _ = state
@@ -5152,18 +5199,15 @@ async fn handle_fetch_messages(state: &ServiceState) {
 
         // Auto-cache sender pubkey from every envelope we successfully decrypt.
         let sender_pubkey_hex = hex::encode(envelope.sender_pubkey);
-        let sender_addr_str =
-            derive_address_from_pubkey(&envelope.sender_pubkey, state).or_else(|| {
-                // Fall back to the address embedded in the decrypted message.
-                if !msg.sender_pubkey.iter().all(|&b| b == 0) {
-                    Some(msg.recipient_addr.clone())
-                } else {
-                    None
-                }
-            });
+        let sender_addr_str = derive_address_from_pubkey(&envelope.sender_pubkey, state);
         if let Some(ref addr) = sender_addr_str {
             if let Some(ref db) = state.wallet_db {
                 let _ = db.save_contact_pubkey(addr, &sender_pubkey_hex);
+                // If any existing contact owns this pubkey but used a different address,
+                // link this address as a secondary so the UI groups them together.
+                if try_link_address_by_pubkey(db, &sender_pubkey_hex, addr).is_some() {
+                    refresh_contacts(db, &state.svc_tx);
+                }
             }
             let _ = state.svc_tx.send(ServiceEvent::ContactPubkeyUpdated {
                 address: addr.clone(),
@@ -5326,16 +5370,48 @@ async fn handle_request_pubkey(state: &ServiceState, address: String) {
     }
 }
 
+/// If `db` has an external contact whose pubkey matches `pubkey_hex`, link `address`
+/// as one of their secondary addresses and return the primary address.
+/// Synchronous — safe to call in-line during message processing.
+/// Returns `Some(primary_address)` when a brand-new link was created; `None` otherwise.
+fn try_link_address_by_pubkey(db: &WalletDb, pubkey_hex: &str, address: &str) -> Option<String> {
+    let contact = db.find_contact_by_pubkey(pubkey_hex).ok()??;
+    match db.link_address_to_contact(&contact.address, address) {
+        Ok(true) => {
+            log::info!(
+                "🔗 Linked {} → contact '{}' via pubkey",
+                &address[..address.len().min(12)],
+                contact.name.as_deref().unwrap_or(&contact.label),
+            );
+            Some(contact.address)
+        }
+        _ => None,
+    }
+}
+
+/// Reload contacts from `db` and emit `ContactsUpdated` on `svc_tx`.
+fn refresh_contacts(db: &WalletDb, svc_tx: &mpsc::UnboundedSender<ServiceEvent>) {
+    if let Ok(contacts) = db.get_external_contacts() {
+        let infos: Vec<crate::state::ContactInfo> = contacts
+            .into_iter()
+            .map(|c| crate::state::ContactInfo {
+                name: c.name.unwrap_or(c.label),
+                address: c.address,
+                pubkey_hex: c.pubkey_hex,
+                email: c.email,
+                phone: c.phone,
+                secondary_addresses: c.secondary_addresses,
+            })
+            .collect();
+        let _ = svc_tx.send(ServiceEvent::ContactsUpdated(infos));
+    }
+}
+
 /// Derive a TIME address string from an Ed25519 pubkey using the first signing key's network.
 fn derive_address_from_pubkey(pubkey: &[u8; 32], state: &ServiceState) -> Option<String> {
-    // We use wallet::address_from_pubkey if available.
-    // For now, fall back to hex encoding as a best-effort identifier.
-    // The masternode RPC returns decoded sender addresses already, so this
-    // is mainly a fallback for direct P2P messages.
-    let _ = (pubkey, state);
-    None // Sender address comes from the decrypted TimeMessage.recipient_addr (sender's perspective)
-         // In practice the masternode resolves this; for the wallet we use the peer address
-         // embedded in the contact book lookup.
+    wallet::Address::from_public_key(pubkey, state.network_type)
+        .ok()
+        .map(|a| a.to_string())
 }
 
 /// Spawn a background task that registers `(address, pubkey_bytes)` pairs with
