@@ -6,6 +6,8 @@
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use egui_phosphor::regular as ph;
+
 use crate::config_new::Config;
 use crate::events::{Screen, ServiceEvent, UiEvent};
 use crate::state::AppState;
@@ -149,24 +151,11 @@ impl eframe::App for App {
                 ui.add_space(5.0);
 
                 if self.state.wallet_loaded {
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        "🏠 Overview",
-                        Screen::Overview,
-                        &self.ui_tx,
-                    );
-                    nav_button(ui, &mut self.state, "📤 Send", Screen::Send, &self.ui_tx);
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        "📥 Receive",
-                        Screen::Receive,
-                        &self.ui_tx,
-                    );
+                    nav_button(ui, &mut self.state, ph::HOUSE, "Overview", Screen::Overview, &self.ui_tx);
+                    nav_button(ui, &mut self.state, ph::PAPER_PLANE_TILT, "Send", Screen::Send, &self.ui_tx);
+                    nav_button(ui, &mut self.state, ph::TRAY_ARROW_DOWN, "Receive", Screen::Receive, &self.ui_tx);
 
-                    // Show pending count badge on the nav button when there are
-                    // active incoming or outgoing payment requests.
+                    // Show pending count on Requests when there are active requests.
                     let now_nav = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -184,39 +173,16 @@ impl eframe::App for App {
                             .filter(|r| r.status == "pending" && r.expires > now_nav)
                             .count();
                     let pr_label = if pr_pending > 0 {
-                        format!("💳 Requests ({})", pr_pending)
+                        format!("Requests ({})", pr_pending)
                     } else {
-                        "💳 Requests".to_string()
+                        "Requests".to_string()
                     };
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        &pr_label,
-                        Screen::PaymentRequests,
-                        &self.ui_tx,
-                    );
+                    nav_button(ui, &mut self.state, ph::CREDIT_CARD, &pr_label, Screen::PaymentRequests, &self.ui_tx);
 
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        "📋 Transactions",
-                        Screen::Transactions,
-                        &self.ui_tx,
-                    );
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        "📊 Charts",
-                        Screen::Charts,
-                        &self.ui_tx,
-                    );
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        "🖥 Masternodes",
-                        Screen::Masternodes,
-                        &self.ui_tx,
-                    );
+                    nav_button(ui, &mut self.state, ph::CLOCK_COUNTER_CLOCKWISE, "Transactions", Screen::Transactions, &self.ui_tx);
+                    nav_button(ui, &mut self.state, ph::CHART_BAR, "Charts", Screen::Charts, &self.ui_tx);
+                    nav_button(ui, &mut self.state, ph::DESKTOP, "Masternodes", Screen::Masternodes, &self.ui_tx);
+
                     {
                         let unread_total: usize = self
                             .state
@@ -228,47 +194,31 @@ impl eframe::App for App {
                             })
                             .count();
                         let msg_label = if unread_total > 0 {
-                            format!("💬 Messages ({})", unread_total)
+                            format!("Messages ({})", unread_total)
                         } else {
-                            "💬 Messages".to_string()
+                            "Messages".to_string()
                         };
-                        nav_button(
-                            ui,
-                            &mut self.state,
-                            &msg_label,
-                            Screen::Messages,
-                            &self.ui_tx,
-                        );
+                        nav_button(ui, &mut self.state, ph::CHATS, &msg_label, Screen::Messages, &self.ui_tx);
                     }
                     ui.separator();
                     let healthy_count = self.state.peers.iter().filter(|p| p.is_healthy).count();
                     let conn_label = if healthy_count > 0 {
-                        format!("🔗 Connections ({healthy_count})")
+                        format!("Connections ({})", healthy_count)
                     } else {
-                        "🔗 Connections".to_string()
+                        "Connections".to_string()
                     };
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        &conn_label,
-                        Screen::Connections,
-                        &self.ui_tx,
-                    );
-                    nav_button(
-                        ui,
-                        &mut self.state,
-                        "⚙ Settings",
-                        Screen::Settings,
-                        &self.ui_tx,
-                    );
-                    nav_button(ui, &mut self.state, "🔧 Tools", Screen::Tools, &self.ui_tx);
+                    nav_button(ui, &mut self.state, ph::PLUGS_CONNECTED, &conn_label, Screen::Connections, &self.ui_tx);
+                    nav_button(ui, &mut self.state, ph::GEAR_SIX, "Settings", Screen::Settings, &self.ui_tx);
+                    nav_button(ui, &mut self.state, ph::WRENCH, "Tools", Screen::Tools, &self.ui_tx);
 
                     ui.add_space(10.0);
                     ui.separator();
                     if ui
                         .add(
-                            egui::Button::new(egui::RichText::new("🚪 Exit").size(14.0))
-                                .min_size(egui::vec2(140.0, 28.0)),
+                            egui::Button::new(
+                                egui::RichText::new(format!("{}  Exit", ph::SIGN_OUT)).size(14.0),
+                            )
+                            .min_size(egui::vec2(140.0, 28.0)),
                         )
                         .clicked()
                     {
@@ -407,22 +357,24 @@ impl eframe::App for App {
     }
 }
 
-/// Render a navigation button, highlighting the active screen.
+/// Render a navigation button with a phosphor icon, highlighting the active screen.
 fn nav_button(
     ui: &mut egui::Ui,
     state: &mut AppState,
+    icon: &str,
     label: &str,
     screen: Screen,
     ui_tx: &mpsc::UnboundedSender<UiEvent>,
 ) {
     let is_active = state.screen == screen;
+    let full = format!("{}  {}", icon, label);
     let text = if is_active {
-        egui::RichText::new(label)
+        egui::RichText::new(&full)
             .size(14.0)
             .color(theme::PRIMARY_LIGHT)
             .strong()
     } else {
-        egui::RichText::new(label).size(14.0)
+        egui::RichText::new(&full).size(14.0)
     };
     let button = egui::Button::new(text)
         .selected(is_active)

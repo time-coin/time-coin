@@ -13,24 +13,70 @@ use crate::wallet_db::{MessageDirection, StoredMessageStatus};
 
 /// Sent-bubble — brand blue.
 const BUBBLE_OUT: Color32 = theme::PRIMARY;
-/// Received-bubble — slightly elevated surface.
-const BUBBLE_IN: Color32 = Color32::from_rgb(38, 45, 58);
+/// Received-bubble — elevated surface with a hint of blue.
+const BUBBLE_IN: Color32 = Color32::from_rgb(44, 55, 72);
 const BUBBLE_TEXT: Color32 = Color32::WHITE;
 /// Left-panel background — one step above the app's panel_fill.
-const SIDE_BG: Color32 = Color32::from_rgb(18, 21, 27);
+const SIDE_BG: Color32 = Color32::from_rgb(16, 19, 25);
 /// Hovered conversation row — visibly brighter than SIDE_BG.
-const ROW_HOVER: Color32 = Color32::from_rgb(45, 58, 78);
+const ROW_HOVER: Color32 = Color32::from_rgb(32, 42, 58);
 /// Selected conversation row — clearly blue, high contrast for white text.
-const ROW_SELECTED: Color32 = Color32::from_rgb(28, 80, 160);
+const ROW_SELECTED: Color32 = Color32::from_rgb(22, 72, 155);
 /// Section heading text.
-const SECTION_LABEL: Color32 = Color32::from_rgb(100, 120, 145);
+const SECTION_LABEL: Color32 = Color32::from_rgb(90, 110, 138);
 /// Unread count badge.
 const BADGE: Color32 = theme::PRIMARY_LIGHT;
+/// Date separator line color.
+const DATE_LINE: Color32 = Color32::from_rgb(38, 52, 72);
+/// Date separator pill fill.
+const DATE_PILL: Color32 = Color32::from_rgb(26, 36, 52);
+/// Date separator text — readable against the dark background.
+const DATE_TEXT: Color32 = Color32::from_rgb(175, 195, 220);
 
 /// Pick an avatar background from the chart palette using the first byte of the name.
 fn avatar_color(name: &str) -> Color32 {
     let idx = name.bytes().next().unwrap_or(0) as usize % theme::CHART_PALETTE.len();
     theme::CHART_PALETTE[idx]
+}
+
+/// Render a Telegram-style date separator: thin lines on each side, pill with date in the centre.
+fn show_date_separator(ui: &mut Ui, date_text: &str) {
+    let avail_w = ui.available_width();
+    let height = 30.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(avail_w, height), egui::Sense::hover());
+
+    let painter = ui.painter();
+    let mid_y = rect.center().y;
+    let cx = rect.center().x;
+
+    // Measure text to size the pill precisely.
+    let font = egui::FontId::proportional(11.0);
+    let text_w = painter.fonts(|f| {
+        f.layout_no_wrap(date_text.to_string(), font.clone(), DATE_TEXT)
+            .size()
+            .x
+    });
+    let pill_w = text_w + 22.0;
+    let pill_h = 18.0;
+    let pill_rect =
+        egui::Rect::from_center_size(rect.center(), egui::vec2(pill_w, pill_h));
+    let gap = 8.0;
+
+    // Left and right hairlines.
+    painter.line_segment(
+        [egui::pos2(rect.min.x + 8.0, mid_y), egui::pos2(cx - pill_w / 2.0 - gap, mid_y)],
+        egui::Stroke::new(1.0, DATE_LINE),
+    );
+    painter.line_segment(
+        [egui::pos2(cx + pill_w / 2.0 + gap, mid_y), egui::pos2(rect.max.x - 8.0, mid_y)],
+        egui::Stroke::new(1.0, DATE_LINE),
+    );
+
+    // Pill background.
+    painter.rect_filled(pill_rect, pill_h / 2.0, DATE_PILL);
+
+    // Date text centred in the pill.
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, date_text, font, DATE_TEXT);
 }
 
 fn time_ago(ts: i64) -> String {
@@ -85,8 +131,16 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
     };
 
     // Split into accepted (contacts + explicitly accepted) vs pending requests.
-    let contact_addrs: std::collections::HashSet<&str> =
-        state.contacts.iter().map(|c| c.address.as_str()).collect();
+    // Include secondary addresses so messages from a contact's alternate addresses
+    // are not treated as unknown-sender requests.
+    let contact_addrs: std::collections::HashSet<&str> = state
+        .contacts
+        .iter()
+        .flat_map(|c| {
+            std::iter::once(c.address.as_str())
+                .chain(c.secondary_addresses.iter().map(|s| s.as_str()))
+        })
+        .collect();
 
     let (conversations, request_conversations): (Vec<String>, Vec<String>) =
         all_conversations.into_iter().partition(|addr| {
@@ -204,7 +258,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState, ui_tx: &mpsc::UnboundedSender<UiE
         .frame(
             egui::Frame::new()
                 .fill(SIDE_BG)
-                .inner_margin(egui::Margin::same(0)),
+                .inner_margin(egui::Margin::same(0))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(28, 38, 52))),
         )
         .show_inside(ui, |ui| {
             show_left_panel(
@@ -438,23 +493,34 @@ fn show_left_panel(
 }
 
 fn tab_button(label: &str, active: bool) -> egui::Button<'_> {
-    let text = RichText::new(label).size(12.0).color(if active {
+    let text = RichText::new(label).size(12.0).strong().color(if active {
         Color32::WHITE
     } else {
-        Color32::from_gray(160)
+        Color32::from_rgb(130, 148, 172)
     });
-    egui::Button::new(text).fill(if active {
-        Color32::from_rgb(0, 100, 180)
-    } else {
-        Color32::from_rgb(28, 35, 48)
-    })
+    egui::Button::new(text)
+        .fill(if active {
+            theme::PRIMARY
+        } else {
+            Color32::TRANSPARENT
+        })
+        .stroke(if active {
+            egui::Stroke::NONE
+        } else {
+            egui::Stroke::new(1.0, Color32::from_rgb(45, 60, 80))
+        })
 }
 
 fn section_header(ui: &mut Ui, text: &str) {
-    ui.add_space(4.0);
+    ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.add_space(12.0);
-        ui.label(RichText::new(text).size(10.0).color(SECTION_LABEL).strong());
+        ui.label(
+            RichText::new(text)
+                .size(10.0)
+                .color(Color32::from_rgb(130, 155, 185))
+                .strong(),
+        );
     });
     ui.add_space(2.0);
 }
@@ -734,9 +800,9 @@ fn show_chat_panel(
     egui::TopBottomPanel::top("chat_header")
         .frame(
             egui::Frame::new()
-                .fill(Color32::from_rgb(18, 22, 30))
-                .inner_margin(egui::Margin::symmetric(12, 8))
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(35, 45, 60))),
+                .fill(Color32::from_rgb(16, 21, 32))
+                .inner_margin(egui::Margin::symmetric(12, 10))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(32, 44, 62))),
         )
         .show_inside(ui, |ui| {
             ui.horizontal(|ui| {
@@ -911,9 +977,9 @@ fn show_chat_panel(
     egui::TopBottomPanel::bottom("chat_compose")
         .frame(
             egui::Frame::new()
-                .fill(Color32::from_rgb(18, 22, 30))
+                .fill(Color32::from_rgb(16, 21, 32))
                 .inner_margin(egui::Margin::symmetric(12, 8))
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(35, 45, 60))),
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(32, 44, 62))),
         )
         .show_inside(ui, |ui| {
             show_compose(ui, state, ui_tx, peer_addr);
@@ -941,21 +1007,13 @@ fn show_chat_panel(
                         let dt = chrono::DateTime::from_timestamp(msg.timestamp, 0)
                             .map(|dt: chrono::DateTime<chrono::Utc>| {
                                 dt.with_timezone(&chrono::Local)
-                                    .format("%B %d, %Y")
+                                    .format("%B %-d, %Y")
                                     .to_string()
                             })
                             .unwrap_or_default();
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(8.0);
-                            egui::Frame::new()
-                                .fill(Color32::from_rgb(28, 35, 48))
-                                .corner_radius(10.0)
-                                .inner_margin(egui::Margin::symmetric(10, 3))
-                                .show(ui, |ui| {
-                                    ui.label(RichText::new(dt).size(11.0).color(SECTION_LABEL));
-                                });
-                            ui.add_space(4.0);
-                        });
+                        ui.add_space(4.0);
+                        show_date_separator(ui, &dt);
+                        ui.add_space(4.0);
                     }
                     prev_ts = msg.timestamp;
                     show_message_bubble(ui, msg, ui_tx);

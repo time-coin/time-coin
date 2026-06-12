@@ -1005,6 +1005,35 @@ impl WalletDb {
         Ok(())
     }
 
+    /// Mark all unread incoming messages from `peer_address` as `ReadByUs`.
+    /// Returns the list of msg_ids that were updated.
+    pub fn mark_conversation_read(
+        &self,
+        peer_address: &str,
+    ) -> Result<Vec<String>, WalletDbError> {
+        let mut updated = Vec::new();
+        for item in self.db.scan_prefix(b"msg:") {
+            let (key, value) = item?;
+            let mut msg: StoredMessage = match serde_json::from_slice(&value) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if msg.peer_address == peer_address
+                && msg.direction == MessageDirection::Incoming
+                && msg.status == StoredMessageStatus::Unread
+            {
+                msg.status = StoredMessageStatus::ReadByUs;
+                let new_value = serde_json::to_vec(&msg)?;
+                self.db.insert(key, new_value)?;
+                updated.push(msg.msg_id);
+            }
+        }
+        if !updated.is_empty() {
+            self.db.flush()?;
+        }
+        Ok(updated)
+    }
+
     /// Load all stored messages, newest first.
     pub fn get_all_messages(&self) -> Result<Vec<StoredMessage>, WalletDbError> {
         let mut messages = Vec::new();

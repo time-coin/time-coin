@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-06-12
+
+### Fixed
+- **Unread badge stuck at "1"** — Clicking a conversation now correctly marks all unread messages from that peer as read. Previously the handler passed the peer address as a message ID, which never matched any stored message key, so the badge never cleared
+- **Contact's messages appearing as requests** — Messages from a contact no longer land in the Requests tab when the sender used a secondary address on that contact. The "Chats vs Requests" partition now checks both primary and all secondary addresses, matching the behaviour of the contact name resolver
+
+### Changed
+- **Navigation sidebar — Phosphor icon refactor** — All navigation items now use the [Phosphor](https://phosphoricons.com/) icon font (`egui-phosphor::regular`) instead of mixed emoji. Every icon has identical stroke weight so the sidebar looks visually balanced; emoji such as 💬 rendered as a thin outline glyph in Segoe UI Emoji are no longer thinner than solid emoji like 🏠
+- **Messages screen polish** — Date separators redesigned as Telegram-style hairlines with a centred date pill for legibility; incoming bubble colour lightened; tab pills (Chats / Requests) now use brand blue for the active tab and a transparent outline for the inactive one; section headers and the left panel border adjusted for better depth hierarchy
+
 ## [0.7.1] - 2026-06-10
 
 ### Fixed

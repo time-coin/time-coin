@@ -2492,7 +2492,14 @@ pub async fn run(
                     UiEvent::MarkMessageRead { msg_id } => {
                         if let Some(ref db) = state.wallet_db {
                             use crate::wallet_db::StoredMessageStatus;
-                            let _ = db.update_message_status(&msg_id, StoredMessageStatus::ReadByUs);
+                            if let Ok(updated_ids) = db.mark_conversation_read(&msg_id) {
+                                for id in updated_ids {
+                                    let _ = state.svc_tx.send(ServiceEvent::MessageStatusUpdated {
+                                        msg_id: id,
+                                        status: StoredMessageStatus::ReadByUs,
+                                    });
+                                }
+                            }
                         }
                     }
 
