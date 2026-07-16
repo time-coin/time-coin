@@ -58,17 +58,22 @@ fn show_date_separator(ui: &mut Ui, date_text: &str) {
     });
     let pill_w = text_w + 22.0;
     let pill_h = 18.0;
-    let pill_rect =
-        egui::Rect::from_center_size(rect.center(), egui::vec2(pill_w, pill_h));
+    let pill_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(pill_w, pill_h));
     let gap = 8.0;
 
     // Left and right hairlines.
     painter.line_segment(
-        [egui::pos2(rect.min.x + 8.0, mid_y), egui::pos2(cx - pill_w / 2.0 - gap, mid_y)],
+        [
+            egui::pos2(rect.min.x + 8.0, mid_y),
+            egui::pos2(cx - pill_w / 2.0 - gap, mid_y),
+        ],
         egui::Stroke::new(1.0, DATE_LINE),
     );
     painter.line_segment(
-        [egui::pos2(cx + pill_w / 2.0 + gap, mid_y), egui::pos2(rect.max.x - 8.0, mid_y)],
+        [
+            egui::pos2(cx + pill_w / 2.0 + gap, mid_y),
+            egui::pos2(rect.max.x - 8.0, mid_y),
+        ],
         egui::Stroke::new(1.0, DATE_LINE),
     );
 
@@ -76,7 +81,13 @@ fn show_date_separator(ui: &mut Ui, date_text: &str) {
     painter.rect_filled(pill_rect, pill_h / 2.0, DATE_PILL);
 
     // Date text centred in the pill.
-    painter.text(rect.center(), egui::Align2::CENTER_CENTER, date_text, font, DATE_TEXT);
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        date_text,
+        font,
+        DATE_TEXT,
+    );
 }
 
 fn time_ago(ts: i64) -> String {
@@ -373,7 +384,7 @@ fn show_left_panel(
                         let is_selected =
                             state.selected_msg_contact.as_deref() == Some(addr.as_str());
                         let unread = *unread_counts.get(addr).unwrap_or(&0);
-                        let (clicked, del_conv, del_contact) =
+                        let (clicked, del_conv, del_contact, block) =
                             conv_row(ui, state, &name, addr, last_msg, is_selected, unread);
                         if clicked {
                             state.selected_msg_contact = Some(addr.clone());
@@ -388,7 +399,17 @@ fn show_left_panel(
                             });
                         }
                         if del_contact {
-                            let _ = ui_tx.send(UiEvent::DeleteContact { address: addr.clone() });
+                            let _ = ui_tx.send(UiEvent::DeleteContact {
+                                address: addr.clone(),
+                            });
+                            if state.selected_msg_contact.as_deref() == Some(addr.as_str()) {
+                                state.selected_msg_contact = None;
+                            }
+                        }
+                        if block {
+                            let _ = ui_tx.send(UiEvent::BlockAddress {
+                                address: addr.clone(),
+                            });
                             if state.selected_msg_contact.as_deref() == Some(addr.as_str()) {
                                 state.selected_msg_contact = None;
                             }
@@ -468,11 +489,14 @@ fn show_left_panel(
                         let is_selected =
                             state.selected_msg_contact.as_deref() == Some(addr.as_str());
                         let unread = *unread_counts.get(addr).unwrap_or(&0);
-                        let (clicked, del_conv, del_contact) =
+                        let (clicked, del_conv, del_contact, block) =
                             conv_row(ui, state, &name, addr, last_msg, is_selected, unread);
                         if clicked {
                             state.selected_msg_contact = Some(addr.clone());
                             state.msg_compose_text.clear();
+                            let _ = ui_tx.send(UiEvent::MarkMessageRead {
+                                msg_id: addr.clone(),
+                            });
                         }
                         if del_conv {
                             let _ = ui_tx.send(UiEvent::DeleteConversation {
@@ -480,7 +504,17 @@ fn show_left_panel(
                             });
                         }
                         if del_contact {
-                            let _ = ui_tx.send(UiEvent::DeleteContact { address: addr.clone() });
+                            let _ = ui_tx.send(UiEvent::DeleteContact {
+                                address: addr.clone(),
+                            });
+                            if state.selected_msg_contact.as_deref() == Some(addr.as_str()) {
+                                state.selected_msg_contact = None;
+                            }
+                        }
+                        if block {
+                            let _ = ui_tx.send(UiEvent::BlockAddress {
+                                address: addr.clone(),
+                            });
                             if state.selected_msg_contact.as_deref() == Some(addr.as_str()) {
                                 state.selected_msg_contact = None;
                             }
@@ -543,14 +577,13 @@ fn conv_row(
     last_msg: Option<&crate::wallet_db::StoredMessage>,
     is_selected: bool,
     unread: usize,
-) -> (bool, bool, bool) {
-    // Returns (selected, delete_conversation_requested, delete_contact_requested)
+) -> (bool, bool, bool, bool) {
+    // Returns (selected, delete_conversation_requested, delete_contact_requested, block_requested)
     let avail_w = ui.available_width();
     let row_h = 54.0;
 
     // Allocate the full row rect first so we know the rect before drawing anything.
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
 
     // Use raw pointer position — response.hovered() can be blocked by child widgets.
     let is_hovered = ui
@@ -648,6 +681,7 @@ fn conv_row(
     // Right-click context menu
     let mut delete_conv = false;
     let mut delete_contact = false;
+    let mut block = false;
     response.context_menu(|ui| {
         if ui.button("Delete conversation").clicked() {
             delete_conv = true;
@@ -657,13 +691,24 @@ fn conv_row(
             delete_contact = true;
             ui.close_menu();
         }
+        ui.separator();
+        if ui
+            .add(egui::Button::new(
+                RichText::new("Block sender").color(Color32::from_rgb(220, 80, 80)),
+            ))
+            .on_hover_text("Future messages from this address will be silently discarded")
+            .clicked()
+        {
+            block = true;
+            ui.close_menu();
+        }
     });
 
     // Use raw pointer check — child widgets can block response.clicked() in egui.
-    let clicked = ui
-        .ctx()
-        .input(|i| i.pointer.any_click() && i.pointer.hover_pos().is_some_and(|p| rect.contains(p)));
-    (clicked, delete_conv, delete_contact)
+    let clicked = ui.ctx().input(|i| {
+        i.pointer.any_click() && i.pointer.hover_pos().is_some_and(|p| rect.contains(p))
+    });
+    (clicked, delete_conv, delete_contact, block)
 }
 
 /// Render a contact-only row (no message history). Returns true if clicked.
@@ -907,6 +952,25 @@ fn show_chat_panel(
                             address: peer_addr.to_string(),
                         });
                     }
+                    // Block — shown for any conversation not already blocked
+                    if !state.blocked_addresses.contains(peer_addr)
+                        && ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("🚫  Block")
+                                        .size(12.0)
+                                        .color(Color32::from_rgb(220, 80, 80)),
+                                )
+                                .fill(Color32::from_rgb(55, 15, 15)),
+                            )
+                            .on_hover_text("Block this sender — future messages will be silently discarded")
+                            .clicked()
+                    {
+                        let _ = ui_tx.send(UiEvent::BlockAddress {
+                            address: peer_addr.to_string(),
+                        });
+                        state.selected_msg_contact = None;
+                    }
                 });
             });
         });
@@ -1092,7 +1156,9 @@ fn show_message_bubble(
     let msg_id = msg.msg_id.clone();
     layout_resp.inner.context_menu(|ui| {
         if ui.button("Delete message").clicked() {
-            let _ = ui_tx.send(UiEvent::DeleteMessage { msg_id: msg_id.clone() });
+            let _ = ui_tx.send(UiEvent::DeleteMessage {
+                msg_id: msg_id.clone(),
+            });
             ui.close_menu();
         }
     });
@@ -1123,7 +1189,11 @@ fn show_compose(
                 .addresses
                 .get(state.msg_from_address_idx)
                 .map(|a| {
-                    let label = if a.label.is_empty() { "Unlabeled" } else { &a.label };
+                    let label = if a.label.is_empty() {
+                        "Unlabeled"
+                    } else {
+                        &a.label
+                    };
                     format!(
                         "{} ({}…{})",
                         label,
@@ -1137,7 +1207,11 @@ fn show_compose(
                 .width(280.0)
                 .show_ui(ui, |ui| {
                     for (i, addr_info) in state.addresses.iter().enumerate() {
-                        let label = if addr_info.label.is_empty() { "Unlabeled" } else { &addr_info.label };
+                        let label = if addr_info.label.is_empty() {
+                            "Unlabeled"
+                        } else {
+                            &addr_info.label
+                        };
                         let display = format!(
                             "{} — {}…{}",
                             label,

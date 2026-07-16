@@ -1682,8 +1682,7 @@ impl AppState {
                 pubkey_hex,
             } => {
                 if let Some(c) = self.contacts.iter_mut().find(|c| {
-                    c.address == address
-                        || c.secondary_addresses.iter().any(|s| s == &address)
+                    c.address == address || c.secondary_addresses.iter().any(|s| s == &address)
                 }) {
                     c.pubkey_hex = Some(pubkey_hex);
                 }

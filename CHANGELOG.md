@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-07-16
+
+### Added
+- **Block sender from Messages** — Right-click a conversation or use the "🚫 Block" button in the chat header to block a sender; future messages from that address are silently discarded
+- **Mark conversation read on open** — Opening a conversation from the Requests tab now marks it read, matching existing Chats-tab behaviour
+
+### Fixed
+- **Peer discovery seed/gossip oscillation** — The website's bootstrap seed list is now fetched once per network and unioned with the previously discovered mesh on every refresh, instead of being re-fetched and overwriting the larger gossip-expanded peer set each cycle
+- **Website seed fetch skipped after first network switch** — Switching to a network (e.g. testnet) for the first time after startup now correctly fetches its bootstrap seed list; this was previously gated by a single process-wide flag shared across both networks
+- **Wrong-chain peers re-probed indefinitely** — Peers on an incompatible chain are no longer fed back into the periodic rediscovery candidate pool, where they were being re-probed every refresh cycle despite never being eligible for selection
+- **Contact pubkey cache miss after pubkey-based linking** — Replying to a sender who messaged from a secondary/linked address no longer forces a live masternode lookup on every message; pubkey resolution now falls back to the primary contact's pubkey for linked secondary addresses
+
 ## [0.7.2] - 2026-06-12
 
 ### Fixed

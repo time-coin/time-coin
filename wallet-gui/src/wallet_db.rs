@@ -1007,10 +1007,7 @@ impl WalletDb {
 
     /// Mark all unread incoming messages from `peer_address` as `ReadByUs`.
     /// Returns the list of msg_ids that were updated.
-    pub fn mark_conversation_read(
-        &self,
-        peer_address: &str,
-    ) -> Result<Vec<String>, WalletDbError> {
+    pub fn mark_conversation_read(&self, peer_address: &str) -> Result<Vec<String>, WalletDbError> {
         let mut updated = Vec::new();
         for item in self.db.scan_prefix(b"msg:") {
             let (key, value) = item?;
@@ -1181,7 +1178,10 @@ impl WalletDb {
     }
 
     /// Find the first external contact whose pubkey matches `pubkey_hex`.
-    pub fn find_contact_by_pubkey(&self, pubkey_hex: &str) -> Result<Option<AddressContact>, WalletDbError> {
+    pub fn find_contact_by_pubkey(
+        &self,
+        pubkey_hex: &str,
+    ) -> Result<Option<AddressContact>, WalletDbError> {
         for contact in self.get_all_contacts()? {
             if !contact.is_owned && contact.pubkey_hex.as_deref() == Some(pubkey_hex) {
                 return Ok(Some(contact));
@@ -1208,6 +1208,22 @@ impl WalletDb {
         contact.updated_at = chrono::Utc::now().timestamp();
         self.save_contact(&contact)?;
         Ok(true)
+    }
+
+    /// Get the pubkey for `address`, falling back to the primary contact's pubkey
+    /// if `address` is a linked secondary address without its own contact record.
+    pub fn get_contact_pubkey(&self, address: &str) -> Result<Option<String>, WalletDbError> {
+        if let Some(contact) = self.get_contact(address)? {
+            if contact.pubkey_hex.is_some() {
+                return Ok(contact.pubkey_hex);
+            }
+        }
+        for contact in self.get_all_contacts()? {
+            if contact.secondary_addresses.iter().any(|a| a == address) {
+                return Ok(contact.pubkey_hex);
+            }
+        }
+        Ok(None)
     }
 
     /// Check whether `address` is the primary or any secondary address of any contact.

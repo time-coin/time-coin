@@ -127,9 +127,19 @@ pub async fn run(
     let mut is_testnet = config.is_testnet();
     let mut manual_endpoints = config.manual_endpoints();
     let mut rpc_credentials = config.rpc_credentials();
+    // Website seed API: exactly once per network. Never on refresh, and never twice for
+    // the same network across a switch. Tracked per-network since mainnet/testnet each
+    // need their own first fetch.
+    let mut mainnet_seed_fetched = false;
+    let mut testnet_seed_fetched = false;
     let mut discovery_handle: Option<DiscoveryHandle> = if config.is_first_run {
         None
     } else {
+        if is_testnet {
+            testnet_seed_fetched = true;
+        } else {
+            mainnet_seed_fetched = true;
+        }
         let discovery_svc_tx = state.svc_tx.clone();
         let discovery_endpoints = manual_endpoints.clone();
         let discovery_creds = rpc_credentials.clone();
@@ -141,6 +151,11 @@ pub async fn run(
                 discovery_creds,
                 &discovery_svc_tx,
                 max_conn,
+                DiscoveryPass {
+                    previous_endpoints: Vec::new(),
+                    fetch_website_api: true, // startup: poll website seed list once
+                    is_refresh: false,
+                },
             )
             .await
         }))
@@ -341,14 +356,37 @@ pub async fn run(
                 }
             }
 
-            // Periodic peer refresh
+            // Periodic peer refresh — re-probe known peers + gossip only.
+            // Do NOT hit the website seed API again (startup / network switch only).
             _ = peer_refresh_interval.tick(), if discovery_handle.is_none() => {
                 let tx = state.svc_tx.clone();
                 let eps = manual_endpoints.clone();
                 let creds = rpc_credentials.clone();
                 let max_conn = state.config.max_connections;
+                // Keep the last known mesh as rediscovery seeds so the UI does not
+                // collapse to the thin official API seed list between gossip passes.
+                // Exclude wrong-chain peers (kept in last_peers only for UI display
+                // with is_healthy still true) so they aren't re-probed forever.
+                let previous: Vec<String> = state
+                    .last_peers
+                    .iter()
+                    .filter(|p| p.is_healthy && p.genesis_ok != Some(false))
+                    .map(|p| p.endpoint.clone())
+                    .collect();
                 discovery_handle = Some(tokio::spawn(async move {
-                    discover_peers(is_testnet, eps, creds, &tx, max_conn).await
+                    discover_peers(
+                        is_testnet,
+                        eps,
+                        creds,
+                        &tx,
+                        max_conn,
+                        DiscoveryPass {
+                            previous_endpoints: previous,
+                            fetch_website_api: false,
+                            is_refresh: true,
+                        },
+                    )
+                    .await
                 }));
             }
 
@@ -956,8 +994,30 @@ pub async fn run(
                         let tn = is_testnet;
                         let creds = rpc_credentials.clone();
                         let max_conn = state.config.max_connections;
+                        // Fetch the website seed list the first time this specific network
+                        // is selected (deferred startup pass, or first-ever switch to it).
+                        // Later switches back to an already-fetched network: cache + gossip only.
+                        let seed_fetched = if selected_testnet {
+                            &mut testnet_seed_fetched
+                        } else {
+                            &mut mainnet_seed_fetched
+                        };
+                        let fetch_website = !*seed_fetched;
+                        *seed_fetched = true;
                         discovery_handle = Some(tokio::spawn(async move {
-                            discover_peers(tn, eps, creds, &tx, max_conn).await
+                            discover_peers(
+                                tn,
+                                eps,
+                                creds,
+                                &tx,
+                                max_conn,
+                                DiscoveryPass {
+                                    previous_endpoints: Vec::new(),
+                                    fetch_website_api: fetch_website,
+                                    is_refresh: false,
+                                },
+                            )
+                            .await
                         }));
                     }
 
@@ -3060,6 +3120,23 @@ fn ws_dedup(seen: &mut std::collections::HashMap<String, std::time::Instant>, ke
     false
 }
 
+/// Controls how a single `discover_peers` pass behaves — which candidate
+/// sources to use and how the caller should be told about progress.
+struct DiscoveryPass {
+    /// Healthy endpoints from the previous discovery pass. Unioned with seed
+    /// candidates so rediscovery does not shrink the candidate set to the
+    /// official bootstrap list alone (which caused Connections to oscillate).
+    previous_endpoints: Vec<String>,
+    /// true only for the single startup discovery pass (per network).
+    fetch_website_api: bool,
+    /// true for periodic refresh passes. Set explicitly by the caller (not
+    /// inferred from previous_endpoints being non-empty) so a refresh where
+    /// every previously known peer is temporarily unhealthy is still treated
+    /// as a refresh, not misclassified as a first-run discovery that flashes
+    /// the seed-only list.
+    is_refresh: bool,
+}
+
 /// Discover and health-check peers in the background.
 /// Returns the best endpoint and the full peer info list.
 async fn discover_peers(
@@ -3068,17 +3145,30 @@ async fn discover_peers(
     rpc_credentials: Option<(String, String)>,
     svc_tx: &mpsc::UnboundedSender<ServiceEvent>,
     max_connections: usize,
+    pass: DiscoveryPass,
 ) -> Result<(String, Vec<PeerInfo>), ()> {
+    let DiscoveryPass {
+        previous_endpoints,
+        fetch_website_api,
+        is_refresh,
+    } = pass;
     let rpc_port = if is_testnet { 24101 } else { 24001 };
     let mut endpoints = manual_endpoints;
-    match peer_discovery::fetch_peers(is_testnet).await {
-        Ok(api_peers) => {
-            log::info!("🌐 API returned {} peers", api_peers.len());
-            endpoints.extend(api_peers);
+    endpoints.extend(previous_endpoints);
+    if fetch_website_api {
+        match peer_discovery::fetch_peers(is_testnet).await {
+            Ok(api_peers) => {
+                log::info!("🌐 Website seed candidates: {} peers", api_peers.len());
+                endpoints.extend(api_peers);
+            }
+            Err(e) => {
+                log::warn!("⚠ Website peer discovery failed: {}", e);
+            }
         }
-        Err(e) => {
-            log::warn!("⚠ Peer discovery failed: {}", e);
-        }
+    } else if let Some(cached) = peer_discovery::load_cached_peers(is_testnet) {
+        // Offline / refresh path: include cache so we don't depend on last_peers alone
+        // after a partial failure, without contacting time-coin.io.
+        endpoints.extend(cached);
     }
 
     endpoints.sort();
@@ -3338,11 +3428,12 @@ async fn discover_peers(
             endpoints[0].clone()
         });
 
-    // Send a preliminary peer update immediately so the UI stops showing
-    // "discovering peers" and shows the initial set while gossip runs.
-    // Skip if empty — an empty send would flash "Discovering peers..." when
-    // all probes are temporarily failing (e.g. during a re-discovery cycle).
-    {
+    // Preliminary UI update: only on first discovery (no previous mesh).
+    // On refresh, publishing seed-probe results mid-pass would replace a larger
+    // gossip-expanded list with a smaller set and make Connections oscillate
+    // (e.g. 6 seeds ↔ ~24 mesh). Final PeersDiscovered is sent when this task
+    // completes (service loop). Skip empty so we never flash "Discovering…".
+    if !is_refresh {
         let mut preliminary = peer_infos.clone();
         for p in &mut preliminary {
             p.is_active = p.is_healthy && p.endpoint == active_endpoint;
@@ -5010,7 +5101,10 @@ async fn handle_send_message(
     use crate::messaging_crypto::{encrypt_envelope, DEFAULT_TTL_SECONDS};
     use crate::wallet_db::{MessageDirection, StoredMessage, StoredMessageStatus};
 
-    let key = state.signing_keys.get(from_address_idx).or_else(|| state.signing_keys.first());
+    let key = state
+        .signing_keys
+        .get(from_address_idx)
+        .or_else(|| state.signing_keys.first());
     let (client, key) = match (&state.client, key) {
         (Some(c), Some(k)) => (c, k),
         _ => {
@@ -5021,12 +5115,10 @@ async fn handle_send_message(
         }
     };
 
-    // Resolve recipient pubkey: check local contacts DB first, then ask masternode
+    // Resolve recipient pubkey: check local contacts DB first, then ask masternode.
+    // Falls back to the primary contact's pubkey when `to` is a linked secondary address.
     let pubkey_hex = if let Some(ref db) = state.wallet_db {
-        db.get_contact(&to)
-            .ok()
-            .flatten()
-            .and_then(|c| c.pubkey_hex)
+        db.get_contact_pubkey(&to).ok().flatten()
     } else {
         None
     };
@@ -5209,11 +5301,18 @@ async fn handle_fetch_messages(state: &ServiceState) {
         let sender_addr_str = derive_address_from_pubkey(&envelope.sender_pubkey, state);
         if let Some(ref addr) = sender_addr_str {
             if let Some(ref db) = state.wallet_db {
-                let _ = db.save_contact_pubkey(addr, &sender_pubkey_hex);
-                // If any existing contact owns this pubkey but used a different address,
-                // link this address as a secondary so the UI groups them together.
-                if try_link_address_by_pubkey(db, &sender_pubkey_hex, addr).is_some() {
+                // Try to link this address to an existing contact by pubkey FIRST —
+                // before save_contact_pubkey creates a stub entry that could shadow
+                // the real contact when find_contact_by_pubkey scans alphabetically.
+                let linked = try_link_address_by_pubkey(db, &sender_pubkey_hex, addr).is_some();
+                if linked {
                     refresh_contacts(db, &state.svc_tx);
+                } else {
+                    // No existing contact matched this pubkey. Save the pubkey for the
+                    // sender's derived address — either updates an existing contact record
+                    // (populating a missing pubkey field) or creates a minimal stub so
+                    // future messages from secondary addresses can be linked.
+                    let _ = db.save_contact_pubkey(addr, &sender_pubkey_hex);
                 }
             }
             let _ = state.svc_tx.send(ServiceEvent::ContactPubkeyUpdated {

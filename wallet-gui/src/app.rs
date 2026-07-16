@@ -151,9 +151,30 @@ impl eframe::App for App {
                 ui.add_space(5.0);
 
                 if self.state.wallet_loaded {
-                    nav_button(ui, &mut self.state, ph::HOUSE, "Overview", Screen::Overview, &self.ui_tx);
-                    nav_button(ui, &mut self.state, ph::PAPER_PLANE_TILT, "Send", Screen::Send, &self.ui_tx);
-                    nav_button(ui, &mut self.state, ph::TRAY_ARROW_DOWN, "Receive", Screen::Receive, &self.ui_tx);
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::HOUSE,
+                        "Overview",
+                        Screen::Overview,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::PAPER_PLANE_TILT,
+                        "Send",
+                        Screen::Send,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::TRAY_ARROW_DOWN,
+                        "Receive",
+                        Screen::Receive,
+                        &self.ui_tx,
+                    );
 
                     // Show pending count on Requests when there are active requests.
                     let now_nav = std::time::SystemTime::now()
@@ -177,11 +198,39 @@ impl eframe::App for App {
                     } else {
                         "Requests".to_string()
                     };
-                    nav_button(ui, &mut self.state, ph::CREDIT_CARD, &pr_label, Screen::PaymentRequests, &self.ui_tx);
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::CREDIT_CARD,
+                        &pr_label,
+                        Screen::PaymentRequests,
+                        &self.ui_tx,
+                    );
 
-                    nav_button(ui, &mut self.state, ph::CLOCK_COUNTER_CLOCKWISE, "Transactions", Screen::Transactions, &self.ui_tx);
-                    nav_button(ui, &mut self.state, ph::CHART_BAR, "Charts", Screen::Charts, &self.ui_tx);
-                    nav_button(ui, &mut self.state, ph::DESKTOP, "Masternodes", Screen::Masternodes, &self.ui_tx);
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::CLOCK_COUNTER_CLOCKWISE,
+                        "Transactions",
+                        Screen::Transactions,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::CHART_BAR,
+                        "Charts",
+                        Screen::Charts,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::DESKTOP,
+                        "Masternodes",
+                        Screen::Masternodes,
+                        &self.ui_tx,
+                    );
 
                     {
                         let unread_total: usize = self
@@ -198,7 +247,14 @@ impl eframe::App for App {
                         } else {
                             "Messages".to_string()
                         };
-                        nav_button(ui, &mut self.state, ph::CHATS, &msg_label, Screen::Messages, &self.ui_tx);
+                        nav_button(
+                            ui,
+                            &mut self.state,
+                            ph::CHATS,
+                            &msg_label,
+                            Screen::Messages,
+                            &self.ui_tx,
+                        );
                     }
                     ui.separator();
                     let healthy_count = self.state.peers.iter().filter(|p| p.is_healthy).count();
@@ -207,9 +263,30 @@ impl eframe::App for App {
                     } else {
                         "Connections".to_string()
                     };
-                    nav_button(ui, &mut self.state, ph::PLUGS_CONNECTED, &conn_label, Screen::Connections, &self.ui_tx);
-                    nav_button(ui, &mut self.state, ph::GEAR_SIX, "Settings", Screen::Settings, &self.ui_tx);
-                    nav_button(ui, &mut self.state, ph::WRENCH, "Tools", Screen::Tools, &self.ui_tx);
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::PLUGS_CONNECTED,
+                        &conn_label,
+                        Screen::Connections,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::GEAR_SIX,
+                        "Settings",
+                        Screen::Settings,
+                        &self.ui_tx,
+                    );
+                    nav_button(
+                        ui,
+                        &mut self.state,
+                        ph::WRENCH,
+                        "Tools",
+                        Screen::Tools,
+                        &self.ui_tx,
+                    );
 
                     ui.add_space(10.0);
                     ui.separator();
